@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	. "github.com/stevegt/goadapt"
@@ -20,7 +19,7 @@ func main() {
 	grokfn := dir + "/.grok"
 	var grok *grokker.Grokker
 	if _, err := os.Stat(grokfn); err != nil {
-		fmt.Println("No .grok file found in current directory -- will create one")
+		Pf("No .grok file found in current directory -- creating one...")
 		grok = grokker.New()
 		// add the document
 		err = grok.AddDocument(docfn)
@@ -29,6 +28,7 @@ func main() {
 		fh, err := os.Create(grokfn)
 		err = grok.Save(fh)
 		Ck(err)
+		Pl("done!")
 	} else {
 		// load the .grok file
 		fh, err := os.Open(grokfn)

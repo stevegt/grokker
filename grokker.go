@@ -149,14 +149,21 @@ func (g *Grokker) CreateEmbeddings(texts []string) (embeddings [][]float64, err 
 	// XXX move client to Grokker struct
 	token := os.Getenv("OPENAI_API_KEY")
 	var c = openai.NewClient(token)
-	req := &openai.EmbeddingRequest{
-		Input: texts,
-		Model: models.AdaEmbeddingV2,
-	}
-	res, err := c.CreateEmbeddings(context.Background(), req)
-	Ck(err)
-	for _, em := range res.Data {
-		embeddings = append(embeddings, em.Embedding)
+	// only send 100 chunks at a time
+	for i := 0; i < len(texts); i += 100 {
+		end := i + 100
+		if end > len(texts) {
+			end = len(texts)
+		}
+		req := &openai.EmbeddingRequest{
+			Input: texts[i:end],
+			Model: models.AdaEmbeddingV2,
+		}
+		res, err := c.CreateEmbeddings(context.Background(), req)
+		Ck(err)
+		for _, em := range res.Data {
+			embeddings = append(embeddings, em.Embedding)
+		}
 	}
 	return
 }
@@ -274,18 +281,44 @@ func (g *Grokker) Answer(question string) (resp chat.ChatCompletionResponse, que
 // provide the question, and the max_tokens parameter to limit the
 // length of the response.
 
-var promptTmpl = `Answer the question truthfully using the provided
-context. If the answer is not contained within the context, then say
-so and answer the question as best you can."
+// var promptTmpl = `You are a helpful assistant.  Answer the following question and summarize the context:
+// var promptTmpl = `You are a helpful assistant.
+var promptTmpl = `{{.Question}}
 
 Context:
-{{.Context}}
+{{.Context}}`
 
-Q: {{.Question}}`
+var XXXpromptTmpl = `{{.Question}}`
 
 // Generate returns the answer to a question.
 func (g *Grokker) Generate(question, ctxt string) (resp chat.ChatCompletionResponse, query string, err error) {
 	Return(&err)
+
+	// use 	"github.com/sashabaranov/go-openai"
+	// XXX move client to Grokker struct
+	token := os.Getenv("OPENAI_API_KEY")
+	client := chat.NewClient(token)
+
+	// first get an answer from the model
+	resp, err = client.CreateChatCompletion(
+		context.Background(),
+		chat.ChatCompletionRequest{
+			Model: chat.GPT3Dot5Turbo,
+			Messages: []chat.ChatCompletionMessage{
+				{
+					Role:    chat.ChatMessageRoleSystem,
+					Content: "You are a helpful assistant.",
+				},
+				{
+					Role:    chat.ChatMessageRoleUser,
+					Content: question,
+				},
+			},
+		},
+	)
+	// insert the answer at the beginning of the context
+	// XXX this needs to be done earlier so we don't exceed max tokens
+	ctxt = resp.Choices[0].Message.Content + "\n\n" + ctxt
 
 	// process template
 	t := template.Must(template.New("prompt").Parse(promptTmpl))
@@ -298,16 +331,18 @@ func (g *Grokker) Generate(question, ctxt string) (resp chat.ChatCompletionRespo
 		Context:  ctxt,
 	})
 	query = buf.String()
+	Pf("query:\n\n%s\n", query)
 
-	// use 	"github.com/sashabaranov/go-openai"
-	// XXX move client to Grokker struct
-	token := os.Getenv("OPENAI_API_KEY")
-	client := chat.NewClient(token)
+	// now get the answer with the context
 	resp, err = client.CreateChatCompletion(
 		context.Background(),
 		chat.ChatCompletionRequest{
 			Model: chat.GPT3Dot5Turbo,
 			Messages: []chat.ChatCompletionMessage{
+				{
+					Role:    chat.ChatMessageRoleSystem,
+					Content: "You are a helpful assistant.",
+				},
 				{
 					Role:    chat.ChatMessageRoleUser,
 					Content: query,
