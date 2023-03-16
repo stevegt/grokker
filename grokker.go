@@ -331,7 +331,7 @@ func (g *Grokker) Generate(question, ctxt string) (resp chat.ChatCompletionRespo
 		Context:  ctxt,
 	})
 	query = buf.String()
-	Pf("query:\n\n%s\n", query)
+	// Pf("query:\n\n%s\n", query)
 
 	// now get the answer with the context
 	resp, err = client.CreateChatCompletion(

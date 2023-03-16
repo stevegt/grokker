@@ -9,17 +9,20 @@ import (
 )
 
 func main() {
-	docfn := os.Args[1]
-	question := os.Args[2]
+	cmd := os.Args[1]
+	docfn := os.Args[2]
+
+	var question string
 
 	// get the current directory
 	dir, err := os.Getwd()
 	Ck(err)
-	// see if there's a .grok file in the current directory
 	grokfn := dir + "/.grok"
+
 	var grok *grokker.Grokker
-	if _, err := os.Stat(grokfn); err != nil {
-		Pf("No .grok file found in current directory -- creating one...")
+	switch cmd {
+	case "add":
+		Pf("Creating .grok file...")
 		grok = grokker.New()
 		// add the document
 		err = grok.AddDocument(docfn)
@@ -29,16 +32,26 @@ func main() {
 		err = grok.Save(fh)
 		Ck(err)
 		Pl("done!")
-	} else {
+	case "q":
+		question = os.Args[3]
+		// see if there's a .grok file in the current directory
+		if _, err := os.Stat(grokfn); err != nil {
+			Pl("No .grok file found in current directory.")
+			os.Exit(1)
+		}
 		// load the .grok file
 		fh, err := os.Open(grokfn)
 		grok, err = grokker.Load(fh)
 		Ck(err)
-	}
 
-	// answer the question
-	resp, query, err := grok.Answer(question)
-	Ck(err)
-	_ = query
-	Pprint(resp)
+		// answer the question
+		resp, query, err := grok.Answer(question)
+		Ck(err)
+		_ = query
+		// Pprint(resp)
+		Pl(resp.Choices[0].Message.Content)
+	default:
+		Pl("Unknown command:", cmd)
+		os.Exit(1)
+	}
 }
