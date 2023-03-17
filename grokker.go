@@ -257,7 +257,7 @@ func Similarity(a, b []float64) float64 {
 // response.
 
 // Answer returns the answer to a question.
-func (g *Grokker) Answer(question string) (resp chat.ChatCompletionResponse, query string, err error) {
+func (g *Grokker) Answer(question string, global bool) (resp chat.ChatCompletionResponse, query string, err error) {
 	Return(&err)
 	// get all chunks, sorted by similarity to the question.
 	chunks, err := g.FindChunks(question, 0)
@@ -272,7 +272,7 @@ func (g *Grokker) Answer(question string) (resp chat.ChatCompletionResponse, que
 	}
 
 	// generate the answer.
-	resp, query, err = g.Generate(question, context)
+	resp, query, err = g.Generate(question, context, global)
 	return
 }
 
@@ -291,7 +291,7 @@ Context:
 var XXXpromptTmpl = `{{.Question}}`
 
 // Generate returns the answer to a question.
-func (g *Grokker) Generate(question, ctxt string) (resp chat.ChatCompletionResponse, query string, err error) {
+func (g *Grokker) Generate(question, ctxt string, global bool) (resp chat.ChatCompletionResponse, query string, err error) {
 	Return(&err)
 
 	// use 	"github.com/sashabaranov/go-openai"
@@ -299,26 +299,28 @@ func (g *Grokker) Generate(question, ctxt string) (resp chat.ChatCompletionRespo
 	token := os.Getenv("OPENAI_API_KEY")
 	client := chat.NewClient(token)
 
-	// first get an answer from the model
-	resp, err = client.CreateChatCompletion(
-		context.Background(),
-		chat.ChatCompletionRequest{
-			Model: chat.GPT3Dot5Turbo,
-			Messages: []chat.ChatCompletionMessage{
-				{
-					Role:    chat.ChatMessageRoleSystem,
-					Content: "You are a helpful assistant.",
-				},
-				{
-					Role:    chat.ChatMessageRoleUser,
-					Content: question,
+	if global {
+		// first get an answer from the model
+		resp, err = client.CreateChatCompletion(
+			context.Background(),
+			chat.ChatCompletionRequest{
+				Model: chat.GPT3Dot5Turbo,
+				Messages: []chat.ChatCompletionMessage{
+					{
+						Role:    chat.ChatMessageRoleSystem,
+						Content: "You are a helpful assistant.",
+					},
+					{
+						Role:    chat.ChatMessageRoleUser,
+						Content: question,
+					},
 				},
 			},
-		},
-	)
-	// insert the answer at the beginning of the context
-	// XXX this needs to be done earlier so we don't exceed max tokens
-	ctxt = resp.Choices[0].Message.Content + "\n\n" + ctxt
+		)
+		// insert the answer at the beginning of the context
+		// XXX this needs to be done earlier so we don't exceed max tokens
+		ctxt = resp.Choices[0].Message.Content + "\n\n" + ctxt
+	}
 
 	// process template
 	t := template.Must(template.New("prompt").Parse(promptTmpl))

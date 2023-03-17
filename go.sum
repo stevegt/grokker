@@ -1,5 +1,7 @@
 github.com/fabiustech/openai v0.4.0 h1:tFKsyp9IVJfh0vP/29sQW7X5UaF9pkKMkdekxgexl6M=
 github.com/fabiustech/openai v0.4.0/go.mod h1:MUu0PQSo0B1ZNXSFa+vQAVfYSqrLA2+JSWrurFGWfGw=
+github.com/namsral/flag v1.7.4-pre h1:b2ScHhoCUkbsq0d2C15Mv+VU8bl8hAXV8arnWiOHNZs=
+github.com/namsral/flag v1.7.4-pre/go.mod h1:OXldTctbM6SWH1K899kPZcf65KxJiD7MsceFUpB5yDo=
 github.com/sashabaranov/go-openai v1.5.0 h1:4Gr/7g/KtVzW0ddn7TC2aUlyzvhZBIM+qRZ6Ae2kMa0=
 github.com/sashabaranov/go-openai v1.5.0/go.mod h1:lj5b/K+zjTSFxVLijLSTDZuP7adOgerWeFyZLUhAKRg=
 github.com/stevegt/goadapt v0.4.0 h1:+Z4NitA0jnEzWhvPWRjunFGHfMtQEUeBnp5WC3D8eJc=
