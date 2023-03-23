@@ -1,10 +1,8 @@
 package grokker
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"html/template"
 	"io"
 	"io/ioutil"
 	"math"
@@ -16,7 +14,7 @@ import (
 
 	"github.com/fabiustech/openai"
 	"github.com/fabiustech/openai/models"
-	chat "github.com/sashabaranov/go-openai"
+	oai "github.com/sashabaranov/go-openai"
 )
 
 // Grokker is a library for analyzing a set of documents and asking
@@ -90,7 +88,7 @@ type Grokker struct {
 // New creates a new Grokker database.
 func New() *Grokker {
 	return &Grokker{
-		MaxChunkSize:  2048 * 4.0,
+		MaxChunkSize:  4096 * 4.0,
 		CharsPerToken: 4.0,
 	}
 }
@@ -257,16 +255,18 @@ func Similarity(a, b []float64) float64 {
 // response.
 
 // Answer returns the answer to a question.
-func (g *Grokker) Answer(question string, global bool) (resp chat.ChatCompletionResponse, query string, err error) {
+func (g *Grokker) Answer(question string, global bool) (resp oai.ChatCompletionResponse, query string, err error) {
 	Return(&err)
 	// get all chunks, sorted by similarity to the question.
 	chunks, err := g.FindChunks(question, 0)
 	Ck(err)
-	// use chunks as context for the answer until we reach the max context size.
+	// reserve 25% of the chunks for the response.
+	maxSize := int(float64(g.MaxChunkSize) * 0.75)
+	// use chunks as context for the answer until we reach the max size.
 	var context string
 	for _, chunk := range chunks {
 		context += chunk.Text + "\n\n"
-		if len(context)+len(promptTmpl) > g.MaxChunkSize {
+		if len(context)+len(promptTmpl) > maxSize {
 			break
 		}
 	}
@@ -291,69 +291,89 @@ Context:
 var XXXpromptTmpl = `{{.Question}}`
 
 // Generate returns the answer to a question.
-func (g *Grokker) Generate(question, ctxt string, global bool) (resp chat.ChatCompletionResponse, query string, err error) {
+func (g *Grokker) Generate(question, ctxt string, global bool) (resp oai.ChatCompletionResponse, query string, err error) {
 	Return(&err)
 
+	/*
+		var systemText string
+		if global {
+			systemText = "You are a helpful assistant that provides answers from everything you know, as well as from the context provided in this chat."
+		} else {
+			systemText = "You are a helpful assistant that provides answers from the context provided in this chat."
+		}
+	*/
+
+	// XXX don't exceed max tokens
+	messages := []oai.ChatCompletionMessage{
+		{
+			Role:    oai.ChatMessageRoleSystem,
+			Content: "You are a helpful assistant.",
+		},
+	}
+
+	// first get global knowledge
+	if global {
+		messages = append(messages, oai.ChatCompletionMessage{
+			Role:    oai.ChatMessageRoleUser,
+			Content: question,
+		})
+		resp, err = chat(messages)
+		Ck(err)
+		// add the response to the messages.
+		messages = append(messages, oai.ChatCompletionMessage{
+			Role:    oai.ChatMessageRoleAssistant,
+			Content: resp.Choices[0].Message.Content,
+		})
+	}
+
+	// add context from local sources
+	messages = append(messages, []oai.ChatCompletionMessage{
+		{
+			Role:    oai.ChatMessageRoleUser,
+			Content: ctxt,
+		},
+		{
+			Role:    oai.ChatMessageRoleAssistant,
+			Content: "Great! I've read the context.",
+		},
+	}...)
+
+	// now ask the question
+	messages = append(messages, oai.ChatCompletionMessage{
+		Role:    oai.ChatMessageRoleUser,
+		Content: question,
+	})
+
+	// get the answer
+	resp, err = chat(messages)
+
+	// fmt.Println(resp.Choices[0].Message.Content)
+	// Pprint(messages)
+	// Pprint(resp)
+	return
+}
+
+// continueChat uses the openai API to continue a conversation.
+func chat(messages []oai.ChatCompletionMessage) (resp oai.ChatCompletionResponse, err error) {
+	Return(&err)
 	// use 	"github.com/sashabaranov/go-openai"
 	// XXX move client to Grokker struct
 	token := os.Getenv("OPENAI_API_KEY")
-	client := chat.NewClient(token)
-
-	if global {
-		// first get an answer from the model
-		resp, err = client.CreateChatCompletion(
-			context.Background(),
-			chat.ChatCompletionRequest{
-				Model: chat.GPT3Dot5Turbo,
-				Messages: []chat.ChatCompletionMessage{
-					{
-						Role:    chat.ChatMessageRoleSystem,
-						Content: "You are a helpful assistant.",
-					},
-					{
-						Role:    chat.ChatMessageRoleUser,
-						Content: question,
-					},
-				},
-			},
-		)
-		// insert the answer at the beginning of the context
-		// XXX this needs to be done earlier so we don't exceed max tokens
-		ctxt = resp.Choices[0].Message.Content + "\n\n" + ctxt
-	}
-
-	// process template
-	t := template.Must(template.New("prompt").Parse(promptTmpl))
-	var buf bytes.Buffer
-	err = t.Execute(&buf, struct {
-		Question string
-		Context  string
-	}{
-		Question: question,
-		Context:  ctxt,
-	})
-	query = buf.String()
-	// Pf("query:\n\n%s\n", query)
-
-	// now get the answer with the context
+	client := oai.NewClient(token)
 	resp, err = client.CreateChatCompletion(
 		context.Background(),
-		chat.ChatCompletionRequest{
-			Model: chat.GPT3Dot5Turbo,
-			Messages: []chat.ChatCompletionMessage{
-				{
-					Role:    chat.ChatMessageRoleSystem,
-					Content: "You are a helpful assistant.",
-				},
-				{
-					Role:    chat.ChatMessageRoleUser,
-					Content: query,
-				},
-			},
+		oai.ChatCompletionRequest{
+			Model:    oai.GPT3Dot5Turbo,
+			Messages: messages,
 		},
 	)
 	Ck(err)
-
-	// fmt.Println(resp.Choices[0].Message.Content)
+	totalBytes := 0
+	for _, msg := range messages {
+		totalBytes += len(msg.Content)
+	}
+	totalBytes += len(resp.Choices[0].Message.Content)
+	ratio := float64(totalBytes) / float64(resp.Usage.TotalTokens)
+	Fpf(os.Stderr, "total tokens: %d  char/token ratio: %.1f\n", resp.Usage.TotalTokens, ratio)
 	return
 }

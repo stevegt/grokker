@@ -40,23 +40,25 @@ func main() {
 			Pl("Error: add command requires a filename argument")
 			os.Exit(1)
 		}
-		docfn := args[1]
 		Pf("Creating .grok file...")
 		grok = grokker.New()
-		// add the document
-		err = grok.AddDocument(docfn)
-		Ck(err)
+		for _, docfn := range args[1:] {
+			// add the document
+			Pf(" adding %s...", docfn)
+			err = grok.AddDocument(docfn)
+			Ck(err)
+		}
 		// save the grok file
 		fh, err := os.Create(grokfn)
 		err = grok.Save(fh)
 		Ck(err)
-		Pl("done!")
+		Pl(" done!")
 	case "q":
 		if len(args) < 2 {
 			Pl("Error: q command requires a question argument")
 			os.Exit(1)
 		}
-		question := args[1]
+		question := args[len(args)-1]
 		// see if there's a .grok file in the current directory
 		if _, err := os.Stat(grokfn); err != nil {
 			Pl("No .grok file found in current directory.")
