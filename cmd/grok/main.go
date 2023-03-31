@@ -1,8 +1,10 @@
 package main
 
 import (
+	"io/ioutil"
 	"os"
 
+	oai "github.com/sashabaranov/go-openai"
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker"
 
@@ -54,29 +56,53 @@ func main() {
 		Ck(err)
 		Pl(" done!")
 	case "q":
+		// get question from args and print the answer
 		if len(args) < 2 {
 			Pl("Error: q command requires a question argument")
 			os.Exit(1)
 		}
 		question := args[len(args)-1]
-		// see if there's a .grok file in the current directory
-		if _, err := os.Stat(grokfn); err != nil {
-			Pl("No .grok file found in current directory.")
-			os.Exit(1)
-		}
-		// load the .grok file
-		fh, err := os.Open(grokfn)
-		grok, err = grokker.Load(fh)
-		Ck(err)
-
-		// answer the question
-		resp, query, err := grok.Answer(question, *global)
+		resp, query, err := answer(grokfn, question, *global)
 		Ck(err)
 		_ = query
 		// Pprint(resp)
 		Pl(resp.Choices[0].Message.Content)
+	case "qi":
+		// get question from stdin and print both question and answer
+		buf, err := ioutil.ReadAll(os.Stdin)
+		Ck(err)
+		question := string(buf)
+		resp, query, err := answer(grokfn, question, *global)
+		Ck(err)
+		_ = query
+		Pf("%s\n\n%s\n\n", question, resp.Choices[0].Message.Content)
 	default:
 		Pl("Error: unrecognized command")
 		os.Exit(1)
 	}
+}
+
+// answer a question
+func answer(grokfn, question string, global bool) (resp oai.ChatCompletionResponse, query string, err error) {
+	defer Return(&err)
+
+	// see if there's a .grok file in the current directory
+	if _, err := os.Stat(grokfn); err != nil {
+		Pl("No .grok file found in current directory.")
+		os.Exit(1)
+	}
+
+	// load the .grok file
+	fh, err := os.Open(grokfn)
+	grok, err := grokker.Load(fh)
+	Ck(err)
+
+	// update the knowledge base
+	err = grok.UpdateEmbeddings(grokfn)
+	Ck(err)
+
+	// answer the question
+	resp, query, err = grok.Answer(question, global)
+	Ck(err)
+	return
 }

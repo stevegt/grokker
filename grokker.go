@@ -70,8 +70,8 @@ type Chunk struct {
 }
 
 type Grokker struct {
-	// The OpenAI API key to use.
-	apiKey string
+	embeddingClient *openai.Client
+	chatClient      *oai.Client
 	// The root directory of the document repository.
 	Root string
 	// The list of documents in the database.
@@ -87,17 +87,21 @@ type Grokker struct {
 
 // New creates a new Grokker database.
 func New() *Grokker {
-	return &Grokker{
+	g := &Grokker{
 		MaxChunkSize:  4096 * 4.0,
 		CharsPerToken: 4.0,
 	}
+	token := os.Getenv("OPENAI_API_KEY")
+	g.embeddingClient = openai.NewClient(token)
+	g.chatClient = oai.NewClient(token)
+	return g
 }
 
 // Load loads a Grokker database from an io.Reader.
 func Load(r io.Reader) (g *Grokker, err error) {
 	buf, err := ioutil.ReadAll(r)
 	Ck(err)
-	g = &Grokker{}
+	g = New()
 	err = json.Unmarshal(buf, g)
 	return
 }
@@ -110,28 +114,108 @@ func (g *Grokker) Save(w io.Writer) (err error) {
 	return
 }
 
-// AddDocument adds a document to the Grokker database. It creates the
-// embeddings for the document and adds them to the database.
-func (g *Grokker) AddDocument(path string) (err error) {
-	Return(&err)
-	doc := &Document{
-		Path: path,
-	}
-	g.Documents = append(g.Documents, doc)
-	chunks, err := g.chunks(doc)
+// UpdateEmbeddings updates the embeddings for any documents that have
+// changed since the last time the embeddings were updated.
+func (g *Grokker) UpdateEmbeddings(grokfn string) (err error) {
+	defer Return(&err)
+	// we use the timestamp of the grokfn as the last embedding update time.
+	fi, err := os.Stat(grokfn)
 	Ck(err)
-	g.AddChunks(doc, chunks)
+	lastUpdate := fi.ModTime()
+	for _, doc := range g.Documents {
+		// check if the document has changed.
+		fi, err := os.Stat(doc.Path)
+		Ck(err)
+		if fi.ModTime().After(lastUpdate) {
+			// update the embeddings.
+			Fpf(os.Stderr, "updating embeddings for %s ...", doc.Path)
+			err = g.UpdateDocument(doc)
+			Ck(err)
+			Fpf(os.Stderr, "done\n")
+		}
+	}
 	return
 }
 
-// AddChunks adds a sloce of chunks to the Grokker database.
-func (g *Grokker) AddChunks(doc *Document, texts []string) {
+// AddDocument adds a document to the Grokker database. It creates the
+// embeddings for the document and adds them to the database.
+func (g *Grokker) AddDocument(path string) (err error) {
+	defer Return(&err)
+	doc := &Document{
+		Path: path,
+	}
+	// find out if the document is already in the database.
+	found := false
+	for _, d := range g.Documents {
+		if d.Path == doc.Path {
+			found = true
+			break
+		}
+	}
+	if !found {
+		// add the document to the database.
+		g.Documents = append(g.Documents, doc)
+	}
+	// update the embeddings for the document.
+	err = g.UpdateDocument(doc)
+	Ck(err)
+	return
+}
+
+// UpdateDocument updates the embeddings for a document.
+func (g *Grokker) UpdateDocument(doc *Document) (err error) {
+	// XXX much of this code is inefficient and will be replaced
+	// when we have a kv store.
+	defer Return(&err)
+	// break the doc up into chunks.
+	chunkStrings, err := g.chunkStrings(doc)
+	Ck(err)
+	// get a list of the existing chunks for this document.
+	var oldChunks []*Chunk
+	var newChunkStrings []string
+	for _, chunk := range g.Chunks {
+		if chunk.Document.Path == doc.Path {
+			oldChunks = append(oldChunks, chunk)
+		}
+	}
+	// for each chunk, check if it already exists in the database.
+	for _, chunkString := range chunkStrings {
+		found := false
+		for _, oldChunk := range oldChunks {
+			if oldChunk.Text == chunkString {
+				// the chunk already exists in the database.  remove it from the list of old chunks.
+				found = true
+				for i, c := range oldChunks {
+					if c == oldChunk {
+						oldChunks = append(oldChunks[:i], oldChunks[i+1:]...)
+						break
+					}
+				}
+				break
+			}
+		}
+		if !found {
+			// the chunk does not exist in the database.  add it.
+			newChunkStrings = append(newChunkStrings, chunkString)
+		}
+	}
+	// any remaining old chunks are no longer in the document.  remove
+	// them from the database.
+	for _, oldChunk := range oldChunks {
+		for i, chunk := range g.Chunks {
+			if chunk == oldChunk {
+				g.Chunks = append(g.Chunks[:i], g.Chunks[i+1:]...)
+				break
+			}
+		}
+	}
+
 	// For each text chunk, generate an embedding using the
 	// openai.Embedding.create() function. Store the embeddings for each
 	// chunk in a data structure such as a list or dictionary.
-	embeddings, err := g.CreateEmbeddings(texts)
+	embeddings, err := g.CreateEmbeddings(newChunkStrings)
 	Ck(err)
-	for i, text := range texts {
+	for i, text := range newChunkStrings {
 		chunk := &Chunk{
 			Document:  doc,
 			Text:      text,
@@ -139,14 +223,13 @@ func (g *Grokker) AddChunks(doc *Document, texts []string) {
 		}
 		g.Chunks = append(g.Chunks, chunk)
 	}
+	return
 }
 
 // Embeddings returns the embeddings for a slice of text chunks.
 func (g *Grokker) CreateEmbeddings(texts []string) (embeddings [][]float64, err error) {
 	// use github.com/fabiustech/openai library
-	// XXX move client to Grokker struct
-	token := os.Getenv("OPENAI_API_KEY")
-	var c = openai.NewClient(token)
+	c := g.embeddingClient
 	// only send 100 chunks at a time
 	for i := 0; i < len(texts); i += 100 {
 		end := i + 100
@@ -166,9 +249,9 @@ func (g *Grokker) CreateEmbeddings(texts []string) (embeddings [][]float64, err 
 	return
 }
 
-// chunks returns a slice containing the chunks for a document.
-func (g *Grokker) chunks(doc *Document) (c []string, err error) {
-	Return(&err)
+// chunks returns a slice containing the chunk strings for a document.
+func (g *Grokker) chunkStrings(doc *Document) (c []string, err error) {
+	defer Return(&err)
 	// Break up the document into smaller text chunks or passages,
 	// each with a length of up to 8192 tokens (the maximum input size for
 	// the text-embedding-ada-002 model used by the Embeddings API).
@@ -200,7 +283,7 @@ func (g *Grokker) chunks(doc *Document) (c []string, err error) {
 
 // FindChunks returns the K most relevant chunks for a query.
 func (g *Grokker) FindChunks(query string, K int) (chunks []*Chunk, err error) {
-	Return(&err)
+	defer Return(&err)
 	// get the embeddings for the query.
 	embeddings, err := g.CreateEmbeddings([]string{query})
 	Ck(err)
@@ -256,7 +339,7 @@ func Similarity(a, b []float64) float64 {
 
 // Answer returns the answer to a question.
 func (g *Grokker) Answer(question string, global bool) (resp oai.ChatCompletionResponse, query string, err error) {
-	Return(&err)
+	defer Return(&err)
 	// get all chunks, sorted by similarity to the question.
 	chunks, err := g.FindChunks(question, 0)
 	Ck(err)
@@ -292,7 +375,7 @@ var XXXpromptTmpl = `{{.Question}}`
 
 // Generate returns the answer to a question.
 func (g *Grokker) Generate(question, ctxt string, global bool) (resp oai.ChatCompletionResponse, query string, err error) {
-	Return(&err)
+	defer Return(&err)
 
 	/*
 		var systemText string
@@ -317,7 +400,7 @@ func (g *Grokker) Generate(question, ctxt string, global bool) (resp oai.ChatCom
 			Role:    oai.ChatMessageRoleUser,
 			Content: question,
 		})
-		resp, err = chat(messages)
+		resp, err = g.chat(messages)
 		Ck(err)
 		// add the response to the messages.
 		messages = append(messages, oai.ChatCompletionMessage{
@@ -345,7 +428,7 @@ func (g *Grokker) Generate(question, ctxt string, global bool) (resp oai.ChatCom
 	})
 
 	// get the answer
-	resp, err = chat(messages)
+	resp, err = g.chat(messages)
 
 	// fmt.Println(resp.Choices[0].Message.Content)
 	// Pprint(messages)
@@ -353,13 +436,12 @@ func (g *Grokker) Generate(question, ctxt string, global bool) (resp oai.ChatCom
 	return
 }
 
-// continueChat uses the openai API to continue a conversation.
-func chat(messages []oai.ChatCompletionMessage) (resp oai.ChatCompletionResponse, err error) {
-	Return(&err)
+// chat uses the openai API to continue a conversation given a
+// (possibly synthesized) message history.
+func (g *Grokker) chat(messages []oai.ChatCompletionMessage) (resp oai.ChatCompletionResponse, err error) {
+	defer Return(&err)
 	// use 	"github.com/sashabaranov/go-openai"
-	// XXX move client to Grokker struct
-	token := os.Getenv("OPENAI_API_KEY")
-	client := oai.NewClient(token)
+	client := g.chatClient
 	resp, err = client.CreateChatCompletion(
 		context.Background(),
 		oai.ChatCompletionRequest{
@@ -367,7 +449,7 @@ func chat(messages []oai.ChatCompletionMessage) (resp oai.ChatCompletionResponse
 			Messages: messages,
 		},
 	)
-	Ck(err)
+	Ck(err, "%#v", messages)
 	totalBytes := 0
 	for _, msg := range messages {
 		totalBytes += len(msg.Content)
