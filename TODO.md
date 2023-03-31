@@ -1,3 +1,4 @@
+- complete usage splash
 - replace json storage with kv
   - write kv.go, use it as an adapter so we can use e.g. bbolt now and
     swap to puptree later
