@@ -63,7 +63,7 @@ more about this below.
 
 ## Tell me more about the `qi` subcommand
 
-Sure, the `qi` subcommand allows you to ask a question by typing it in
+The `qi` subcommand allows you to ask a question by typing it in
 to the standard input rather than passing it as a command-line
 argument. The question is read from stdin and the answer is generated
 using the Grokker library. It's a way to generate quick answers to
@@ -80,7 +80,7 @@ keyboard mapping to your vimrc file. Here's an example mapping:
 ```
 
 This mapping will allow you to ask a question by typing it in VIM and
-then pressing `<leader>q`. The question will be sent as input to the
+then pressing `<leader>g`. The question will be sent as input to the
 `qi` subcommand of Grokker, and the answer will be inserted into the
 buffer. Note that the mapping assumes that Grokker's `grok` command is
 installed and in your system path.
