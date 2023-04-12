@@ -3,6 +3,7 @@ package main
 import (
 	"io/ioutil"
 	"os"
+	"strings"
 
 	oai "github.com/sashabaranov/go-openai"
 	. "github.com/stevegt/goadapt"
@@ -42,8 +43,17 @@ func main() {
 			Pl("Error: add command requires a filename argument")
 			os.Exit(1)
 		}
-		Pf("Creating .grok file...")
-		grok = grokker.New()
+		// create a new .grok file if it doesn't exist
+		if _, err := os.Stat(grokfn); os.IsNotExist(err) {
+			grok = grokker.New()
+		} else {
+			// load the .grok file
+			fh, err := os.Open(grokfn)
+			grok, err = grokker.Load(fh)
+			Ck(err)
+		}
+
+		// add the documents
 		for _, docfn := range args[1:] {
 			// add the document
 			Pf(" adding %s...", docfn)
@@ -72,10 +82,12 @@ func main() {
 		buf, err := ioutil.ReadAll(os.Stdin)
 		Ck(err)
 		question := string(buf)
+		// trim whitespace
+		question = strings.TrimSpace(question)
 		resp, query, err := answer(grokfn, question, *global)
 		Ck(err)
 		_ = query
-		Pf("%s\n\n%s\n\n", question, resp.Choices[0].Message.Content)
+		Pf("\n%s\n\n%s\n\n", question, resp.Choices[0].Message.Content)
 	default:
 		Pl("Error: unrecognized command")
 		os.Exit(1)
@@ -87,22 +99,35 @@ func answer(grokfn, question string, global bool) (resp oai.ChatCompletionRespon
 	defer Return(&err)
 
 	// see if there's a .grok file in the current directory
+	// XXX we should probably do this in the caller
 	if _, err := os.Stat(grokfn); err != nil {
 		Pl("No .grok file found in current directory.")
 		os.Exit(1)
 	}
 
 	// load the .grok file
+	// XXX we should probably do this in the caller
 	fh, err := os.Open(grokfn)
 	grok, err := grokker.Load(fh)
 	Ck(err)
+	fh.Close()
 
 	// update the knowledge base
-	err = grok.UpdateEmbeddings(grokfn)
+	update, err := grok.UpdateEmbeddings(grokfn)
 	Ck(err)
 
 	// answer the question
 	resp, query, err = grok.Answer(question, global)
 	Ck(err)
+
+	// save the .grok file if it was updated
+	// XXX we should probably do this in the caller
+	if update {
+		fh, err := os.Create(grokfn)
+		Ck(err)
+		err = grok.Save(fh)
+		Ck(err)
+		fh.Close()
+	}
 	return
 }

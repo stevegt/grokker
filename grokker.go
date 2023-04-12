@@ -88,8 +88,9 @@ type Grokker struct {
 // New creates a new Grokker database.
 func New() *Grokker {
 	g := &Grokker{
-		MaxChunkSize:  4096 * 4.0,
-		CharsPerToken: 4.0,
+		MaxChunkSize: 4096 * 4.0,
+		// XXX replace with a real tokenizer.
+		CharsPerToken: 3.5,
 	}
 	token := os.Getenv("OPENAI_API_KEY")
 	g.embeddingClient = openai.NewClient(token)
@@ -115,8 +116,9 @@ func (g *Grokker) Save(w io.Writer) (err error) {
 }
 
 // UpdateEmbeddings updates the embeddings for any documents that have
-// changed since the last time the embeddings were updated.
-func (g *Grokker) UpdateEmbeddings(grokfn string) (err error) {
+// changed since the last time the embeddings were updated.  It returns
+// true if any embeddings were updated.
+func (g *Grokker) UpdateEmbeddings(grokfn string) (update bool, err error) {
 	defer Return(&err)
 	// we use the timestamp of the grokfn as the last embedding update time.
 	fi, err := os.Stat(grokfn)
@@ -129,9 +131,10 @@ func (g *Grokker) UpdateEmbeddings(grokfn string) (err error) {
 		if fi.ModTime().After(lastUpdate) {
 			// update the embeddings.
 			Fpf(os.Stderr, "updating embeddings for %s ...", doc.Path)
-			err = g.UpdateDocument(doc)
+			updated, err := g.UpdateDocument(doc)
 			Ck(err)
 			Fpf(os.Stderr, "done\n")
+			update = update || updated
 		}
 	}
 	return
@@ -157,13 +160,14 @@ func (g *Grokker) AddDocument(path string) (err error) {
 		g.Documents = append(g.Documents, doc)
 	}
 	// update the embeddings for the document.
-	err = g.UpdateDocument(doc)
+	_, err = g.UpdateDocument(doc)
 	Ck(err)
 	return
 }
 
-// UpdateDocument updates the embeddings for a document.
-func (g *Grokker) UpdateDocument(doc *Document) (err error) {
+// UpdateDocument updates the embeddings for a document and returns
+// true if the document was updated.
+func (g *Grokker) UpdateDocument(doc *Document) (updated bool, err error) {
 	// XXX much of this code is inefficient and will be replaced
 	// when we have a kv store.
 	defer Return(&err)
@@ -196,6 +200,7 @@ func (g *Grokker) UpdateDocument(doc *Document) (err error) {
 		}
 		if !found {
 			// the chunk does not exist in the database.  add it.
+			updated = true
 			newChunkStrings = append(newChunkStrings, chunkString)
 		}
 	}
@@ -343,8 +348,8 @@ func (g *Grokker) Answer(question string, global bool) (resp oai.ChatCompletionR
 	// get all chunks, sorted by similarity to the question.
 	chunks, err := g.FindChunks(question, 0)
 	Ck(err)
-	// reserve 25% of the chunks for the response.
-	maxSize := int(float64(g.MaxChunkSize) * 0.75)
+	// reserve 50% of the chunks for the response.
+	maxSize := int(float64(g.MaxChunkSize) * 0.5)
 	// use chunks as context for the answer until we reach the max size.
 	var context string
 	for _, chunk := range chunks {

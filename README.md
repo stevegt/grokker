@@ -98,7 +98,7 @@ To use the `qi` subcommand in a VIM editor session, you can add a
 keyboard mapping to your vimrc file. Here's an example mapping:
 
 ```
-:map <leader>g !!grok qi<CR>
+:map <leader>g vap:!grok qi<CR>
 ```
 
 This mapping will allow you to ask a question by typing it in VIM and
