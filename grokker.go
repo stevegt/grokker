@@ -62,6 +62,8 @@ type Document struct {
 // Chunk is a single chunk of text from a document.
 type Chunk struct {
 	// The document that this chunk is from.
+	// XXX this is redundant; we could just use the document's path.
+	// XXX a chunk should be able to be from multiple documents.
 	Document *Document
 	// The text of the chunk.
 	Text string
@@ -127,6 +129,12 @@ func (g *Grokker) UpdateEmbeddings(grokfn string) (update bool, err error) {
 	for _, doc := range g.Documents {
 		// check if the document has changed.
 		fi, err := os.Stat(doc.Path)
+		if os.IsNotExist(err) {
+			// document has been removed; remove it from the database.
+			g.RemoveDocument(doc)
+			update = true
+			continue
+		}
 		Ck(err)
 		if fi.ModTime().After(lastUpdate) {
 			// update the embeddings.
@@ -137,6 +145,8 @@ func (g *Grokker) UpdateEmbeddings(grokfn string) (update bool, err error) {
 			update = update || updated
 		}
 	}
+	// garbage collect any chunks that are no longer referenced.
+	g.GC()
 	return
 }
 
@@ -162,6 +172,45 @@ func (g *Grokker) AddDocument(path string) (err error) {
 	// update the embeddings for the document.
 	_, err = g.UpdateDocument(doc)
 	Ck(err)
+	return
+}
+
+// RemoveDocument removes a document from the Grokker database.
+func (g *Grokker) RemoveDocument(doc *Document) (err error) {
+	defer Return(&err)
+	// remove the document from the database.
+	for i, d := range g.Documents {
+		if d.Path == doc.Path {
+			g.Documents = append(g.Documents[:i], g.Documents[i+1:]...)
+			break
+		}
+	}
+	// the document chunks are still in the database, but they will be
+	// removed during garbage collection.
+	return
+}
+
+// GC removes any chunks that are no longer referenced by any document.
+func (g *Grokker) GC() (err error) {
+	defer Return(&err)
+	// find all the chunks that are referenced by a document.
+	used := make(map[*Chunk]bool)
+	for _, doc := range g.Documents {
+		for _, chunk := range g.Chunks {
+			if chunk.Document == doc {
+				used[chunk] = true
+			}
+		}
+	}
+	// remove any chunks that are not referenced.
+	for i := 0; i < len(g.Chunks); {
+		chunk := g.Chunks[i]
+		if !used[chunk] {
+			g.Chunks = append(g.Chunks[:i], g.Chunks[i+1:]...)
+		} else {
+			i++
+		}
+	}
 	return
 }
 
@@ -204,16 +253,7 @@ func (g *Grokker) UpdateDocument(doc *Document) (updated bool, err error) {
 			newChunkStrings = append(newChunkStrings, chunkString)
 		}
 	}
-	// any remaining old chunks are no longer in the document.  remove
-	// them from the database.
-	for _, oldChunk := range oldChunks {
-		for i, chunk := range g.Chunks {
-			if chunk == oldChunk {
-				g.Chunks = append(g.Chunks[:i], g.Chunks[i+1:]...)
-				break
-			}
-		}
-	}
+	// orphaned chunks will be garbage collected.
 
 	// For each text chunk, generate an embedding using the
 	// openai.Embedding.create() function. Store the embeddings for each
