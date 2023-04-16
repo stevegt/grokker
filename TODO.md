@@ -1,3 +1,10 @@
+- convert universe into a general purpose PUP processor 
+  - define Go API for PUP as an interface
+  - universe implements PUP API 
+  - bbolt is cache in PUP processor
+  - cache and any external APIs are called via interfaces 
+- add summary tree of all chunks
+  - via PUP treeing
 - complete usage splash
 - add verbose mode, ensure messages go to stderr
 - replace json storage with kv

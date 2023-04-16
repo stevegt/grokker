@@ -14,22 +14,17 @@ import (
 	"github.com/namsral/flag"
 )
 
-var usage = `
-Usage:
-	grok add <docfn>
-	grok [-g] q <question> 
-
-Options:
-	-g  Include results from OpenAI's global knowledge base as well as
-		from local documents.
-`
-
 func main() {
 	// parse args using flag package
 	global := flag.Bool("g", false, "Include results from OpenAI's global knowledge base as well as from local documents.")
+	verbose := flag.Bool("v", false, "Show debug and progress information on stderr.")
 	flag.Parse()
 	args := flag.Args()
 	cmd := args[0]
+
+	if *verbose {
+		os.Setenv("DEBUG", "1")
+	}
 
 	// get the current directory
 	dir, err := os.Getwd()
@@ -40,7 +35,7 @@ func main() {
 	switch cmd {
 	case "add":
 		if len(args) < 2 {
-			Pl("Error: add command requires a filename argument")
+			Fpf(os.Stderr, "Error: add command requires a filename argument")
 			os.Exit(1)
 		}
 		// create a new .grok file if it doesn't exist
@@ -51,12 +46,13 @@ func main() {
 			fh, err := os.Open(grokfn)
 			grok, err = grokker.Load(fh)
 			Ck(err)
+			fh.Close()
 		}
 
 		// add the documents
 		for _, docfn := range args[1:] {
 			// add the document
-			Pf(" adding %s...", docfn)
+			Debug(" adding %s...", docfn)
 			err = grok.AddDocument(docfn)
 			Ck(err)
 		}
@@ -64,11 +60,36 @@ func main() {
 		fh, err := os.Create(grokfn)
 		err = grok.Save(fh)
 		Ck(err)
-		Pl(" done!")
+		fh.Close()
+		Debug(" done!")
+	case "refresh":
+		// refresh the embeddings for all documents
+		// load the .grok file
+		fh, err := os.Open(grokfn)
+		grok, err = grokker.Load(fh)
+		Ck(err)
+		fh.Close()
+		// refresh the embeddings
+		err = grok.RefreshEmbeddings()
+		Ck(err)
+		// save the .grok file
+		fh, err = os.Create(grokfn)
+		err = grok.Save(fh)
+		Ck(err)
+		fh.Close()
+	case "ls":
+		// list the documents in the .grok file
+		fh, err := os.Open(grokfn)
+		Ck(err)
+		grok, err := grokker.Load(fh)
+		Ck(err)
+		for _, doc := range grok.Documents {
+			Pl(doc.Path)
+		}
 	case "q":
 		// get question from args and print the answer
 		if len(args) < 2 {
-			Pl("Error: q command requires a question argument")
+			Fpf(os.Stderr, "Error: q command requires a question argument")
 			os.Exit(1)
 		}
 		question := args[len(args)-1]
@@ -89,7 +110,7 @@ func main() {
 		_ = query
 		Pf("\n%s\n\n%s\n\n", question, resp.Choices[0].Message.Content)
 	default:
-		Pl("Error: unrecognized command")
+		Fpf(os.Stderr, "Error: unrecognized command")
 		os.Exit(1)
 	}
 }
@@ -101,7 +122,7 @@ func answer(grokfn, question string, global bool) (resp oai.ChatCompletionRespon
 	// see if there's a .grok file in the current directory
 	// XXX we should probably do this in the caller
 	if _, err := os.Stat(grokfn); err != nil {
-		Pl("No .grok file found in current directory.")
+		Fpf(os.Stderr, "No .grok file found in current directory.")
 		os.Exit(1)
 	}
 

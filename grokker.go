@@ -138,10 +138,10 @@ func (g *Grokker) UpdateEmbeddings(grokfn string) (update bool, err error) {
 		Ck(err)
 		if fi.ModTime().After(lastUpdate) {
 			// update the embeddings.
-			Fpf(os.Stderr, "updating embeddings for %s ...", doc.Path)
+			Debug("updating embeddings for %s ...", doc.Path)
 			updated, err := g.UpdateDocument(doc)
 			Ck(err)
-			Fpf(os.Stderr, "done\n")
+			Debug("done\n")
 			update = update || updated
 		}
 	}
@@ -193,24 +193,26 @@ func (g *Grokker) RemoveDocument(doc *Document) (err error) {
 // GC removes any chunks that are no longer referenced by any document.
 func (g *Grokker) GC() (err error) {
 	defer Return(&err)
-	// find all the chunks that are referenced by a document.
-	used := make(map[*Chunk]bool)
-	for _, doc := range g.Documents {
-		for _, chunk := range g.Chunks {
-			if chunk.Document == doc {
-				used[chunk] = true
+	// for each chunk, check if it is referenced by any document.
+	// if not, remove it from the database.
+	oldLen := len(g.Chunks)
+	newChunks := make([]*Chunk, 0, len(g.Chunks))
+	for _, chunk := range g.Chunks {
+		// check if the chunk is referenced by any document.
+		referenced := false
+		for _, doc := range g.Documents {
+			if doc.Path == chunk.Document.Path {
+				referenced = true
+				break
 			}
 		}
-	}
-	// remove any chunks that are not referenced.
-	for i := 0; i < len(g.Chunks); {
-		chunk := g.Chunks[i]
-		if !used[chunk] {
-			g.Chunks = append(g.Chunks[:i], g.Chunks[i+1:]...)
-		} else {
-			i++
+		if referenced {
+			newChunks = append(newChunks, chunk)
 		}
 	}
+	g.Chunks = newChunks
+	newLen := len(g.Chunks)
+	Debug("garbage collected %d chunks from the database", oldLen-newLen)
 	return
 }
 
@@ -220,6 +222,7 @@ func (g *Grokker) UpdateDocument(doc *Document) (updated bool, err error) {
 	// XXX much of this code is inefficient and will be replaced
 	// when we have a kv store.
 	defer Return(&err)
+	Debug("updating embeddings for %s ...", doc.Path)
 	// break the doc up into chunks.
 	chunkStrings, err := g.chunkStrings(doc)
 	Ck(err)
@@ -231,6 +234,7 @@ func (g *Grokker) UpdateDocument(doc *Document) (updated bool, err error) {
 			oldChunks = append(oldChunks, chunk)
 		}
 	}
+	Debug("found %d existing chunks", len(oldChunks))
 	// for each chunk, check if it already exists in the database.
 	for _, chunkString := range chunkStrings {
 		found := false
@@ -253,6 +257,7 @@ func (g *Grokker) UpdateDocument(doc *Document) (updated bool, err error) {
 			newChunkStrings = append(newChunkStrings, chunkString)
 		}
 	}
+	Debug("found %d new chunks", len(newChunkStrings))
 	// orphaned chunks will be garbage collected.
 
 	// For each text chunk, generate an embedding using the
@@ -291,6 +296,7 @@ func (g *Grokker) CreateEmbeddings(texts []string) (embeddings [][]float64, err 
 			embeddings = append(embeddings, em.Embedding)
 		}
 	}
+	Debug("created %d embeddings", len(embeddings))
 	return
 }
 
@@ -341,6 +347,7 @@ func (g *Grokker) FindChunks(query string, K int) (chunks []*Chunk, err error) {
 // SimilarChunks returns the K most similar chunks to an embedding.
 // If K is 0, it returns all chunks.
 func (g *Grokker) SimilarChunks(embedding []float64, K int) (chunks []*Chunk) {
+	Debug("chunks in database: %d", len(g.Chunks))
 	// find the most similar chunks.
 	type Sim struct {
 		chunk *Chunk
@@ -362,6 +369,7 @@ func (g *Grokker) SimilarChunks(embedding []float64, K int) (chunks []*Chunk) {
 	for i := 0; i < K && i < len(sims); i++ {
 		chunks = append(chunks, sims[i].chunk)
 	}
+	Debug("found %d similar chunks", len(chunks))
 	return
 }
 
@@ -398,6 +406,7 @@ func (g *Grokker) Answer(question string, global bool) (resp oai.ChatCompletionR
 			break
 		}
 	}
+	Debug("using %d chunks as context", len(chunks))
 
 	// generate the answer.
 	resp, query, err = g.Generate(question, context, global)
@@ -485,6 +494,9 @@ func (g *Grokker) Generate(question, ctxt string, global bool) (resp oai.ChatCom
 // (possibly synthesized) message history.
 func (g *Grokker) chat(messages []oai.ChatCompletionMessage) (resp oai.ChatCompletionResponse, err error) {
 	defer Return(&err)
+
+	Debug("chat: messages: %v", messages)
+
 	// use 	"github.com/sashabaranov/go-openai"
 	client := g.chatClient
 	resp, err = client.CreateChatCompletion(
@@ -501,6 +513,19 @@ func (g *Grokker) chat(messages []oai.ChatCompletionMessage) (resp oai.ChatCompl
 	}
 	totalBytes += len(resp.Choices[0].Message.Content)
 	ratio := float64(totalBytes) / float64(resp.Usage.TotalTokens)
-	Fpf(os.Stderr, "total tokens: %d  char/token ratio: %.1f\n", resp.Usage.TotalTokens, ratio)
+	Debug("total tokens: %d  char/token ratio: %.1f\n", resp.Usage.TotalTokens, ratio)
+	return
+}
+
+// RefreshEmbeddings refreshes the embeddings for all documents in the
+// database.
+func (g *Grokker) RefreshEmbeddings() (err error) {
+	defer Return(&err)
+	// regenerate the embeddings for each document.
+	for _, doc := range g.Documents {
+		_, err = g.UpdateDocument(doc)
+		Ck(err)
+	}
+	g.GC()
 	return
 }

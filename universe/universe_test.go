@@ -49,10 +49,12 @@ func TestAdd(t *testing.T) {
 	defer u.Close()
 
 	// Add a document
-	err := u.Add("foo", "bar")
+	err := u.AddDocument("testdata/doc1")
 	Tassert(t, err == nil)
 
-	// Add a second document
-	err = u.Add("foo", "baz")
+	// Get a chunk
+	chunk, err := u.GetChunk("testdata/doc1", 0)
 	Tassert(t, err == nil)
+	Tassert(t, chunk != nil)
+
 }

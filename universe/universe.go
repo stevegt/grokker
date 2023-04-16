@@ -56,22 +56,9 @@ func Open(path string) (u *Universe, err error) {
 	return
 }
 
-// Close closes the database.
+// Close closes the universe.
 func (u *Universe) Close() error {
 	return u.kv.Close()
-}
-
-// begin starts a transaction.
-func (u *Universe) begin(writable bool) (tx *kv.Tx, err error) {
-	tx, err = u.kv.Begin(writable)
-	Ck(err)
-	return
-}
-
-// Hash returns the hash of the content.
-func Hash(content []byte) string {
-	hash := sha256.Sum256(content)
-	return hex.EncodeToString(hash[:])
 }
 
 // compress compresses data using zlib.
@@ -101,7 +88,7 @@ func (u *Universe) putChunk(buf []byte) (hash string, err error) {
 	tx, err := u.kv.Begin(true)
 	Ck(err)
 	chunk := NewChunk(buf)
-	hash, compressed, err := chunk.MarshalBytes()
+	hash, compressed, err := chunk.MarshalCompressed()
 	Ck(err)
 	err = tx.Put("chunk", hash, compressed)
 	Ck(err)
@@ -114,6 +101,7 @@ func (u *Universe) putChunk(buf []byte) (hash string, err error) {
 type Chunk struct {
 	Content   []byte
 	Embedding []float64
+	hash      string
 }
 
 // NewChunk creates a new chunk from content.
@@ -123,24 +111,36 @@ func NewChunk(content []byte) *Chunk {
 	}
 }
 
-// MarshalBytes marshals a chunk to bytes for storing in the database.
-// Like git, we add an object header, then compute the hash of the
-// header and content, then compress the header and content.
-func (c *Chunk) MarshalBytes() (hash string, data []byte, err error) {
+// Hash returns the hash of a chunk.
+func (c *Chunk) Hash() string {
+	if c.hash == "" {
+		hash := sha256.Sum256(c.contentWithHeader())
+		c.hash = hex.EncodeToString(hash[:])
+	}
+	return c.hash
+}
+
+// contentWithHeader returns the content with a header.
+func (c *Chunk) contentWithHeader() (data []byte) {
+	header := fmt.Sprintf("chunk %d\x00", len(c.Content))
+	data = append([]byte(header), c.Content...)
+	return
+}
+
+// MarshalCompressed marshals a chunk to compressed data for storing
+// in the database. Like git, we add an object header, then compute
+// the hash of the header and content, then compress the header and
+// content.
+func (c *Chunk) MarshalCompressed() (hash string, data []byte, err error) {
 	defer Return(&err)
-	Assert(c.Embedding != nil)
-	content := c.Content
-	header := fmt.Sprintf("chunk %d\x00", len(content))
-	data = append([]byte(header), content...)
-	bin := sha256.Sum256(data)
-	hash = hex.EncodeToString(bin[:])
-	data, err = compress(data)
+	uncompressed := c.contentWithHeader()
+	data, err = compress(uncompressed)
 	Ck(err)
 	return
 }
 
-// UnmarshalBytes unmarshals a chunk from bytes.
-func UnmarshalBytes(data []byte) (c *Chunk, err error) {
+// UnmarshalCompressed unmarshals a chunk from compressed data.
+func UnmarshalCompressed(data []byte) (c *Chunk, err error) {
 	defer Return(&err)
 	data, err = decompress(data)
 	Ck(err)
@@ -229,4 +229,14 @@ func (db *Db) PutRoot(path string, root string) (err error) {
 	Ck(err)
 	return
 }
+
+// AddDocument adds a document to the database.
+func (u *Universe) AddDocument(path string) (err error) {
+	defer Return(&err)
+	// create an io.Reader for the document
+	fh, err := os.Open(path)
+	Ck(err)
+	defer fh.Close()
+
+
 */
