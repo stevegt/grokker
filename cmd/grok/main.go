@@ -5,24 +5,34 @@ import (
 	"os"
 	"strings"
 
+	"github.com/alecthomas/kong"
 	oai "github.com/sashabaranov/go-openai"
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker"
-
-	// "github.com/joho/godotenv"
-	// "github.com/docopt/docopt-go"
-	"github.com/namsral/flag"
 )
 
-func main() {
-	// parse args using flag package
-	global := flag.Bool("g", false, "Include results from OpenAI's global knowledge base as well as from local documents.")
-	verbose := flag.Bool("v", false, "Show debug and progress information on stderr.")
-	flag.Parse()
-	args := flag.Args()
-	cmd := args[0]
+// parse args using kong package
+var cli struct {
+	Add struct {
+		Paths []string `arg:"" type:"existingfile" help:"Path to file to add to knowledge base."`
+	} `cmd:"" help:"Add a file to the knowledge base."`
+	Refresh struct{} `cmd:"" help:"Refresh the embeddings for all documents in the knowledge base."`
+	Ls      struct{} `cmd:"" help:"List all documents in the knowledge base."`
+	Q       struct {
+		Question string `arg:"" help:"Question to ask the knowledge base."`
+	} `cmd:"" help:"Ask the knowledge base a question."`
+	Qi      struct{} `cmd:"" help:"Ask the knowledge base a question on stdin."`
+	Global  bool     `short:"g" help:"Include results from OpenAI's global knowledge base as well as from local documents."`
+	Verbose bool     `short:"v" help:"Show debug and progress information on stderr."`
+}
 
-	if *verbose {
+func main() {
+	ctx := kong.Parse(&cli,
+		kong.Name("grok"),
+		kong.Description("A command-line tool for having a conversation with a set of documents."),
+	)
+
+	if cli.Verbose {
 		os.Setenv("DEBUG", "1")
 	}
 
@@ -32,9 +42,9 @@ func main() {
 	grokfn := dir + "/.grok"
 
 	var grok *grokker.Grokker
-	switch cmd {
+	switch ctx.Command() {
 	case "add":
-		if len(args) < 2 {
+		if len(cli.Add.Paths) < 1 {
 			Fpf(os.Stderr, "Error: add command requires a filename argument")
 			os.Exit(1)
 		}
@@ -50,7 +60,7 @@ func main() {
 		}
 
 		// add the documents
-		for _, docfn := range args[1:] {
+		for _, docfn := range cli.Add.Paths {
 			// add the document
 			Debug(" adding %s...", docfn)
 			err = grok.AddDocument(docfn)
@@ -88,15 +98,13 @@ func main() {
 		}
 	case "q":
 		// get question from args and print the answer
-		if len(args) < 2 {
+		if cli.Q.Question == "" {
 			Fpf(os.Stderr, "Error: q command requires a question argument")
 			os.Exit(1)
 		}
-		question := args[len(args)-1]
-		resp, query, err := answer(grokfn, question, *global)
+		question := cli.Q.Question
+		resp, _, err := answer(grokfn, question, cli.Global)
 		Ck(err)
-		_ = query
-		// Pprint(resp)
 		Pl(resp.Choices[0].Message.Content)
 	case "qi":
 		// get question from stdin and print both question and answer
@@ -105,7 +113,7 @@ func main() {
 		question := string(buf)
 		// trim whitespace
 		question = strings.TrimSpace(question)
-		resp, query, err := answer(grokfn, question, *global)
+		resp, query, err := answer(grokfn, question, cli.Global)
 		Ck(err)
 		_ = query
 		Pf("\n%s\n\n%s\n\n", question, resp.Choices[0].Message.Content)

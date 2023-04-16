@@ -5,8 +5,8 @@
   - cache and any external APIs are called via interfaces 
 - add summary tree of all chunks
   - via PUP treeing
-- complete usage splash
-- add verbose mode, ensure messages go to stderr
+x complete usage splash
+x add verbose mode, ensure messages go to stderr
 - replace json storage with kv
   - write kv.go, use it as an adapter so we can use e.g. bbolt now and
     swap to puptree later
