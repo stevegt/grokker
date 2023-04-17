@@ -15,7 +15,8 @@ import (
 
 // parse args using kong package
 var cli struct {
-	Add struct {
+	Init struct{} `cmd:"" help:"Initialize a new .grok file in the current directory."`
+	Add  struct {
 		Paths []string `arg:"" type:"existingfile" help:"Path to file to add to knowledge base."`
 	} `cmd:"" help:"Add a file to the knowledge base."`
 	Refresh struct{} `cmd:"" help:"Refresh the embeddings for all documents in the knowledge base."`
@@ -39,6 +40,20 @@ func main() {
 		os.Setenv("DEBUG", "1")
 	}
 
+	if ctx.Command() == "init" {
+		// initialize a new .grok file in the current directory
+		// create a new Grokker object
+		grok := grokker.New()
+		// save it to .grok
+		fh, err := os.Create(".grok")
+		Ck(err)
+		err = grok.Save(fh)
+		Ck(err)
+		fh.Close()
+		Pl("Initialized a new .grok file in the current directory.")
+		os.Exit(0)
+	}
+
 	// find the .grok file in the current or any parent directory
 	grokfn := ".grok"
 	grokpath := ""
@@ -50,7 +65,7 @@ func main() {
 		}
 	}
 	if grokpath == "" {
-		Fpf(os.Stderr, "No .grok file found in current directory or any parent directory.")
+		Fpf(os.Stderr, "No .grok file found in current directory or any parent directory.\n")
 		os.Exit(1)
 	}
 
@@ -63,7 +78,7 @@ func main() {
 	switch ctx.Command() {
 	case "add":
 		if len(cli.Add.Paths) < 1 {
-			Fpf(os.Stderr, "Error: add command requires a filename argument")
+			Fpf(os.Stderr, "Error: add command requires a filename argument\n")
 			os.Exit(1)
 		}
 		// create a new .grok file if it doesn't exist
@@ -117,7 +132,7 @@ func main() {
 	case "q":
 		// get question from args and print the answer
 		if cli.Q.Question == "" {
-			Fpf(os.Stderr, "Error: q command requires a question argument")
+			Fpf(os.Stderr, "Error: q command requires a question argument\n")
 			os.Exit(1)
 		}
 		question := cli.Q.Question
@@ -141,7 +156,7 @@ func main() {
 		Ck(err)
 		Pf("%s", resp.Choices[0].Message.Content)
 	default:
-		Fpf(os.Stderr, "Error: unrecognized command")
+		Fpf(os.Stderr, "Error: unrecognized command\n")
 		os.Exit(1)
 	}
 }

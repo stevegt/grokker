@@ -75,6 +75,7 @@ type Grokker struct {
 	embeddingClient *openai.Client
 	chatClient      *oai.Client
 	// The root directory of the document repository.
+	// XXX not used yet.
 	Root string
 	// The list of documents in the database.
 	Documents []*Document

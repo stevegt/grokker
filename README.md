@@ -10,9 +10,14 @@ own source code along with iterations of this document.
 ## Example
 
 ```
+
+$ grok init
+Initialized a new .grok file in the current directory.
+
 $ grok add README.md cmd/grok/main.go grokker.go TODO.md
 
-Creating .grok file... adding README.md... adding cmd/grok/main.go... adding grokker.go... adding TODO.md... done!
+Creating .grok file... adding README.md... adding cmd/grok/main.go...
+adding grokker.go... adding TODO.md... done!
 
 $ grok q "What is grokker?"
 
@@ -25,23 +30,19 @@ those documents.
 
 $ grok q "Describe grokker's subcommands."
 
-Grokker has five subcommands: `add`, `refresh`, `ls`, `q`, and `qi`.
-Here's a brief description of each subcommand:
+Grokker has several subcommands, including:
 
-1. `add`: This subcommand is used to add one or more documents to the
-   database.
+1. `init`: Initializes a new .grok file in the current directory.
+2. `add`: Adds one or more documents to the database.
+3. `refresh`: Refreshes the embeddings for all documents.
+4. `ls`: Lists all the documents in the .grok file.
+5. `q`: Asks a question and returns an answer. You can include the
+   `-g` flag to also search the OpenAI global knowledge base.
+6. `qi`: Reads a question from standard input and returns an answer.
 
-2. `refresh`: This subcommand is used to refresh the embeddings for
-   all documents in the database.
-
-3. `ls`: This subcommand is used to list all the documents in the
-   .grok file.
-
-4. `q`: This subcommand is used to ask a question and get an answer.
-   You can pass your question as a command line argument.
-
-5. `qi`: This subcommand is used to ask a question via standard input.
-   You can type your question directly into the console.
+The `init` subcommand is only used once to create the grok file, while
+the rest are used to manage and interact with the documents in the
+grok file.
 
 $ grok q "What is the `qi` subcommand for?"
 
@@ -53,33 +54,27 @@ For example, you could say:
 
 This would read the question from standard input and return the
 answer.  This subcommand is especially useful in editor sessions --
-more about this below.
-```
+more about this below. ```
 
 ## Installation
 
-```
-go install github.com/stevegt/grokker/cmd/grok 
-```
-You'll need an account with OpenAI and an API key. You can create and
-manage your API keys in your OpenAI dashboard.
+``` go install github.com/stevegt/grokker/cmd/grok ``` You'll need an
+account with OpenAI and an API key. You can create and manage your API
+keys in your OpenAI dashboard.
 
 Before using Grokker, you'll need to set your API key as an
 environment variable in your terminal session or .bashrc with the
 following command:
 
-```
-export OPENAI_API_KEY=<your_api_key>
-```
+``` export OPENAI_API_KEY=<your_api_key> ```
 
 ## Tell me more about the `qi` subcommand
 
-The `qi` subcommand allows you to ask a question by typing it in
-to the standard input rather than passing it as a command-line
-argument. The question is read from stdin and the answer is generated
-using the Grokker library. It's a way to generate quick answers to
-questions without having to provide the question as a command-line
-argument.
+The `qi` subcommand allows you to ask a question by typing it in to
+the standard input rather than passing it as a command-line argument.
+The question is read from stdin and the answer is generated using the
+Grokker library. It's a way to generate quick answers to questions
+without having to provide the question as a command-line argument.
 
 The `qi` subcommand enables you to use grokker as a chat client in an
 editor session by typing questions directly in your document and
@@ -108,9 +103,7 @@ versionable in git.
 To use the `qi` subcommand in a VIM editor session, you can add a
 keyboard mapping to your vimrc file. Here's an example mapping:
 
-```
-:map <leader>g vap:!grok qi<CR>
-```
+``` :map <leader>g vap:!grok qi<CR> ```
 
 This mapping will allow you to ask a question by typing it in VIM and
 then pressing `<leader>g`. The question will be sent as input to the
@@ -123,9 +116,7 @@ its most recent content will be included in the query context.  This
 mapping uses a slightly different method to select the current
 paragraph to be used in the query:
 
-```
-:map <leader>g :w<CR>{V}:!grok qi<CR>gqG
-```
+``` :map <leader>g :w<CR>{V}:!grok qi<CR>gqG ```
 
 Experiment with variations on these mappings -- you might emphasize
 more recent context by including the previous two paragraphs as part
@@ -147,20 +138,16 @@ is larger and may take more time to search through. If you don't
 include the `-g` flag, Grokker will prefer the local documents that
 you've added.
 
-## Does the `grok` command conflict with any other common UNIX/Linux commands?
+## Does the `grok` command conflict with any other common UNIX/Linux
+commands?
 
 Yes.  For instance, Jordan Sissel's log file analysis tool also uses a
 `grok` command.  If you want to install grokker on the same machine,
 you can install it using an alternate command name.  Here's an example
 of installing grokker as `grokker` instead of `grok`:
 
-```
-cd /tmp
-git clone http://github.com/stevegt/grokker
-cd grokker/cmd/grok/
-go build -o grokker
-cp grokker $GOPATH/bin
-```
+``` cd /tmp git clone http://github.com/stevegt/grokker cd
+grokker/cmd/grok/ go build -o grokker cp grokker $GOPATH/bin ```
 
 ## Is grokker done?  What are some of the outstanding items?
 
@@ -177,7 +164,8 @@ Some outstanding items mentioned in the code and TODO.md are:
   comparing summaries with individual chunks, or by negating and
   comparison; see demorgan, etc.
 
-# Important disclaimer regarding sensitive and confidential information
+# Important disclaimer regarding sensitive and confidential
+information
 
 Using OpenAI's API services to analyze documents means that any
 document you `grok add`, and any question you ask of grokker, will be
