@@ -300,14 +300,21 @@ func (g *Grokker) CreateEmbeddings(texts []string) (embeddings [][]float64, err 
 	return
 }
 
-// chunks returns a slice containing the chunk strings for a document.
+// chunkStrings returns a slice containing the chunk strings for a document.
 func (g *Grokker) chunkStrings(doc *Document) (c []string, err error) {
 	defer Return(&err)
-	// Break up the document into smaller text chunks or passages,
-	// each with a length of up to 8192 tokens (the maximum input size for
-	// the text-embedding-ada-002 model used by the Embeddings API).
+	// read the document.
 	txt, err := ioutil.ReadFile(doc.Path)
 	Ck(err)
+	return g.chunks(string(txt)), nil
+}
+
+// chunks returns a slice containing the chunk strings for a string.
+func (g *Grokker) chunks(txt string) (c []string) {
+	// Break up the text into smaller text chunks or passages,
+	// each with a length of up to 8192 tokens (the maximum input size for
+	// the text-embedding-ada-002 model used by the Embeddings API).
+	//
 	// for now, just split on paragraph boundaries
 	paragraphs := strings.Split(string(txt), "\n\n")
 	for _, paragraph := range paragraphs {
@@ -396,8 +403,8 @@ func (g *Grokker) Answer(question string, global bool) (resp oai.ChatCompletionR
 	// get all chunks, sorted by similarity to the question.
 	chunks, err := g.FindChunks(question, 0)
 	Ck(err)
-	// reserve 50% of the chunks for the response.
-	maxSize := int(float64(g.MaxChunkSize) * 0.5)
+	// ensure the context is not too long.
+	maxSize := int(float64(g.MaxChunkSize)*0.5) - len(question)
 	// use chunks as context for the answer until we reach the max size.
 	var context string
 	for _, chunk := range chunks {
@@ -464,16 +471,18 @@ func (g *Grokker) Generate(question, ctxt string, global bool) (resp oai.ChatCom
 	}
 
 	// add context from local sources
-	messages = append(messages, []oai.ChatCompletionMessage{
-		{
-			Role:    oai.ChatMessageRoleUser,
-			Content: ctxt,
-		},
-		{
-			Role:    oai.ChatMessageRoleAssistant,
-			Content: "Great! I've read the context.",
-		},
-	}...)
+	if len(ctxt) > 0 {
+		messages = append(messages, []oai.ChatCompletionMessage{
+			{
+				Role:    oai.ChatMessageRoleUser,
+				Content: ctxt,
+			},
+			{
+				Role:    oai.ChatMessageRoleAssistant,
+				Content: "Great! I've read the context.",
+			},
+		}...)
+	}
 
 	// now ask the question
 	messages = append(messages, oai.ChatCompletionMessage{
@@ -527,5 +536,44 @@ func (g *Grokker) RefreshEmbeddings() (err error) {
 		Ck(err)
 	}
 	g.GC()
+	return
+}
+
+var GitCommitPrompt = `
+Use the information in the preceding diff to write a concise git commit message and nothing else. The first line must be a summary of no more than 60 characters that briefly describes the changes in the diff. Use bullet points to describe the changes made. Use present tense. 
+`
+
+// GitCommitMessage generates a git commit message given a diff. It
+// appends a reasonable prompt, and then uses the result as a grokker
+// query.
+func (g *Grokker) GitCommitMessage(diff string) (resp oai.ChatCompletionResponse, query string, err error) {
+	defer Return(&err)
+	// format the prompt
+	prompt := Spf("%s\n%s", diff, GitCommitPrompt)
+	// use the result as a grokker query
+	resp, query, err = g.Answer(prompt, false)
+	// resp, _, err = g.Generate(GitCommitPrompt, diff, false)
+	Ck(err)
+	return
+}
+
+// summarizeDiff summarizes a diff.
+func (g *Grokker) summarizeDiff(diff string) (summary string, err error) {
+	defer Return(&err)
+	maxSize := int(float64(g.MaxChunkSize) * 0.5)
+	// split the diff on filenames
+	chunks := strings.Split(diff, "diff --git")
+	// summarize each file's changes
+	for _, chunk := range chunks {
+		// format the chunk
+		context := Spf("diff --git%s", chunk)
+		if len(context) > maxSize {
+			context = context[:maxSize]
+		}
+		question := "summarize the diff"
+		resp, _, err := g.Generate(question, context, false)
+		Ck(err)
+		summary = Spf("%s\n\n%s", summary, resp.Choices[0].Message.Content)
+	}
 	return
 }

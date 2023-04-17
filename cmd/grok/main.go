@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/alecthomas/kong"
@@ -22,6 +24,7 @@ var cli struct {
 		Question string `arg:"" help:"Question to ask the knowledge base."`
 	} `cmd:"" help:"Ask the knowledge base a question."`
 	Qi      struct{} `cmd:"" help:"Ask the knowledge base a question on stdin."`
+	Commit  struct{} `cmd:"" help:"Generate a git commit message on stdout."`
 	Global  bool     `short:"g" help:"Include results from OpenAI's global knowledge base as well as from local documents."`
 	Verbose bool     `short:"v" help:"Show debug and progress information on stderr."`
 }
@@ -36,12 +39,27 @@ func main() {
 		os.Setenv("DEBUG", "1")
 	}
 
-	// get the current directory
-	dir, err := os.Getwd()
-	Ck(err)
-	grokfn := dir + "/.grok"
+	// find the .grok file in the current or any parent directory
+	grokfn := ".grok"
+	grokpath := ""
+	for level := 0; level < 10; level++ {
+		path := strings.Repeat("../", level) + grokfn
+		if _, err := os.Stat(path); err == nil {
+			grokpath = path
+			break
+		}
+	}
+	if grokpath == "" {
+		Fpf(os.Stderr, "No .grok file found in current directory or any parent directory.")
+		os.Exit(1)
+	}
 
-	var grok *grokker.Grokker
+	// load the .grok file
+	fh, err := os.Open(grokpath)
+	grok, err := grokker.Load(fh)
+	Ck(err)
+	fh.Close()
+
 	switch ctx.Command() {
 	case "add":
 		if len(cli.Add.Paths) < 1 {
@@ -103,7 +121,7 @@ func main() {
 			os.Exit(1)
 		}
 		question := cli.Q.Question
-		resp, _, err := answer(grokfn, question, cli.Global)
+		resp, _, err := answer(grok, grokpath, question, cli.Global)
 		Ck(err)
 		Pl(resp.Choices[0].Message.Content)
 	case "qi":
@@ -113,10 +131,15 @@ func main() {
 		question := string(buf)
 		// trim whitespace
 		question = strings.TrimSpace(question)
-		resp, query, err := answer(grokfn, question, cli.Global)
+		resp, query, err := answer(grok, grokpath, question, cli.Global)
 		Ck(err)
 		_ = query
 		Pf("\n%s\n\n%s\n\n", question, resp.Choices[0].Message.Content)
+	case "commit":
+		// generate a git commit message
+		resp, err := commitMessage(grok)
+		Ck(err)
+		Pf("%s", resp.Choices[0].Message.Content)
 	default:
 		Fpf(os.Stderr, "Error: unrecognized command")
 		os.Exit(1)
@@ -124,25 +147,12 @@ func main() {
 }
 
 // answer a question
-func answer(grokfn, question string, global bool) (resp oai.ChatCompletionResponse, query string, err error) {
+func answer(grok *grokker.Grokker, grokpath string, question string, global bool) (resp oai.ChatCompletionResponse, query string, err error) {
 	defer Return(&err)
 
-	// see if there's a .grok file in the current directory
-	// XXX we should probably do this in the caller
-	if _, err := os.Stat(grokfn); err != nil {
-		Fpf(os.Stderr, "No .grok file found in current directory.")
-		os.Exit(1)
-	}
-
-	// load the .grok file
-	// XXX we should probably do this in the caller
-	fh, err := os.Open(grokfn)
-	grok, err := grokker.Load(fh)
-	Ck(err)
-	fh.Close()
-
 	// update the knowledge base
-	update, err := grok.UpdateEmbeddings(grokfn)
+	// XXX pass timestamp instead of pathname?
+	update, err := grok.UpdateEmbeddings(grokpath)
 	Ck(err)
 
 	// answer the question
@@ -152,11 +162,35 @@ func answer(grokfn, question string, global bool) (resp oai.ChatCompletionRespon
 	// save the .grok file if it was updated
 	// XXX we should probably do this in the caller
 	if update {
-		fh, err := os.Create(grokfn)
+		fh, err := os.Create(grokpath)
 		Ck(err)
 		err = grok.Save(fh)
 		Ck(err)
 		fh.Close()
 	}
+	return
+}
+
+// generate a git commit message
+func commitMessage(grok *grokker.Grokker) (resp oai.ChatCompletionResponse, err error) {
+	defer Return(&err)
+
+	// run `git diff --staged`
+	cmd := exec.Command("git", "diff", "--staged")
+	cmd.Stderr = os.Stderr
+	out, err := cmd.Output()
+	Ck(err)
+	diff := string(out)
+
+	// ensure the diff is not too long
+	if len(diff) > int(float64(grok.MaxChunkSize+len(grokker.GitCommitPrompt))*.7) {
+		err = fmt.Errorf("diff is too long -- try unstaging some files")
+		return
+	}
+
+	// call grokker
+	resp, _, err = grok.GitCommitMessage(diff)
+	Ck(err)
+
 	return
 }
