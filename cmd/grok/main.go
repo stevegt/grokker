@@ -36,6 +36,8 @@ func main() {
 		kong.Description("A command-line tool for having a conversation with a set of documents."),
 	)
 
+	Debug("ctx: %+v", ctx)
+
 	if cli.Verbose {
 		os.Setenv("DEBUG", "1")
 	}
@@ -76,7 +78,7 @@ func main() {
 	fh.Close()
 
 	switch ctx.Command() {
-	case "add":
+	case "add <paths>":
 		if len(cli.Add.Paths) < 1 {
 			Fpf(os.Stderr, "Error: add command requires a filename argument\n")
 			os.Exit(1)
@@ -129,7 +131,7 @@ func main() {
 		for _, doc := range grok.Documents {
 			Pl(doc.Path)
 		}
-	case "q":
+	case "q <question>":
 		// get question from args and print the answer
 		if cli.Q.Question == "" {
 			Fpf(os.Stderr, "Error: q command requires a question argument\n")
@@ -156,7 +158,7 @@ func main() {
 		Ck(err)
 		Pf("%s", resp.Choices[0].Message.Content)
 	default:
-		Fpf(os.Stderr, "Error: unrecognized command\n")
+		Fpf(os.Stderr, "Error: unrecognized command: %s\n", ctx.Command())
 		os.Exit(1)
 	}
 }
