@@ -23,22 +23,33 @@ input documents into Grokker and it will use natural language
 processing to analyze the text and help you answer questions about
 those documents.
 
-$ grok q "What are grokker's subcommands?"
+$ grok q "Describe grokker's subcommands."
 
-It looks like `grokker` has two subcommands: `add` and `q`. 
+Grokker has five subcommands: `add`, `refresh`, `ls`, `q`, and `qi`.
+Here's a brief description of each subcommand:
 
-- `grok add <docfn>` adds one or more documents to the database.
-- `grok [-g] q <question>` asks a question and returns an answer. If
-  the `-g` flag is included, the answer will include results from
-  OpenAI's global knowledge base as well as from local documents.
-  
-$ grok q "I also see a 'qi' subcommand in the code.  What does that do?"
+1. `add`: This subcommand is used to add one or more documents to the
+   database.
+
+2. `refresh`: This subcommand is used to refresh the embeddings for
+   all documents in the database.
+
+3. `ls`: This subcommand is used to list all the documents in the
+   .grok file.
+
+4. `q`: This subcommand is used to ask a question and get an answer.
+   You can pass your question as a command line argument.
+
+5. `qi`: This subcommand is used to ask a question via standard input.
+   You can type your question directly into the console.
+
+$ grok q "What is the `qi` subcommand for?"
 
 The 'qi' subcommand allows you to ask a question by typing it in to
 the standard input rather than passing it as a command-line argument.
-For example, you could do:
+For example, you could say:
 
-```echo "What does the 'qi' subcommand do?" | grok qi ```
+  echo "What is the 'qi' subcommand for?" | grok qi 
 
 This would read the question from standard input and return the
 answer.  This subcommand is especially useful in editor sessions --
@@ -107,15 +118,22 @@ then pressing `<leader>g`. The question will be sent as input to the
 buffer. Note that the mapping assumes that Grokker's `grok` command is
 installed and in your system path.
 
-This will work even better if you turn on VIM's `autowrite` setting --
-that way grokker will always have access to the latest version of your
-document and will include the contents as context for your question.
-
-To turn on `autowrite`, you can say:
+Here is a more complete mapping that first saves the current file so
+its most recent content will be included in the query context.  This
+mapping uses a slightly different method to select the current
+paragraph to be used in the query:
 
 ```
-:set autowrite
-``` 
+:map <leader>g :w<CR>{V}:!grok qi<CR>gqG
+```
+
+Experiment with variations on these mappings -- you might emphasize
+more recent context by including the previous two paragraphs as part
+of the query, or the most recent 50 lines, or the output of `git
+diff`, etc.  (Future versions of grokker are likely to help with this
+by timestamping individual document chunks and prioritizing more
+recent edits, but that's likely to wait for the key-value db rewrite
+mentioned below.)
 
 ## Tell me more about the `-g` flag
 
@@ -177,4 +195,5 @@ API access being suspended or revoked.
 As always, it's a good idea to review the terms and conditions of any
 API service you're considering using to ensure that you're comfortable
 with how your data will be handled.
+
 
