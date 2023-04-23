@@ -179,6 +179,7 @@ func (g *Grokker) AddDocument(path string) (err error) {
 // RemoveDocument removes a document from the Grokker database.
 func (g *Grokker) RemoveDocument(doc *Document) (err error) {
 	defer Return(&err)
+	Debug("removing document %s ...", doc.Path)
 	// remove the document from the database.
 	for i, d := range g.Documents {
 		if d.Path == doc.Path {
@@ -533,6 +534,14 @@ func (g *Grokker) RefreshEmbeddings() (err error) {
 	defer Return(&err)
 	// regenerate the embeddings for each document.
 	for _, doc := range g.Documents {
+		// remove file from list if it doesn't exist.
+		_, err := os.Stat(doc.Path)
+		if os.IsNotExist(err) {
+			// remove the document from the database.
+			g.RemoveDocument(doc)
+			continue
+		}
+		Ck(err)
 		_, err = g.UpdateDocument(doc)
 		Ck(err)
 	}
