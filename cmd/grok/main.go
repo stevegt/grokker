@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -26,8 +25,12 @@ var cli struct {
 	} `cmd:"" help:"Ask the knowledge base a question."`
 	Qi      struct{} `cmd:"" help:"Ask the knowledge base a question on stdin."`
 	Commit  struct{} `cmd:"" help:"Generate a git commit message on stdout."`
-	Global  bool     `short:"g" help:"Include results from OpenAI's global knowledge base as well as from local documents."`
-	Verbose bool     `short:"v" help:"Show debug and progress information on stderr."`
+	Models  struct{} `cmd:"" help:"List all available models."`
+	Upgrade struct {
+		Model string `arg:"" help:"Model to upgrade to."`
+	} `cmd:"" help:"Upgrade the model used by the knowledge base."`
+	Global  bool `short:"g" help:"Include results from OpenAI's global knowledge base as well as from local documents."`
+	Verbose bool `short:"v" help:"Show debug and progress information on stderr."`
 }
 
 func main() {
@@ -45,7 +48,10 @@ func main() {
 	if ctx.Command() == "init" {
 		// initialize a new .grok file in the current directory
 		// create a new Grokker object
-		grok := grokker.New()
+		// XXX use the default model for now, but we should accept an
+		// optional model name as an init argument
+		grok, err := grokker.New("")
+		Ck(err)
 		// save it to .grok
 		fh, err := os.Create(".grok")
 		Ck(err)
@@ -85,7 +91,8 @@ func main() {
 		}
 		// create a new .grok file if it doesn't exist
 		if _, err := os.Stat(grokfn); os.IsNotExist(err) {
-			grok = grokker.New()
+			grok, err = grokker.New("")
+			Ck(err)
 		} else {
 			// load the .grok file
 			fh, err := os.Open(grokfn)
@@ -157,6 +164,23 @@ func main() {
 		resp, err := commitMessage(grok)
 		Ck(err)
 		Pf("%s", resp.Choices[0].Message.Content)
+	case "models":
+		// list all available models
+		models, err := grok.ListModels()
+		Ck(err)
+		for _, model := range models {
+			Pl(model)
+		}
+	case "upgrade <model>":
+		// upgrade the model used by the knowledge base
+		err := grok.UpgradeModel(cli.Upgrade.Model)
+		Ck(err)
+		Pf("Upgraded model to %s\n", cli.Upgrade.Model)
+		// save the .grok file
+		fh, err = os.Create(grokfn)
+		err = grok.Save(fh)
+		Ck(err)
+		fh.Close()
 	default:
 		Fpf(os.Stderr, "Error: unrecognized command: %s\n", ctx.Command())
 		os.Exit(1)
@@ -198,12 +222,6 @@ func commitMessage(grok *grokker.Grokker) (resp oai.ChatCompletionResponse, err 
 	out, err := cmd.Output()
 	Ck(err)
 	diff := string(out)
-
-	// ensure the diff is not too long
-	if len(diff) > int(float64(grok.MaxChunkSize+len(grokker.GitCommitPrompt))*.7) {
-		err = fmt.Errorf("diff is too long -- try unstaging some files")
-		return
-	}
 
 	// call grokker
 	resp, _, err = grok.GitCommitMessage(diff)

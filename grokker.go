@@ -3,6 +3,7 @@ package grokker
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"math"
@@ -13,7 +14,8 @@ import (
 	. "github.com/stevegt/goadapt"
 
 	"github.com/fabiustech/openai"
-	"github.com/fabiustech/openai/models"
+	fabius_models "github.com/fabiustech/openai/models"
+
 	oai "github.com/sashabaranov/go-openai"
 )
 
@@ -53,6 +55,70 @@ import (
 // Repeat steps 3-5 for each question asked, updating the conversation
 // prompt as needed.
 
+// Model is a type for model name and characteristics
+type Model struct {
+	Name       string
+	TokenLimit int
+	oaiModel   string
+	active     bool
+}
+
+func (m *Model) String() string {
+	status := ""
+	if m.active {
+		status = "*"
+	}
+	return fmt.Sprintf("%1s %-20s tokens: %d)", status, m.Name, m.TokenLimit)
+}
+
+// Models is a type that manages the set of available models.
+type Models struct {
+	// The list of available models.
+	Available map[string]*Model
+}
+
+// NewModels creates a new Models object.
+func NewModels() (m *Models) {
+	m = &Models{}
+	m.Available = map[string]*Model{
+		"gpt-3.5-turbo": {"", 4096, oai.GPT3Dot5Turbo, false},
+		"gpt-4":         {"", 8192, oai.GPT4, false},
+		"gpt-4-32k":     {"", 32768, oai.GPT432K, false}, // XXX deprecated in openai-go 1.9.0
+		// "gpt-4-32k": {"", 32768, oai.GPT4_32K, false}, // XXX future version of openai-go
+	}
+	// fill in the model names
+	for k, v := range m.Available {
+		v.Name = k
+		m.Available[k] = v
+	}
+	return
+}
+
+// ls returns a list of available models.
+func (models *Models) ls() (list []*Model) {
+	for _, v := range models.Available {
+		list = append(list, v)
+	}
+	return
+}
+
+var DefaultModel = "gpt-3.5-turbo"
+
+// findModel returns the model name and model_t given a model name.
+// if the given model name is empty, then use DefaultModel.
+func (models *Models) findModel(model string) (name string, m *Model, err error) {
+	if model == "" {
+		model = DefaultModel
+	}
+	m, ok := models.Available[model]
+	if !ok {
+		err = fmt.Errorf("model %q not found", model)
+		return
+	}
+	name = model
+	return
+}
+
 // Document is a single document in a document repository.
 type Document struct {
 	// The path to the document file.
@@ -81,37 +147,89 @@ type Grokker struct {
 	Documents []*Document
 	// The list of chunks in the database.
 	Chunks []*Chunk
-	// The maximum number of tokens to use for each document chunk.
-	MaxChunkSize int
-	// Approximate number of characters per token.
-	// XXX replace with a real tokenizer.
-	CharsPerToken float64
+	// model specs
+	models   *Models
+	Model    string
+	oaiModel string
+	// XXX use a real tokenizer and replace maxChunkLen with tokenLimit.
+	// tokenLimit int
+	maxChunkLen int
 }
 
 // New creates a new Grokker database.
-func New() *Grokker {
-	g := &Grokker{
-		MaxChunkSize: 4096 * 4.0,
-		// XXX replace with a real tokenizer.
-		CharsPerToken: 3.5,
-	}
-	token := os.Getenv("OPENAI_API_KEY")
-	g.embeddingClient = openai.NewClient(token)
-	g.chatClient = oai.NewClient(token)
-	return g
+func New(model string) (g *Grokker, err error) {
+	defer Return(&err)
+	g = &Grokker{}
+	err = g.initModel(model)
+	Ck(err)
+	g.initClients()
+	return
 }
 
 // Load loads a Grokker database from an io.Reader.
 func Load(r io.Reader) (g *Grokker, err error) {
+	defer Return(&err)
 	buf, err := ioutil.ReadAll(r)
 	Ck(err)
-	g = New()
+	g = &Grokker{}
 	err = json.Unmarshal(buf, g)
+	Ck(err)
+	err = g.initModel(g.Model)
+	Ck(err)
+	g.initClients()
+	return
+}
+
+// initClients initializes the OpenAI clients.
+func (g *Grokker) initClients() {
+	authtoken := os.Getenv("OPENAI_API_KEY")
+	g.embeddingClient = openai.NewClient(authtoken)
+	g.chatClient = oai.NewClient(authtoken)
+	return
+}
+
+// initModel initializes the model for a new or reloaded Grokker database.
+func (g *Grokker) initModel(model string) (err error) {
+	defer Return(&err)
+	g.models = NewModels()
+	model, m, err := g.models.findModel(model)
+	Ck(err)
+	m.active = true
+	g.Model = model
+	g.oaiModel = m.oaiModel
+	// XXX replace with a real tokenizer.
+	charsPerToken := 3.5
+	g.maxChunkLen = int(math.Floor(float64(m.TokenLimit) * charsPerToken))
+	return
+}
+
+// UpgradeModel upgrades the model for a Grokker database.
+func (g *Grokker) UpgradeModel(model string) (err error) {
+	defer Return(&err)
+	model, m, err := g.models.findModel(model)
+	Ck(err)
+	oldModel, oldM, err := g.getModel()
+	Ck(err)
+	// allow upgrade to a larger model, but not a smaller one
+	if m.TokenLimit < oldM.TokenLimit {
+		err = fmt.Errorf("cannot downgrade model from '%s' to '%s'", oldModel, model)
+		return
+	}
+	g.initModel(model)
+	return
+}
+
+// getModel returns the current model name and model_t from the db
+func (g *Grokker) getModel() (model string, m *Model, err error) {
+	defer Return(&err)
+	model, m, err = g.models.findModel(g.Model)
+	Ck(err)
 	return
 }
 
 // Save saves a Grokker database as json data in an io.Writer.
 func (g *Grokker) Save(w io.Writer) (err error) {
+	defer Return(&err)
 	data, err := json.Marshal(g)
 	Ck(err)
 	_, err = w.Write(data)
@@ -290,7 +408,7 @@ func (g *Grokker) CreateEmbeddings(texts []string) (embeddings [][]float64, err 
 		}
 		req := &openai.EmbeddingRequest{
 			Input: texts[i:end],
-			Model: models.AdaEmbeddingV2,
+			Model: fabius_models.AdaEmbeddingV2,
 		}
 		res, err := c.CreateEmbeddings(context.Background(), req)
 		Ck(err)
@@ -323,9 +441,9 @@ func (g *Grokker) chunks(txt string) (c []string) {
 		// split the paragraph into chunks if it's too long.
 		// XXX replace with a real tokenizer.
 		for len(paragraph) > 0 {
-			if len(paragraph) > g.MaxChunkSize {
-				c = append(c, paragraph[:g.MaxChunkSize])
-				paragraph = paragraph[g.MaxChunkSize:]
+			if len(paragraph) > g.maxChunkLen {
+				c = append(c, paragraph[:g.maxChunkLen])
+				paragraph = paragraph[g.maxChunkLen:]
 			} else {
 				c = append(c, paragraph)
 				paragraph = ""
@@ -406,7 +524,7 @@ func (g *Grokker) Answer(question string, global bool) (resp oai.ChatCompletionR
 	chunks, err := g.FindChunks(question, 0)
 	Ck(err)
 	// ensure the context is not too long.
-	maxSize := int(float64(g.MaxChunkSize)*0.5) - len(question)
+	maxSize := int(float64(g.maxChunkLen)*0.5) - len(question)
 	// use chunks as context for the answer until we reach the max size.
 	var context string
 	for _, chunk := range chunks {
@@ -506,6 +624,8 @@ func (g *Grokker) Generate(question, ctxt string, global bool) (resp oai.ChatCom
 func (g *Grokker) chat(messages []oai.ChatCompletionMessage) (resp oai.ChatCompletionResponse, err error) {
 	defer Return(&err)
 
+	model := g.oaiModel
+	Debug("chat model: %s", model)
 	Debug("chat: messages: %v", messages)
 
 	// use 	"github.com/sashabaranov/go-openai"
@@ -513,7 +633,7 @@ func (g *Grokker) chat(messages []oai.ChatCompletionMessage) (resp oai.ChatCompl
 	resp, err = client.CreateChatCompletion(
 		context.Background(),
 		oai.ChatCompletionRequest{
-			Model:    oai.GPT3Dot5Turbo,
+			Model:    model,
 			Messages: messages,
 		},
 	)
@@ -525,6 +645,15 @@ func (g *Grokker) chat(messages []oai.ChatCompletionMessage) (resp oai.ChatCompl
 	totalBytes += len(resp.Choices[0].Message.Content)
 	ratio := float64(totalBytes) / float64(resp.Usage.TotalTokens)
 	Debug("total tokens: %d  char/token ratio: %.1f\n", resp.Usage.TotalTokens, ratio)
+	return
+}
+
+// ListModels lists the available models.
+func (g *Grokker) ListModels() (models []*Model, err error) {
+	defer Return(&err)
+	for _, model := range g.models.Available {
+		models = append(models, model)
+	}
 	return
 }
 
@@ -550,7 +679,7 @@ func (g *Grokker) RefreshEmbeddings() (err error) {
 }
 
 var GitCommitPrompt = `
-Use the information in the preceding diff to write a concise git commit message and nothing else. The first line must be a summary of no more than 60 characters that briefly describes the changes in the diff. Use bullet points to describe the changes made. Use present tense. 
+Use the information in the following diff to write a concise git commit message and nothing else. The first line of the commit message must be a summary of no more than 60 characters that briefly describes the changes in the diff. Use bullet points to describe the changes made. Use present tense. 
 `
 
 // GitCommitMessage generates a git commit message given a diff. It
@@ -558,8 +687,16 @@ Use the information in the preceding diff to write a concise git commit message 
 // query.
 func (g *Grokker) GitCommitMessage(diff string) (resp oai.ChatCompletionResponse, query string, err error) {
 	defer Return(&err)
+
 	// format the prompt
-	prompt := Spf("%s\n%s", diff, GitCommitPrompt)
+	prompt := Spf("%s\n%s", GitCommitPrompt, diff)
+
+	// ensure the prompt is not too long
+	if len(prompt) > int(float64(g.maxChunkLen)*.7) {
+		err = fmt.Errorf("diff is too long -- try unstaging some files")
+		return
+	}
+
 	// use the result as a grokker query
 	resp, query, err = g.Answer(prompt, false)
 	// resp, _, err = g.Generate(GitCommitPrompt, diff, false)
@@ -570,7 +707,7 @@ func (g *Grokker) GitCommitMessage(diff string) (resp oai.ChatCompletionResponse
 // summarizeDiff summarizes a diff.
 func (g *Grokker) summarizeDiff(diff string) (summary string, err error) {
 	defer Return(&err)
-	maxSize := int(float64(g.MaxChunkSize) * 0.5)
+	maxSize := int(float64(g.maxChunkLen) * 0.5)
 	// split the diff on filenames
 	chunks := strings.Split(diff, "diff --git")
 	// summarize each file's changes
