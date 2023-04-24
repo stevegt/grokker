@@ -54,19 +54,25 @@ For example, you could say:
 
 This would read the question from standard input and return the
 answer.  This subcommand is especially useful in editor sessions --
-more about this below. ```
+more about this below. 
+```
 
 ## Installation
 
-``` go install github.com/stevegt/grokker/cmd/grok ``` You'll need an
-account with OpenAI and an API key. You can create and manage your API
-keys in your OpenAI dashboard.
+``` 
+go install github.com/stevegt/grokker/cmd/grok 
+``` 
+
+You'll need an account with OpenAI and an API key. You can create and
+manage your API keys in your OpenAI dashboard.
 
 Before using Grokker, you'll need to set your API key as an
 environment variable in your terminal session or .bashrc with the
 following command:
 
-``` export OPENAI_API_KEY=<your_api_key> ```
+``` 
+export OPENAI_API_KEY=<your_api_key> 
+```
 
 ## Tell me more about the `qi` subcommand
 
@@ -103,7 +109,9 @@ versionable in git.
 To use the `qi` subcommand in a VIM editor session, you can add a
 keyboard mapping to your vimrc file. Here's an example mapping:
 
-``` :map <leader>g vap:!grok qi<CR> ```
+``` 
+:map <leader>g vap:!grok qi<CR> 
+```
 
 This mapping will allow you to ask a question by typing it in VIM and
 then pressing `<leader>g`. The question will be sent as input to the
@@ -111,12 +119,8 @@ then pressing `<leader>g`. The question will be sent as input to the
 buffer. Note that the mapping assumes that Grokker's `grok` command is
 installed and in your system path.
 
-Here is a more complete mapping that first saves the current file so
-its most recent content will be included in the query context.  This
-mapping uses a slightly different method to select the current
-paragraph to be used in the query:
-
-``` :map <leader>g :w<CR>{V}:!grok qi<CR>gqG ```
+You will get better results if you `:set autowrite` so the current
+file's most recent content will be included in the question context. 
 
 Experiment with variations on these mappings -- you might emphasize
 more recent context by including the previous two paragraphs as part
@@ -179,8 +183,7 @@ Some outstanding items mentioned in the code and TODO.md are:
   comparing summaries with individual chunks, or by negating and
   comparison; see demorgan, etc.
 
-# Important disclaimer regarding sensitive and confidential
-information
+# Important disclaimer regarding sensitive and confidential information
 
 Using OpenAI's API services to analyze documents means that any
 document you `grok add`, and any question you ask of grokker, will be
