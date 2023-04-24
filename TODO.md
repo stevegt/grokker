@@ -36,5 +36,5 @@ x add verbose mode, ensure messages go to stderr
   - works like "go vet" -- look for inconsistencies, possibly by
     comparing summaries with individual chunks, or by negating and
     comparison; see demorgan etc.
-
+- add 'downgrade' subcommand 
   

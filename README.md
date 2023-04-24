@@ -138,22 +138,37 @@ is larger and may take more time to search through. If you don't
 include the `-g` flag, Grokker will prefer the local documents that
 you've added.
 
-## Does the `grok` command conflict with any other common UNIX/Linux
-commands?
+## What are the `models` and `upgrade` subcommands?
+
+The `models` subcommand is used to list all the available OpenAI
+models for text processing in Grokker, including their name and
+maximum token limit. 
+
+The `upgrade` subcommand is used to upgrade the local .grok db to a
+newer model. It only allows upgrading the model to a model with a
+larger token limit. (Downgrading would require re-chunking and
+re-embedding all documents in the db to convert them to the smaller
+chunk size.)
+
+## Does the `grok` command conflict with any other common UNIX/Linux commands?
 
 Yes.  For instance, Jordan Sissel's log file analysis tool also uses a
 `grok` command.  If you want to install grokker on the same machine,
 you can install it using an alternate command name.  Here's an example
 of installing grokker as `grokker` instead of `grok`:
 
-``` cd /tmp git clone http://github.com/stevegt/grokker cd
-grokker/cmd/grok/ go build -o grokker cp grokker $GOPATH/bin ```
+``` 
+cd /tmp 
+git clone http://github.com/stevegt/grokker 
+cd grokker/cmd/grok/ 
+go build -o grokker 
+cp grokker $GOPATH/bin 
+```
 
 ## Is grokker done?  What are some of the outstanding items?
 
 Some outstanding items mentioned in the code and TODO.md are:
 
-- complete usage splash
 - replace JSON storage with kv (key-value) storage
 - add 'sh' subcommand to support dot commands for directives such as
   adding a document, updating all embeddings, and reviewing a file for
