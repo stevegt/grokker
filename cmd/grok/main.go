@@ -104,7 +104,7 @@ func main() {
 		// add the documents
 		for _, docfn := range cli.Add.Paths {
 			// add the document
-			Debug(" adding %s...", docfn)
+			Fpf(os.Stderr, " adding %s...\n", docfn)
 			err = grok.AddDocument(docfn)
 			Ck(err)
 		}
