@@ -153,7 +153,8 @@ type Grokker struct {
 	oaiModel string
 	// XXX use a real tokenizer and replace maxChunkLen with tokenLimit.
 	// tokenLimit int
-	maxChunkLen int
+	maxChunkLen          int
+	maxEmbeddingChunkLen int
 }
 
 // New creates a new Grokker database.
@@ -198,8 +199,11 @@ func (g *Grokker) initModel(model string) (err error) {
 	g.Model = model
 	g.oaiModel = m.oaiModel
 	// XXX replace with a real tokenizer.
-	charsPerToken := 3.5
+	charsPerToken := 3.1
 	g.maxChunkLen = int(math.Floor(float64(m.TokenLimit) * charsPerToken))
+	// XXX replace with a real tokenizer.
+	// XXX hardcoded for the text-embedding-ada-002 model
+	g.maxEmbeddingChunkLen = int(math.Floor(float64(8192) * charsPerToken))
 	return
 }
 
@@ -339,6 +343,7 @@ func (g *Grokker) GC() (err error) {
 // UpdateDocument updates the embeddings for a document and returns
 // true if the document was updated.
 func (g *Grokker) UpdateDocument(doc *Document) (updated bool, err error) {
+	defer Return(&err)
 	// XXX much of this code is inefficient and will be replaced
 	// when we have a kv store.
 	defer Return(&err)
@@ -400,14 +405,48 @@ func (g *Grokker) UpdateDocument(doc *Document) (updated bool, err error) {
 func (g *Grokker) CreateEmbeddings(texts []string) (embeddings [][]float64, err error) {
 	// use github.com/fabiustech/openai library
 	c := g.embeddingClient
-	// only send 100 chunks at a time
-	for i := 0; i < len(texts); i += 100 {
-		end := i + 100
-		if end > len(texts) {
-			end = len(texts)
+	// iterate over the text chunks and create one or more embedding queries
+	Assert(len(texts) > 0)
+	for i := 0; i < len(texts); {
+		// add texts to the current query until we reach the token limit
+		// XXX use a real tokenizer
+		// i is the index of the first text in the current query
+		// j is the index of the last text in the current query
+		// XXX this is ugly, fragile, and needs to be tested and refactored
+		totalLen := 0
+		j := i
+		for {
+			nextLen := len(texts[j])
+			Debug("i=%d j=%d nextLen=%d totalLen=%d", i, j, nextLen, totalLen)
+			Assert(nextLen > 0)
+			Assert(nextLen <= g.maxEmbeddingChunkLen, "nextLen=%d maxEmbeddingChunkLen=%d", nextLen, g.maxEmbeddingChunkLen)
+			if totalLen+nextLen >= g.maxEmbeddingChunkLen {
+				j--
+				Debug("breaking because totalLen=%d nextLen=%d", totalLen, nextLen)
+				break
+			}
+			totalLen += nextLen
+			if j == len(texts)-1 {
+				Debug("breaking because j=%d len(texts)=%d", j, len(texts))
+				break
+			}
+			j++
 		}
+		Debug("i=%d j=%d totalLen=%d", i, j, totalLen)
+		Assert(j >= i, "j=%d i=%d", j, i)
+		Assert(totalLen > 0, "totalLen=%d", totalLen)
+		inputs := texts[i : j+1]
+		// double-check that the total length is within the limit and that
+		// no individual text is too long.
+		totalLen = 0
+		for _, text := range inputs {
+			totalLen += len(text)
+			Debug("len(text)=%d, totalLen=%d", len(text), totalLen)
+			Assert(len(text) <= g.maxEmbeddingChunkLen, "text too long: %d", len(text))
+		}
+		Assert(totalLen <= g.maxEmbeddingChunkLen, "totalLen=%d maxEmbeddingChunkLen=%d", totalLen, g.maxEmbeddingChunkLen)
 		req := &openai.EmbeddingRequest{
-			Input: texts[i:end],
+			Input: inputs,
 			Model: fabius_models.AdaEmbeddingV2,
 		}
 		res, err := c.CreateEmbeddings(context.Background(), req)
@@ -415,8 +454,10 @@ func (g *Grokker) CreateEmbeddings(texts []string) (embeddings [][]float64, err 
 		for _, em := range res.Data {
 			embeddings = append(embeddings, em.Embedding)
 		}
+		i = j + 1
 	}
 	Debug("created %d embeddings", len(embeddings))
+	Assert(len(embeddings) == len(texts))
 	return
 }
 
@@ -431,19 +472,23 @@ func (g *Grokker) chunkStrings(doc *Document) (c []string, err error) {
 
 // chunks returns a slice containing the chunk strings for a string.
 func (g *Grokker) chunks(txt string) (c []string) {
-	// Break up the text into smaller text chunks or passages,
-	// each with a length of up to 8192 tokens (the maximum input size for
-	// the text-embedding-ada-002 model used by the Embeddings API).
+	// Break up the text into smaller text chunks or passages, each
+	// with a length of up to the limit for the model used by the
+	// Embeddings API
 	//
-	// for now, just split on paragraph boundaries
+	// XXX splitting on paragraphs is not ideal.  smarter splitting
+	// might look at the structure of the text and split on
+	// sections, chapters, etc.  it might also be useful to include
+	// metadata such as file names.
 	paragraphs := strings.Split(string(txt), "\n\n")
 	for _, paragraph := range paragraphs {
 		// split the paragraph into chunks if it's too long.
 		// XXX replace with a real tokenizer.
 		for len(paragraph) > 0 {
-			if len(paragraph) > g.maxChunkLen {
-				c = append(c, paragraph[:g.maxChunkLen])
-				paragraph = paragraph[g.maxChunkLen:]
+			if len(paragraph) >= g.maxEmbeddingChunkLen {
+				split := g.maxEmbeddingChunkLen - 1
+				c = append(c, paragraph[:split])
+				paragraph = paragraph[split:]
 			} else {
 				c = append(c, paragraph)
 				paragraph = ""
