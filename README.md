@@ -169,7 +169,7 @@ go build -o grokker
 cp grokker $GOPATH/bin 
 ```
 
-## Is grokker done?  What are some use cases it already supports?
+## Is grokker done?  
 
 From grokker's original author (stevegt):  
 
@@ -177,41 +177,51 @@ Grokker is not done, but I use it extensively every day. See
 [TODO.md](./TODO.md) for a pretty long list of wishlist and brainstorm
 items.  At this time, refactoring the storage for text chunks and
 embeddings is likely the most important -- that .grok file can get
-pretty big, but so far I haven't seen performance problems even when
-grokking several dozen documents or source code files.  But I want to
-be able to, for instance, grok an entire monorepo of hundreds of files
-without concerns.
+pretty big. So far I haven't seen performance problems even when
+grokking several dozen documents or source code files, but I want to
+be able to grok an entire tree of hundreds of files without concerns.
 
-In all of the following cases, I'd say my own productivity has
+In all of the following use cases, I'd say my own productivity has
 increased by an order of magnitude -- I'm finding myself finishing
 projects in days that previously would have taken weeks.  What's
 really nice is that I'm finally making progress on years-old complex
 projects that were previously stalled.  
 
+### What are some use cases grokker already supports?
+
+In all of the following use cases, I tend to create and `grok add` a
+`context.md` file that I use as a scratchpad, writing and refining
+questions and answers as I work on other files in the same directory.
+This file is my interactive, animated [rubber
+duck](https://en.wikipedia.org/wiki/Rubber_duck_debugging).  This
+technique has worked so well that I'm considering switching to using
+`grok.md` for this filename and proposing it as a best practice.
+
 Grokker has been a huge help in its original use case -- getting up to
 speed quickly on complex topics, documents, and code bases.  It's
 particularly good at translating the unique terminology that tends to
-exist in specialized papers and code -- the large language models
-backing grokker are optimized for inferring meaning from context.
-This allows them to expand terms into more general language even in
+exist in specialized papers and code. The large language models
+backing grokker are optimized for inferring meaning from context;
+this allows them to expand terms into more general language even in
 cases where the original author was unable to make that difficult
 leap.
 
-But I've been pleasantly surprised by how much grokker has also helped
+I've been pleasantly surprised by how much grokker has also helped
 translate my own ideas into documents and code.  I can describe things
-in my own terms in an editor buffer, and just as with others' works,
-the language models do a better job than I can of translating into
-either more-general human language or executable code.  
+in my own terms in one or more files, and just as with others' works,
+the language models do a better job than I can of translating my
+terminology into more-general human language and executable code.  
 
-Another useful technique is to ask the model to ask me questions about
-a concept I'm having trouble getting out of my own head into text --
-this works great.  It unlocks writers' block and helps to more quickly
-resolve uncertainties. 
-
-Another way to use grokker is as an interactive, animated [rubber
-duck](https://en.wikipedia.org/wiki/Rubber_duck_debugging). The large
-language models evolved in the year 2023 and later are proving
-themselves to be more than qualified to do that job.
+Another useful technique I've found is to prompt the model to ask me
+questions about a concept I'm having trouble getting out of my own
+head into text; I then ask the model to answer its own questions, then
+I manually edit the answers to reflect what I'm actually thinking.
+This clears writer's block, reduces my own typing workload by moving
+me into the role of editor, and helps to more quickly detect and
+resolve uncertainties.  Because grokker will include my edited text as
+context in future model queries, this provides feedback to the model,
+causing future answers to converge toward my intent.  (See
+[RLHF](https://en.wikipedia.org/wiki/Reinforcement_learning_from_human_feedback).)
 
 # Important disclaimer regarding sensitive and confidential information
 

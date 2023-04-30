@@ -5,6 +5,9 @@
     swap to puptree later
   - add 'migrate' subcommand to convert db from json to kv
 - add cli test cases
+- make workflow more like git:
+  - add 'grok status'
+  - add .grokignore
 - consider implementing a 'chat' subcommand that would maintain 
   user/AI headings on each text block in an edit buffer and use those
   in chat completion message
