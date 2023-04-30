@@ -5,11 +5,10 @@
   - cache and any external APIs are called via interfaces 
 - add summary tree of all chunks
   - via PUP treeing
-x complete usage splash
-x add verbose mode, ensure messages go to stderr
 - replace json storage with kv
   - write kv.go, use it as an adapter so we can use e.g. bbolt now and
     swap to puptree later
+  - add 'migrate' subcommand to convert db from json to kv
 - write db.go, four buckets:
   - each chunk keyed by hash
   - each embedding keyed by hash
@@ -37,4 +36,7 @@ x add verbose mode, ensure messages go to stderr
     comparing summaries with individual chunks, or by negating and
     comparison; see demorgan etc.
 - add 'downgrade' subcommand 
-  
+- think through what a scripting or compiled language would look like
+  that would let us generate context from question+db, see and edit
+  the query before sending, have results incorporated in same buffer
+  as part of context for next query

@@ -405,8 +405,11 @@ func (g *Grokker) UpdateDocument(doc *Document) (updated bool, err error) {
 func (g *Grokker) CreateEmbeddings(texts []string) (embeddings [][]float64, err error) {
 	// use github.com/fabiustech/openai library
 	c := g.embeddingClient
+	// simply return an empty list if there are no texts.
+	if len(texts) == 0 {
+		return
+	}
 	// iterate over the text chunks and create one or more embedding queries
-	Assert(len(texts) > 0)
 	for i := 0; i < len(texts); {
 		// add texts to the current query until we reach the token limit
 		// XXX use a real tokenizer
