@@ -169,19 +169,49 @@ go build -o grokker
 cp grokker $GOPATH/bin 
 ```
 
-## Is grokker done?  What are some of the outstanding items?
+## Is grokker done?  What are some use cases it already supports?
 
-Some outstanding items mentioned in the code and TODO.md are:
+From grokker's original author (stevegt):  
 
-- replace JSON storage with kv (key-value) storage
-- add 'sh' subcommand to support dot commands for directives such as
-  adding a document, updating all embeddings, and reviewing a file for
-  recently added context, acting otherwise as a chat client and adding
-  each message to context, and adding each tx/rx message to context
-  tree
-- add 'vet' subcommand to look for inconsistencies, possibly by
-  comparing summaries with individual chunks, or by negating and
-  comparison; see demorgan, etc.
+Grokker is not done, but I use it extensively every day. See
+[TODO.md](./TODO.md) for a pretty long list of wishlist and brainstorm
+items.  At this time, refactoring the storage for text chunks and
+embeddings is likely the most important -- that .grok file can get
+pretty big, but so far I haven't seen performance problems even when
+grokking several dozen documents or source code files.  But I want to
+be able to, for instance, grok an entire monorepo of hundreds of files
+without concerns.
+
+In all of the following cases, I'd say my own productivity has
+increased by an order of magnitude -- I'm finding myself finishing
+projects in days that previously would have taken weeks.  What's
+really nice is that I'm finally making progress on years-old complex
+projects that were previously stalled.  
+
+Grokker has been a huge help in its original use case -- getting up to
+speed quickly on complex topics, documents, and code bases.  It's
+particularly good at translating the unique terminology that tends to
+exist in specialized papers and code -- the large language models
+backing grokker are optimized for inferring meaning from context.
+This allows them to expand terms into more general language even in
+cases where the original author was unable to make that difficult
+leap.
+
+But I've been pleasantly surprised by how much grokker has also helped
+translate my own ideas into documents and code.  I can describe things
+in my own terms in an editor buffer, and just as with others' works,
+the language models do a better job than I can of translating into
+either more-general human language or executable code.  
+
+Another useful technique is to ask the model to ask me questions about
+a concept I'm having trouble getting out of my own head into text --
+this works great.  It unlocks writers' block and helps to more quickly
+resolve uncertainties. 
+
+Another way to use grokker is as an interactive, animated [rubber
+duck](https://en.wikipedia.org/wiki/Rubber_duck_debugging). The large
+language models evolved in the year 2023 and later are proving
+themselves to be more than qualified to do that job.
 
 # Important disclaimer regarding sensitive and confidential information
 

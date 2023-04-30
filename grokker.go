@@ -575,6 +575,7 @@ func (g *Grokker) Answer(question string, global bool) (resp oai.ChatCompletionR
 	var context string
 	for _, chunk := range chunks {
 		context += chunk.Text + "\n\n"
+		// XXX promptTmpl doesn't appear to be in use atm
 		if len(context)+len(promptTmpl) > maxSize {
 			break
 		}
@@ -597,8 +598,6 @@ var promptTmpl = `{{.Question}}
 
 Context:
 {{.Context}}`
-
-var XXXpromptTmpl = `{{.Question}}`
 
 // Generate returns the answer to a question.
 func (g *Grokker) Generate(question, ctxt string, global bool) (resp oai.ChatCompletionResponse, query string, err error) {

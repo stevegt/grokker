@@ -1,4 +1,15 @@
+- don't store text chunks -- just hash them instead, and store
+  hash, filename, timestamp, position, length, and embedding.
+- replace json storage with kv
+  - write kv.go, use it as an adapter so we can use e.g. bbolt now and
+    swap to puptree later
+  - add 'migrate' subcommand to convert db from json to kv
 - add cli test cases
+- consider implementing a 'chat' subcommand that would maintain 
+  user/AI headings on each text block in an edit buffer and use those
+  in chat completion message
+- review/implement use of system message for gpt-4, since it's better
+  supported in that model
 - convert universe into a general purpose PUP processor 
   - define Go API for PUP calls
     - don't worry about wire format for now
@@ -7,10 +18,6 @@
   - cache and any external APIs are called via interfaces 
 - add summary tree of all chunks
   - via PUP treeing
-- replace json storage with kv
-  - write kv.go, use it as an adapter so we can use e.g. bbolt now and
-    swap to puptree later
-  - add 'migrate' subcommand to convert db from json to kv
 - write db.go, four buckets:
   - each chunk keyed by hash
   - each embedding keyed by hash
