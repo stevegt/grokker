@@ -10,6 +10,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	. "github.com/stevegt/goadapt"
 
@@ -243,12 +244,9 @@ func (g *Grokker) Save(w io.Writer) (err error) {
 // UpdateEmbeddings updates the embeddings for any documents that have
 // changed since the last time the embeddings were updated.  It returns
 // true if any embeddings were updated.
-func (g *Grokker) UpdateEmbeddings(grokfn string) (update bool, err error) {
+func (g *Grokker) UpdateEmbeddings(lastUpdate time.Time) (update bool, err error) {
 	defer Return(&err)
 	// we use the timestamp of the grokfn as the last embedding update time.
-	fi, err := os.Stat(grokfn)
-	Ck(err)
-	lastUpdate := fi.ModTime()
 	for _, doc := range g.Documents {
 		// check if the document has changed.
 		fi, err := os.Stat(doc.Path)

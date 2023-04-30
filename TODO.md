@@ -1,5 +1,7 @@
+- add cli test cases
 - convert universe into a general purpose PUP processor 
-  - define Go API for PUP as an interface
+  - define Go API for PUP calls
+    - don't worry about wire format for now
   - universe implements PUP API 
   - bbolt is cache in PUP processor
   - cache and any external APIs are called via interfaces 
