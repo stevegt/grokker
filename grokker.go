@@ -574,7 +574,9 @@ func (g *Grokker) Answer(question string, global bool) (resp oai.ChatCompletionR
 	// use chunks as context for the answer until we reach the max size.
 	var context string
 	for _, chunk := range chunks {
-		context += chunk.Text + "\n\n"
+		// context += chunk.Text + "\n\n"
+		// include filename in context
+		context += Spf("%s:\n\n%s\n\n", chunk.Document.Path, chunk.Text)
 		// XXX promptTmpl doesn't appear to be in use atm
 		if len(context)+len(promptTmpl) > maxSize {
 			break
