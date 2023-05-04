@@ -468,11 +468,11 @@ func (g *Grokker) chunkStrings(doc *Document) (c []string, err error) {
 	// read the document.
 	txt, err := ioutil.ReadFile(doc.Path)
 	Ck(err)
-	return g.chunks(string(txt)), nil
+	return g.chunks(string(txt), g.maxEmbeddingChunkLen), nil
 }
 
 // chunks returns a slice containing the chunk strings for a string.
-func (g *Grokker) chunks(txt string) (c []string) {
+func (g *Grokker) chunks(txt string, maxLen int) (c []string) {
 	// Break up the text into smaller text chunks or passages, each
 	// with a length of up to the limit for the model used by the
 	// Embeddings API
@@ -486,8 +486,8 @@ func (g *Grokker) chunks(txt string) (c []string) {
 		// split the paragraph into chunks if it's too long.
 		// XXX replace with a real tokenizer.
 		for len(paragraph) > 0 {
-			if len(paragraph) >= g.maxEmbeddingChunkLen {
-				split := g.maxEmbeddingChunkLen - 1
+			if len(paragraph) >= maxLen {
+				split := maxLen - 1
 				c = append(c, paragraph[:split])
 				paragraph = paragraph[split:]
 			} else {
@@ -640,7 +640,7 @@ func (g *Grokker) Generate(question, ctxt string, global bool) (resp oai.ChatCom
 		messages = append(messages, []oai.ChatCompletionMessage{
 			{
 				Role:    oai.ChatMessageRoleUser,
-				Content: ctxt,
+				Content: Spf("first, some context:\n\n%s", ctxt),
 			},
 			{
 				Role:    oai.ChatMessageRoleAssistant,
@@ -657,6 +657,7 @@ func (g *Grokker) Generate(question, ctxt string, global bool) (resp oai.ChatCom
 
 	// get the answer
 	resp, err = g.chat(messages)
+	Ck(err, "context length: %d", len(ctxt))
 
 	// fmt.Println(resp.Choices[0].Message.Content)
 	// Pprint(messages)
@@ -724,7 +725,11 @@ func (g *Grokker) RefreshEmbeddings() (err error) {
 }
 
 var GitCommitPrompt = `
-Use the information in the following diff to write a concise git commit message and nothing else. The first line of the commit message must be a summary of no more than 60 characters that briefly describes the changes in the diff. Use bullet points to describe the changes made. Use present tense. 
+Summarize the bullet points found in the context into a single line of 60 characters or less.  Append a blank line, followed by the unaltered context.  Add nothing else.  Use present tense.
+`
+
+var GitDiffPrompt = `
+Summarize the bullet points and 'git diff' fragments found in the context into bullet points to be used in the body of a git commit message.  Add nothing else. Use present tense. 
 `
 
 // GitCommitMessage generates a git commit message given a diff. It
@@ -733,39 +738,62 @@ Use the information in the following diff to write a concise git commit message 
 func (g *Grokker) GitCommitMessage(diff string) (resp oai.ChatCompletionResponse, query string, err error) {
 	defer Return(&err)
 
-	// format the prompt
-	prompt := Spf("%s\n%s", GitCommitPrompt, diff)
+	// summarize the diff
+	summary, err := g.summarizeDiff(diff)
+	Ck(err)
 
-	// ensure the prompt is not too long
-	if len(prompt) > int(float64(g.maxChunkLen)*.7) {
-		err = fmt.Errorf("diff is too long -- try unstaging some files")
-		return
-	}
+	// XXX we are currently not providing additional context from the
+	// embedded documents.  We should do that.
 
 	// use the result as a grokker query
-	resp, query, err = g.Answer(prompt, false)
-	// resp, _, err = g.Generate(GitCommitPrompt, diff, false)
+	// resp, query, err = g.Answer(prompt, false)
+	resp, _, err = g.Generate(GitCommitPrompt, summary, false)
 	Ck(err)
 	return
 }
 
-// summarizeDiff summarizes a diff.
-func (g *Grokker) summarizeDiff(diff string) (summary string, err error) {
+// summarizeDiff recursively summarizes a diff until the summary is
+// short enough to be used as a prompt.
+func (g *Grokker) summarizeDiff(diff string) (diffSummary string, err error) {
 	defer Return(&err)
-	maxSize := int(float64(g.maxChunkLen) * 0.5)
+	maxLen := int(float64(g.maxChunkLen) * .7)
 	// split the diff on filenames
-	chunks := strings.Split(diff, "diff --git")
-	// summarize each file's changes
-	for _, chunk := range chunks {
-		// format the chunk
-		context := Spf("diff --git%s", chunk)
-		if len(context) > maxSize {
-			context = context[:maxSize]
+	fileChunks := strings.Split(diff, "diff --git")
+	// split each file chunk into smaller chunks
+	for _, fileChunk := range fileChunks {
+		// get the filenames (they were right after the "diff --git"
+		// string, on the same line)
+		lines := strings.Split(fileChunk, "\n")
+		var fns string
+		if len(lines) > 0 {
+			fns = lines[0]
+		} else {
+			fns = "a b"
 		}
-		question := "summarize the diff"
-		resp, _, err := g.Generate(question, context, false)
+		var fileSummary string
+		if len(fns) > 0 {
+			fileSummary = Spf("summary of diff --git %s\n", fns)
+		}
+		chunks := g.chunks(fileChunk, maxLen)
+		// summarize each chunk
+		for _, chunk := range chunks {
+			// format the chunk
+			context := Spf("diff --git %s\n%s", fns, chunk)
+			resp, _, err := g.Generate(GitDiffPrompt, context, false)
+			Ck(err)
+			fileSummary = Spf("%s\n%s", fileSummary, resp.Choices[0].Message.Content)
+		}
+		// prepend a summary line of the changes for this file
+		resp, _, err := g.Generate(GitCommitPrompt, fileSummary, false)
 		Ck(err)
-		summary = Spf("%s\n\n%s", summary, resp.Choices[0].Message.Content)
+		// append the summary of the changes for this file to the
+		// summary of the changes for all files
+		diffSummary = Spf("%s\n\n%s", diffSummary, resp.Choices[0].Message.Content)
+	}
+	if len(diffSummary) > int(maxLen) {
+		// recurse
+		Fpf(os.Stderr, "diff summary too long (%d bytes), recursing\n", len(diffSummary))
+		diffSummary, err = g.summarizeDiff(diffSummary)
 	}
 	return
 }

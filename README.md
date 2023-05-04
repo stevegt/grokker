@@ -221,7 +221,8 @@ me into the role of editor, and helps to more quickly detect and
 resolve uncertainties.  Because grokker will include my edited text as
 context in future model queries, this provides feedback to the model,
 causing future answers to converge toward my intent.  (See
-[RLHF](https://en.wikipedia.org/wiki/Reinforcement_learning_from_human_feedback).)
+[RLHF](https://en.wikipedia.org/wiki/Reinforcement_learning_from_human_feedback)
+for one possible way of formalizing this.)
 
 # Important disclaimer regarding sensitive and confidential information
 
