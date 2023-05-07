@@ -1,14 +1,29 @@
 package grokker
 
 import (
+	"io/ioutil"
+	"os"
 	"testing"
 
 	. "github.com/stevegt/goadapt"
 )
 
+var tempDir string
+
+// prior to starting test cases, create a temporary directory
+func TestMain(m *testing.M) {
+	// create a temporary directory
+	var err error
+	tempDir, err = ioutil.TempDir("/tmp", "grokker-test")
+	Ck(err)
+	// run the test cases
+	os.Exit(m.Run())
+}
+
 func TestEmbeddings(t *testing.T) {
+	//
 	// create a new Grokker database
-	grok, err := New("gpt-3.5-turbo")
+	grok, err := New(tempDir, "gpt-3.5-turbo")
 	Tassert(t, err == nil, "error creating grokker: %v", err)
 	// add some embeddings
 	embs, err := grok.CreateEmbeddings([]string{"hello", "world"})
@@ -22,7 +37,7 @@ func TestEmbeddings(t *testing.T) {
 // test adding a document
 func TestAddDoc(t *testing.T) {
 	// create a new Grokker database
-	grok, err := New("gpt-3.5-turbo")
+	grok, err := New(tempDir, "gpt-3.5-turbo")
 	Tassert(t, err == nil, "error creating grokker: %v", err)
 	// add the document
 	err = grok.AddDocument("testdata/te-abstract.txt")
@@ -32,7 +47,7 @@ func TestAddDoc(t *testing.T) {
 // test finding chunks that are similar to a query
 func TestFindSimilar(t *testing.T) {
 	// create a new Grokker database
-	grok, err := New("gpt-3.5-turbo")
+	grok, err := New(tempDir, "gpt-3.5-turbo")
 	Tassert(t, err == nil, "error creating grokker: %v", err)
 	// add the document
 	err = grok.AddDocument("testdata/te-abstract.txt")
@@ -50,7 +65,7 @@ func TestFindSimilar(t *testing.T) {
 // test a chat query
 func TestChatQuery(t *testing.T) {
 	// create a new Grokker database
-	grok, err := New("gpt-3.5-turbo")
+	grok, err := New(tempDir, "gpt-3.5-turbo")
 	Tassert(t, err == nil, "error creating grokker: %v", err)
 	// add the document
 	err = grok.AddDocument("testdata/te-abstract.txt")

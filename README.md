@@ -191,11 +191,12 @@ projects that were previously stalled.
 
 In all of the following use cases, I tend to create and `grok add` a
 `context.md` file that I use as a scratchpad, writing and refining
-questions and answers as I work on other files in the same directory.
-This file is my interactive, animated [rubber
+questions and answers as I work on other files in the same directory
+or repository. This file is my interactive, animated [rubber
 duck](https://en.wikipedia.org/wiki/Rubber_duck_debugging).  This
-technique has worked so well that I'm considering switching to using
-`grok.md` for this filename and proposing it as a best practice.
+technique has worked well.  I'm considering switching to using
+something like `grok.md`, `grokker.md`, `groktext.md`, or `gpt.md` for
+this filename and proposing it as a best practice.
 
 Grokker has been a huge help in its original use case -- getting up to
 speed quickly on complex topics, documents, and code bases.  It's

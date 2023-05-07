@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"math"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -55,6 +56,10 @@ import (
 //
 // Repeat steps 3-5 for each question asked, updating the conversation
 // prompt as needed.
+
+const (
+	version = "1.0.0"
+)
 
 // Model is a type for model name and characteristics
 type Model struct {
@@ -122,8 +127,15 @@ func (models *Models) findModel(model string) (name string, m *Model, err error)
 
 // Document is a single document in a document repository.
 type Document struct {
-	// The path to the document file.
+	// XXX deprecated because we weren't precise about what it meant.
 	Path string
+	// The path to the document file, relative to g.Root
+	RelPath string
+}
+
+// AbsPath returns the absolute path of a document.
+func (g *Grokker) AbsPath(doc *Document) string {
+	return filepath.Join(g.Root, doc.RelPath)
 }
 
 // Chunk is a single chunk of text from a document.
@@ -141,8 +153,11 @@ type Chunk struct {
 type Grokker struct {
 	embeddingClient *openai.Client
 	chatClient      *oai.Client
-	// The root directory of the document repository.
-	// XXX not used yet.
+	// The grokker version number this db was last updated with.
+	Version string
+	// The absolute path of the root directory of the document
+	// repository.  This is passed in from cli based on where we
+	// found the db.
 	Root string
 	// The list of documents in the database.
 	Documents []*Document
@@ -159,26 +174,87 @@ type Grokker struct {
 }
 
 // New creates a new Grokker database.
-func New(model string) (g *Grokker, err error) {
+func New(rootdir, model string) (g *Grokker, err error) {
 	defer Return(&err)
-	g = &Grokker{}
+	// ensure rootdir is absolute and exists
+	rootdir, err = filepath.Abs(rootdir)
+	Ck(err)
+	_, err = os.Stat(rootdir)
+	Ck(err)
+	// create the db
+	g = &Grokker{
+		Root:    rootdir,
+		Version: version,
+	}
+	// initialize other bits
+	// XXX redundant with other areas where we call initModel followed by initClients
 	err = g.initModel(model)
 	Ck(err)
 	g.initClients()
 	return
 }
 
-// Load loads a Grokker database from an io.Reader.
-func Load(r io.Reader) (g *Grokker, err error) {
+// Load loads a Grokker database from an io.Reader.  The grokpath
+// argument is the absolute path of the grok file.
+// XXX rename this to LoadFile, don't pass in the reader.
+func Load(r io.Reader, grokpath string, migrate bool) (g *Grokker, err error) {
 	defer Return(&err)
 	buf, err := ioutil.ReadAll(r)
 	Ck(err)
 	g = &Grokker{}
 	err = json.Unmarshal(buf, g)
 	Ck(err)
+	// set the root directory, overriding whatever was in the db
+	g.Root, err = filepath.Abs(filepath.Dir(grokpath))
+	Ck(err)
+	// set default version
+	if g.Version == "" {
+		g.Version = "0.1.0"
+	}
+	if migrate {
+		// don't do anything else, just return the db for now
+		// XXX we should call g.migrate() here instead, and
+		// then continue on to the rest of the function.
+		return
+	}
+	// check version
+	if g.Version != version {
+		Fpf(os.Stderr, "grokker db was created with version %s, but you're running version %s -- try `grok migrate`\n",
+			g.Version, version)
+		os.Exit(1)
+	}
+	// XXX redundant with other areas where we call initModel followed by initClients
 	err = g.initModel(g.Model)
 	Ck(err)
 	g.initClients()
+	return
+}
+
+// Migrate migrates the current Grokker database from an older version
+// to the current version.
+// XXX unexport this and call it from Load() after moving file ops
+// into this package.
+func (g *Grokker) Migrate() (was, now string, newgrok *Grokker, err error) {
+	defer Return(&err)
+	was = g.Version
+	if g.Version == "0.1.0" {
+		migrate_0_1_0_to_1_0_0(g)
+	}
+	// XXX remove doc.Path
+	now = g.Version
+	newgrok = g
+
+	// refresh embeddings now because we are about to save the grok file
+	// and that will make its timestamp newer than any possibly-modified
+	// documents
+	// XXX redundant with other areas where we call initModel followed by initClients
+	err = g.initModel(g.Model)
+	Ck(err)
+	g.initClients()
+
+	err = g.RefreshEmbeddings()
+	Ck(err)
+
 	return
 }
 
@@ -193,6 +269,7 @@ func (g *Grokker) initClients() {
 // initModel initializes the model for a new or reloaded Grokker database.
 func (g *Grokker) initModel(model string) (err error) {
 	defer Return(&err)
+	Assert(g.Root != "", "root directory not set")
 	g.models = NewModels()
 	model, m, err := g.models.findModel(model)
 	Ck(err)
@@ -203,7 +280,7 @@ func (g *Grokker) initModel(model string) (err error) {
 	charsPerToken := 3.1
 	g.maxChunkLen = int(math.Floor(float64(m.TokenLimit) * charsPerToken))
 	// XXX replace with a real tokenizer.
-	// XXX hardcoded for the text-embedding-ada-002 model
+	// XXX 8192 hardcoded for the text-embedding-ada-002 model
 	g.maxEmbeddingChunkLen = int(math.Floor(float64(8192) * charsPerToken))
 	return
 }
@@ -249,17 +326,17 @@ func (g *Grokker) UpdateEmbeddings(lastUpdate time.Time) (update bool, err error
 	// we use the timestamp of the grokfn as the last embedding update time.
 	for _, doc := range g.Documents {
 		// check if the document has changed.
-		fi, err := os.Stat(doc.Path)
+		fi, err := os.Stat(g.AbsPath(doc))
 		if os.IsNotExist(err) {
 			// document has been removed; remove it from the database.
-			g.RemoveDocument(doc)
+			g.ForgetDocument(g.AbsPath(doc))
 			update = true
 			continue
 		}
 		Ck(err)
 		if fi.ModTime().After(lastUpdate) {
 			// update the embeddings.
-			Debug("updating embeddings for %s ...", doc.Path)
+			Debug("updating embeddings for %s ...", doc.RelPath)
 			updated, err := g.UpdateDocument(doc)
 			Ck(err)
 			Debug("done\n")
@@ -275,13 +352,26 @@ func (g *Grokker) UpdateEmbeddings(lastUpdate time.Time) (update bool, err error
 // embeddings for the document and adds them to the database.
 func (g *Grokker) AddDocument(path string) (err error) {
 	defer Return(&err)
+	// assume we're in an arbitrary directory, so we need to
+	// convert the path to an absolute path.
+	absPath, err := filepath.Abs(path)
+	Ck(err)
+	// always convert path to a relative path for consistency
+	relpath, err := filepath.Rel(g.Root, absPath)
 	doc := &Document{
-		Path: path,
+		RelPath: relpath,
 	}
+	// ensure the document exists
+	_, err = os.Stat(g.AbsPath(doc))
+	if os.IsNotExist(err) {
+		err = fmt.Errorf("not found: %s", doc.RelPath)
+		return
+	}
+	Ck(err)
 	// find out if the document is already in the database.
 	found := false
 	for _, d := range g.Documents {
-		if d.Path == doc.Path {
+		if d.RelPath == doc.RelPath {
 			found = true
 			break
 		}
@@ -296,13 +386,24 @@ func (g *Grokker) AddDocument(path string) (err error) {
 	return
 }
 
-// RemoveDocument removes a document from the Grokker database.
-func (g *Grokker) RemoveDocument(doc *Document) (err error) {
+// ForgetDocument removes a document from the Grokker database.
+func (g *Grokker) ForgetDocument(path string) (err error) {
 	defer Return(&err)
-	Debug("removing document %s ...", doc.Path)
 	// remove the document from the database.
 	for i, d := range g.Documents {
-		if d.Path == doc.Path {
+		match := false
+		// try comparing the paths directly first.
+		if d.RelPath == path {
+			match = true
+		}
+		// if that doesn't work, try comparing the absolute paths.
+		relpath, err := filepath.Abs(path)
+		Ck(err)
+		if g.AbsPath(d) == relpath {
+			match = true
+		}
+		if match {
+			Debug("forgetting document %s ...", path)
 			g.Documents = append(g.Documents[:i], g.Documents[i+1:]...)
 			break
 		}
@@ -323,7 +424,7 @@ func (g *Grokker) GC() (err error) {
 		// check if the chunk is referenced by any document.
 		referenced := false
 		for _, doc := range g.Documents {
-			if doc.Path == chunk.Document.Path {
+			if doc.RelPath == chunk.Document.RelPath {
 				referenced = true
 				break
 			}
@@ -344,8 +445,7 @@ func (g *Grokker) UpdateDocument(doc *Document) (updated bool, err error) {
 	defer Return(&err)
 	// XXX much of this code is inefficient and will be replaced
 	// when we have a kv store.
-	defer Return(&err)
-	Debug("updating embeddings for %s ...", doc.Path)
+	Debug("updating embeddings for %s ...", doc.RelPath)
 	// break the doc up into chunks.
 	chunkStrings, err := g.chunkStrings(doc)
 	Ck(err)
@@ -353,7 +453,7 @@ func (g *Grokker) UpdateDocument(doc *Document) (updated bool, err error) {
 	var oldChunks []*Chunk
 	var newChunkStrings []string
 	for _, chunk := range g.Chunks {
-		if chunk.Document.Path == doc.Path {
+		if chunk.Document.RelPath == doc.RelPath {
 			oldChunks = append(oldChunks, chunk)
 		}
 	}
@@ -466,9 +566,9 @@ func (g *Grokker) CreateEmbeddings(texts []string) (embeddings [][]float64, err 
 func (g *Grokker) chunkStrings(doc *Document) (c []string, err error) {
 	defer Return(&err)
 	// read the document.
-	txt, err := ioutil.ReadFile(doc.Path)
+	buf, err := ioutil.ReadFile(g.AbsPath(doc))
 	Ck(err)
-	return g.chunks(string(txt), g.maxEmbeddingChunkLen), nil
+	return g.chunks(string(buf), g.maxEmbeddingChunkLen), nil
 }
 
 // chunks returns a slice containing the chunk strings for a string.
@@ -576,7 +676,7 @@ func (g *Grokker) Answer(question string, global bool) (resp oai.ChatCompletionR
 	for _, chunk := range chunks {
 		// context += chunk.Text + "\n\n"
 		// include filename in context
-		context += Spf("%s:\n\n%s\n\n", chunk.Document.Path, chunk.Text)
+		context += Spf("%s:\n\n%s\n\n", chunk.Document.RelPath, chunk.Text)
 		// XXX promptTmpl doesn't appear to be in use atm
 		if len(context)+len(promptTmpl) > maxSize {
 			break
@@ -696,6 +796,22 @@ func (g *Grokker) chat(messages []oai.ChatCompletionMessage) (resp oai.ChatCompl
 	return
 }
 
+// ListDocuments returns a list of all documents in the knowledge base.
+// XXX this is a bit of a hack, since we're using the document name as
+// the document ID.
+// XXX this is also a bit of a hack since we're trying to make this
+// work for multiple versions
+func (g *Grokker) ListDocuments() (paths []string) {
+	for _, doc := range g.Documents {
+		path := doc.Path
+		if g.Version == "1.0.0" {
+			path = doc.RelPath
+		}
+		paths = append(paths, path)
+	}
+	return
+}
+
 // ListModels lists the available models.
 func (g *Grokker) ListModels() (models []*Model, err error) {
 	defer Return(&err)
@@ -711,14 +827,17 @@ func (g *Grokker) RefreshEmbeddings() (err error) {
 	defer Return(&err)
 	// regenerate the embeddings for each document.
 	for _, doc := range g.Documents {
+		Debug("refreshing embeddings for %s", doc.RelPath)
 		// remove file from list if it doesn't exist.
-		_, err := os.Stat(doc.Path)
+		absPath := g.AbsPath(doc)
+		Debug("absPath: %s", absPath)
+		_, err := os.Stat(absPath)
+		Debug("stat err: %v", err)
 		if os.IsNotExist(err) {
 			// remove the document from the database.
-			g.RemoveDocument(doc)
+			g.ForgetDocument(doc.RelPath)
 			continue
 		}
-		Ck(err)
 		_, err = g.UpdateDocument(doc)
 		Ck(err)
 	}
