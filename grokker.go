@@ -857,7 +857,7 @@ func (g *Grokker) RefreshEmbeddings() (err error) {
 	defer Return(&err)
 	// regenerate the embeddings for each document.
 	for _, doc := range g.Documents {
-		Fpf(os.Stderr, "refreshing embeddings for %s", doc.RelPath)
+		Fpf(os.Stderr, "refreshing embeddings for %s\n", doc.RelPath)
 		// remove file from list if it doesn't exist.
 		absPath := g.AbsPath(doc)
 		Debug("absPath: %s", absPath)
