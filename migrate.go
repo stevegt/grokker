@@ -23,7 +23,8 @@ func canon(g *Grokker, path string) (rel string) {
 	return
 }
 
-func migrate_0_1_0_to_1_0_0(g *Grokker) {
+func migrate_0_1_0_to_1_0_0(g *Grokker) (err error) {
+	defer Return(&err)
 	// copy Document.Path to Document.RelPath, leave old content
 	// for now
 	for _, doc := range g.Documents {
@@ -35,5 +36,25 @@ func migrate_0_1_0_to_1_0_0(g *Grokker) {
 		// copy and canonicalize the path
 		chunk.Document.RelPath = canon(g, chunk.Document.Path)
 	}
+	// refresh embeddings now because we are about to save the grok file
+	// and that will make its timestamp newer than any possibly-modified
+	// documents
+	err = g.setup(g.Model)
+	Ck(err)
+	err = g.RefreshEmbeddings()
+	Ck(err)
 	g.Version = "1.0.0"
+	return
+}
+
+func migrate_1_0_0_to_1_1_0(g *Grokker) (err error) {
+	defer Return(&err)
+	// add file paths to chunks -- all we need to do here is refresh
+	// all of the doc chunks to get the file paths added
+	err = g.setup(g.Model)
+	Ck(err)
+	err = g.RefreshEmbeddings()
+	Ck(err)
+	g.Version = "1.1.0"
+	return
 }

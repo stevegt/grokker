@@ -13,12 +13,11 @@ import (
 	"strings"
 	"time"
 
-	. "github.com/stevegt/goadapt"
-
 	"github.com/fabiustech/openai"
 	fabius_models "github.com/fabiustech/openai/models"
-
 	oai "github.com/sashabaranov/go-openai"
+	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/semver"
 )
 
 // Grokker is a library for analyzing a set of documents and asking
@@ -58,7 +57,7 @@ import (
 // prompt as needed.
 
 const (
-	version = "1.0.0"
+	version = "1.1.0"
 )
 
 // Model is a type for model name and characteristics
@@ -187,10 +186,8 @@ func New(rootdir, model string) (g *Grokker, err error) {
 		Version: version,
 	}
 	// initialize other bits
-	// XXX redundant with other areas where we call initModel followed by initClients
-	err = g.initModel(model)
+	err = g.setup(model)
 	Ck(err)
-	g.initClients()
 	return
 }
 
@@ -212,53 +209,76 @@ func Load(r io.Reader, grokpath string, migrate bool) (g *Grokker, err error) {
 		g.Version = "0.1.0"
 	}
 	if migrate {
-		// don't do anything else, just return the db for now
-		// XXX we should call g.migrate() here instead, and
-		// then continue on to the rest of the function.
+		// don't do anything else, just return the db
 		return
 	}
-	// check version
-	if g.Version != version {
-		Fpf(os.Stderr, "grokker db was created with version %s, but you're running version %s -- try `grok migrate`\n",
+	// check versions for compatibility
+	v1, err := semver.Parse([]byte(g.Version))
+	Ck(err)
+	v2, err := semver.Parse([]byte(version))
+	Ck(err)
+	major, minor, _ := semver.Upgrade(v1, v2)
+	if major {
+		Fpf(os.Stderr, "grokker db is version %s, but you're running version %s -- try `grok migrate`\n",
 			g.Version, version)
 		os.Exit(1)
+	} else if minor {
+		Fpf(os.Stderr, "grokker db is version %s; new features are available in version %s -- try `grok migrate`\n",
+			g.Version, version)
 	}
-	// XXX redundant with other areas where we call initModel followed by initClients
-	err = g.initModel(g.Model)
+
+	err = g.setup(g.Model)
 	Ck(err)
-	g.initClients()
 	return
+}
+
+// CodeVersion returns the version of grokker.
+func (g *Grokker) CodeVersion() string {
+	return version
+}
+
+// DBVersion returns the version of the grokker database.
+func (g *Grokker) DBVersion() string {
+	return g.Version
 }
 
 // Migrate migrates the current Grokker database from an older version
 // to the current version.
 // XXX unexport this and call it from Load() after moving file ops
 // into this package.
-func (g *Grokker) Migrate() (was, now string, newgrok *Grokker, err error) {
+func (g *Grokker) Migrate() (was, now string, err error) {
 	defer Return(&err)
 	was = g.Version
-	if g.Version == "0.1.0" {
-		migrate_0_1_0_to_1_0_0(g)
-	}
-	// XXX remove doc.Path
-	now = g.Version
-	newgrok = g
 
-	// refresh embeddings now because we are about to save the grok file
-	// and that will make its timestamp newer than any possibly-modified
-	// documents
-	// XXX redundant with other areas where we call initModel followed by initClients
-	err = g.initModel(g.Model)
+	if g.Version == "0.1.0" {
+		err = migrate_0_1_0_to_1_0_0(g)
+		Ck(err)
+	}
+	if g.Version == "1.0.0" {
+		err = migrate_1_0_0_to_1_1_0(g)
+		Ck(err)
+	}
+
+	// XXX remove doc.Path in a future version
+
+	now = g.Version
+	return
+}
+
+// setup the model and oai clients.
+// This function needs to be idempotent because it might be called multiple
+// times during the lifetime of a Grokker object.
+func (g *Grokker) setup(model string) (err error) {
+	defer Return(&err)
+	err = g.initModel(model)
 	Ck(err)
 	g.initClients()
-
-	err = g.RefreshEmbeddings()
-	Ck(err)
-
 	return
 }
 
 // initClients initializes the OpenAI clients.
+// This function needs to be idempotent because it might be called multiple
+// times during the lifetime of a Grokker object.
 func (g *Grokker) initClients() {
 	authtoken := os.Getenv("OPENAI_API_KEY")
 	g.embeddingClient = openai.NewClient(authtoken)
@@ -267,6 +287,8 @@ func (g *Grokker) initClients() {
 }
 
 // initModel initializes the model for a new or reloaded Grokker database.
+// This function needs to be idempotent because it might be called multiple
+// times during the lifetime of a Grokker object.
 func (g *Grokker) initModel(model string) (err error) {
 	defer Return(&err)
 	Assert(g.Root != "", "root directory not set")
@@ -297,7 +319,8 @@ func (g *Grokker) UpgradeModel(model string) (err error) {
 		err = fmt.Errorf("cannot downgrade model from '%s' to '%s'", oldModel, model)
 		return
 	}
-	g.initModel(model)
+	err = g.setup(model)
+	Ck(err)
 	return
 }
 
@@ -446,18 +469,21 @@ func (g *Grokker) UpdateDocument(doc *Document) (updated bool, err error) {
 	// XXX much of this code is inefficient and will be replaced
 	// when we have a kv store.
 	Debug("updating embeddings for %s ...", doc.RelPath)
-	// break the doc up into chunks.
-	chunkStrings, err := g.chunkStrings(doc)
-	Ck(err)
+
 	// get a list of the existing chunks for this document.
 	var oldChunks []*Chunk
-	var newChunkStrings []string
 	for _, chunk := range g.Chunks {
 		if chunk.Document.RelPath == doc.RelPath {
 			oldChunks = append(oldChunks, chunk)
 		}
 	}
 	Debug("found %d existing chunks", len(oldChunks))
+
+	var newChunkStrings []string
+
+	// break the current doc up into chunks.
+	chunkStrings, err := g.chunkStrings(doc)
+	Ck(err)
 	// for each chunk, check if it already exists in the database.
 	for _, chunkString := range chunkStrings {
 		found := false
@@ -568,11 +594,12 @@ func (g *Grokker) chunkStrings(doc *Document) (c []string, err error) {
 	// read the document.
 	buf, err := ioutil.ReadFile(g.AbsPath(doc))
 	Ck(err)
-	return g.chunks(string(buf), g.maxEmbeddingChunkLen), nil
+	return g.chunks(doc.RelPath, string(buf), g.maxEmbeddingChunkLen), nil
 }
 
 // chunks returns a slice containing the chunk strings for a string.
-func (g *Grokker) chunks(txt string, maxLen int) (c []string) {
+func (g *Grokker) chunks(path, txt string, maxLen int) (c []string) {
+	Assert(maxLen > 0)
 	// Break up the text into smaller text chunks or passages, each
 	// with a length of up to the limit for the model used by the
 	// Embeddings API
@@ -586,6 +613,8 @@ func (g *Grokker) chunks(txt string, maxLen int) (c []string) {
 		// split the paragraph into chunks if it's too long.
 		// XXX replace with a real tokenizer.
 		for len(paragraph) > 0 {
+			// prefix each paragraph with metadata
+			paragraph = fmt.Sprintf("from %s:\n%s\n", path, paragraph)
 			if len(paragraph) >= maxLen {
 				split := maxLen - 1
 				c = append(c, paragraph[:split])
@@ -718,7 +747,7 @@ func (g *Grokker) Generate(question, ctxt string, global bool) (resp oai.ChatCom
 	messages := []oai.ChatCompletionMessage{
 		{
 			Role:    oai.ChatMessageRoleSystem,
-			Content: "You are a helpful assistant.",
+			Content: "You are a helpful assistant.  I will provide you with context, then you will respond with an acknowledgement, then I will ask you a question about the context, then you will provide me with an answer.",
 		},
 	}
 
@@ -792,6 +821,7 @@ func (g *Grokker) chat(messages []oai.ChatCompletionMessage) (resp oai.ChatCompl
 	}
 	totalBytes += len(resp.Choices[0].Message.Content)
 	ratio := float64(totalBytes) / float64(resp.Usage.TotalTokens)
+	Debug("chat response: %s", resp)
 	Debug("total tokens: %d  char/token ratio: %.1f\n", resp.Usage.TotalTokens, ratio)
 	return
 }
@@ -827,7 +857,7 @@ func (g *Grokker) RefreshEmbeddings() (err error) {
 	defer Return(&err)
 	// regenerate the embeddings for each document.
 	for _, doc := range g.Documents {
-		Debug("refreshing embeddings for %s", doc.RelPath)
+		Fpf(os.Stderr, "refreshing embeddings for %s", doc.RelPath)
 		// remove file from list if it doesn't exist.
 		absPath := g.AbsPath(doc)
 		Debug("absPath: %s", absPath)
@@ -895,7 +925,7 @@ func (g *Grokker) summarizeDiff(diff string) (diffSummary string, err error) {
 		if len(fns) > 0 {
 			fileSummary = Spf("summary of diff --git %s\n", fns)
 		}
-		chunks := g.chunks(fileChunk, maxLen)
+		chunks := g.chunks(fileSummary, fileChunk, maxLen)
 		// summarize each chunk
 		for _, chunk := range chunks {
 			// format the chunk

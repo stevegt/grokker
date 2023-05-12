@@ -11,6 +11,8 @@ github.com/sashabaranov/go-openai v1.9.0 h1:NoiO++IISxxJ1pRc0n7uZvMGMake0G+FJ1XP
 github.com/sashabaranov/go-openai v1.9.0/go.mod h1:lj5b/K+zjTSFxVLijLSTDZuP7adOgerWeFyZLUhAKRg=
 github.com/stevegt/goadapt v0.4.0 h1:+Z4NitA0jnEzWhvPWRjunFGHfMtQEUeBnp5WC3D8eJc=
 github.com/stevegt/goadapt v0.4.0/go.mod h1:vquRbAl0Ek4iJHCvFUEDxziTsETR2HOT7r64NolhDKs=
+github.com/stevegt/semver v0.0.0-20230512043732-92220054a49f h1:erQJkdWx1bhOImDDPiVoNy+qP8sBoOJ8EsJ7gUiy8S8=
+github.com/stevegt/semver v0.0.0-20230512043732-92220054a49f/go.mod h1:OgjZERzdomhsWRdqEbqfC+2DI1DpdmZwc1CF7vhqAZ8=
 github.com/stretchr/testify v1.8.1 h1:w7B6lhMri9wdJUVmEZPGGhZzrYTPvgJArz7wNPgYKsk=
 go.etcd.io/bbolt v1.3.7 h1:j+zJOnnEjF/kyHlDDgGnVL/AIqIJPq8UoB2GSNfkUfQ=
 go.etcd.io/bbolt v1.3.7/go.mod h1:N9Mkw9X8x5fupy0IKsmuqVtoGDyxsaDlbk4Rd05IAQw=

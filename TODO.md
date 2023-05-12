@@ -1,5 +1,15 @@
+- add a ~/.grokconfig file
+  - default model for new repos
+- add a subcommand that automates the "grok init; touch context.md; grok add context.md" workflow
 - don't store text chunks -- just hash them instead, and store
   hash, filename, timestamp, position, length, and embedding.
+- consider using a single .grok database in the user's home directory
+  - hash all chunks
+  - one embedding db
+  - store hash, path, timestamp, pos, length instead of chunk content
+  - maintain context by dir/subdir nesting
+  - to include files from other projects as context, let 'grok add'
+    maintain references in the db
 - replace json storage with kv
   - write kv.go, use it as an adapter so we can use e.g. bbolt now and
     swap to puptree later
@@ -8,6 +18,13 @@
 - make workflow more like git:
   - add 'grok status'
   - add .grokignore
+  - one of:
+    - when first detecting a grok subrepo, show subdir/context.md as untracked
+    - include subdir/.grok db embeddings in parent context
+- some sort of 'XXX' workflow, two steps:
+  - find chunks with 'XXX' in them, via either regex of cos diff
+  - send each chunk as a question
+    - include file path and pos in response
 - consider implementing a 'chat' subcommand that would maintain 
   user/AI headings on each text block in an edit buffer and use those
   in chat completion message

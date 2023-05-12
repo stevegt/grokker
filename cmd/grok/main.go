@@ -36,6 +36,7 @@ var cli struct {
 	Qi      struct{} `cmd:"" help:"Ask the knowledge base a question on stdin."`
 	Global  bool     `short:"g" help:"Include results from OpenAI's global knowledge base as well as from local documents."`
 	Verbose bool     `short:"v" help:"Show debug and progress information on stderr."`
+	Version struct{} `cmd:"" help:"Show version of grok and its database."`
 	Commit  struct{} `cmd:"" help:"Generate a git commit message on stdout."`
 	Models  struct{} `cmd:"" help:"List all available models."`
 	Upgrade struct {
@@ -213,11 +214,15 @@ func main() {
 		err := copyFile(grokpath, backpath)
 		Ck(err)
 		// migrate the grok object
-		was, now, newgrok, err := grok.Migrate()
+		was, now, err := grok.Migrate()
 		Ck(err)
-		grok = newgrok
 		Pf("Migrated knowledge base from version %s to %s\n", was, now)
 		save = true
+	case "version":
+		// print the version of grokker
+		Pf("grokker version %s\n", grok.CodeVersion())
+		// print the version of the .grok file
+		Pf("grok db version %s\n", grok.DBVersion())
 	default:
 		Fpf(os.Stderr, "Error: unrecognized command: %s\n", ctx.Command())
 		os.Exit(1)
