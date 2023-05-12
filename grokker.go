@@ -57,7 +57,7 @@ import (
 // prompt as needed.
 
 const (
-	version = "1.1.0"
+	version = "1.1.1"
 )
 
 // Model is a type for model name and characteristics
@@ -834,7 +834,10 @@ func (g *Grokker) chat(messages []oai.ChatCompletionMessage) (resp oai.ChatCompl
 func (g *Grokker) ListDocuments() (paths []string) {
 	for _, doc := range g.Documents {
 		path := doc.Path
-		if g.Version == "1.0.0" {
+		v100, err := semver.Parse([]byte("1.0.0"))
+		current, err := semver.Parse([]byte(g.Version))
+		Ck(err)
+		if semver.Cmp(current, v100) > 0 {
 			path = doc.RelPath
 		}
 		paths = append(paths, path)
