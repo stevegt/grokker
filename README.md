@@ -1,8 +1,8 @@
 # grokker
 
-A tool for interactive conversation with one or more documents -- for
-research, training, and rapid learning.  Uses OpenAI API services for
-backend -- see disclaimer below.
+A tool for interactive conversation with your own documents and code
+-- for design, research, and rapid learning. Uses OpenAI API services
+for backend.
 
 Grokker helped create this document in a VIM session by reading its
 own source code along with iterations of this document.
@@ -153,6 +153,16 @@ newer model. It only allows upgrading the model to a model with a
 larger token limit. (Downgrading would require re-chunking and
 re-embedding all documents in the db to convert them to the smaller
 chunk size.)
+
+## What is the `migrate` subcommand?
+
+The `migrate` subcommand transfers the Grokker database to a new
+version, updating its structure to ensure compatibility with the
+latest version of Grokker. Depending on the major and minor semantic
+versioning, migration might be either optional or required. In both
+cases, the subcommand automatically creates a timestamped backup of
+the grokker db and stores it in the current directory. You can safely
+delete this backup when you no longer need it.
 
 ## Does the `grok` command conflict with any other common UNIX/Linux commands?
 
