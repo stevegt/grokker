@@ -46,15 +46,15 @@ grok file.
 
 $ grok q "What is the `qi` subcommand for?"
 
-The 'qi' subcommand allows you to ask a question by typing it in to
-the standard input rather than passing it as a command-line argument.
+The 'qi' subcommand allows you to ask a question by providing it on
+standard input rather than passing it as a command-line argument.
 For example, you could say:
 
   echo "What is the 'qi' subcommand for?" | grok qi 
 
 This would read the question from standard input and return the
-answer.  This subcommand is especially useful in editor sessions --
-more about this below. 
+answer.  This subcommand is especially useful in editor sessions and
+when writing plugins -- more about this below. 
 ```
 
 ## Installation
