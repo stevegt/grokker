@@ -125,10 +125,14 @@ file's most recent content will be included in the question context.
 Experiment with variations on these mappings -- you might emphasize
 more recent context by including the previous two paragraphs as part
 of the query, or the most recent 50 lines, or the output of `git
-diff`, etc.  (Future versions of grokker are likely to help with this
+diff`, etc.  (Future versions of grokker may help with this
 by timestamping individual document chunks and prioritizing more
-recent edits, but that's likely to wait for the key-value db rewrite
-mentioned below.)
+recent edits.)
+
+In practice, as of this writing I either hit <leader>g to highlight
+and use the current paragraph as the GPT query, or I use <Shift-V> to
+highlight several paragraphs for more context, and then run
+`:'<,'>!grok qi`.  Works.
 
 ## Tell me more about the `-g` flag
 
