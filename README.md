@@ -114,8 +114,8 @@ keyboard mapping to your vimrc file. Here's an example mapping:
 ```
 
 This mapping will allow you to ask a question by typing it in VIM and
-then pressing `<leader>g`. The 'vap' causes the current paragraph to be
-hightlighted, and the ':!grok qi' causes it to be sent as input to the
+then pressing `<leader>g`. The `vap` causes the current paragraph to be
+hightlighted, and the `:!grok qi` causes it to be sent as input to the
 `qi` subcommand of Grokker.  The answer will be inserted into the
 buffer below the current paragrpah. Note that the mapping assumes that
 Grokker's `grok` command is installed and in your system path.
@@ -130,8 +130,8 @@ diff`, etc.  (Future versions of grokker may help with this
 by timestamping individual document chunks and prioritizing more
 recent edits.)
 
-In practice, as of this writing I either hit '<leader>g' to highlight
-and use the current paragraph as the GPT query, or I use '<Shift-V>' to
+In practice, as of this writing I either hit `<leader>g` to highlight
+and use the current paragraph as the GPT query, or I use `<Shift-V>` to
 highlight several paragraphs for more context, and then run
 `:'<,'>!grok qi`.  Works.
 
