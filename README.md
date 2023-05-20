@@ -147,17 +147,16 @@ is larger and may take more time to search through. If you don't
 include the `-g` flag, Grokker will prefer the local documents that
 you've added.
 
-## What are the `models` and `upgrade` subcommands?
+## What are the `models` and `model` subcommands?
 
 The `models` subcommand is used to list all the available OpenAI
 models for text processing in Grokker, including their name and
 maximum token limit. 
 
-The `upgrade` subcommand is used to upgrade the local .grok db to a
-newer model. It only allows upgrading the model to a model with a
-larger token limit. (Downgrading would require re-chunking and
-re-embedding all documents in the db to convert them to the smaller
-chunk size.)
+The `model` subcommand is used to set the default GPT model for use in
+queries.  This default is stored in the local .grok db.  (I haven't
+added a flag to override this default for a single query, but this
+would be doable.)
 
 ## What is the `migrate` subcommand?
 
@@ -185,8 +184,6 @@ cp grokker $GOPATH/bin
 ```
 
 ## Is grokker done?  
-
-From grokker's original author (stevegt):  
 
 Grokker is not done, but I use it extensively every day. See
 [TODO.md](./TODO.md) for a pretty long list of wishlist and brainstorm

@@ -57,7 +57,7 @@ import (
 // prompt as needed.
 
 const (
-	version = "1.1.1"
+	version = "1.1.2"
 )
 
 // Model is a type for model name and characteristics
@@ -307,18 +307,13 @@ func (g *Grokker) initModel(model string) (err error) {
 	return
 }
 
-// UpgradeModel upgrades the model for a Grokker database.
-func (g *Grokker) UpgradeModel(model string) (err error) {
+// SetModel sets the default chat completion model for queries.
+func (g *Grokker) SetModel(model string) (oldModel string, err error) {
 	defer Return(&err)
-	model, m, err := g.models.findModel(model)
+	model, _, err = g.models.findModel(model)
 	Ck(err)
-	oldModel, oldM, err := g.getModel()
+	oldModel, _, err = g.getModel()
 	Ck(err)
-	// allow upgrade to a larger model, but not a smaller one
-	if m.TokenLimit < oldM.TokenLimit {
-		err = fmt.Errorf("cannot downgrade model from '%s' to '%s'", oldModel, model)
-		return
-	}
 	err = g.setup(model)
 	Ck(err)
 	return
@@ -757,7 +752,7 @@ func (g *Grokker) Generate(question, ctxt string, global bool) (resp oai.ChatCom
 			Role:    oai.ChatMessageRoleUser,
 			Content: question,
 		})
-		resp, err = g.chat(messages)
+		resp, err = g.Chat(messages)
 		Ck(err)
 		// add the response to the messages.
 		messages = append(messages, oai.ChatCompletionMessage{
@@ -771,7 +766,7 @@ func (g *Grokker) Generate(question, ctxt string, global bool) (resp oai.ChatCom
 		messages = append(messages, []oai.ChatCompletionMessage{
 			{
 				Role:    oai.ChatMessageRoleUser,
-				Content: Spf("first, some context:\n\n%s", ctxt),
+				Content: Spf("Context:\n\n%s", ctxt),
 			},
 			{
 				Role:    oai.ChatMessageRoleAssistant,
@@ -787,7 +782,7 @@ func (g *Grokker) Generate(question, ctxt string, global bool) (resp oai.ChatCom
 	})
 
 	// get the answer
-	resp, err = g.chat(messages)
+	resp, err = g.Chat(messages)
 	Ck(err, "context length: %d", len(ctxt))
 
 	// fmt.Println(resp.Choices[0].Message.Content)
@@ -796,9 +791,9 @@ func (g *Grokker) Generate(question, ctxt string, global bool) (resp oai.ChatCom
 	return
 }
 
-// chat uses the openai API to continue a conversation given a
+// Chat uses the openai API to continue a conversation given a
 // (possibly synthesized) message history.
-func (g *Grokker) chat(messages []oai.ChatCompletionMessage) (resp oai.ChatCompletionResponse, err error) {
+func (g *Grokker) Chat(messages []oai.ChatCompletionMessage) (resp oai.ChatCompletionResponse, err error) {
 	defer Return(&err)
 
 	model := g.oaiModel
@@ -889,11 +884,11 @@ Summarize the bullet points and 'git diff' fragments found in the context into b
 // GitCommitMessage generates a git commit message given a diff. It
 // appends a reasonable prompt, and then uses the result as a grokker
 // query.
-func (g *Grokker) GitCommitMessage(diff string) (resp oai.ChatCompletionResponse, query string, err error) {
+func (g *Grokker) GitCommitMessage(diff string) (summary, query string, err error) {
 	defer Return(&err)
 
 	// summarize the diff
-	summary, err := g.summarizeDiff(diff)
+	summary, err = g.summarizeDiff(diff)
 	Ck(err)
 
 	// XXX we are currently not providing additional context from the
@@ -901,8 +896,8 @@ func (g *Grokker) GitCommitMessage(diff string) (resp oai.ChatCompletionResponse
 
 	// use the result as a grokker query
 	// resp, query, err = g.Answer(prompt, false)
-	resp, _, err = g.Generate(GitCommitPrompt, summary, false)
-	Ck(err)
+	// resp, _, err = g.Generate(GitCommitPrompt, summary, false)
+	// Ck(err)
 	return
 }
 
@@ -915,6 +910,10 @@ func (g *Grokker) summarizeDiff(diff string) (diffSummary string, err error) {
 	fileChunks := strings.Split(diff, "diff --git")
 	// split each file chunk into smaller chunks
 	for _, fileChunk := range fileChunks {
+		// skip empty chunks
+		if len(fileChunk) == 0 {
+			continue
+		}
 		// get the filenames (they were right after the "diff --git"
 		// string, on the same line)
 		lines := strings.Split(fileChunk, "\n")

@@ -39,8 +39,8 @@ var cli struct {
 	Version struct{} `cmd:"" help:"Show version of grok and its database."`
 	Commit  struct{} `cmd:"" help:"Generate a git commit message on stdout."`
 	Models  struct{} `cmd:"" help:"List all available models."`
-	Upgrade struct {
-		Model string `arg:"" help:"Model to upgrade to."`
+	Model   struct {
+		Model string `arg:"" help:"Model to switch to."`
 	} `cmd:"" help:"Upgrade the model used by the knowledge base."`
 	Migrate struct{} `cmd:"" help:"Migrate the knowledge base to the latest version."`
 }
@@ -188,9 +188,9 @@ func main() {
 		}
 	case "commit":
 		// generate a git commit message
-		resp, err := commitMessage(grok)
+		summary, err := commitMessage(grok)
 		Ck(err)
-		Pf("%s", resp.Choices[0].Message.Content)
+		Pl(summary)
 	case "models":
 		// list all available models
 		models, err := grok.ListModels()
@@ -198,11 +198,11 @@ func main() {
 		for _, model := range models {
 			Pl(model)
 		}
-	case "upgrade <model>":
+	case "model <model>":
 		// upgrade the model used by the knowledge base
-		err := grok.UpgradeModel(cli.Upgrade.Model)
+		oldModel, err := grok.SetModel(cli.Model.Model)
 		Ck(err)
-		Pf("Upgraded model to %s\n", cli.Upgrade.Model)
+		Pf("Switched model from %s to %s\n", oldModel, cli.Model.Model)
 		save = true
 	case "migrate":
 		// copy the .grok file to a time-stamped backup file
@@ -259,7 +259,7 @@ func answer(grok *grokker.Grokker, timestamp time.Time, question string, global 
 }
 
 // generate a git commit message
-func commitMessage(grok *grokker.Grokker) (resp oai.ChatCompletionResponse, err error) {
+func commitMessage(grok *grokker.Grokker) (summary string, err error) {
 	defer Return(&err)
 
 	// run `git diff --staged`
@@ -270,7 +270,7 @@ func commitMessage(grok *grokker.Grokker) (resp oai.ChatCompletionResponse, err 
 	diff := string(out)
 
 	// call grokker
-	resp, _, err = grok.GitCommitMessage(diff)
+	summary, _, err = grok.GitCommitMessage(diff)
 	Ck(err)
 
 	return

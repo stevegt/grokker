@@ -1,6 +1,12 @@
+- write a neovim plugin
+  - https://github.com/neovim/go-client
+- support dot commands in query for directives:
+  - .help
+  - .model
+  - .add {fn} (re)adds document chunks to recent context
+  - .refresh updates all embeddings 
 - add a ~/.grokconfig file
   - default model for new repos
-- add a subcommand that automates the "grok init; touch context.md; grok add context.md" workflow
 - don't store text chunks -- just hash them instead, and store
   hash, filename, timestamp, position, length, and embedding.
 - consider using a single .grok database in the user's home directory
@@ -10,6 +16,7 @@
   - maintain context by dir/subdir nesting
   - to include files from other projects as context, let 'grok add'
     maintain references in the db
+- add a subcommand that automates the "grok init; touch context.md; grok add context.md" workflow
 - replace json storage with kv
   - write kv.go, use it as an adapter so we can use e.g. bbolt now and
     swap to puptree later
@@ -28,6 +35,10 @@
 - consider implementing a 'chat' subcommand that would maintain 
   user/AI headings on each text block in an edit buffer and use those
   in chat completion message
+- consider adding a subcommand like 'chat' or 'context' that would let
+  the user asynchronously enter queries while the previous query was
+  still running; the code would automatically append queries and
+  responses to context.md as responses arrive.
 - review/implement use of system message for gpt-4, since it's better
   supported in that model
 - convert universe into a general purpose PUP processor 
@@ -51,15 +62,6 @@
     going back in time
   - keeps track of user/assistant messages and summarizes them
     separately
-- add 'sh' subcommand:
-  - supports dot commands for directives:
-    - .help
-    - .add {fn}
-    - .update updates all embeddings 
-    - .review {fn} re-adds document chunks to recent context
-  - otherwise acts as a chat client
-    - adds each message to context
-  - adds each tx/rx message to context tree
 - add 'vet' subcommand
   - works like "go vet" -- look for inconsistencies, possibly by
     comparing summaries with individual chunks, or by negating and
