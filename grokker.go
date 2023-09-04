@@ -701,15 +701,85 @@ func (g *Grokker) Answer(question string, global bool) (resp oai.ChatCompletionR
 		// context += chunk.Text + "\n\n"
 		// include filename in context
 		context += Spf("%s:\n\n%s\n\n", chunk.Document.RelPath, chunk.Text)
-		// XXX promptTmpl doesn't appear to be in use atm
-		if len(context)+len(promptTmpl) > maxSize {
+		if len(context) > maxSize {
 			break
 		}
 	}
 	Debug("using %d chunks as context", len(chunks))
 
 	// generate the answer.
-	resp, query, err = g.Generate(question, context, global)
+	resp, query, err = g.Generate(sysMsgChat, question, context, global)
+	return
+}
+
+// Revise returns revised text based on input text.
+func (g *Grokker) Revise(in string, global, sysmsgin bool) (out, sysmsg string, err error) {
+	defer Return(&err)
+
+	if sysmsgin {
+		// split input into sysmsg and txt
+		paragraphs := strings.Split(in, "\n\n")
+		if len(paragraphs) < 2 {
+			err = fmt.Errorf("input must contain at least two paragraphs")
+			return
+		}
+		sysmsg = paragraphs[0]
+		// in = strings.Join(paragraphs[1:], "\n\n")
+		in = strings.Join(paragraphs, "\n\n")
+	} else {
+		sysmsg = sysMsgRevise
+	}
+
+	// get all chunks, sorted by similarity to the txt.
+	chunks, err := g.FindChunks(in, 0)
+	Ck(err)
+	// ensure the context is not too long.
+	maxSize := int(float64(g.maxChunkLen)*0.4) - len(in) - len(sysmsg)
+	// use chunks as context for the answer until we reach the max size.
+	var context string
+	for _, chunk := range chunks {
+		// include filename in context
+		context += Spf("%s:\n\n%s\n\n", chunk.Document.RelPath, chunk.Text)
+		if len(context) > maxSize {
+			break
+		}
+	}
+	Debug("using %d chunks as context", len(chunks))
+
+	// generate the answer.
+	resp, _, err := g.Generate(sysmsg, in, context, global)
+	Ck(err)
+	if sysmsgin {
+		out = Spf("%s\n\n%s", sysmsg, resp.Choices[0].Message.Content)
+	} else {
+		out = resp.Choices[0].Message.Content
+	}
+	return
+}
+
+// Continue returns a continuation of the input text.
+func (g *Grokker) Continue(in string, global bool) (out, sysmsg string, err error) {
+	defer Return(&err)
+	sysmsg = sysMsgContinue
+	// get all chunks, sorted by similarity to the txt.
+	chunks, err := g.FindChunks(in, 0)
+	Ck(err)
+	// ensure the context is not too long.
+	maxSize := int(float64(g.maxChunkLen)*0.4) - len(in) - len(sysmsg)
+	// use chunks as context for the answer until we reach the max size.
+	var context string
+	for _, chunk := range chunks {
+		// include filename in context
+		context += Spf("%s:\n\n%s\n\n", chunk.Document.RelPath, chunk.Text)
+		if len(context) > maxSize {
+			break
+		}
+	}
+	Debug("using %d chunks as context", len(chunks))
+	// generate the answer.
+	resp, _, err := g.Generate(sysmsg, in, context, global)
+	Ck(err)
+	out = resp.Choices[0].Message.Content
 	return
 }
 
@@ -725,8 +795,14 @@ var promptTmpl = `{{.Question}}
 Context:
 {{.Context}}`
 
+var sysMsgChat = "You are a helpful assistant.  I will provide you with context, then you will respond with an acknowledgement, then I will ask you a question about the context, then you will provide me with an answer."
+
+var sysMsgRevise = "I will provide you with context, then you will respond with an acknowledgement, then I will provide you with a block of text.  You will revise the block of text based on the information in the context, maintaining the same style, vocabulary, and reading level."
+
+var sysMsgContinue = "I will provide you with context, then you will respond with an acknowledgement, then I will provide you with a block of text.  You will continue the block of text based on the information in the context, maintaining the same style, vocabulary, and reading level."
+
 // Generate returns the answer to a question.
-func (g *Grokker) Generate(question, ctxt string, global bool) (resp oai.ChatCompletionResponse, query string, err error) {
+func (g *Grokker) Generate(sysmsg, question, ctxt string, global bool) (resp oai.ChatCompletionResponse, query string, err error) {
 	defer Return(&err)
 
 	/*
@@ -742,7 +818,7 @@ func (g *Grokker) Generate(question, ctxt string, global bool) (resp oai.ChatCom
 	messages := []oai.ChatCompletionMessage{
 		{
 			Role:    oai.ChatMessageRoleSystem,
-			Content: "You are a helpful assistant.  I will provide you with context, then you will respond with an acknowledgement, then I will ask you a question about the context, then you will provide me with an answer.",
+			Content: sysmsg,
 		},
 	}
 
@@ -873,8 +949,12 @@ func (g *Grokker) RefreshEmbeddings() (err error) {
 	return
 }
 
+var GitSummaryPrompt = `
+Summarize the context into a single line of 60 characters or less.  Add nothing else.  Use present tense.  Do not quote.
+`
+
 var GitCommitPrompt = `
-Summarize the bullet points found in the context into a single line of 60 characters or less.  Append a blank line, followed by the unaltered context.  Add nothing else.  Use present tense.
+Summarize the bullet points found in the context into a single line of 60 characters or less.  Add nothing else.  Use present tense. Do not quote.
 `
 
 var GitDiffPrompt = `
@@ -884,26 +964,28 @@ Summarize the bullet points and 'git diff' fragments found in the context into b
 // GitCommitMessage generates a git commit message given a diff. It
 // appends a reasonable prompt, and then uses the result as a grokker
 // query.
-func (g *Grokker) GitCommitMessage(diff string) (summary, query string, err error) {
+func (g *Grokker) GitCommitMessage(diff string) (msg, query string, err error) {
 	defer Return(&err)
 
 	// summarize the diff
-	summary, err = g.summarizeDiff(diff)
+	sumLines, msg, err := g.summarizeDiff(diff)
 	Ck(err)
 
-	// XXX we are currently not providing additional context from the
-	// embedded documents.  We should do that.
+	// summarize the sumLines to create the first line of the commit
+	// message
+	resp, _, err := g.Generate(sysMsgChat, GitSummaryPrompt, sumLines, false)
+	Ck(err)
+	summary := resp.Choices[0].Message.Content
 
-	// use the result as a grokker query
-	// resp, query, err = g.Answer(prompt, false)
-	// resp, _, err = g.Generate(GitCommitPrompt, summary, false)
-	// Ck(err)
+	// glue it all together
+	msg = Spf("%s\n\n%s", summary, msg)
+
 	return
 }
 
 // summarizeDiff recursively summarizes a diff until the summary is
 // short enough to be used as a prompt.
-func (g *Grokker) summarizeDiff(diff string) (diffSummary string, err error) {
+func (g *Grokker) summarizeDiff(diff string) (sumlines string, diffSummary string, err error) {
 	defer Return(&err)
 	maxLen := int(float64(g.maxChunkLen) * .7)
 	// split the diff on filenames
@@ -932,21 +1014,30 @@ func (g *Grokker) summarizeDiff(diff string) (diffSummary string, err error) {
 		for _, chunk := range chunks {
 			// format the chunk
 			context := Spf("diff --git %s\n%s", fns, chunk)
-			resp, _, err := g.Generate(GitDiffPrompt, context, false)
+			resp, _, err := g.Generate(sysMsgChat, GitDiffPrompt, context, false)
 			Ck(err)
 			fileSummary = Spf("%s\n%s", fileSummary, resp.Choices[0].Message.Content)
 		}
-		// prepend a summary line of the changes for this file
-		resp, _, err := g.Generate(GitCommitPrompt, fileSummary, false)
+		// XXX recurse here to glue the summaries together for a given
+		// file?
+
+		// get a summary line of the changes for this file
+		resp, _, err := g.Generate(sysMsgChat, GitCommitPrompt, fileSummary, false)
 		Ck(err)
-		// append the summary of the changes for this file to the
-		// summary of the changes for all files
-		diffSummary = Spf("%s\n\n%s", diffSummary, resp.Choices[0].Message.Content)
+		sumLine := resp.Choices[0].Message.Content
+		// append the summary line to the list of summary lines
+		sumlines = Spf("%s\n%s", sumlines, sumLine)
+		// append sumLine and the diff for this file to the summary
+		// of the changes for all files
+		diffSummary = Spf("%s\n\n%s\n\n%s", diffSummary, sumLine, fileSummary)
 	}
-	if len(diffSummary) > int(maxLen) {
-		// recurse
-		Fpf(os.Stderr, "diff summary too long (%d bytes), recursing\n", len(diffSummary))
-		diffSummary, err = g.summarizeDiff(diffSummary)
-	}
+	/*
+		// if the summary is too long, recurse
+		if len(diffSummary) > int(maxLen) {
+			// recurse
+			Fpf(os.Stderr, "diff summary too long (%d bytes), recursing\n", len(diffSummary))
+			diffSummary, err = g.summarizeDiff(diffSummary)
+		}
+	*/
 	return
 }

@@ -33,8 +33,11 @@ var cli struct {
 	Q       struct {
 		Question string `arg:"" help:"Question to ask the knowledge base."`
 	} `cmd:"" help:"Ask the knowledge base a question."`
+	Qc      struct{} `cmd:"" help:"Continue text from stdin based on the context in the knowledge base."`
 	Qi      struct{} `cmd:"" help:"Ask the knowledge base a question on stdin."`
+	Qr      struct{} `cmd:"" help:"Revise stdin based on the context in the knowledge base."`
 	Global  bool     `short:"g" help:"Include results from OpenAI's global knowledge base as well as from local documents."`
+	SysMsg  bool     `short:"s" help:"expect sysmsg in first paragraph of stdin, return same on stdout."`
 	Verbose bool     `short:"v" help:"Show debug and progress information on stderr."`
 	Version struct{} `cmd:"" help:"Show version of grok and its database."`
 	Commit  struct{} `cmd:"" help:"Generate a git commit message on stdout."`
@@ -172,6 +175,19 @@ func main() {
 		if updated {
 			save = true
 		}
+	case "qc":
+		// get text from stdin and print both text and continuation
+		buf, err := ioutil.ReadAll(os.Stdin)
+		Ck(err)
+		txt := string(buf)
+		// trim whitespace
+		txt = strings.TrimSpace(txt)
+		resp, _, updated, err := answer(grok, timestamp, txt, cli.Global)
+		Ck(err)
+		Pf("%s\n%s\n", txt, resp.Choices[0].Message.Content)
+		if updated {
+			save = true
+		}
 	case "qi":
 		// get question from stdin and print both question and answer
 		buf, err := ioutil.ReadAll(os.Stdin)
@@ -183,6 +199,20 @@ func main() {
 		Ck(err)
 		_ = query
 		Pf("\n%s\n\n%s\n\n", question, resp.Choices[0].Message.Content)
+		if updated {
+			save = true
+		}
+	case "qr":
+		// get content from stdin and emit revised version on stdout
+		buf, err := ioutil.ReadAll(os.Stdin)
+		Ck(err)
+		in := string(buf)
+		// in = strings.TrimSpace(in)
+		out, updated, err := revise(grok, timestamp, in, cli.Global, cli.SysMsg)
+		Ck(err)
+		// Pf("%s\n\n%s\n", sysmsg, out)
+		// Pf("%s\n\n%s\n\n", in, out)
+		Pf("%s", out)
 		if updated {
 			save = true
 		}
@@ -253,6 +283,21 @@ func answer(grok *grokker.Grokker, timestamp time.Time, question string, global 
 
 	// answer the question
 	resp, query, err = grok.Answer(question, global)
+	Ck(err)
+
+	return
+}
+
+// revise text
+func revise(grok *grokker.Grokker, timestamp time.Time, in string, global, sysmsgin bool) (out string, updated bool, err error) {
+	defer Return(&err)
+
+	// update the knowledge base
+	updated, err = grok.UpdateEmbeddings(timestamp)
+	Ck(err)
+
+	// return revised text
+	out, _, err = grok.Revise(in, global, sysmsgin)
 	Ck(err)
 
 	return

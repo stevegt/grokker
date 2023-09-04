@@ -1,10 +1,22 @@
+- add a 'qr' subcommand 
+  - optimized for iteratively evolving a document
+  - uses stdio 
+  - uses gpt-4-32k 
+  - uses first paragraph as system message
+  - uses remainder of document as query
+  - provides context based on query 
+  - emits response on stdout
+- support 'dot' subcommand:
+  - uses stdio 
+  - .model {model name}
+  - .sys 
+    - system message follows in next paragraph
+  - .itr
+    - find context that closely matches remainder of document, add it
+      as a user message, then add remainder of the document as a user
+      message.
 - write a neovim plugin
   - https://github.com/neovim/go-client
-- support dot commands in query for directives:
-  - .help
-  - .model
-  - .add {fn} (re)adds document chunks to recent context
-  - .refresh updates all embeddings 
 - add a ~/.grokconfig file
   - default model for new repos
 - don't store text chunks -- just hash them instead, and store
