@@ -71,11 +71,8 @@ func TestChatQuery(t *testing.T) {
 	err = grok.AddDocument("testdata/te-abstract.txt")
 	Tassert(t, err == nil, "error adding doc: %v", err)
 	// answer the query
-	resp, query, err := grok.Answer("Why is order of operations important when administering a UNIX machine?", false)
+	resp, err := grok.Answer("Why is order of operations important when administering a UNIX machine?", false)
 	Tassert(t, err == nil, "error answering query: %v", err)
-	Pl("query:")
-	Pl(query)
-	Pl()
 	Pl("answer:")
 	Pprint(resp)
 }

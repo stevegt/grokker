@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/alecthomas/kong"
-	oai "github.com/sashabaranov/go-openai"
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker"
 )
@@ -63,7 +62,7 @@ func main() {
 	if ctx.Command() == "init" {
 		// initialize a new .grok file in the current directory
 		// create a new Grokker object
-		// XXX assume current directory fro now, but should be able to
+		// XXX assume current directory for now, but should be able to
 		// specify rootdir on command line
 		// XXX use the default model for now, but we should accept an
 		// optional model name as an init argument
@@ -171,7 +170,7 @@ func main() {
 		question := cli.Q.Question
 		resp, _, updated, err := answer(grok, timestamp, question, cli.Global)
 		Ck(err)
-		Pl(resp.Choices[0].Message.Content)
+		Pl(resp)
 		if updated {
 			save = true
 		}
@@ -184,7 +183,7 @@ func main() {
 		txt = strings.TrimSpace(txt)
 		resp, _, updated, err := answer(grok, timestamp, txt, cli.Global)
 		Ck(err)
-		Pf("%s\n%s\n", txt, resp.Choices[0].Message.Content)
+		Pf("%s\n%s\n", txt, resp)
 		if updated {
 			save = true
 		}
@@ -198,7 +197,7 @@ func main() {
 		resp, query, updated, err := answer(grok, timestamp, question, cli.Global)
 		Ck(err)
 		_ = query
-		Pf("\n%s\n\n%s\n\n", question, resp.Choices[0].Message.Content)
+		Pf("\n%s\n\n%s\n\n", question, resp)
 		if updated {
 			save = true
 		}
@@ -274,7 +273,7 @@ func main() {
 }
 
 // answer a question
-func answer(grok *grokker.Grokker, timestamp time.Time, question string, global bool) (resp oai.ChatCompletionResponse, query string, updated bool, err error) {
+func answer(grok *grokker.Grokker, timestamp time.Time, question string, global bool) (resp, query string, updated bool, err error) {
 	defer Return(&err)
 
 	// update the knowledge base
@@ -282,7 +281,7 @@ func answer(grok *grokker.Grokker, timestamp time.Time, question string, global 
 	Ck(err)
 
 	// answer the question
-	resp, query, err = grok.Answer(question, global)
+	resp, err = grok.Answer(question, global)
 	Ck(err)
 
 	return
@@ -315,7 +314,7 @@ func commitMessage(grok *grokker.Grokker) (summary string, err error) {
 	diff := string(out)
 
 	// call grokker
-	summary, _, err = grok.GitCommitMessage(diff)
+	summary, err = grok.GitCommitMessage(diff)
 	Ck(err)
 
 	return

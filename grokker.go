@@ -56,6 +56,12 @@ import (
 // Repeat steps 3-5 for each question asked, updating the conversation
 // prompt as needed.
 
+// Semantic Versioning
+// https://semver.org/spec/v2.0.0.html
+// MAJOR.MINOR.PATCH
+// MAJOR version when you make incompatible API changes,
+// MINOR version when you add functionality in a backwards compatible manner, and
+// PATCH version when you make backwards compatible bug fixes.
 const (
 	version = "1.1.2"
 )
@@ -688,7 +694,7 @@ func Similarity(a, b []float64) float64 {
 // response.
 
 // Answer returns the answer to a question.
-func (g *Grokker) Answer(question string, global bool) (resp oai.ChatCompletionResponse, query string, err error) {
+func (g *Grokker) Answer(question string, global bool) (resp string, err error) {
 	defer Return(&err)
 	// get all chunks, sorted by similarity to the question.
 	chunks, err := g.FindChunks(question, 0)
@@ -708,7 +714,8 @@ func (g *Grokker) Answer(question string, global bool) (resp oai.ChatCompletionR
 	Debug("using %d chunks as context", len(chunks))
 
 	// generate the answer.
-	resp, query, err = g.Generate(sysMsgChat, question, context, global)
+	respmsg, err := g.Generate(sysMsgChat, question, context, global)
+	resp = respmsg.Choices[0].Message.Content
 	return
 }
 
@@ -747,7 +754,7 @@ func (g *Grokker) Revise(in string, global, sysmsgin bool) (out, sysmsg string, 
 	Debug("using %d chunks as context", len(chunks))
 
 	// generate the answer.
-	resp, _, err := g.Generate(sysmsg, in, context, global)
+	resp, err := g.Generate(sysmsg, in, context, global)
 	Ck(err)
 	if sysmsgin {
 		out = Spf("%s\n\n%s", sysmsg, resp.Choices[0].Message.Content)
@@ -777,7 +784,7 @@ func (g *Grokker) Continue(in string, global bool) (out, sysmsg string, err erro
 	}
 	Debug("using %d chunks as context", len(chunks))
 	// generate the answer.
-	resp, _, err := g.Generate(sysmsg, in, context, global)
+	resp, err := g.Generate(sysmsg, in, context, global)
 	Ck(err)
 	out = resp.Choices[0].Message.Content
 	return
@@ -802,7 +809,7 @@ var sysMsgRevise = "You are an expert knowledgable in the provided context.  I w
 var sysMsgContinue = "You are an expert knowledgable in the provided context.  I will provide you with context, then you will respond with an acknowledgement, then I will provide you with a block of text.  You will continue the block of text based on the information in the context, maintaining the same style, vocabulary, and reading level."
 
 // Generate returns the answer to a question.
-func (g *Grokker) Generate(sysmsg, question, ctxt string, global bool) (resp oai.ChatCompletionResponse, query string, err error) {
+func (g *Grokker) Generate(sysmsg, question, ctxt string, global bool) (resp oai.ChatCompletionResponse, err error) {
 	defer Return(&err)
 
 	// XXX don't exceed max tokens
@@ -955,7 +962,7 @@ Summarize the bullet points and 'git diff' fragments found in the context into b
 // GitCommitMessage generates a git commit message given a diff. It
 // appends a reasonable prompt, and then uses the result as a grokker
 // query.
-func (g *Grokker) GitCommitMessage(diff string) (msg, query string, err error) {
+func (g *Grokker) GitCommitMessage(diff string) (msg string, err error) {
 	defer Return(&err)
 
 	// summarize the diff
@@ -964,7 +971,7 @@ func (g *Grokker) GitCommitMessage(diff string) (msg, query string, err error) {
 
 	// summarize the sumLines to create the first line of the commit
 	// message
-	resp, _, err := g.Generate(sysMsgChat, GitSummaryPrompt, sumLines, false)
+	resp, err := g.Generate(sysMsgChat, GitSummaryPrompt, sumLines, false)
 	Ck(err)
 	summary := resp.Choices[0].Message.Content
 
@@ -1005,7 +1012,7 @@ func (g *Grokker) summarizeDiff(diff string) (sumlines string, diffSummary strin
 		for _, chunk := range chunks {
 			// format the chunk
 			context := Spf("diff --git %s\n%s", fns, chunk)
-			resp, _, err := g.Generate(sysMsgChat, GitDiffPrompt, context, false)
+			resp, err := g.Generate(sysMsgChat, GitDiffPrompt, context, false)
 			Ck(err)
 			fileSummary = Spf("%s\n%s", fileSummary, resp.Choices[0].Message.Content)
 		}
@@ -1013,7 +1020,7 @@ func (g *Grokker) summarizeDiff(diff string) (sumlines string, diffSummary strin
 		// file?
 
 		// get a summary line of the changes for this file
-		resp, _, err := g.Generate(sysMsgChat, GitCommitPrompt, fileSummary, false)
+		resp, err := g.Generate(sysMsgChat, GitCommitPrompt, fileSummary, false)
 		Ck(err)
 		sumLine := resp.Choices[0].Message.Content
 		// append the summary line to the list of summary lines
