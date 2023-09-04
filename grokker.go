@@ -795,24 +795,15 @@ var promptTmpl = `{{.Question}}
 Context:
 {{.Context}}`
 
-var sysMsgChat = "You are a helpful assistant.  I will provide you with context, then you will respond with an acknowledgement, then I will ask you a question about the context, then you will provide me with an answer."
+var sysMsgChat = "You are an expert knowledgable in the provided context.  I will provide you with context, then you will respond with an acknowledgement, then I will ask you a question about the context, then you will provide me with an answer."
 
-var sysMsgRevise = "I will provide you with context, then you will respond with an acknowledgement, then I will provide you with a block of text.  You will revise the block of text based on the information in the context, maintaining the same style, vocabulary, and reading level."
+var sysMsgRevise = "You are an expert knowledgable in the provided context.  I will provide you with context, then you will respond with an acknowledgement, then I will provide you with a block of text.  You will revise the block of text based on the information in the context, maintaining the same style, vocabulary, and reading level."
 
-var sysMsgContinue = "I will provide you with context, then you will respond with an acknowledgement, then I will provide you with a block of text.  You will continue the block of text based on the information in the context, maintaining the same style, vocabulary, and reading level."
+var sysMsgContinue = "You are an expert knowledgable in the provided context.  I will provide you with context, then you will respond with an acknowledgement, then I will provide you with a block of text.  You will continue the block of text based on the information in the context, maintaining the same style, vocabulary, and reading level."
 
 // Generate returns the answer to a question.
 func (g *Grokker) Generate(sysmsg, question, ctxt string, global bool) (resp oai.ChatCompletionResponse, query string, err error) {
 	defer Return(&err)
-
-	/*
-		var systemText string
-		if global {
-			systemText = "You are a helpful assistant that provides answers from everything you know, as well as from the context provided in this chat."
-		} else {
-			systemText = "You are a helpful assistant that provides answers from the context provided in this chat."
-		}
-	*/
 
 	// XXX don't exceed max tokens
 	messages := []oai.ChatCompletionMessage{
