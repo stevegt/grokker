@@ -1,13 +1,10 @@
 package main
 
 import (
-	"fmt"
-	"io"
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/alecthomas/kong"
 	. "github.com/stevegt/goadapt"
@@ -44,7 +41,6 @@ var cli struct {
 	Model   struct {
 		Model string `arg:"" help:"Model to switch to."`
 	} `cmd:"" help:"Upgrade the model used by the knowledge base."`
-	Migrate struct{} `cmd:"" help:"Migrate the knowledge base to the latest version."`
 }
 
 func main() {
@@ -66,58 +62,22 @@ func main() {
 		// specify rootdir on command line
 		// XXX use the default model for now, but we should accept an
 		// optional model name as an init argument
-		grok, err := grokker.New(".", "")
+		_, err := grokker.Init(".", "")
 		Ck(err)
-		// save it to .grok
-		fh, err := os.Create(".grok")
-		Ck(err)
-		err = grok.Save(fh)
-		Ck(err)
-		fh.Close()
 		Pl("Initialized a new .grok file in the current directory.")
 		os.Exit(0)
 	}
 
-	// find the .grok file in the current or any parent directory
-	grokfnbase := ".grok"
-	grokpath := ""
-	for level := 0; level < 10; level++ {
-		path := strings.Repeat("../", level) + grokfnbase
-		if _, err := os.Stat(path); err == nil {
-			grokpath = path
-			break
-		}
-	}
-	if grokpath == "" {
-		Fpf(os.Stderr, "No .grok file found in current directory or any parent directory.\n")
-		os.Exit(1)
-	}
-	// get the last modified time of the .grok file
-	fi, err := os.Stat(grokpath)
-	Ck(err)
-	timestamp := fi.ModTime()
-
 	save := false
-	var grok *grokker.Grokker
-
-	// set the migration flag
-	migrate := false
-	if ctx.Command() == "migrate" {
-		migrate = true
-	}
-	// pretend we're migrating if the command is "ls"
-	// XXX this is a hack that needs to go away after we move file ops
-	// into the grokker package
-	if ctx.Command() == "ls" {
-		migrate = true
-	}
-
-	// load the .grok file
-	// XXX move file ops to grokker package
-	fh, err := os.Open(grokpath)
-	grok, err = grokker.Load(fh, grokpath, migrate)
+	grok, migrated, was, now, err := grokker.Load()
 	Ck(err)
-	fh.Close()
+	if migrated {
+		fn, err := grok.Backup()
+		Ck(err)
+		Pf("migrated grokker db from version %s to %s\n", was, now)
+		Pf("backup of old db saved to %s\n", fn)
+		save = true
+	}
 
 	// XXX move all of this to a sub
 	switch ctx.Command() {
@@ -153,10 +113,10 @@ func main() {
 		// refresh the embeddings for all documents
 		err = grok.RefreshEmbeddings()
 		Ck(err)
-		// save the .grok file
+		// save the db
 		save = true
 	case "ls":
-		// list the documents in the .grok file
+		// list the documents in the knowledge base
 		paths := grok.ListDocuments()
 		for _, path := range paths {
 			Pl(path)
@@ -168,7 +128,7 @@ func main() {
 			os.Exit(1)
 		}
 		question := cli.Q.Question
-		resp, _, updated, err := answer(grok, timestamp, question, cli.Global)
+		resp, _, updated, err := answer(grok, question, cli.Global)
 		Ck(err)
 		Pl(resp)
 		if updated {
@@ -181,7 +141,7 @@ func main() {
 		txt := string(buf)
 		// trim whitespace
 		txt = strings.TrimSpace(txt)
-		resp, _, updated, err := answer(grok, timestamp, txt, cli.Global)
+		resp, _, updated, err := answer(grok, txt, cli.Global)
 		Ck(err)
 		Pf("%s\n%s\n", txt, resp)
 		if updated {
@@ -194,7 +154,7 @@ func main() {
 		question := string(buf)
 		// trim whitespace
 		question = strings.TrimSpace(question)
-		resp, query, updated, err := answer(grok, timestamp, question, cli.Global)
+		resp, query, updated, err := answer(grok, question, cli.Global)
 		Ck(err)
 		_ = query
 		Pf("\n%s\n\n%s\n\n", question, resp)
@@ -207,7 +167,7 @@ func main() {
 		Ck(err)
 		in := string(buf)
 		// in = strings.TrimSpace(in)
-		out, updated, err := revise(grok, timestamp, in, cli.Global, cli.SysMsg)
+		out, updated, err := revise(grok, in, cli.Global, cli.SysMsg)
 		Ck(err)
 		// Pf("%s\n\n%s\n", sysmsg, out)
 		// Pf("%s\n\n%s\n\n", in, out)
@@ -233,24 +193,10 @@ func main() {
 		Ck(err)
 		Pf("Switched model from %s to %s\n", oldModel, cli.Model.Model)
 		save = true
-	case "migrate":
-		// copy the .grok file to a time-stamped backup file
-		// XXX this won't work when we migrate from a .grok file to a
-		// .grok directory.  we need to move file ops into the
-		// Grokker object before then.
-		backpath := fmt.Sprintf("%s-backup-%s", grokpath, time.Now().Format("20060102-150405"))
-		Fpf(os.Stderr, "Backing up %s to %s\n", grokpath, backpath)
-		err := copyFile(grokpath, backpath)
-		Ck(err)
-		// migrate the grok object
-		was, now, err := grok.Migrate()
-		Ck(err)
-		Pf("Migrated knowledge base from version %s to %s\n", was, now)
-		save = true
 	case "version":
 		// print the version of grokker
 		Pf("grokker version %s\n", grok.CodeVersion())
-		// print the version of the .grok file
+		// print the version of the grok db
 		Pf("grok db version %s\n", grok.DBVersion())
 	default:
 		Fpf(os.Stderr, "Error: unrecognized command: %s\n", ctx.Command())
@@ -259,25 +205,18 @@ func main() {
 
 	if save {
 		// save the grok file
-		Debug("saving grok file")
-		tmpfn := grokpath + ".tmp"
-		fh, err := os.Create(tmpfn)
-		err = grok.Save(fh)
+		err = grok.Save()
 		Ck(err)
-		fh.Close()
-		err = os.Rename(tmpfn, grokpath)
-		Ck(err)
-		Debug(" done!")
 	}
 
 }
 
 // answer a question
-func answer(grok *grokker.Grokker, timestamp time.Time, question string, global bool) (resp, query string, updated bool, err error) {
+func answer(grok *grokker.Grokker, question string, global bool) (resp, query string, updated bool, err error) {
 	defer Return(&err)
 
 	// update the knowledge base
-	updated, err = grok.UpdateEmbeddings(timestamp)
+	updated, err = grok.UpdateEmbeddings()
 	Ck(err)
 
 	// answer the question
@@ -288,11 +227,11 @@ func answer(grok *grokker.Grokker, timestamp time.Time, question string, global 
 }
 
 // revise text
-func revise(grok *grokker.Grokker, timestamp time.Time, in string, global, sysmsgin bool) (out string, updated bool, err error) {
+func revise(grok *grokker.Grokker, in string, global, sysmsgin bool) (out string, updated bool, err error) {
 	defer Return(&err)
 
 	// update the knowledge base
-	updated, err = grok.UpdateEmbeddings(timestamp)
+	updated, err = grok.UpdateEmbeddings()
 	Ck(err)
 
 	// return revised text
@@ -317,30 +256,5 @@ func commitMessage(grok *grokker.Grokker) (summary string, err error) {
 	summary, err = grok.GitCommitMessage(diff)
 	Ck(err)
 
-	return
-}
-
-// copyFile copies a file from src to dst
-func copyFile(src, dst string) (err error) {
-	defer Return(&err)
-	// open src file
-	srcfh, err := os.Open(src)
-	Ck(err)
-	defer srcfh.Close()
-	// ensure dst file does not exist
-	_, err = os.Stat(dst)
-	if err == nil {
-		Fpf(os.Stderr, "Error: %s already exists\n", dst)
-		os.Exit(1)
-	}
-	// open dst file with same mode as src
-	fi, err := srcfh.Stat()
-	Ck(err)
-	dstfh, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, fi.Mode())
-	Ck(err)
-	defer dstfh.Close()
-	// copy
-	_, err = io.Copy(dstfh, srcfh)
-	Ck(err)
 	return
 }

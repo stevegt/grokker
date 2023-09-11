@@ -58,3 +58,10 @@ func migrate_1_0_0_to_1_1_0(g *Grokker) (err error) {
 	g.Version = "1.1.0"
 	return
 }
+
+func migrate_1_1_0_to_2_0_0(g *Grokker) (err error) {
+	defer Return(&err)
+	// API change, so this is a no-op as far as the db is concerned
+	g.Version = "2.0.0"
+	return
+}

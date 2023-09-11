@@ -63,7 +63,7 @@ import (
 // MINOR version when you add functionality in a backwards compatible manner, and
 // PATCH version when you make backwards compatible bug fixes.
 const (
-	version = "1.1.2"
+	version = "2.0.0"
 )
 
 // Model is a type for model name and characteristics
@@ -176,11 +176,19 @@ type Grokker struct {
 	// tokenLimit int
 	maxChunkLen          int
 	maxEmbeddingChunkLen int
+	// the path to the grokker db
+	grokpath string
 }
 
-// New creates a new Grokker database.
-func New(rootdir, model string) (g *Grokker, err error) {
+// Init creates a Grokker database in the given root directory.
+func Init(rootdir, model string) (g *Grokker, err error) {
 	defer Return(&err)
+	g, err = InitNamed(rootdir, ".grok", model)
+	return
+}
+
+// InitNamed creates a named Grokker database in the given root directory.
+func InitNamed(rootdir, name, model string) (g *Grokker, err error) {
 	// ensure rootdir is absolute and exists
 	rootdir, err = filepath.Abs(rootdir)
 	Ck(err)
@@ -194,44 +202,68 @@ func New(rootdir, model string) (g *Grokker, err error) {
 	// initialize other bits
 	err = g.setup(model)
 	Ck(err)
+	// ensure there is no existing db
+	g.grokpath = filepath.Join(rootdir, name)
+	_, err = os.Stat(g.grokpath)
+	if err == nil {
+		err = fmt.Errorf("db already exists at %q", g.grokpath)
+		return
+	}
+	// save the db
+	fh, err := os.Create(g.grokpath)
+	Ck(err)
+	err = g.Save()
+	Ck(err)
+	fh.Close()
 	return
 }
 
-// Load loads a Grokker database from an io.Reader.  The grokpath
-// argument is the absolute path of the grok file.
-// XXX rename this to LoadFile, don't pass in the reader.
-func Load(r io.Reader, grokpath string, migrate bool) (g *Grokker, err error) {
+// Mtime returns the last modified time of the Grokker database.
+func (g *Grokker) Mtime() (timestamp time.Time, err error) {
 	defer Return(&err)
-	buf, err := ioutil.ReadAll(r)
+	fi, err := os.Stat(g.grokpath)
 	Ck(err)
+	timestamp = fi.ModTime()
+	return
+}
+
+// Load loads a Grokker database from the current or any parent directory.
+func Load() (g *Grokker, migrated bool, oldver, newver string, err error) {
+	defer Return(&err)
+
+	// find the .grok file in the current or any parent directory
+	grokfnbase := ".grok"
+	grokpath := ""
+	for level := 0; level < 99; level++ {
+		path := strings.Repeat("../", level) + grokfnbase
+		if _, err := os.Stat(path); err == nil {
+			grokpath = path
+			break
+		}
+	}
+	g, migrated, oldver, newver, err = LoadFrom(grokpath)
+	Ck(err)
+	return
+}
+
+// LoadFrom loads a Grokker database from a given path.
+func LoadFrom(grokpath string) (g *Grokker, migrated bool, oldver, newver string, err error) {
 	g = &Grokker{}
+	g.grokpath = grokpath
+	// load the db
+	fh, err := os.Open(g.grokpath)
+	Ck(err)
+	buf, err := ioutil.ReadAll(fh)
+	Ck(err)
 	err = json.Unmarshal(buf, g)
 	Ck(err)
 	// set the root directory, overriding whatever was in the db
-	g.Root, err = filepath.Abs(filepath.Dir(grokpath))
+	// - this is necessary because the db might have been moved
+	g.Root, err = filepath.Abs(filepath.Dir(g.grokpath))
 	Ck(err)
-	// set default version
-	if g.Version == "" {
-		g.Version = "0.1.0"
-	}
-	if migrate {
-		// don't do anything else, just return the db
-		return
-	}
-	// check versions for compatibility
-	v1, err := semver.Parse([]byte(g.Version))
+
+	migrated, oldver, newver, err = g.Migrate()
 	Ck(err)
-	v2, err := semver.Parse([]byte(version))
-	Ck(err)
-	major, minor, _ := semver.Upgrade(v1, v2)
-	if major {
-		Fpf(os.Stderr, "grokker db is version %s, but you're running version %s -- try `grok migrate`\n",
-			g.Version, version)
-		os.Exit(1)
-	} else if minor {
-		Fpf(os.Stderr, "grokker db is version %s; new features are available in version %s -- try `grok migrate`\n",
-			g.Version, version)
-	}
 
 	err = g.setup(g.Model)
 	Ck(err)
@@ -252,9 +284,31 @@ func (g *Grokker) DBVersion() string {
 // to the current version.
 // XXX unexport this and call it from Load() after moving file ops
 // into this package.
-func (g *Grokker) Migrate() (was, now string, err error) {
+func (g *Grokker) Migrate() (migrated bool, was, now string, err error) {
 	defer Return(&err)
+
 	was = g.Version
+	now = g.Version
+
+	// set default version
+	if g.Version == "" {
+		g.Version = "0.1.0"
+	}
+
+	// check if migration is necessary
+	dbver, err := semver.Parse([]byte(g.Version))
+	Ck(err)
+	codever, err := semver.Parse([]byte(version))
+	Ck(err)
+	verdiff := semver.Cmp(dbver, codever)
+	if verdiff == 0 {
+		// no migration necessary
+		return
+	} else if verdiff > 0 {
+		// db is newer than code
+		err = fmt.Errorf("grokker db is version %s, but you're running version %s -- upgrade grokker", g.Version, version)
+		return
+	}
 
 	if g.Version == "0.1.0" {
 		err = migrate_0_1_0_to_1_0_0(g)
@@ -264,10 +318,32 @@ func (g *Grokker) Migrate() (was, now string, err error) {
 		err = migrate_1_0_0_to_1_1_0(g)
 		Ck(err)
 	}
-
+	if g.Version == "1.1.0" {
+		err = migrate_1_1_0_to_2_0_0(g)
+		Ck(err)
+	}
 	// XXX remove doc.Path in a future version
 
+	// check that the migration worked - if this fails, then we need
+	// to add an 'if' block above and a new migration function in migrate.go
+	Assert(g.Version == version, "migration missing: %s -> %s", was, version)
+
 	now = g.Version
+	migrated = true
+
+	return
+}
+
+// Backup backs up the Grokker database to a time-stamped backup and
+// returns the path.
+func (g *Grokker) Backup() (backpath string, err error) {
+	defer Return(&err)
+	Assert(g.grokpath != "", "g.grokpath is empty")
+	tmpdir := os.TempDir()
+	deslashed := strings.Replace(g.grokpath, "/", "-", -1)
+	backpath = fmt.Sprintf("%s/grokker-backup-%s%s", tmpdir, time.Now().Format("20060102-150405"), deslashed)
+	err = copyFile(g.grokpath, backpath)
+	Ck(err, "failed to backup %q to %q", g.grokpath, backpath)
 	return
 }
 
@@ -333,21 +409,40 @@ func (g *Grokker) getModel() (model string, m *Model, err error) {
 	return
 }
 
-// Save saves a Grokker database as json data in an io.Writer.
-func (g *Grokker) Save(w io.Writer) (err error) {
+// Save saves the Grokker database as json data in an io.Writer.
+func (g *Grokker) Save() (err error) {
 	defer Return(&err)
+
+	// open
+	Debug("saving grok file")
+	tmpfn := g.grokpath + ".tmp"
+	fh, err := os.Create(tmpfn)
+
+	// write
 	data, err := json.Marshal(g)
 	Ck(err)
-	_, err = w.Write(data)
+	_, err = fh.Write(data)
+
+	// close
+	err = fh.Close()
+	Ck(err)
+
+	// move
+	err = os.Rename(tmpfn, g.grokpath)
+	Ck(err)
+	Debug(" done!")
+
 	return
 }
 
 // UpdateEmbeddings updates the embeddings for any documents that have
 // changed since the last time the embeddings were updated.  It returns
 // true if any embeddings were updated.
-func (g *Grokker) UpdateEmbeddings(lastUpdate time.Time) (update bool, err error) {
+func (g *Grokker) UpdateEmbeddings() (update bool, err error) {
 	defer Return(&err)
 	// we use the timestamp of the grokfn as the last embedding update time.
+	lastUpdate, err := g.Mtime()
+	Ck(err)
 	for _, doc := range g.Documents {
 		// check if the document has changed.
 		fi, err := os.Stat(g.AbsPath(doc))
@@ -899,7 +994,8 @@ func (g *Grokker) Chat(messages []oai.ChatCompletionMessage) (resp oai.ChatCompl
 // XXX this is a bit of a hack, since we're using the document name as
 // the document ID.
 // XXX this is also a bit of a hack since we're trying to make this
-// work for multiple versions
+// work for multiple versions -- we should be able to simplify this
+// after migration is automatic during Load().
 func (g *Grokker) ListDocuments() (paths []string) {
 	for _, doc := range g.Documents {
 		path := doc.Path
@@ -947,12 +1043,21 @@ func (g *Grokker) RefreshEmbeddings() (err error) {
 	return
 }
 
+/*
 var GitSummaryPrompt = `
 Summarize the context into a single line of 60 characters or less.  Add nothing else.  Use present tense.  Do not quote.
 `
-
 var GitCommitPrompt = `
 Summarize the bullet points found in the context into a single line of 60 characters or less.  Add nothing else.  Use present tense. Do not quote.
+`
+*/
+
+var GitSummaryPrompt = `
+Describe the most important item in the context in a single line of 60 characters or less.  Add nothing else.  Use present tense.  Do not quote.
+`
+
+var GitCommitPrompt = `
+Describe the most important bullet point in the context in a single line of 60 characters or less.  Add nothing else.  Use present tense.  Do not quote.
 `
 
 var GitDiffPrompt = `
@@ -1037,5 +1142,30 @@ func (g *Grokker) summarizeDiff(diff string) (sumlines string, diffSummary strin
 			diffSummary, err = g.summarizeDiff(diffSummary)
 		}
 	*/
+	return
+}
+
+// copyFile copies a file from src to dst
+func copyFile(src, dst string) (err error) {
+	defer Return(&err)
+	// open src file
+	srcfh, err := os.Open(src)
+	Ck(err)
+	defer srcfh.Close()
+	// ensure dst file does not exist
+	_, err = os.Stat(dst)
+	if err == nil {
+		Fpf(os.Stderr, "Error: %s already exists\n", dst)
+		os.Exit(1)
+	}
+	// open dst file with same mode as src
+	fi, err := srcfh.Stat()
+	Ck(err)
+	dstfh, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, fi.Mode())
+	Ck(err)
+	defer dstfh.Close()
+	// copy
+	_, err = io.Copy(dstfh, srcfh)
+	Ck(err)
 	return
 }
