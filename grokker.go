@@ -2,6 +2,8 @@ package grokker
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -63,7 +65,7 @@ import (
 // MINOR version when you add functionality in a backwards compatible manner, and
 // PATCH version when you make backwards compatible bug fixes.
 const (
-	version = "2.0.0"
+	version = "2.1.0"
 )
 
 // Model is a type for model name and characteristics
@@ -146,13 +148,62 @@ func (g *Grokker) AbsPath(doc *Document) string {
 // Chunk is a single chunk of text from a document.
 type Chunk struct {
 	// The document that this chunk is from.
-	// XXX this is redundant; we could just use the document's path.
-	// XXX a chunk should be able to be from multiple documents.
 	Document *Document
-	// The text of the chunk.
-	Text string
+	// The offset of the chunk in the document.
+	Offset int
+	// The length of the chunk in the document.
+	Length int
+	// sha256 hash of the text of the chunk.
+	Hash string
+	// The text of the chunk.  This is not stored in the db.
+	text string
 	// The embedding of the chunk.
 	Embedding []float64
+	// The grokker that this chunk belongs to.
+	g *Grokker
+	// true if needs to be garbage collected
+	stale bool
+}
+
+// NewChunk creates a new chunk given an offset, length, and text. It
+// computes the sha256 hash of the text if doc is not nil.  It does
+// not compute the embedding or add the chunk to the db.
+func (g *Grokker) NewChunk(doc *Document, offset, length int, text string) (c *Chunk) {
+	var prefixedText string
+	var hashStr string
+	if doc != nil {
+		prefixedText = fmt.Sprintf("from %s:\n%s\n", doc.RelPath, text)
+		hash := sha256.Sum256([]byte(prefixedText))
+		hashStr = hex.EncodeToString(hash[:])
+	}
+	c = &Chunk{
+		g:        g,
+		Document: doc,
+		Offset:   offset,
+		Length:   length,
+		Hash:     hashStr,
+		text:     text,
+	}
+	Debug("NewChunk: %#v", c)
+	return
+}
+
+// ChunkText returns the text of a chunk.
+func (g *Grokker) ChunkText(c *Chunk, withHeader bool) (text string, err error) {
+	Debug("ChunkText(%#v)", c)
+	if c.Document == nil {
+		Assert(c.text != "", "ChunkText: c.Document == nil && c.text == \"\"")
+		text = c.text
+	} else {
+		// read the chunk from the document
+		buf, err := ioutil.ReadFile(g.AbsPath(c.Document))
+		Ck(err)
+		text = string(buf[c.Offset : c.Offset+c.Length])
+		if withHeader {
+			text = fmt.Sprintf("from %s:\n%s\n", c.Document.RelPath, text)
+		}
+	}
+	return
 }
 
 type Grokker struct {
@@ -320,6 +371,10 @@ func (g *Grokker) Migrate() (migrated bool, was, now string, err error) {
 	}
 	if g.Version == "1.1.0" {
 		err = migrate_1_1_0_to_2_0_0(g)
+		Ck(err)
+	}
+	if g.Version == "2.0.0" {
+		err = migrate_2_0_0_to_2_1_0(g)
 		Ck(err)
 	}
 	// XXX remove doc.Path in a future version
@@ -532,27 +587,20 @@ func (g *Grokker) ForgetDocument(path string) (err error) {
 	return
 }
 
-// GC removes any chunks that are no longer referenced by any document.
+// GC removes any chunks that are marked as stale
 func (g *Grokker) GC() (err error) {
 	defer Return(&err)
 	// for each chunk, check if it is referenced by any document.
 	// if not, remove it from the database.
 	oldLen := len(g.Chunks)
-	newChunks := make([]*Chunk, 0, len(g.Chunks))
+	var keepChunks []*Chunk
 	for _, chunk := range g.Chunks {
-		// check if the chunk is referenced by any document.
-		referenced := false
-		for _, doc := range g.Documents {
-			if doc.RelPath == chunk.Document.RelPath {
-				referenced = true
-				break
-			}
-		}
-		if referenced {
-			newChunks = append(newChunks, chunk)
+		if !chunk.stale {
+			keepChunks = append(keepChunks, chunk)
 		}
 	}
-	g.Chunks = newChunks
+	// replace the old chunks with the new chunks.
+	g.Chunks = keepChunks
 	newLen := len(g.Chunks)
 	Debug("garbage collected %d chunks from the database", oldLen-newLen)
 	return
@@ -566,57 +614,72 @@ func (g *Grokker) UpdateDocument(doc *Document) (updated bool, err error) {
 	// when we have a kv store.
 	Debug("updating embeddings for %s ...", doc.RelPath)
 
-	// get a list of the existing chunks for this document.
-	var oldChunks []*Chunk
+	// mark all existing chunks as stale
 	for _, chunk := range g.Chunks {
 		if chunk.Document.RelPath == doc.RelPath {
-			oldChunks = append(oldChunks, chunk)
+			chunk.stale = true
 		}
 	}
-	Debug("found %d existing chunks", len(oldChunks))
-
-	var newChunkStrings []string
 
 	// break the current doc up into chunks.
-	chunkStrings, err := g.chunkStrings(doc)
+	chunks, err := g.chunksFromDoc(doc)
 	Ck(err)
-	// for each chunk, check if it already exists in the database.
-	for _, chunkString := range chunkStrings {
-		found := false
-		for _, oldChunk := range oldChunks {
-			if oldChunk.Text == chunkString {
-				// the chunk already exists in the database.  remove it from the list of old chunks.
-				found = true
-				for i, c := range oldChunks {
-					if c == oldChunk {
-						oldChunks = append(oldChunks[:i], oldChunks[i+1:]...)
-						break
-					}
-				}
-				break
-			}
-		}
-		if !found {
-			// the chunk does not exist in the database.  add it.
+	// For each chunk, ensure it exists in the database with the right
+	// hash, offset, and length.  We'll get embeddings later.
+	var newChunks []*Chunk
+	for _, chunk := range chunks {
+		newChunk := g.SetChunk(chunk)
+		if newChunk != nil {
 			updated = true
-			newChunkStrings = append(newChunkStrings, chunkString)
+			newChunks = append(newChunks, newChunk)
 		}
 	}
-	Debug("found %d new chunks", len(newChunkStrings))
+	Debug("found %d new chunks", len(newChunks))
 	// orphaned chunks will be garbage collected.
 
-	// For each text chunk, generate an embedding using the
+	// For each new chunk, generate an embedding using the
 	// openai.Embedding.create() function. Store the embeddings for each
 	// chunk in a data structure such as a list or dictionary.
+	var newChunkStrings []string
+	for _, chunk := range newChunks {
+		Assert(chunk.Document.RelPath == doc.RelPath, "chunk document does not match")
+		Assert(len(chunk.text) > 0, "chunk text is empty")
+		Assert(chunk.Embedding == nil, "chunk embedding is not nil")
+		Assert(chunk.stale == false, "chunk is stale")
+		Assert(chunk.Hash != "", "chunk hash is empty")
+		text, err := g.ChunkText(chunk, true)
+		Ck(err)
+		newChunkStrings = append(newChunkStrings, text)
+	}
 	embeddings, err := g.CreateEmbeddings(newChunkStrings)
 	Ck(err)
-	for i, text := range newChunkStrings {
-		chunk := &Chunk{
-			Document:  doc,
-			Text:      text,
-			Embedding: embeddings[i],
+	for i, chunk := range newChunks {
+		chunk.Embedding = embeddings[i]
+	}
+	return
+}
+
+// SetChunk ensures that a chunk exists in the database with the right
+// doc, hash, offset, and length, and unsets the stale bit.  It
+// returns the chunk if it was added to the database, or nil if it was
+// already in the database. The caller needs to set the embedding if
+// newChunk is not nil.
+func (g *Grokker) SetChunk(chunk *Chunk) (newChunk *Chunk) {
+	// check if the chunk is already in the database.
+	var foundChunk *Chunk
+	for _, c := range g.Chunks {
+		if c.Hash == chunk.Hash && c.Document.RelPath == chunk.Document.RelPath {
+			foundChunk = c
+			foundChunk.Offset = chunk.Offset
+			foundChunk.Length = chunk.Length
+			foundChunk.stale = false
 		}
+	}
+	if foundChunk == nil {
+		// add the chunk to the database.
 		g.Chunks = append(g.Chunks, chunk)
+		newChunk = chunk
+		newChunk.stale = false
 	}
 	return
 }
@@ -640,8 +703,8 @@ func (g *Grokker) CreateEmbeddings(texts []string) (embeddings [][]float64, err 
 		j := i
 		for {
 			nextLen := len(texts[j])
-			Debug("i=%d j=%d nextLen=%d totalLen=%d", i, j, nextLen, totalLen)
-			Assert(nextLen > 0)
+			// Debug("i=%d j=%d nextLen=%d totalLen=%d", i, j, nextLen, totalLen)
+			Assert(nextLen > 0, texts)
 			Assert(nextLen <= g.maxEmbeddingChunkLen, "nextLen=%d maxEmbeddingChunkLen=%d", nextLen, g.maxEmbeddingChunkLen)
 			if totalLen+nextLen >= g.maxEmbeddingChunkLen {
 				j--
@@ -664,7 +727,7 @@ func (g *Grokker) CreateEmbeddings(texts []string) (embeddings [][]float64, err 
 		totalLen = 0
 		for _, text := range inputs {
 			totalLen += len(text)
-			Debug("len(text)=%d, totalLen=%d", len(text), totalLen)
+			// Debug("len(text)=%d, totalLen=%d", len(text), totalLen)
 			Assert(len(text) <= g.maxEmbeddingChunkLen, "text too long: %d", len(text))
 		}
 		Assert(totalLen <= g.maxEmbeddingChunkLen, "totalLen=%d maxEmbeddingChunkLen=%d", totalLen, g.maxEmbeddingChunkLen)
@@ -684,17 +747,24 @@ func (g *Grokker) CreateEmbeddings(texts []string) (embeddings [][]float64, err 
 	return
 }
 
-// chunkStrings returns a slice containing the chunk strings for a document.
-func (g *Grokker) chunkStrings(doc *Document) (c []string, err error) {
+// chunksFromDoc returns a slice containing the chunks for a document.
+func (g *Grokker) chunksFromDoc(doc *Document) (chunks []*Chunk, err error) {
 	defer Return(&err)
 	// read the document.
 	buf, err := ioutil.ReadFile(g.AbsPath(doc))
 	Ck(err)
-	return g.chunks(doc.RelPath, string(buf), g.maxEmbeddingChunkLen), nil
+	// break the document up into chunks.
+	chunks = g.chunksFromString(doc, string(buf), g.maxEmbeddingChunkLen)
+	// add the document to each chunk.
+	for _, chunk := range chunks {
+		chunk.Document = doc
+	}
+	return
 }
 
-// chunks returns a slice containing the chunk strings for a string.
-func (g *Grokker) chunks(path, txt string, maxLen int) (c []string) {
+// chunksFromString splits a string into a slice of Chunks.  If doc is
+// not nil, it is used to set the Document field of each chunk.
+func (g *Grokker) chunksFromString(doc *Document, txt string, maxLen int) (chunks []*Chunk) {
 	Assert(maxLen > 0)
 	// Break up the text into smaller text chunks or passages, each
 	// with a length of up to the limit for the model used by the
@@ -704,22 +774,51 @@ func (g *Grokker) chunks(path, txt string, maxLen int) (c []string) {
 	// might look at the structure of the text and split on
 	// sections, chapters, etc.  it might also be useful to include
 	// metadata such as file names.
-	paragraphs := strings.Split(string(txt), "\n\n")
-	for _, paragraph := range paragraphs {
+
+	// iterate over the bytes in the text
+	start := 0
+	for i := 0; i < len(txt); {
+		// find the document end
+		// - we use '2' here so that the paragraph end detection
+		// doesn't have to worry about the end of the document.
+		if i >= len(txt)-2 {
+			// we're at the end of the document: put the
+			// remaining text into a chunk.
+			t := txt[start:]
+			t = strings.TrimSpace(t)
+			if len(t) != 0 {
+				chunk := g.NewChunk(doc, start, len(t), t)
+				chunks = append(chunks, chunk)
+			}
+			break
+		}
 		// split the paragraph into chunks if it's too long.
 		// XXX replace with a real tokenizer.
-		for len(paragraph) > 0 {
-			// prefix each paragraph with metadata
-			paragraph = fmt.Sprintf("from %s:\n%s\n", path, paragraph)
-			if len(paragraph) >= maxLen {
-				split := maxLen - 1
-				c = append(c, paragraph[:split])
-				paragraph = paragraph[split:]
-			} else {
-				c = append(c, paragraph)
-				paragraph = ""
+		if i-start > maxLen {
+			t := txt[start:i]
+			t = strings.TrimSpace(t)
+			if len(t) != 0 {
+				chunk := g.NewChunk(doc, start, len(t), t)
+				chunks = append(chunks, chunk)
 			}
+			start = i
 		}
+		// find a paragraph end
+		if txt[i:i+2] == "\n\n" {
+			// put the paragraph into a chunk
+			t := txt[start : i+2]
+			t = strings.TrimSpace(t)
+			if len(t) != 0 {
+				chunk := g.NewChunk(doc, start, len(t), t)
+				chunks = append(chunks, chunk)
+			}
+			// start the next chunk after the paragraph end
+			start = i + 2
+			i = start
+			continue
+		}
+		// advance to the next byte
+		i++
 	}
 	return
 }
@@ -794,14 +893,14 @@ func (g *Grokker) Answer(question string, global bool) (resp string, err error) 
 	// get all chunks, sorted by similarity to the question.
 	chunks, err := g.FindChunks(question, 0)
 	Ck(err)
-	// ensure the context is not too long.
-	maxSize := int(float64(g.maxChunkLen)*0.5) - len(question)
 	// use chunks as context for the answer until we reach the max size.
+	maxSize := int(float64(g.maxChunkLen)*0.5) - len(question)
 	var context string
 	for _, chunk := range chunks {
-		// context += chunk.Text + "\n\n"
+		text, err := g.ChunkText(chunk, true)
+		Ck(err)
 		// include filename in context
-		context += Spf("%s:\n\n%s\n\n", chunk.Document.RelPath, chunk.Text)
+		context += text
 		if len(context) > maxSize {
 			break
 		}
@@ -840,8 +939,10 @@ func (g *Grokker) Revise(in string, global, sysmsgin bool) (out, sysmsg string, 
 	// use chunks as context for the answer until we reach the max size.
 	var context string
 	for _, chunk := range chunks {
+		text, err := g.ChunkText(chunk, true)
+		Ck(err)
 		// include filename in context
-		context += Spf("%s:\n\n%s\n\n", chunk.Document.RelPath, chunk.Text)
+		context += text
 		if len(context) > maxSize {
 			break
 		}
@@ -871,8 +972,9 @@ func (g *Grokker) Continue(in string, global bool) (out, sysmsg string, err erro
 	// use chunks as context for the answer until we reach the max size.
 	var context string
 	for _, chunk := range chunks {
-		// include filename in context
-		context += Spf("%s:\n\n%s\n\n", chunk.Document.RelPath, chunk.Text)
+		text, err := g.ChunkText(chunk, true)
+		Ck(err)
+		context += text
 		if len(context) > maxSize {
 			break
 		}
@@ -1053,15 +1155,15 @@ Summarize the bullet points found in the context into a single line of 60 charac
 */
 
 var GitSummaryPrompt = `
-Describe the most important item in the context in a single line of 60 characters or less.  Add nothing else.  Use present tense.  Do not quote.
+Describe the most important item in the context in a single line of 60 characters or less.  Add nothing else.  Use present tense.  Do not quote.  Use present tense.  Use active voice.  Do not use passive voice.
 `
 
 var GitCommitPrompt = `
-Describe the most important bullet point in the context in a single line of 60 characters or less.  Add nothing else.  Use present tense.  Do not quote.
+Describe the most important bullet point in the context in a single line of 60 characters or less.  Add nothing else.  Use present tense.  Do not quote.  Use present tense.  Use active voice.  Do not use passive voice.
 `
 
 var GitDiffPrompt = `
-Summarize the bullet points and 'git diff' fragments found in the context into bullet points to be used in the body of a git commit message.  Add nothing else. Use present tense. 
+Summarize the bullet points and 'git diff' fragments found in the context into bullet points to be used in the body of a git commit message.  Add nothing else. Use present tense.  Use active voice.  Do not use passive voice.
 `
 
 // GitCommitMessage generates a git commit message given a diff. It
@@ -1112,11 +1214,11 @@ func (g *Grokker) summarizeDiff(diff string) (sumlines string, diffSummary strin
 		if len(fns) > 0 {
 			fileSummary = Spf("summary of diff --git %s\n", fns)
 		}
-		chunks := g.chunks(fileSummary, fileChunk, maxLen)
+		chunks := g.chunksFromString(nil, fileChunk, maxLen)
 		// summarize each chunk
 		for _, chunk := range chunks {
 			// format the chunk
-			context := Spf("diff --git %s\n%s", fns, chunk)
+			context := Spf("diff --git %s\n%s", fns, chunk.text)
 			resp, err := g.Generate(sysMsgChat, GitDiffPrompt, context, false)
 			Ck(err)
 			fileSummary = Spf("%s\n%s", fileSummary, resp.Choices[0].Message.Content)

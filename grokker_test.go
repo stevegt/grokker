@@ -65,7 +65,9 @@ func TestFindSimilar(t *testing.T) {
 	Tassert(t, err == nil, "error finding similar chunks: %v", err)
 	Pl("similar chunks:")
 	for _, chunk := range chunks {
-		Pl(chunk.Text)
+		text, err := grok.ChunkText(chunk, true)
+		Tassert(t, err == nil, "error getting chunk text: %v", err)
+		Pl(text)
 		Pl()
 	}
 }
@@ -79,7 +81,9 @@ func TestChatQuery(t *testing.T) {
 	err = grok.AddDocument("testdata/te-abstract.txt")
 	Tassert(t, err == nil, "error adding doc: %v", err)
 	// answer the query
-	resp, err := grok.Answer("Why is order of operations important when administering a UNIX machine?", false)
+	query := "Why is order of operations important when making identical changes to multiple UNIX machines?"
+	Pl("query:", query)
+	resp, err := grok.Answer(query, false)
 	Tassert(t, err == nil, "error answering query: %v", err)
 	Pl("answer:")
 	Pprint(resp)

@@ -65,3 +65,16 @@ func migrate_1_1_0_to_2_0_0(g *Grokker) (err error) {
 	g.Version = "2.0.0"
 	return
 }
+
+func migrate_2_0_0_to_2_1_0(g *Grokker) (err error) {
+	defer Return(&err)
+	// replace Text field with Hash, Offset, and Length fields in
+	// Chunk struct -- all we need to do here is refresh all of the
+	// doc chunks to get the new fields added
+	err = g.setup(g.Model)
+	Ck(err)
+	err = g.RefreshEmbeddings()
+	Ck(err)
+	g.Version = "2.1.0"
+	return
+}
