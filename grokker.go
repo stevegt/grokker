@@ -298,6 +298,8 @@ func Load() (g *Grokker, migrated bool, oldver, newver string, err error) {
 }
 
 // LoadFrom loads a Grokker database from a given path.
+// XXX replace the json db with a kv store, store vectors as binary
+// floating point values.
 func LoadFrom(grokpath string) (g *Grokker, migrated bool, oldver, newver string, err error) {
 	g = &Grokker{}
 	g.grokpath = grokpath
@@ -313,7 +315,7 @@ func LoadFrom(grokpath string) (g *Grokker, migrated bool, oldver, newver string
 	g.Root, err = filepath.Abs(filepath.Dir(g.grokpath))
 	Ck(err)
 
-	migrated, oldver, newver, err = g.Migrate()
+	migrated, oldver, newver, err = g.migrate()
 	Ck(err)
 
 	err = g.setup(g.Model)
@@ -331,11 +333,9 @@ func (g *Grokker) DBVersion() string {
 	return g.Version
 }
 
-// Migrate migrates the current Grokker database from an older version
+// migrate migrates the current Grokker database from an older version
 // to the current version.
-// XXX unexport this and call it from Load() after moving file ops
-// into this package.
-func (g *Grokker) Migrate() (migrated bool, was, now string, err error) {
+func (g *Grokker) migrate() (migrated bool, was, now string, err error) {
 	defer Return(&err)
 
 	was = g.Version
@@ -360,6 +360,19 @@ func (g *Grokker) Migrate() (migrated bool, was, now string, err error) {
 		err = fmt.Errorf("grokker db is version %s, but you're running version %s -- upgrade grokker", g.Version, version)
 		return
 	}
+
+	/*
+
+		XXX come up with a cleaner way to do this that doesn't require
+		this long list of if blocks.  For example, we could:
+
+		- use reflection to build a list of migration functions and then iterate over them
+		- use a map of version numbers to migration functions
+		- use a migration struct with a list of migration functions and a version number
+		- call each migration function in turn; the migration function only runs if it
+		  recognizes the "from" version number
+
+	*/
 
 	if g.Version == "0.1.0" {
 		err = migrate_0_1_0_to_1_0_0(g)
