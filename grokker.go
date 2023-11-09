@@ -20,6 +20,7 @@ import (
 	oai "github.com/sashabaranov/go-openai"
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/semver"
+	"github.com/tiktoken-go/tokenizer"
 )
 
 // Grokker is a library for analyzing a set of documents and asking
@@ -160,7 +161,7 @@ type Chunk struct {
 	// The embedding of the chunk.
 	Embedding []float64
 	// The grokker that this chunk belongs to.
-	g *Grokker
+	// g *Grokker
 	// true if needs to be garbage collected
 	stale bool
 }
@@ -168,7 +169,7 @@ type Chunk struct {
 // NewChunk creates a new chunk given an offset, length, and text. It
 // computes the sha256 hash of the text if doc is not nil.  It does
 // not compute the embedding or add the chunk to the db.
-func (g *Grokker) NewChunk(doc *Document, offset, length int, text string) (c *Chunk) {
+func NewChunk(doc *Document, offset, length int, text string) (c *Chunk) {
 	var prefixedText string
 	var hashStr string
 	if doc != nil {
@@ -177,7 +178,7 @@ func (g *Grokker) NewChunk(doc *Document, offset, length int, text string) (c *C
 		hashStr = hex.EncodeToString(hash[:])
 	}
 	c = &Chunk{
-		g:        g,
+		// g:        g,
 		Document: doc,
 		Offset:   offset,
 		Length:   length,
@@ -220,15 +221,18 @@ type Grokker struct {
 	// The list of chunks in the database.
 	Chunks []*Chunk
 	// model specs
-	models   *Models
-	Model    string
-	oaiModel string
+	models              *Models
+	Model               string
+	oaiModel            string
+	tokenizer           tokenizer.Codec
+	tokenLimit          int
+	embeddingTokenLimit int
+	grokpath            string
 	// XXX use a real tokenizer and replace maxChunkLen with tokenLimit.
 	// tokenLimit int
-	maxChunkLen          int
-	maxEmbeddingChunkLen int
+	// maxChunkLen          int
+	// maxEmbeddingChunkLen int
 	// the path to the grokker db
-	grokpath string
 }
 
 // Init creates a Grokker database in the given root directory.
@@ -423,6 +427,9 @@ func (g *Grokker) setup(model string) (err error) {
 	err = g.initModel(model)
 	Ck(err)
 	g.initClients()
+	// initialize the tokenizer
+	g.tokenizer, err = tokenizer.Get(tokenizer.Cl100kBase)
+	Ck(err)
 	return
 }
 
@@ -449,11 +456,13 @@ func (g *Grokker) initModel(model string) (err error) {
 	g.Model = model
 	g.oaiModel = m.oaiModel
 	// XXX replace with a real tokenizer.
-	charsPerToken := 3.1
-	g.maxChunkLen = int(math.Floor(float64(m.TokenLimit) * charsPerToken))
+	// charsPerToken := 3.1
+	// g.maxChunkLen = int(math.Floor(float64(m.TokenLimit) * charsPerToken))
 	// XXX replace with a real tokenizer.
+	// g.maxEmbeddingChunkLen = int(math.Floor(float64(8192) * charsPerToken))
+	g.tokenLimit = m.TokenLimit
 	// XXX 8192 hardcoded for the text-embedding-ada-002 model
-	g.maxEmbeddingChunkLen = int(math.Floor(float64(8192) * charsPerToken))
+	g.embeddingTokenLimit = 8192
 	return
 }
 
@@ -708,18 +717,20 @@ func (g *Grokker) CreateEmbeddings(texts []string) (embeddings [][]float64, err 
 	// iterate over the text chunks and create one or more embedding queries
 	for i := 0; i < len(texts); {
 		// add texts to the current query until we reach the token limit
-		// XXX use a real tokenizer
 		// i is the index of the first text in the current query
 		// j is the index of the last text in the current query
 		// XXX this is ugly, fragile, and needs to be tested and refactored
 		totalLen := 0
 		j := i
 		for {
-			nextLen := len(texts[j])
+			var tokens []string
+			_, tokens, err = g.tokenizer.Encode(texts[j])
+			Ck(err)
+			nextLen := len(tokens)
 			// Debug("i=%d j=%d nextLen=%d totalLen=%d", i, j, nextLen, totalLen)
 			Assert(nextLen > 0, texts)
-			Assert(nextLen <= g.maxEmbeddingChunkLen, "nextLen=%d maxEmbeddingChunkLen=%d", nextLen, g.maxEmbeddingChunkLen)
-			if totalLen+nextLen >= g.maxEmbeddingChunkLen {
+			Assert(nextLen <= g.embeddingTokenLimit, "nextLen=%d embeddingTokenLimit=%d", nextLen, g.embeddingTokenLimit)
+			if totalLen+nextLen >= g.embeddingTokenLimit {
 				j--
 				Debug("breaking because totalLen=%d nextLen=%d", totalLen, nextLen)
 				break
@@ -737,13 +748,15 @@ func (g *Grokker) CreateEmbeddings(texts []string) (embeddings [][]float64, err 
 		inputs := texts[i : j+1]
 		// double-check that the total length is within the limit and that
 		// no individual text is too long.
-		totalLen = 0
-		for _, text := range inputs {
-			totalLen += len(text)
-			// Debug("len(text)=%d, totalLen=%d", len(text), totalLen)
-			Assert(len(text) <= g.maxEmbeddingChunkLen, "text too long: %d", len(text))
-		}
-		Assert(totalLen <= g.maxEmbeddingChunkLen, "totalLen=%d maxEmbeddingChunkLen=%d", totalLen, g.maxEmbeddingChunkLen)
+		/*
+			totalLen = 0
+			for _, text := range inputs {
+				totalLen += len(text)
+				// Debug("len(text)=%d, totalLen=%d", len(text), totalLen)
+				Assert(len(text) <= g.maxEmbeddingChunkLen, "text too long: %d", len(text))
+			}
+			Assert(totalLen <= g.maxEmbeddingChunkLen, "totalLen=%d maxEmbeddingChunkLen=%d", totalLen, g.maxEmbeddingChunkLen)
+		*/
 		req := &openai.EmbeddingRequest{
 			Input: inputs,
 			Model: fabius_models.AdaEmbeddingV2,
@@ -767,7 +780,7 @@ func (g *Grokker) chunksFromDoc(doc *Document) (chunks []*Chunk, err error) {
 	buf, err := ioutil.ReadFile(g.AbsPath(doc))
 	Ck(err)
 	// break the document up into chunks.
-	chunks = g.chunksFromString(doc, string(buf), g.maxEmbeddingChunkLen)
+	chunks = g.chunksFromString(doc, string(buf), g.embeddingTokenLimit)
 	// add the document to each chunk.
 	for _, chunk := range chunks {
 		chunk.Document = doc
@@ -775,63 +788,99 @@ func (g *Grokker) chunksFromDoc(doc *Document) (chunks []*Chunk, err error) {
 	return
 }
 
+// splitIntoChunks splits a string into a slice of chunks using the
+// given delimiter, returning each string as a partially populated
+// Chunk with the offset set to the start of the string.
+func splitIntoChunks(doc *Document, txt, delimiter string) (chunks []*Chunk) {
+	start := 0
+	i := 0
+	for done := false; !done; i++ {
+		var t string
+		if i >= len(txt)-len(delimiter) {
+			// we're at the end of the document: put the
+			// remaining text into a chunk.
+			t = txt[start:]
+			done = true
+		} else if txt[i:i+len(delimiter)] == delimiter {
+			// found a delimiter
+			t = txt[start : i+len(delimiter)]
+		}
+		// if we found a delimiter, then create a chunk
+		// and add it to the list of chunks.
+		if t != "" {
+			chunk := NewChunk(doc, start, len(t), t)
+			chunks = append(chunks, chunk)
+			// start the next chunk after the delimiter
+			start = i + len(delimiter)
+			i = start
+			continue
+		}
+	}
+	return
+}
+
+// Tokens returns the tokens for a text segment.
+func (g *Grokker) Tokens(text string) (tokens []string, err error) {
+	defer Return(&err)
+	_, tokens, err = g.tokenizer.Encode(text)
+	Ck(err)
+	return
+}
+
+// splitChunk recursively splits a Chunk into smaller chunks until
+// each chunk is no longer than the token limit.
+func (chunk *Chunk) splitChunk(g *Grokker, tokenLimit int) (newChunks []*Chunk) {
+	// quick check: if the chunk is already short enough based on
+	// the number of bytes, then we don't need to tokenize it.
+	Assert(chunk.Length == len(chunk.text), "chunk length does not match text length")
+	if chunk.Length < tokenLimit {
+		newChunks = append(newChunks, chunk)
+		return
+	}
+	// tokenize the chunk content
+	tokens, err := g.Tokens(chunk.text)
+	Ck(err)
+	// if the chunk is short enough, then we're done
+	if len(tokens) < tokenLimit {
+		newChunks = append(newChunks, chunk)
+		return
+	}
+	// split chunk into smaller segments of roughly equal size
+	// XXX could be made smarter by splitting on sentence or context boundaries
+	numChunks := int(math.Ceil(float64(len(tokens)) / float64(tokenLimit)))
+	chunkSize := int(math.Ceil(float64(chunk.Length) / float64(numChunks)))
+	for i := 0; i < numChunks; i++ {
+		start := i * chunkSize
+		end := start + chunkSize
+		if end > chunk.Length {
+			end = chunk.Length
+		}
+		docOffset := chunk.Offset + start
+		subChunk := NewChunk(chunk.Document, docOffset, end-start, chunk.text[start:end])
+		// recurse
+		newSubChunks := subChunk.splitChunk(g, tokenLimit)
+		newChunks = append(newChunks, newSubChunks...)
+	}
+	return
+}
+
 // chunksFromString splits a string into a slice of Chunks.  If doc is
-// not nil, it is used to set the Document field of each chunk.
-func (g *Grokker) chunksFromString(doc *Document, txt string, maxLen int) (chunks []*Chunk) {
-	Assert(maxLen > 0)
-	// Break up the text into smaller text chunks or passages, each
-	// with a length of up to the limit for the model used by the
-	// Embeddings API
-	//
+// not nil, it is used to set the Document field of each chunk.  Each
+// chunk will be no longer than tokenLimit tokens.
+func (g *Grokker) chunksFromString(doc *Document, txt string, tokenLimit int) (chunks []*Chunk) {
+	Assert(tokenLimit > 0)
+
+	// split the text into paragraphs
 	// XXX splitting on paragraphs is not ideal.  smarter splitting
 	// might look at the structure of the text and split on
 	// sections, chapters, etc.  it might also be useful to include
 	// metadata such as file names.
+	paragraphs := splitIntoChunks(doc, txt, "\n\n")
 
-	// iterate over the bytes in the text
-	start := 0
-	for i := 0; i < len(txt); {
-		// find the document end
-		// - we use '2' here so that the paragraph end detection
-		// doesn't have to worry about the end of the document.
-		if i >= len(txt)-2 {
-			// we're at the end of the document: put the
-			// remaining text into a chunk.
-			t := txt[start:]
-			t = strings.TrimSpace(t)
-			if len(t) != 0 {
-				chunk := g.NewChunk(doc, start, len(t), t)
-				chunks = append(chunks, chunk)
-			}
-			break
-		}
-		// split the paragraph into chunks if it's too long.
-		// XXX replace with a real tokenizer.
-		if i-start > maxLen {
-			t := txt[start:i]
-			t = strings.TrimSpace(t)
-			if len(t) != 0 {
-				chunk := g.NewChunk(doc, start, len(t), t)
-				chunks = append(chunks, chunk)
-			}
-			start = i
-		}
-		// find a paragraph end
-		if txt[i:i+2] == "\n\n" {
-			// put the paragraph into a chunk
-			t := txt[start : i+2]
-			t = strings.TrimSpace(t)
-			if len(t) != 0 {
-				chunk := g.NewChunk(doc, start, len(t), t)
-				chunks = append(chunks, chunk)
-			}
-			// start the next chunk after the paragraph end
-			start = i + 2
-			i = start
-			continue
-		}
-		// advance to the next byte
-		i++
+	for _, chunk := range paragraphs {
+		// ensure no paragraph is longer than the token limit
+		subChunks := chunk.splitChunk(g, tokenLimit)
+		chunks = append(chunks, subChunks...)
 	}
 	return
 }
@@ -842,21 +891,21 @@ func (g *Grokker) chunksFromString(doc *Document, txt string, maxLen int) (chunk
 // embeddings of the question and each document chunk, and return the
 // chunks with the highest similarity scores.
 
-// FindChunks returns the K most relevant chunks for a query.
-func (g *Grokker) FindChunks(query string, K int) (chunks []*Chunk, err error) {
+// FindChunks returns the most relevant chunks for a query, limited by tokenLimit.
+func (g *Grokker) FindChunks(query string, tokenLimit int) (chunks []*Chunk, err error) {
 	defer Return(&err)
 	// get the embeddings for the query.
 	embeddings, err := g.CreateEmbeddings([]string{query})
 	Ck(err)
 	queryEmbedding := embeddings[0]
 	// find the most similar chunks.
-	chunks = g.SimilarChunks(queryEmbedding, K)
+	chunks = g.SimilarChunks(queryEmbedding, tokenLimit)
 	return
 }
 
-// SimilarChunks returns the K most similar chunks to an embedding.
-// If K is 0, it returns all chunks.
-func (g *Grokker) SimilarChunks(embedding []float64, K int) (chunks []*Chunk) {
+// SimilarChunks returns the most similar chunks to an embedding,
+// limited by tokenLimit.
+func (g *Grokker) SimilarChunks(embedding []float64, tokenLimit int) (chunks []*Chunk) {
 	Debug("chunks in database: %d", len(g.Chunks))
 	// find the most similar chunks.
 	type Sim struct {
@@ -872,12 +921,21 @@ func (g *Grokker) SimilarChunks(embedding []float64, K int) (chunks []*Chunk) {
 	sort.Slice(sims, func(i, j int) bool {
 		return sims[i].score > sims[j].score
 	})
-	// return the top K chunks.
-	if K == 0 {
-		K = len(sims)
-	}
-	for i := 0; i < K && i < len(sims); i++ {
-		chunks = append(chunks, sims[i].chunk)
+	// return the top chunks until we reach the token limit.
+	var totalTokens int
+	for _, sim := range sims {
+		// tokenize the text XXX do this before storing in the
+		// database instead of on every retrieval. will need to ensure
+		// that the chunk header is handled correctly.
+		text, err := g.ChunkText(sim.chunk, true)
+		Ck(err)
+		tokens, err := g.Tokens(text)
+		Ck(err)
+		totalTokens += len(tokens)
+		if totalTokens > tokenLimit {
+			break
+		}
+		chunks = append(chunks, sim.chunk)
 	}
 	Debug("found %d similar chunks", len(chunks))
 	return
@@ -903,23 +961,12 @@ func Similarity(a, b []float64) float64 {
 // Answer returns the answer to a question.
 func (g *Grokker) Answer(question string, global bool) (resp string, err error) {
 	defer Return(&err)
-	// get all chunks, sorted by similarity to the question.
-	chunks, err := g.FindChunks(question, 0)
+	// tokenize the question
+	qtokens, err := g.Tokens(question)
 	Ck(err)
-	// use chunks as context for the answer until we reach the max size.
-	maxSize := int(float64(g.maxChunkLen)*0.5) - len(question)
-	var context string
-	for _, chunk := range chunks {
-		text, err := g.ChunkText(chunk, true)
-		Ck(err)
-		// include filename in context
-		context += text
-		if len(context) > maxSize {
-			break
-		}
-	}
-	Debug("using %d chunks as context", len(chunks))
-
+	maxTokens := int(float64(g.tokenLimit)*0.5) - len(qtokens)
+	context, err := g.getContext(question, maxTokens)
+	Ck(err)
 	// generate the answer.
 	respmsg, err := g.Generate(sysMsgChat, question, context, global)
 	resp = respmsg.Choices[0].Message.Content
@@ -930,6 +977,10 @@ func (g *Grokker) Answer(question string, global bool) (resp string, err error) 
 func (g *Grokker) Revise(in string, global, sysmsgin bool) (out, sysmsg string, err error) {
 	defer Return(&err)
 
+	// tokenize the entire input
+	inTokens, err := g.Tokens(in)
+
+	var body string
 	if sysmsgin {
 		// split input into sysmsg and txt
 		paragraphs := strings.Split(in, "\n\n")
@@ -939,28 +990,15 @@ func (g *Grokker) Revise(in string, global, sysmsgin bool) (out, sysmsg string, 
 		}
 		sysmsg = paragraphs[0]
 		// in = strings.Join(paragraphs[1:], "\n\n")
-		in = strings.Join(paragraphs, "\n\n")
+		body = strings.Join(paragraphs, "\n\n")
 	} else {
 		sysmsg = sysMsgRevise
 	}
 
-	// get all chunks, sorted by similarity to the txt.
-	chunks, err := g.FindChunks(in, 0)
+	// get context
+	maxTokens := int(float64(g.tokenLimit)*0.5) - len(inTokens)
+	context, err := g.getContext(body, maxTokens)
 	Ck(err)
-	// ensure the context is not too long.
-	maxSize := int(float64(g.maxChunkLen)*0.4) - len(in) - len(sysmsg)
-	// use chunks as context for the answer until we reach the max size.
-	var context string
-	for _, chunk := range chunks {
-		text, err := g.ChunkText(chunk, true)
-		Ck(err)
-		// include filename in context
-		context += text
-		if len(context) > maxSize {
-			break
-		}
-	}
-	Debug("using %d chunks as context", len(chunks))
 
 	// generate the answer.
 	resp, err := g.Generate(sysmsg, in, context, global)
@@ -973,26 +1011,35 @@ func (g *Grokker) Revise(in string, global, sysmsgin bool) (out, sysmsg string, 
 	return
 }
 
-// Continue returns a continuation of the input text.
-func (g *Grokker) Continue(in string, global bool) (out, sysmsg string, err error) {
+// getContext returns the context for a query.
+func (g *Grokker) getContext(query string, tokenLimit int) (context string, err error) {
 	defer Return(&err)
-	sysmsg = sysMsgContinue
-	// get all chunks, sorted by similarity to the txt.
-	chunks, err := g.FindChunks(in, 0)
+	// get chunks, sorted by similarity to the query.
+	chunks, err := g.FindChunks(query, tokenLimit)
 	Ck(err)
-	// ensure the context is not too long.
-	maxSize := int(float64(g.maxChunkLen)*0.4) - len(in) - len(sysmsg)
-	// use chunks as context for the answer until we reach the max size.
-	var context string
 	for _, chunk := range chunks {
 		text, err := g.ChunkText(chunk, true)
 		Ck(err)
 		context += text
-		if len(context) > maxSize {
-			break
-		}
 	}
 	Debug("using %d chunks as context", len(chunks))
+	return
+}
+
+// Continue returns a continuation of the input text.
+func (g *Grokker) Continue(in string, global bool) (out, sysmsg string, err error) {
+	defer Return(&err)
+	sysmsg = sysMsgContinue
+	// tokenize sysmsg
+	_, sysmsgTokens, err := g.tokenizer.Encode(sysmsg)
+	Ck(err)
+	// tokenize input
+	_, inTokens, err := g.tokenizer.Encode(in)
+	Ck(err)
+	// get chunks, sorted by similarity to the txt.
+	tokenLimit := int(float64(g.tokenLimit)*0.4) - len(sysmsgTokens) - len(inTokens)
+	context, err := g.getContext(in, tokenLimit)
+	Ck(err)
 	// generate the answer.
 	resp, err := g.Generate(sysmsg, in, context, global)
 	Ck(err)
@@ -1205,7 +1252,7 @@ func (g *Grokker) GitCommitMessage(diff string) (msg string, err error) {
 // short enough to be used as a prompt.
 func (g *Grokker) summarizeDiff(diff string) (sumlines string, diffSummary string, err error) {
 	defer Return(&err)
-	maxLen := int(float64(g.maxChunkLen) * .7)
+	maxTokens := int(float64(g.tokenLimit) * .7)
 	// split the diff on filenames
 	fileChunks := strings.Split(diff, "diff --git")
 	// split each file chunk into smaller chunks
@@ -1227,7 +1274,7 @@ func (g *Grokker) summarizeDiff(diff string) (sumlines string, diffSummary strin
 		if len(fns) > 0 {
 			fileSummary = Spf("summary of diff --git %s\n", fns)
 		}
-		chunks := g.chunksFromString(nil, fileChunk, maxLen)
+		chunks := g.chunksFromString(nil, fileChunk, maxTokens)
 		// summarize each chunk
 		for _, chunk := range chunks {
 			// format the chunk

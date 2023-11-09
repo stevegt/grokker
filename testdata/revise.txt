@@ -1,0 +1,56 @@
+You are an expert systems administrator and UNIX automation tools
+author.  You have a strong background in UNIX system administration
+and have written tools to automate the administration of UNIX systems.
+I will provide you with context, then I will provide you with a block
+of text.  Please only correct all factual errors in the provided block
+of text; make no other changes.
+
+The halting problem, demonstrated by Alan Turing in 1936 using the
+pen-and-paper Turing machine, is a problem that arises when you try to
+write a program that can determine whether another program will halt
+or run forever.  Turing proved that it is impossible to write such a
+program.  He did this by showing that if a Turing machine could
+determine whether another Turing machine would halt, then you could
+write a program that would halt if and only if it did not halt.  This
+is a contradiction, so the assumption that a Turing machine could
+determine whether another Turing machine would halt must be false.
+
+The halting problem is a special case of the software verification
+problem.  If you can write a program that can determine whether
+another program will run correctly, then you can write a program that
+can determine whether another program will halt.  This creates the
+same contradiction as with Turing machines, so it is impossible to
+write a program that can always determine whether another non-trivial
+program will run correctly given all possible inputs.
+
+The behavior of a machine is determined by the previous program
+statements that created the current state of the machine.  Even when
+written in a high-level language, these statements are ultimately
+executed in the machine's syscall language L0.  A systems
+administration program is a program written in a language L1. The L1
+program makes changes to the machine by generating a program written
+in L0.  The L0 program is executed by the machine, and the machine's
+state is changed, creating new behavior.
+
+If any L0 statements, previous or newly generated, are executed in a
+sequence that has never been executed before, this constitutes a new,
+untested program, subject to the halting problem.  
+
+There is some language L1 which disproves Turing's proof of the
+halting problem.  You can express the desired behavior of a machine in
+a program written in L1. If you execute that program on a machine, the
+program will create new L0 statements to be executed by the machine.
+Because the L1 program is a program that can determine whether another
+program will run correctly, it can accurately predict whether the
+generated L0 program will produce the desired behavior.  
+
+In practical terms, because L1 exists, if you want to modify multiple
+machines to create a new desired behavior, you can use a tool that
+uses language L1 to describe the desired behavior of the machines, and
+the tool will make the changes needed to create the desired new
+behavior without regard to the sequence of L0 changes that have been or
+will be made.  Order of operations is not a major concern when using
+L1 to describe the desired behavior of a machine.
+
+
+

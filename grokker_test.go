@@ -2,6 +2,7 @@ package grokker
 
 import (
 	"io/ioutil"
+	"strings"
 	"testing"
 
 	. "github.com/stevegt/goadapt"
@@ -81,10 +82,66 @@ func TestChatQuery(t *testing.T) {
 	err = grok.AddDocument("testdata/te-abstract.txt")
 	Tassert(t, err == nil, "error adding doc: %v", err)
 	// answer the query
-	query := "Why is order of operations important when making identical changes to multiple UNIX machines?"
+	query := "What is the cheapest and easiest way to make a set of changes to a set of machines if you want them all to behave the same when you're done?"
 	Pl("query:", query)
 	resp, err := grok.Answer(query, false)
 	Tassert(t, err == nil, "error answering query: %v", err)
 	Pl("answer:")
 	Pprint(resp)
+}
+
+// test splitting chunks when chunk size is greater than token limit
+func TestSplitChunks(t *testing.T) {
+	// create a new Grokker database
+	grok, err := Init(tmpDir(), "gpt-3.5-turbo")
+	Tassert(t, err == nil, "error creating grokker: %v", err)
+	// add the document
+	err = grok.AddDocument("testdata/te-full.txt")
+	Tassert(t, err == nil, "error adding doc: %v", err)
+	// get the chunks
+	chunks, err := grok.FindChunks("Why is order of operations important when administering a UNIX machine?", 3)
+	for _, chunk := range chunks {
+		text, err := grok.ChunkText(chunk, true)
+		Tassert(t, err == nil, "error getting chunk text: %v", err)
+		// tokenize the text
+		tokens, err := grok.Tokens(text)
+		Tassert(t, err == nil, "error tokenizing text: %v", err)
+		Tassert(t, len(tokens) <= grok.tokenLimit, "expected %d tokens or less, got %d", grok.tokenLimit, len(tokens))
+	}
+}
+
+// test Revise()
+func TestRevise(t *testing.T) {
+	// create a new Grokker database
+	grok, err := Init(tmpDir(), "gpt-4")
+	Tassert(t, err == nil, "error creating grokker: %v", err)
+	// add documents
+	err = grok.AddDocument("testdata/te-full.txt")
+	Tassert(t, err == nil, "error adding doc: %v", err)
+	// get text to revise from testdata/revise.txt
+	text, err := ioutil.ReadFile("testdata/revise.txt")
+	Tassert(t, err == nil, "error reading testdata/revise.txt: %v", err)
+	// revise the text
+	rev, _, err := grok.Revise(string(text), false, true)
+	Tassert(t, err == nil, "error revising text: %v", err)
+	// break the original text into paragraphs
+	chunks := splitIntoChunks(nil, string(text), "\n\n")
+	var paras []string
+	for _, chunk := range chunks {
+		paras = append(paras, chunk.text)
+	}
+	// break the revised text into paragraphs
+	revchunks := splitIntoChunks(nil, string(rev), "\n\n")
+	var revparas []string
+	for _, chunk := range revchunks {
+		revparas = append(revparas, chunk.text)
+	}
+	// ensure sysmsg hasn't changed
+	sysmsg := strings.TrimSpace(paras[0])
+	revsysmsg := strings.TrimSpace(revparas[0])
+	Tassert(t, sysmsg == revsysmsg, "expected sysmsg to be unchanged: want:\n%s\ngot:\n%s", sysmsg, revsysmsg)
+	// ensure there are at least two paragraphs in the revised text
+	Tassert(t, len(revparas) >= 2, "expected at least two paragraphs in revised text, got %d", len(revparas))
+	Pl("revised text:")
+	Pl(rev)
 }

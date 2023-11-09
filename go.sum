@@ -3,6 +3,8 @@ github.com/alecthomas/kong v0.7.1 h1:azoTh0IOfwlAX3qN9sHWTxACE2oV8Bg2gAwBsMwDQY4
 github.com/alecthomas/kong v0.7.1/go.mod h1:n1iCIO2xS46oE8ZfYCNDqdR0b0wZNrXAIAqro/2132U=
 github.com/alecthomas/repr v0.1.0 h1:ENn2e1+J3k09gyj2shc0dHr/yjaWSHRlrJ4DPMevDqE=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
+github.com/dlclark/regexp2 v1.9.0 h1:pTK/l/3qYIKaRXuHnEnIf7Y5NxfRPfpb7dis6/gdlVI=
+github.com/dlclark/regexp2 v1.9.0/go.mod h1:DHkYz0B9wPfa6wondMfaivmHpzrQ3v9q8cnmRbL6yW8=
 github.com/fabiustech/openai v0.4.0 h1:tFKsyp9IVJfh0vP/29sQW7X5UaF9pkKMkdekxgexl6M=
 github.com/fabiustech/openai v0.4.0/go.mod h1:MUu0PQSo0B1ZNXSFa+vQAVfYSqrLA2+JSWrurFGWfGw=
 github.com/hexops/gotextdiff v1.0.3 h1:gitA9+qJrrTCsiCl7+kh75nPqQt1cx4ZkudSTLoUqJM=
@@ -14,6 +16,8 @@ github.com/stevegt/goadapt v0.5.0/go.mod h1:vquRbAl0Ek4iJHCvFUEDxziTsETR2HOT7r64
 github.com/stevegt/semver v0.0.0-20230512043732-92220054a49f h1:erQJkdWx1bhOImDDPiVoNy+qP8sBoOJ8EsJ7gUiy8S8=
 github.com/stevegt/semver v0.0.0-20230512043732-92220054a49f/go.mod h1:OgjZERzdomhsWRdqEbqfC+2DI1DpdmZwc1CF7vhqAZ8=
 github.com/stretchr/testify v1.8.1 h1:w7B6lhMri9wdJUVmEZPGGhZzrYTPvgJArz7wNPgYKsk=
+github.com/tiktoken-go/tokenizer v0.1.0 h1:c1fXriHSR/NmhMDTwUDLGiNhHwTV+ElABGvqhCWLRvY=
+github.com/tiktoken-go/tokenizer v0.1.0/go.mod h1:7SZW3pZUKWLJRilTvWCa86TOVIiiJhYj3FQ5V3alWcg=
 go.etcd.io/bbolt v1.3.7 h1:j+zJOnnEjF/kyHlDDgGnVL/AIqIJPq8UoB2GSNfkUfQ=
 go.etcd.io/bbolt v1.3.7/go.mod h1:N9Mkw9X8x5fupy0IKsmuqVtoGDyxsaDlbk4Rd05IAQw=
 golang.org/x/sys v0.4.0 h1:Zr2JFtRQNX3BCZ8YtxRE9hNJYC8J6I1MVbMg6owUp18=
