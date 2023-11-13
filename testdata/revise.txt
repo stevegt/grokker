@@ -34,7 +34,7 @@ state is changed, creating new behavior.
 
 If any L0 statements, previous or newly generated, are executed in a
 sequence that has never been executed before, this constitutes a new,
-untested program, subject to the halting problem.  
+untested program that is subject to the halting problem.  
 
 There is some language L1 which disproves Turing's proof of the
 halting problem.  You can express the desired behavior of a machine in
@@ -43,14 +43,6 @@ program will create new L0 statements to be executed by the machine.
 Because the L1 program is a program that can determine whether another
 program will run correctly, it can accurately predict whether the
 generated L0 program will produce the desired behavior.  
-
-In practical terms, because L1 exists, if you want to modify multiple
-machines to create a new desired behavior, you can use a tool that
-uses language L1 to describe the desired behavior of the machines, and
-the tool will make the changes needed to create the desired new
-behavior without regard to the sequence of L0 changes that have been or
-will be made.  Order of operations is not a major concern when using
-L1 to describe the desired behavior of a machine.
 
 
 

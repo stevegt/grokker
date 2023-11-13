@@ -66,7 +66,7 @@ import (
 // MINOR version when you add functionality in a backwards compatible manner, and
 // PATCH version when you make backwards compatible bug fixes.
 const (
-	version = "2.1.0"
+	version = "2.1.1"
 )
 
 // Model is a type for model name and characteristics
@@ -197,9 +197,24 @@ func (g *Grokker) ChunkText(c *Chunk, withHeader bool) (text string, err error) 
 		text = c.text
 	} else {
 		// read the chunk from the document
-		buf, err := ioutil.ReadFile(g.AbsPath(c.Document))
+		var buf []byte
+		buf, err = ioutil.ReadFile(g.AbsPath(c.Document))
+		if os.IsNotExist(err) {
+			// document has been removed; don't remove it from the
+			// database, but don't return any text either.  The
+			// document might be on a different branch in e.g. git.
+			err = nil
+			return
+		}
 		Ck(err)
-		text = string(buf[c.Offset : c.Offset+c.Length])
+		start := c.Offset
+		stop := c.Offset + c.Length
+		if stop > len(buf) {
+			stop = len(buf)
+		}
+		if start < len(buf) {
+			text = string(buf[c.Offset:stop])
+		}
 		if withHeader {
 			text = fmt.Sprintf("from %s:\n%s\n", c.Document.RelPath, text)
 		}
@@ -350,58 +365,49 @@ func (g *Grokker) migrate() (migrated bool, was, now string, err error) {
 		g.Version = "0.1.0"
 	}
 
-	// check if migration is necessary
-	dbver, err := semver.Parse([]byte(g.Version))
-	Ck(err)
-	codever, err := semver.Parse([]byte(version))
-	Ck(err)
-	verdiff := semver.Cmp(dbver, codever)
-	if verdiff == 0 {
-		// no migration necessary
-		return
-	} else if verdiff > 0 {
-		// db is newer than code
-		err = fmt.Errorf("grokker db is version %s, but you're running version %s -- upgrade grokker", g.Version, version)
-		return
-	}
+	// loop until migrations are done
+	for {
 
-	/*
-
-		XXX come up with a cleaner way to do this that doesn't require
-		this long list of if blocks.  For example, we could:
-
-		- use reflection to build a list of migration functions and then iterate over them
-		- use a map of version numbers to migration functions
-		- use a migration struct with a list of migration functions and a version number
-		- call each migration function in turn; the migration function only runs if it
-		  recognizes the "from" version number
-
-	*/
-
-	if g.Version == "0.1.0" {
-		err = migrate_0_1_0_to_1_0_0(g)
+		// check if migration is necessary
+		var dbver, codever *semver.Version
+		dbver, err = semver.Parse([]byte(g.Version))
 		Ck(err)
-	}
-	if g.Version == "1.0.0" {
-		err = migrate_1_0_0_to_1_1_0(g)
+		codever, err = semver.Parse([]byte(version))
 		Ck(err)
-	}
-	if g.Version == "1.1.0" {
-		err = migrate_1_1_0_to_2_0_0(g)
-		Ck(err)
-	}
-	if g.Version == "2.0.0" {
-		err = migrate_2_0_0_to_2_1_0(g)
-		Ck(err)
-	}
-	// XXX remove doc.Path in a future version
+		if semver.Cmp(dbver, codever) == 0 {
+			// no migration necessary
+			break
+		}
 
-	// check that the migration worked - if this fails, then we need
-	// to add an 'if' block above and a new migration function in migrate.go
-	Assert(g.Version == version, "migration missing: %s -> %s", was, version)
+		// see if db is newer version than code
+		if semver.Cmp(dbver, codever) > 0 {
+			// db is newer than code
+			err = fmt.Errorf("grokker db is version %s, but you're running version %s -- upgrade grokker", g.Version, version)
+			return
+		}
+
+		Fpf(os.Stderr, "migrating from %s to %s\n", g.Version, version)
+
+		// if we get here, then dbver < codever
+		_, minor, patch := semver.Upgrade(dbver, codever)
+		Assert(patch, "patch should be true: %s -> %s", dbver, codever)
+
+		// figure out what kind of migration we need to do
+		if minor {
+			// minor version changed; db migration necessary
+			err = g.migrateDb()
+			Ck(err)
+		} else {
+			// only patch version changed; a patch version change is
+			// just a code change, so just update the version number
+			// in the db
+			g.Version = version
+		}
+
+		migrated = true
+	}
 
 	now = g.Version
-	migrated = true
 
 	return
 }
@@ -524,9 +530,13 @@ func (g *Grokker) UpdateEmbeddings() (update bool, err error) {
 		// check if the document has changed.
 		fi, err := os.Stat(g.AbsPath(doc))
 		if os.IsNotExist(err) {
-			// document has been removed; remove it from the database.
-			g.ForgetDocument(g.AbsPath(doc))
-			update = true
+			// document has been removed; don't remove it from the
+			// database, but don't update it either.  We don't want
+			// to remove it from the database because it might be
+			// on a different branch in e.g. git.
+			// g.ForgetDocument(g.AbsPath(doc))
+			// update = true
+			err = nil
 			continue
 		}
 		Ck(err)
