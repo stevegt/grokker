@@ -62,14 +62,13 @@ func TestFindSimilar(t *testing.T) {
 	err = grok.AddDocument("testdata/te-abstract.txt")
 	Tassert(t, err == nil, "error adding doc: %v", err)
 	// find similar chunks
-	chunks, err := grok.FindChunks("Why is order of operations important when administering a UNIX machine?", 3)
+	chunks, err := grok.FindChunks("Why is order of operations important when administering a UNIX machine?", 2000)
 	Tassert(t, err == nil, "error finding similar chunks: %v", err)
 	Pl("similar chunks:")
 	for _, chunk := range chunks {
 		text, err := grok.ChunkText(chunk, true)
 		Tassert(t, err == nil, "error getting chunk text: %v", err)
-		Pl(text)
-		Pl()
+		Tassert(t, len(text) > 0, "expected chunk text to be non-empty")
 	}
 }
 
@@ -99,14 +98,16 @@ func TestSplitChunks(t *testing.T) {
 	err = grok.AddDocument("testdata/te-full.txt")
 	Tassert(t, err == nil, "error adding doc: %v", err)
 	// get the chunks
-	chunks, err := grok.FindChunks("Why is order of operations important when administering a UNIX machine?", 3)
+	chunks, err := grok.FindChunks("Why is order of operations important when administering a UNIX machine?", 2000)
 	for _, chunk := range chunks {
 		text, err := grok.ChunkText(chunk, true)
 		Tassert(t, err == nil, "error getting chunk text: %v", err)
+		Tassert(t, len(text) > 0, "expected chunk text to be non-empty")
 		// tokenize the text
 		tokens, err := grok.Tokens(text)
 		Tassert(t, err == nil, "error tokenizing text: %v", err)
 		Tassert(t, len(tokens) <= grok.tokenLimit, "expected %d tokens or less, got %d", grok.tokenLimit, len(tokens))
+		Tassert(t, len(tokens) > 20, "expected more than 20 tokens, got %d", len(tokens))
 	}
 }
 

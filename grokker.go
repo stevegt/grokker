@@ -66,7 +66,7 @@ import (
 // MINOR version when you add functionality in a backwards compatible manner, and
 // PATCH version when you make backwards compatible bug fixes.
 const (
-	version = "2.1.1"
+	version = "2.1.2"
 )
 
 // Model is a type for model name and characteristics
@@ -154,6 +154,8 @@ type Chunk struct {
 	Offset int
 	// The length of the chunk in the document.
 	Length int
+	// XXX store tokenLength in database and stop recomputing it
+	tokenLength int
 	// sha256 hash of the text of the chunk.
 	Hash string
 	// The text of the chunk.  This is not stored in the db.
@@ -204,6 +206,7 @@ func (g *Grokker) ChunkText(c *Chunk, withHeader bool) (text string, err error) 
 			// database, but don't return any text either.  The
 			// document might be on a different branch in e.g. git.
 			err = nil
+			Debug("ChunkText: document %q not found", c.Document.RelPath)
 			return
 		}
 		Ck(err)
@@ -219,6 +222,7 @@ func (g *Grokker) ChunkText(c *Chunk, withHeader bool) (text string, err error) 
 			text = fmt.Sprintf("from %s:\n%s\n", c.Document.RelPath, text)
 		}
 	}
+	Debug("ChunkText: %q", text)
 	return
 }
 
@@ -716,70 +720,34 @@ func (g *Grokker) SetChunk(chunk *Chunk) (newChunk *Chunk) {
 	return
 }
 
-// Embeddings returns the embeddings for a slice of text chunks.
+// CreateEmbeddings returns the embeddings for a slice of text chunks.
 func (g *Grokker) CreateEmbeddings(texts []string) (embeddings [][]float64, err error) {
+	defer Return(&err)
 	// use github.com/fabiustech/openai library
 	c := g.embeddingClient
-	// simply return an empty list if there are no texts.
-	if len(texts) == 0 {
-		return
-	}
-	// iterate over the text chunks and create one or more embedding queries
-	for i := 0; i < len(texts); {
-		// add texts to the current query until we reach the token limit
-		// i is the index of the first text in the current query
-		// j is the index of the last text in the current query
-		// XXX this is ugly, fragile, and needs to be tested and refactored
-		totalLen := 0
-		j := i
-		for {
-			var tokens []string
-			_, tokens, err = g.tokenizer.Encode(texts[j])
-			Ck(err)
-			nextLen := len(tokens)
-			// Debug("i=%d j=%d nextLen=%d totalLen=%d", i, j, nextLen, totalLen)
-			Assert(nextLen > 0, texts)
-			Assert(nextLen <= g.embeddingTokenLimit, "nextLen=%d embeddingTokenLimit=%d", nextLen, g.embeddingTokenLimit)
-			if totalLen+nextLen >= g.embeddingTokenLimit {
-				j--
-				Debug("breaking because totalLen=%d nextLen=%d", totalLen, nextLen)
-				break
-			}
-			totalLen += nextLen
-			if j == len(texts)-1 {
-				Debug("breaking because j=%d len(texts)=%d", j, len(texts))
-				break
-			}
-			j++
+	// simply call c.CreateEmbeddings() once for each text chunk.
+	for i := 0; i < len(texts); i++ {
+		text := texts[i]
+		// set empty chunk embedding to nil
+		if len(text) == 0 {
+			embeddings = append(embeddings, nil)
+			continue
 		}
-		Debug("i=%d j=%d totalLen=%d", i, j, totalLen)
-		Assert(j >= i, "j=%d i=%d", j, i)
-		Assert(totalLen > 0, "totalLen=%d", totalLen)
-		inputs := texts[i : j+1]
-		// double-check that the total length is within the limit and that
-		// no individual text is too long.
-		/*
-			totalLen = 0
-			for _, text := range inputs {
-				totalLen += len(text)
-				// Debug("len(text)=%d, totalLen=%d", len(text), totalLen)
-				Assert(len(text) <= g.maxEmbeddingChunkLen, "text too long: %d", len(text))
-			}
-			Assert(totalLen <= g.maxEmbeddingChunkLen, "totalLen=%d maxEmbeddingChunkLen=%d", totalLen, g.maxEmbeddingChunkLen)
-		*/
+		inputs := []string{text}
 		req := &openai.EmbeddingRequest{
 			Input: inputs,
 			Model: fabius_models.AdaEmbeddingV2,
 		}
+		Debug("creating embedding for chunk %d of %d ...", i+1, len(texts))
+		Debug("text: %q", text)
 		res, err := c.CreateEmbeddings(context.Background(), req)
 		Ck(err)
 		for _, em := range res.Data {
 			embeddings = append(embeddings, em.Embedding)
 		}
-		i = j + 1
 	}
 	Debug("created %d embeddings", len(embeddings))
-	Assert(len(embeddings) == len(texts))
+	Assert(len(embeddings) <= len(texts))
 	return
 }
 
@@ -790,7 +758,8 @@ func (g *Grokker) chunksFromDoc(doc *Document) (chunks []*Chunk, err error) {
 	buf, err := ioutil.ReadFile(g.AbsPath(doc))
 	Ck(err)
 	// break the document up into chunks.
-	chunks = g.chunksFromString(doc, string(buf), g.embeddingTokenLimit)
+	chunks, err = g.chunksFromString(doc, string(buf), g.embeddingTokenLimit)
+	Ck(err)
 	// add the document to each chunk.
 	for _, chunk := range chunks {
 		chunk.Document = doc
@@ -837,28 +806,39 @@ func (g *Grokker) Tokens(text string) (tokens []string, err error) {
 	return
 }
 
+// TokenCount returns the number of tokens in a chunk, and caches the
+// result in the chunk.
+func (chunk *Chunk) TokenCount(g *Grokker) (count int, err error) {
+	defer Return(&err)
+	if chunk.tokenLength == 0 {
+		text, err := g.ChunkText(chunk, false)
+		Ck(err)
+		tokens, err := g.Tokens(text)
+		Ck(err)
+		chunk.tokenLength = len(tokens)
+	}
+	count = chunk.tokenLength
+	return
+}
+
 // splitChunk recursively splits a Chunk into smaller chunks until
 // each chunk is no longer than the token limit.
-func (chunk *Chunk) splitChunk(g *Grokker, tokenLimit int) (newChunks []*Chunk) {
-	// quick check: if the chunk is already short enough based on
-	// the number of bytes, then we don't need to tokenize it.
-	Assert(chunk.Length == len(chunk.text), "chunk length does not match text length")
-	if chunk.Length < tokenLimit {
-		newChunks = append(newChunks, chunk)
-		return
-	}
-	// tokenize the chunk content
-	tokens, err := g.Tokens(chunk.text)
-	Ck(err)
+func (chunk *Chunk) splitChunk(g *Grokker, tokenLimit int) (newChunks []*Chunk, err error) {
+	defer Return(&err)
 	// if the chunk is short enough, then we're done
-	if len(tokens) < tokenLimit {
+	tc, err := chunk.TokenCount(g)
+	Ck(err)
+	Debug("chunk token count: %d, token limit: %d", tc, tokenLimit)
+	if tc < tokenLimit {
 		newChunks = append(newChunks, chunk)
+		Debug("chunk is short enough")
 		return
 	}
 	// split chunk into smaller segments of roughly equal size
 	// XXX could be made smarter by splitting on sentence or context boundaries
-	numChunks := int(math.Ceil(float64(len(tokens)) / float64(tokenLimit)))
+	numChunks := int(math.Ceil(float64(tc) / float64(tokenLimit)))
 	chunkSize := int(math.Ceil(float64(chunk.Length) / float64(numChunks)))
+	Debug("splitting chunk into %d chunks of size %d ...", numChunks, chunkSize)
 	for i := 0; i < numChunks; i++ {
 		start := i * chunkSize
 		end := start + chunkSize
@@ -866,9 +846,15 @@ func (chunk *Chunk) splitChunk(g *Grokker, tokenLimit int) (newChunks []*Chunk) 
 			end = chunk.Length
 		}
 		docOffset := chunk.Offset + start
-		subChunk := NewChunk(chunk.Document, docOffset, end-start, chunk.text[start:end])
+		var text string
+		text, err = g.ChunkText(chunk, false)
+		Ck(err)
+		subChunk := NewChunk(chunk.Document, docOffset, end-start, text[start:end])
 		// recurse
-		newSubChunks := subChunk.splitChunk(g, tokenLimit)
+		Debug("splitting subChunk %d of %d ...", i+1, numChunks)
+		var newSubChunks []*Chunk
+		newSubChunks, err = subChunk.splitChunk(g, tokenLimit)
+		Ck(err)
 		newChunks = append(newChunks, newSubChunks...)
 	}
 	return
@@ -877,7 +863,8 @@ func (chunk *Chunk) splitChunk(g *Grokker, tokenLimit int) (newChunks []*Chunk) 
 // chunksFromString splits a string into a slice of Chunks.  If doc is
 // not nil, it is used to set the Document field of each chunk.  Each
 // chunk will be no longer than tokenLimit tokens.
-func (g *Grokker) chunksFromString(doc *Document, txt string, tokenLimit int) (chunks []*Chunk) {
+func (g *Grokker) chunksFromString(doc *Document, txt string, tokenLimit int) (chunks []*Chunk, err error) {
+	defer Return(&err)
 	Assert(tokenLimit > 0)
 
 	// split the text into paragraphs
@@ -889,7 +876,9 @@ func (g *Grokker) chunksFromString(doc *Document, txt string, tokenLimit int) (c
 
 	for _, chunk := range paragraphs {
 		// ensure no paragraph is longer than the token limit
-		subChunks := chunk.splitChunk(g, tokenLimit)
+		var subChunks []*Chunk
+		subChunks, err = chunk.splitChunk(g, tokenLimit)
+		Ck(err)
 		chunks = append(chunks, subChunks...)
 	}
 	return
@@ -908,15 +897,21 @@ func (g *Grokker) FindChunks(query string, tokenLimit int) (chunks []*Chunk, err
 	embeddings, err := g.CreateEmbeddings([]string{query})
 	Ck(err)
 	queryEmbedding := embeddings[0]
+	if queryEmbedding == nil {
+		return
+	}
 	// find the most similar chunks.
-	chunks = g.SimilarChunks(queryEmbedding, tokenLimit)
+	chunks, err = g.SimilarChunks(queryEmbedding, tokenLimit)
+	Ck(err)
 	return
 }
 
 // SimilarChunks returns the most similar chunks to an embedding,
 // limited by tokenLimit.
-func (g *Grokker) SimilarChunks(embedding []float64, tokenLimit int) (chunks []*Chunk) {
+func (g *Grokker) SimilarChunks(embedding []float64, tokenLimit int) (chunks []*Chunk, err error) {
+	defer Return(&err)
 	Debug("chunks in database: %d", len(g.Chunks))
+	Assert(tokenLimit > 100, tokenLimit)
 	// find the most similar chunks.
 	type Sim struct {
 		chunk *Chunk
@@ -931,22 +926,41 @@ func (g *Grokker) SimilarChunks(embedding []float64, tokenLimit int) (chunks []*
 	sort.Slice(sims, func(i, j int) bool {
 		return sims[i].score > sims[j].score
 	})
-	// return the top chunks until we reach the token limit.
+	// collect the top chunks until we pass the token limit
 	var totalTokens int
+	var bigChunks []*Chunk
 	for _, sim := range sims {
-		// tokenize the text XXX do this before storing in the
-		// database instead of on every retrieval. will need to ensure
-		// that the chunk header is handled correctly.
-		text, err := g.ChunkText(sim.chunk, true)
+		chunk := sim.chunk
+		tc, err := chunk.TokenCount(g)
 		Ck(err)
-		tokens, err := g.Tokens(text)
-		Ck(err)
-		totalTokens += len(tokens)
+		totalTokens += tc
+		bigChunks = append(bigChunks, chunk)
 		if totalTokens > tokenLimit {
 			break
 		}
-		chunks = append(chunks, sim.chunk)
 	}
+	// split the big chunks so none are larger than the token limit.
+	// stop before we reach the token limit.
+	totalTokens = 0
+	for _, chunk := range bigChunks {
+		var subChunks []*Chunk
+		subChunks, err = chunk.splitChunk(g, tokenLimit)
+		Ck(err)
+		for _, subChunk := range subChunks {
+			tc, err := subChunk.TokenCount(g)
+			Ck(err)
+			totalTokens += tc
+			if totalTokens > tokenLimit {
+				break
+			}
+			chunks = append(chunks, subChunk)
+		}
+		if totalTokens > tokenLimit {
+			break
+		}
+	}
+	Debug("sims len: %d", len(sims))
+	Debug("total tokens: %d", totalTokens)
 	Debug("found %d similar chunks", len(chunks))
 	return
 }
@@ -1024,6 +1038,7 @@ func (g *Grokker) Revise(in string, global, sysmsgin bool) (out, sysmsg string, 
 // getContext returns the context for a query.
 func (g *Grokker) getContext(query string, tokenLimit int) (context string, err error) {
 	defer Return(&err)
+	Debug("getting context, tokenLimit: %d, query: %q", tokenLimit, query)
 	// get chunks, sorted by similarity to the query.
 	chunks, err := g.FindChunks(query, tokenLimit)
 	Ck(err)
@@ -1284,7 +1299,8 @@ func (g *Grokker) summarizeDiff(diff string) (sumlines string, diffSummary strin
 		if len(fns) > 0 {
 			fileSummary = Spf("summary of diff --git %s\n", fns)
 		}
-		chunks := g.chunksFromString(nil, fileChunk, maxTokens)
+		var chunks []*Chunk
+		chunks, err = g.chunksFromString(nil, fileChunk, maxTokens)
 		// summarize each chunk
 		for _, chunk := range chunks {
 			// format the chunk
