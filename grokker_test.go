@@ -2,6 +2,7 @@ package grokker
 
 import (
 	"io/ioutil"
+	"os"
 	"strings"
 	"testing"
 
@@ -29,6 +30,43 @@ func tmpDir() string {
 	return dir
 }
 
+func TestSplitChunk(t *testing.T) {
+	// create a new Grokker database
+	grok, err := Init(tmpDir(), "gpt-3.5-turbo")
+	Tassert(t, err == nil, "error creating grokker: %v", err)
+
+	// create a new Chunk
+	buf, err := ioutil.ReadFile("testdata/te-full.txt")
+	Tassert(t, err == nil, "error reading testdata/te-full.txt: %v", err)
+	text := string(buf)
+	length := len(text)
+	Tassert(t, length > 0, "expected text to be non-empty")
+	Tassert(t, length > grok.tokenLimit, "expected text to be longer than %d tokens", grok.tokenLimit)
+	chunk := NewChunk(nil, 0, length, text)
+	tc, err := chunk.TokenCount(grok)
+	Tassert(t, err == nil, "error getting token count for chunk: %v", err)
+	Tassert(t, tc > grok.tokenLimit, "expected chunk to have more than %d tokens, got %d tokens", grok.tokenLimit, tc)
+
+	// call the splitChunk method
+	newChunks, err := chunk.splitChunk(grok, 2000)
+	Tassert(t, err == nil, "error splitting chunk: %v", err)
+
+	// verify that the original chunk was split
+	Tassert(t, len(newChunks) > 0, "expected chunk to be split into more than zero")
+	if len(newChunks) == 1 {
+		c := newChunks[0]
+		tc, err := c.TokenCount(grok)
+		Tassert(t, err == nil, "error getting token count for chunk: %v", err)
+		Tassert(t, false, "expected chunk to be split, got %d tokens", tc)
+	}
+
+	// verify that each new chunk is within the token limit
+	for i, ch := range newChunks {
+		tc, err := ch.TokenCount(grok)
+		Tassert(t, err == nil, "error getting token count for chunk %d: %v", i, err)
+		Tassert(t, tc <= grok.tokenLimit, "expected chunk %d to have %d tokens or less, got %d tokens", i, grok.tokenLimit, tc)
+	}
+}
 func TestEmbeddings(t *testing.T) {
 	//
 	// create a new Grokker database
@@ -51,6 +89,40 @@ func TestAddDoc(t *testing.T) {
 	// add the document
 	err = grok.AddDocument("testdata/te-abstract.txt")
 	Tassert(t, err == nil, "error adding doc: %v", err)
+}
+
+func TestChunkTextAfterRemovingFile(t *testing.T) {
+	// create a new Grokker database
+	grok, err := Init(tmpDir(), "gpt-3.5-turbo")
+	Tassert(t, err == nil, "error creating grokker: %v", err)
+
+	// copy a document to a temporary file
+	srcPath := "testdata/te-full.txt"
+	docPath := "testdata/te-full-copy.txt"
+	err = copyFile(srcPath, docPath)
+	Tassert(t, err == nil, "error copying file: %v", err)
+
+	// add the temporary file to the database
+	err = grok.AddDocument(docPath)
+	Tassert(t, err == nil, "error adding doc: %v", err)
+
+	// get chunks from the document
+	chunks, err := grok.FindChunks("Why is order of operations important when administering a UNIX machine?", 2000)
+	Tassert(t, err == nil, "error finding chunks: %v", err)
+	Tassert(t, len(chunks) > 0, "expected at least one chunk")
+	chunk := chunks[0]
+	Tassert(t, chunk != nil, "expected chunk to be non-nil")
+	Tassert(t, len(chunk.text) > 0, "expected chunk text to be non-empty")
+
+	// then remove the document from the file system
+	err = os.Remove(docPath)
+	Tassert(t, err == nil, "error removing document file: %v", err)
+
+	// now get the text of the chunk from the removed document
+	text, err := grok.ChunkText(chunk, false)
+	// check that there is no error and the text is empty
+	Tassert(t, err == nil, "error getting chunk text: %v", err)
+	Tassert(t, text == "", "expected chunk text to be empty")
 }
 
 // test finding chunks that are similar to a query

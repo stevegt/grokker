@@ -64,9 +64,11 @@ import (
 // MAJOR.MINOR.PATCH
 // MAJOR version when you make incompatible API changes,
 // MINOR version when you add functionality in a backwards compatible manner, and
+//   - we're using this for db version migrations
+//
 // PATCH version when you make backwards compatible bug fixes.
 const (
-	version = "2.1.2"
+	version = "2.1.3"
 )
 
 // Model is a type for model name and characteristics
