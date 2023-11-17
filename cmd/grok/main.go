@@ -32,6 +32,7 @@ var cli struct {
 	Qc      struct{} `cmd:"" help:"Continue text from stdin based on the context in the knowledge base."`
 	Qi      struct{} `cmd:"" help:"Ask the knowledge base a question on stdin."`
 	Qr      struct{} `cmd:"" help:"Revise stdin based on the context in the knowledge base."`
+	Tc      struct{} `cmd:"" help:"Calculate the token count of stdin."`
 	Global  bool     `short:"g" help:"Include results from OpenAI's global knowledge base as well as from local documents."`
 	SysMsg  bool     `short:"s" help:"expect sysmsg in first paragraph of stdin, return same on stdout."`
 	Verbose bool     `short:"v" help:"Show debug and progress information on stderr."`
@@ -175,6 +176,15 @@ func main() {
 		if updated {
 			save = true
 		}
+	case "tc":
+		// get content from stdin and emit token count on stdout
+		buf, err := ioutil.ReadAll(os.Stdin)
+		Ck(err)
+		in := string(buf)
+		in = strings.TrimSpace(in)
+		count, err := grok.TokenCount(in)
+		Ck(err)
+		Pf("%d\n", count)
 	case "commit":
 		// generate a git commit message
 		summary, err := commitMessage(grok)

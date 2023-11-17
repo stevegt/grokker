@@ -808,6 +808,15 @@ func (g *Grokker) Tokens(text string) (tokens []string, err error) {
 	return
 }
 
+// TokenCount returns the number of tokens in a string.
+func (g *Grokker) TokenCount(text string) (count int, err error) {
+	defer Return(&err)
+	tokens, err := g.Tokens(text)
+	Ck(err)
+	count = len(tokens)
+	return
+}
+
 // TokenCount returns the number of tokens in a chunk, and caches the
 // result in the chunk.
 func (chunk *Chunk) TokenCount(g *Grokker) (count int, err error) {
