@@ -227,8 +227,8 @@ func (g *Grokker) UpdateEmbeddings() (update bool, err error) {
 	return
 }
 
-// CodeVersion returns the version of grokker.
-func (g *Grokker) CodeVersion() string {
+// CodeVersion returns the version of the grokker code.
+func CodeVersion() string {
 	return version
 }
 
