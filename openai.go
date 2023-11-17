@@ -111,6 +111,29 @@ func (g *Grokker) generate(sysmsg, question, ctxt string, global bool) (resp oai
 	return
 }
 
+// msg uses the openai API to generate a response to a message.
+func (g *Grokker) msg(sysmsg, input string) (resp oai.ChatCompletionResponse, err error) {
+	defer Return(&err)
+
+	// XXX don't exceed max tokens
+
+	messages := []oai.ChatCompletionMessage{
+		{
+			Role:    oai.ChatMessageRoleSystem,
+			Content: sysmsg,
+		},
+		{
+			Role:    oai.ChatMessageRoleUser,
+			Content: input,
+		},
+	}
+	// get the answer
+	resp, err = g.chat(messages)
+	Ck(err)
+
+	return
+}
+
 // chat uses the openai API to continue a conversation given a
 // (possibly synthesized) message history.
 func (g *Grokker) chat(messages []oai.ChatCompletionMessage) (resp oai.ChatCompletionResponse, err error) {

@@ -430,3 +430,12 @@ func (chunk *Chunk) TokenCount(g *Grokker) (count int, err error) {
 	count = chunk.tokenLength
 	return
 }
+
+// Msg sends sysmsg and txt to openai and returns the response.
+func (g *Grokker) Msg(sysmsg, txt string) (resp string, err error) {
+	defer Return(&err)
+	respmsg, err := g.msg(sysmsg, txt)
+	Ck(err)
+	resp = respmsg.Choices[0].Message.Content
+	return
+}

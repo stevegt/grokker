@@ -29,10 +29,13 @@ var cli struct {
 	Q       struct {
 		Question string `arg:"" help:"Question to ask the knowledge base."`
 	} `cmd:"" help:"Ask the knowledge base a question."`
-	Qc      struct{} `cmd:"" help:"Continue text from stdin based on the context in the knowledge base."`
-	Qi      struct{} `cmd:"" help:"Ask the knowledge base a question on stdin."`
-	Qr      struct{} `cmd:"" help:"Revise stdin based on the context in the knowledge base."`
-	Tc      struct{} `cmd:"" help:"Calculate the token count of stdin."`
+	Qc  struct{} `cmd:"" help:"Continue text from stdin based on the context in the knowledge base."`
+	Qi  struct{} `cmd:"" help:"Ask the knowledge base a question on stdin."`
+	Qr  struct{} `cmd:"" help:"Revise stdin based on the context in the knowledge base."`
+	Tc  struct{} `cmd:"" help:"Calculate the token count of stdin."`
+	Msg struct {
+		Sysmsg string `arg:"" help:"System message to send to control behavior of openAI's API."`
+	} `cmd:"" help:"Send message to openAI's API from stdin and print response on stdout."`
 	Global  bool     `short:"g" help:"Include results from OpenAI's global knowledge base as well as from local documents."`
 	SysMsg  bool     `short:"s" help:"expect sysmsg in first paragraph of stdin, return same on stdout."`
 	Verbose bool     `short:"v" help:"Show debug and progress information on stderr."`
@@ -185,6 +188,17 @@ func main() {
 		count, err := grok.TokenCount(in)
 		Ck(err)
 		Pf("%d\n", count)
+	case "msg <sysmsg>":
+		// get message from stdin and print response
+		buf, err := ioutil.ReadAll(os.Stdin)
+		Ck(err)
+		input := string(buf)
+		// trim whitespace
+		input = strings.TrimSpace(input)
+		sysmsg := cli.Msg.Sysmsg
+		res, err := msg(grok, sysmsg, input)
+		Ck(err)
+		Pl(res)
 	case "commit":
 		// generate a git commit message
 		summary, err := commitMessage(grok)
@@ -246,6 +260,17 @@ func revise(grok *grokker.Grokker, in string, global, sysmsgin bool) (out string
 
 	// return revised text
 	out, _, err = grok.Revise(in, global, sysmsgin)
+	Ck(err)
+
+	return
+}
+
+// send a message to openAI's API
+func msg(grok *grokker.Grokker, sysmsg string, input string) (res string, err error) {
+	defer Return(&err)
+
+	// return response
+	res, err = grok.Msg(sysmsg, input)
 	Ck(err)
 
 	return
