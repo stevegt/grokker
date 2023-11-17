@@ -1,31 +1,93 @@
 package grokker
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
 	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/semver"
 )
 
 // canon returns our best guess at the canonical path of a
 // document, and warns if the document is not found at the
 // canonical path.
-func canon(g *Grokker, path string) (rel string) {
+func (g *Grokker) canon(path string) (rel string) {
 	rel, err := filepath.Rel(g.Root, path)
 	if err != nil {
 		Fpf(os.Stderr, "error: %s\n", err)
 	}
 	// check if the document exists at the canonical path
-	_, err = os.Stat(g.AbsPath(&Document{RelPath: rel}))
+	_, err = os.Stat(g.absPath(&Document{RelPath: rel}))
 	if err != nil {
 		Fpf(os.Stderr, "warning: document %q not found at canonical path %q\n", path, rel)
 	}
 	return
 }
 
-// migrateDb migrates the grok file from the current version to the
+// migrate migrates the current Grokker database from an older version
+// to the current version.
+func (g *Grokker) migrate() (migrated bool, was, now string, err error) {
+	defer Return(&err)
+
+	was = g.Version
+	now = g.Version
+
+	// set default version
+	if g.Version == "" {
+		g.Version = "0.1.0"
+	}
+
+	// loop until migrations are done
+	for {
+
+		// check if migration is necessary
+		var dbver, codever *semver.Version
+		dbver, err = semver.Parse([]byte(g.Version))
+		Ck(err)
+		codever, err = semver.Parse([]byte(version))
+		Ck(err)
+		if semver.Cmp(dbver, codever) == 0 {
+			// no migration necessary
+			break
+		}
+
+		// see if db is newer version than code
+		if semver.Cmp(dbver, codever) > 0 {
+			// db is newer than code
+			err = fmt.Errorf("grokker db is version %s, but you're running version %s -- upgrade grokker", g.Version, version)
+			return
+		}
+
+		Fpf(os.Stderr, "migrating from %s to %s\n", g.Version, version)
+
+		// if we get here, then dbver < codever
+		_, minor, patch := semver.Upgrade(dbver, codever)
+		Assert(patch, "patch should be true: %s -> %s", dbver, codever)
+
+		// figure out what kind of migration we need to do
+		if minor {
+			// minor version changed; db migration necessary
+			err = g.migrateOneVersion()
+			Ck(err)
+		} else {
+			// only patch version changed; a patch version change is
+			// just a code change, so just update the version number
+			// in the db
+			g.Version = version
+		}
+
+		migrated = true
+	}
+
+	now = g.Version
+
+	return
+}
+
+// migrateOneVersion migrates the grok file from the current version to the
 // next version.
-func (g *Grokker) migrateDb() (err error) {
+func (g *Grokker) migrateOneVersion() (err error) {
 	defer Return(&err)
 
 	switch g.Version {
@@ -34,13 +96,13 @@ func (g *Grokker) migrateDb() (err error) {
 		// copy Document.Path to Document.RelPath, leave old content
 		// for now
 		for _, doc := range g.Documents {
-			doc.RelPath = canon(g, doc.Path)
+			doc.RelPath = g.canon(doc.Path)
 		}
 		// copy Chunk.Document.Path to Chunk.Document.RelPath, leave
 		// old content for now
 		for _, chunk := range g.Chunks {
 			// copy and canonicalize the path
-			chunk.Document.RelPath = canon(g, chunk.Document.Path)
+			chunk.Document.RelPath = g.canon(chunk.Document.Path)
 		}
 		// refresh embeddings now because we are about to save the grok file
 		// and that will make its timestamp newer than any possibly-modified
