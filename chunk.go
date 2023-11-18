@@ -62,7 +62,7 @@ func newChunk(doc *Document, offset, length int, text string) (c *Chunk) {
 func (chunk *Chunk) splitChunk(g *Grokker, tokenLimit int) (newChunks []*Chunk, err error) {
 	defer Return(&err)
 	// if the chunk is short enough, then we're done
-	tc, err := chunk.TokenCount(g)
+	tc, err := chunk.tokenCount(g)
 	Ck(err)
 	Debug("chunk token count: %d, token limit: %d", tc, tokenLimit)
 	if tc < tokenLimit {
@@ -187,7 +187,7 @@ func (g *Grokker) similarChunks(embedding []float64, tokenLimit int) (chunks []*
 	var bigChunks []*Chunk
 	for _, sim := range sims {
 		chunk := sim.chunk
-		tc, err := chunk.TokenCount(g)
+		tc, err := chunk.tokenCount(g)
 		Ck(err)
 		totalTokens += tc
 		bigChunks = append(bigChunks, chunk)
@@ -203,7 +203,7 @@ func (g *Grokker) similarChunks(embedding []float64, tokenLimit int) (chunks []*
 		subChunks, err = chunk.splitChunk(g, tokenLimit)
 		Ck(err)
 		for _, subChunk := range subChunks {
-			tc, err := subChunk.TokenCount(g)
+			tc, err := subChunk.tokenCount(g)
 			Ck(err)
 			totalTokens += tc
 			if totalTokens > tokenLimit {
@@ -334,5 +334,20 @@ func (g *Grokker) getContext(query string, tokenLimit int) (context string, err 
 		context += text
 	}
 	Debug("using %d chunks as context", len(chunks))
+	return
+}
+
+// tokenCount returns the number of tokens in a chunk, and caches the
+// result in the chunk.
+func (chunk *Chunk) tokenCount(g *Grokker) (count int, err error) {
+	defer Return(&err)
+	if chunk.tokenLength == 0 {
+		text, err := g.chunkText(chunk, false)
+		Ck(err)
+		tokens, err := g.tokens(text)
+		Ck(err)
+		chunk.tokenLength = len(tokens)
+	}
+	count = chunk.tokenLength
 	return
 }

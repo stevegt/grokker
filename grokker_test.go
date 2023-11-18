@@ -43,7 +43,7 @@ func TestSplitChunk(t *testing.T) {
 	Tassert(t, length > 0, "expected text to be non-empty")
 	Tassert(t, length > grok.tokenLimit, "expected text to be longer than %d tokens", grok.tokenLimit)
 	chunk := newChunk(nil, 0, length, text)
-	tc, err := chunk.TokenCount(grok)
+	tc, err := chunk.tokenCount(grok)
 	Tassert(t, err == nil, "error getting token count for chunk: %v", err)
 	Tassert(t, tc > grok.tokenLimit, "expected chunk to have more than %d tokens, got %d tokens", grok.tokenLimit, tc)
 
@@ -55,14 +55,14 @@ func TestSplitChunk(t *testing.T) {
 	Tassert(t, len(newChunks) > 0, "expected chunk to be split into more than zero")
 	if len(newChunks) == 1 {
 		c := newChunks[0]
-		tc, err := c.TokenCount(grok)
+		tc, err := c.tokenCount(grok)
 		Tassert(t, err == nil, "error getting token count for chunk: %v", err)
 		Tassert(t, false, "expected chunk to be split, got %d tokens", tc)
 	}
 
 	// verify that each new chunk is within the token limit
 	for i, ch := range newChunks {
-		tc, err := ch.TokenCount(grok)
+		tc, err := ch.tokenCount(grok)
 		Tassert(t, err == nil, "error getting token count for chunk %d: %v", i, err)
 		Tassert(t, tc <= grok.tokenLimit, "expected chunk %d to have %d tokens or less, got %d tokens", i, grok.tokenLimit, tc)
 	}

@@ -10,6 +10,8 @@ import (
 	. "github.com/stevegt/goadapt"
 )
 
+// XXX move to cli/cli.go
+
 /*
 
 XXX Migrate all of this to grokker.go, including kong; just call
@@ -104,15 +106,12 @@ func NewConfig() *Config {
 	}
 }
 
-// Cli and the Config struct are the entire API for grokker.  This
-// function parses the given arguments and then executes the
-// appropriate subcommand.  It is the only function that should be
-// called from main() or any other package.  This allows us to more
-// easily build and interoperate with a WASM version of grokker. This
-// also allows us to more easily test the cli subcommands.
+// Cli parses the given arguments and then executes the appropriate
+// subcommand.
 //
 // We use this function instead of kong.Parse() so that we can pass in
-// the arguments to parse.
+// the arguments to parse.  This allows us to more easily test the
+// cli subcommands, and could later ease e.g. WASM usage.
 func Cli(args []string, config *Config) (err error) {
 	defer Return(&err)
 
@@ -346,13 +345,11 @@ func revise(grok *Grokker, in string, global, sysmsgin bool) (out string, update
 }
 
 // send a message to openAI's API
-func msg(grok *Grokker, sysmsg string, input string) (res string, err error) {
+func msg(g *Grokker, sysmsg string, input string) (res string, err error) {
 	defer Return(&err)
-
-	// return response
-	res, err = grok.Msg(sysmsg, input)
+	respmsg, err := g.msg(sysmsg, input)
 	Ck(err)
-
+	res = respmsg.Choices[0].Message.Content
 	return
 }
 

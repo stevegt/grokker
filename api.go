@@ -13,6 +13,8 @@ import (
 	"github.com/stevegt/semver"
 )
 
+// XXX move to api/api.go
+
 // AddDocument adds a document to the Grokker database. It creates the
 // embeddings for the document and adds them to the database.
 func (g *Grokker) AddDocument(path string) (err error) {
