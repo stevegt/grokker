@@ -17,7 +17,7 @@ import (
 
 // AddDocument adds a document to the Grokker database. It creates the
 // embeddings for the document and adds them to the database.
-func (g *Grokker) AddDocument(path string) (err error) {
+func (g *GrokkerInternal) AddDocument(path string) (err error) {
 	defer Return(&err)
 	// assume we're in an arbitrary directory, so we need to
 	// convert the path to an absolute path.
@@ -54,7 +54,7 @@ func (g *Grokker) AddDocument(path string) (err error) {
 }
 
 // ForgetDocument removes a document from the Grokker database.
-func (g *Grokker) ForgetDocument(path string) (err error) {
+func (g *GrokkerInternal) ForgetDocument(path string) (err error) {
 	defer Return(&err)
 	// remove the document from the database.
 	for i, d := range g.Documents {
@@ -81,7 +81,7 @@ func (g *Grokker) ForgetDocument(path string) (err error) {
 }
 
 // Continue returns a continuation of the input text.
-func (g *Grokker) Continue(in string, global bool) (out, sysmsg string, err error) {
+func (g *GrokkerInternal) Continue(in string, global bool) (out, sysmsg string, err error) {
 	defer Return(&err)
 	sysmsg = SysMsgContinue
 	// tokenize sysmsg
@@ -102,7 +102,7 @@ func (g *Grokker) Continue(in string, global bool) (out, sysmsg string, err erro
 }
 
 // Answer returns the answer to a question.
-func (g *Grokker) Answer(question string, global bool) (resp string, err error) {
+func (g *GrokkerInternal) Answer(question string, global bool) (resp string, err error) {
 	defer Return(&err)
 	// tokenize the question
 	qtokens, err := g.tokens(question)
@@ -117,7 +117,7 @@ func (g *Grokker) Answer(question string, global bool) (resp string, err error) 
 }
 
 // Revise returns revised text based on input text.
-func (g *Grokker) Revise(in string, global, sysmsgin bool) (out, sysmsg string, err error) {
+func (g *GrokkerInternal) Revise(in string, global, sysmsgin bool) (out, sysmsg string, err error) {
 	defer Return(&err)
 
 	// tokenize the entire input
@@ -156,7 +156,7 @@ func (g *Grokker) Revise(in string, global, sysmsgin bool) (out, sysmsg string, 
 
 // Backup backs up the Grokker database to a time-stamped backup and
 // returns the path.
-func (g *Grokker) Backup() (backpath string, err error) {
+func (g *GrokkerInternal) Backup() (backpath string, err error) {
 	defer Return(&err)
 	Assert(g.grokpath != "", "g.grokpath is empty")
 	tmpdir := os.TempDir()
@@ -168,7 +168,7 @@ func (g *Grokker) Backup() (backpath string, err error) {
 }
 
 // Save saves the Grokker database as json data in an io.Writer.
-func (g *Grokker) Save() (err error) {
+func (g *GrokkerInternal) Save() (err error) {
 	defer Return(&err)
 
 	// open
@@ -196,7 +196,7 @@ func (g *Grokker) Save() (err error) {
 // UpdateEmbeddings updates the embeddings for any documents that have
 // changed since the last time the embeddings were updated.  It returns
 // true if any embeddings were updated.
-func (g *Grokker) UpdateEmbeddings() (update bool, err error) {
+func (g *GrokkerInternal) UpdateEmbeddings() (update bool, err error) {
 	defer Return(&err)
 	// we use the timestamp of the grokfn as the last embedding update time.
 	lastUpdate, err := g.mtime()
@@ -235,12 +235,12 @@ func CodeVersion() string {
 }
 
 // DBVersion returns the version of the grokker database.
-func (g *Grokker) DBVersion() string {
+func (g *GrokkerInternal) DBVersion() string {
 	return g.Version
 }
 
 // TokenCount returns the number of tokens in a string.
-func (g *Grokker) TokenCount(text string) (count int, err error) {
+func (g *GrokkerInternal) TokenCount(text string) (count int, err error) {
 	defer Return(&err)
 	tokens, err := g.tokens(text)
 	Ck(err)
@@ -250,7 +250,7 @@ func (g *Grokker) TokenCount(text string) (count int, err error) {
 
 // RefreshEmbeddings refreshes the embeddings for all documents in the
 // database.
-func (g *Grokker) RefreshEmbeddings() (err error) {
+func (g *GrokkerInternal) RefreshEmbeddings() (err error) {
 	defer Return(&err)
 	// regenerate the embeddings for each document.
 	for _, doc := range g.Documents {
@@ -278,7 +278,7 @@ func (g *Grokker) RefreshEmbeddings() (err error) {
 // XXX this is also a bit of a hack since we're trying to make this
 // work for multiple versions -- we should be able to simplify this
 // after migration is automatic during Load().
-func (g *Grokker) ListDocuments() (paths []string) {
+func (g *GrokkerInternal) ListDocuments() (paths []string) {
 	for _, doc := range g.Documents {
 		path := doc.Path
 		v100, err := semver.Parse([]byte("1.0.0"))
@@ -295,8 +295,8 @@ func (g *Grokker) ListDocuments() (paths []string) {
 // LoadFrom loads a Grokker database from a given path.
 // XXX replace the json db with a kv store, store vectors as binary
 // floating point values.
-func LoadFrom(grokpath string) (g *Grokker, migrated bool, oldver, newver string, err error) {
-	g = &Grokker{}
+func LoadFrom(grokpath string) (g *GrokkerInternal, migrated bool, oldver, newver string, err error) {
+	g = &GrokkerInternal{}
 	g.grokpath = grokpath
 	// load the db
 	fh, err := os.Open(g.grokpath)
@@ -319,21 +319,21 @@ func LoadFrom(grokpath string) (g *Grokker, migrated bool, oldver, newver string
 }
 
 // Init creates a Grokker database in the given root directory.
-func Init(rootdir, model string) (g *Grokker, err error) {
+func Init(rootdir, model string) (g *GrokkerInternal, err error) {
 	defer Return(&err)
 	g, err = InitNamed(rootdir, ".grok", model)
 	return
 }
 
 // InitNamed creates a named Grokker database in the given root directory.
-func InitNamed(rootdir, name, model string) (g *Grokker, err error) {
+func InitNamed(rootdir, name, model string) (g *GrokkerInternal, err error) {
 	// ensure rootdir is absolute and exists
 	rootdir, err = filepath.Abs(rootdir)
 	Ck(err)
 	_, err = os.Stat(rootdir)
 	Ck(err)
 	// create the db
-	g = &Grokker{
+	g = &GrokkerInternal{
 		Root:    rootdir,
 		Version: version,
 	}
@@ -357,7 +357,7 @@ func InitNamed(rootdir, name, model string) (g *Grokker, err error) {
 }
 
 // Load loads a Grokker database from the current or any parent directory.
-func Load() (g *Grokker, migrated bool, oldver, newver string, err error) {
+func Load() (g *GrokkerInternal, migrated bool, oldver, newver string, err error) {
 	defer Return(&err)
 
 	// find the .grok file in the current or any parent directory
@@ -376,7 +376,7 @@ func Load() (g *Grokker, migrated bool, oldver, newver string, err error) {
 }
 
 // ListModels lists the available models.
-func (g *Grokker) ListModels() (models []*Model, err error) {
+func (g *GrokkerInternal) ListModels() (models []*Model, err error) {
 	defer Return(&err)
 	for _, model := range g.models.Available {
 		models = append(models, model)
@@ -385,7 +385,7 @@ func (g *Grokker) ListModels() (models []*Model, err error) {
 }
 
 // SetModel sets the default chat completion model for queries.
-func (g *Grokker) SetModel(model string) (oldModel string, err error) {
+func (g *GrokkerInternal) SetModel(model string) (oldModel string, err error) {
 	defer Return(&err)
 	model, _, err = g.models.findModel(model)
 	Ck(err)
@@ -399,7 +399,7 @@ func (g *Grokker) SetModel(model string) (oldModel string, err error) {
 // GitCommitMessage generates a git commit message given a diff. It
 // appends a reasonable prompt, and then uses the result as a grokker
 // query.
-func (g *Grokker) GitCommitMessage(diff string) (msg string, err error) {
+func (g *GrokkerInternal) GitCommitMessage(diff string) (msg string, err error) {
 	defer Return(&err)
 
 	// summarize the diff
@@ -420,7 +420,7 @@ func (g *Grokker) GitCommitMessage(diff string) (msg string, err error) {
 
 // TokenCount returns the number of tokens in a chunk, and caches the
 // result in the chunk.
-func (chunk *Chunk) TokenCount(g *Grokker) (count int, err error) {
+func (chunk *Chunk) TokenCount(g *GrokkerInternal) (count int, err error) {
 	defer Return(&err)
 	if chunk.tokenLength == 0 {
 		text, err := g.chunkText(chunk, false)
@@ -434,7 +434,7 @@ func (chunk *Chunk) TokenCount(g *Grokker) (count int, err error) {
 }
 
 // Msg sends sysmsg and txt to openai and returns the response.
-func (g *Grokker) Msg(sysmsg, txt string) (resp string, err error) {
+func (g *GrokkerInternal) Msg(sysmsg, txt string) (resp string, err error) {
 	defer Return(&err)
 	respmsg, err := g.msg(sysmsg, txt)
 	Ck(err)

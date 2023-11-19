@@ -24,7 +24,7 @@ var SysMsgRevise = "You are an expert knowledgable in the provided context.  I w
 var SysMsgContinue = "You are an expert knowledgable in the provided context.  I will provide you with context, then you will respond with an acknowledgement, then I will provide you with a block of text.  You will continue the block of text based on the information in the context, maintaining the same style, vocabulary, and reading level."
 
 // createEmbeddings returns the embeddings for a slice of text chunks.
-func (g *Grokker) createEmbeddings(texts []string) (embeddings [][]float64, err error) {
+func (g *GrokkerInternal) createEmbeddings(texts []string) (embeddings [][]float64, err error) {
 	defer Return(&err)
 	// use github.com/fabiustech/openai library
 	c := g.embeddingClient
@@ -55,7 +55,7 @@ func (g *Grokker) createEmbeddings(texts []string) (embeddings [][]float64, err 
 }
 
 // generate returns the answer to a question.
-func (g *Grokker) generate(sysmsg, question, ctxt string, global bool) (resp oai.ChatCompletionResponse, err error) {
+func (g *GrokkerInternal) generate(sysmsg, question, ctxt string, global bool) (resp oai.ChatCompletionResponse, err error) {
 	defer Return(&err)
 
 	// XXX don't exceed max tokens
@@ -112,7 +112,7 @@ func (g *Grokker) generate(sysmsg, question, ctxt string, global bool) (resp oai
 }
 
 // msg uses the openai API to generate a response to a message.
-func (g *Grokker) msg(sysmsg, input string) (resp oai.ChatCompletionResponse, err error) {
+func (g *GrokkerInternal) msg(sysmsg, input string) (resp oai.ChatCompletionResponse, err error) {
 	defer Return(&err)
 
 	// XXX don't exceed max tokens
@@ -136,7 +136,7 @@ func (g *Grokker) msg(sysmsg, input string) (resp oai.ChatCompletionResponse, er
 
 // chat uses the openai API to continue a conversation given a
 // (possibly synthesized) message history.
-func (g *Grokker) chat(messages []oai.ChatCompletionMessage) (resp oai.ChatCompletionResponse, err error) {
+func (g *GrokkerInternal) chat(messages []oai.ChatCompletionMessage) (resp oai.ChatCompletionResponse, err error) {
 	defer Return(&err)
 
 	model := g.oaiModel
@@ -167,7 +167,7 @@ func (g *Grokker) chat(messages []oai.ChatCompletionMessage) (resp oai.ChatCompl
 // initClients initializes the OpenAI clients.
 // This function needs to be idempotent because it might be called multiple
 // times during the lifetime of a Grokker object.
-func (g *Grokker) initClients() {
+func (g *GrokkerInternal) initClients() {
 	authtoken := os.Getenv("OPENAI_API_KEY")
 	g.embeddingClient = openai.NewClient(authtoken)
 	g.chatClient = oai.NewClient(authtoken)

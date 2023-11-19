@@ -319,7 +319,7 @@ func Cli(args []string, config *Config) (rc int, err error) {
 }
 
 // answer a question
-func answer(grok *Grokker, question string, global bool) (resp, query string, updated bool, err error) {
+func answer(grok *GrokkerInternal, question string, global bool) (resp, query string, updated bool, err error) {
 	defer Return(&err)
 
 	// update the knowledge base
@@ -334,7 +334,7 @@ func answer(grok *Grokker, question string, global bool) (resp, query string, up
 }
 
 // revise text
-func revise(grok *Grokker, in string, global, sysmsgin bool) (out string, updated bool, err error) {
+func revise(grok *GrokkerInternal, in string, global, sysmsgin bool) (out string, updated bool, err error) {
 	defer Return(&err)
 
 	// update the knowledge base
@@ -349,7 +349,7 @@ func revise(grok *Grokker, in string, global, sysmsgin bool) (out string, update
 }
 
 // send a message to openAI's API
-func msg(g *Grokker, sysmsg string, input string) (res string, err error) {
+func msg(g *GrokkerInternal, sysmsg string, input string) (res string, err error) {
 	defer Return(&err)
 	respmsg, err := g.msg(sysmsg, input)
 	Ck(err)
@@ -358,7 +358,7 @@ func msg(g *Grokker, sysmsg string, input string) (res string, err error) {
 }
 
 // generate a git commit message
-func commitMessage(grok *Grokker) (summary string, err error) {
+func commitMessage(grok *GrokkerInternal) (summary string, err error) {
 	defer Return(&err)
 
 	// run `git diff --staged`

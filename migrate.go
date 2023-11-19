@@ -12,7 +12,7 @@ import (
 // canon returns our best guess at the canonical path of a
 // document, and warns if the document is not found at the
 // canonical path.
-func (g *Grokker) canon(path string) (rel string) {
+func (g *GrokkerInternal) canon(path string) (rel string) {
 	rel, err := filepath.Rel(g.Root, path)
 	if err != nil {
 		Fpf(os.Stderr, "error: %s\n", err)
@@ -27,7 +27,7 @@ func (g *Grokker) canon(path string) (rel string) {
 
 // migrate migrates the current Grokker database from an older version
 // to the current version.
-func (g *Grokker) migrate() (migrated bool, was, now string, err error) {
+func (g *GrokkerInternal) migrate() (migrated bool, was, now string, err error) {
 	defer Return(&err)
 
 	was = g.Version
@@ -87,7 +87,7 @@ func (g *Grokker) migrate() (migrated bool, was, now string, err error) {
 
 // migrateOneVersion migrates the grok file from the current version to the
 // next version.
-func (g *Grokker) migrateOneVersion() (err error) {
+func (g *GrokkerInternal) migrateOneVersion() (err error) {
 	defer Return(&err)
 
 	switch g.Version {

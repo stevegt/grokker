@@ -109,7 +109,7 @@ func TestCli(t *testing.T) {
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
 
 	// ask a question
-	stdout, stderr, err = grok(stdin, "q", "is testing good? answer yes or no")
+	stdout, stderr, err = grok(stdin, "q", "Does the context claim testing is good?  Answer yes or no.")
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
 	// check that the stdout buffer contains the expected output
 	match = strings.Contains(stdout.String(), "yes") || strings.Contains(stdout.String(), "Yes")

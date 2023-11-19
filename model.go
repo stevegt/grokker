@@ -27,7 +27,7 @@ func (m *Model) String() string {
 }
 
 // getModel returns the current model name and model_t from the db
-func (g *Grokker) getModel() (model string, m *Model, err error) {
+func (g *GrokkerInternal) getModel() (model string, m *Model, err error) {
 	defer Return(&err)
 	model, m, err = g.models.findModel(g.Model)
 	Ck(err)
@@ -75,7 +75,7 @@ func (models *Models) findModel(model string) (name string, m *Model, err error)
 // setup the model and oai clients.
 // This function needs to be idempotent because it might be called multiple
 // times during the lifetime of a Grokker object.
-func (g *Grokker) setup(model string) (err error) {
+func (g *GrokkerInternal) setup(model string) (err error) {
 	defer Return(&err)
 	err = g.initModel(model)
 	Ck(err)
@@ -89,7 +89,7 @@ func (g *Grokker) setup(model string) (err error) {
 // initModel initializes the model for a new or reloaded Grokker database.
 // This function needs to be idempotent because it might be called multiple
 // times during the lifetime of a Grokker object.
-func (g *Grokker) initModel(model string) (err error) {
+func (g *GrokkerInternal) initModel(model string) (err error) {
 	defer Return(&err)
 	Assert(g.Root != "", "root directory not set")
 	g.models = newModels()

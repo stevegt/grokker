@@ -58,7 +58,7 @@ const (
 	version = "2.1.4"
 )
 
-type Grokker struct {
+type GrokkerInternal struct {
 	embeddingClient *openai.Client
 	chatClient      *oai.Client
 	// The grokker version number this db was last updated with.
@@ -87,7 +87,7 @@ type Grokker struct {
 }
 
 // mtime returns the last modified time of the Grokker database.
-func (g *Grokker) mtime() (timestamp time.Time, err error) {
+func (g *GrokkerInternal) mtime() (timestamp time.Time, err error) {
 	defer Return(&err)
 	fi, err := os.Stat(g.grokpath)
 	Ck(err)
@@ -96,7 +96,7 @@ func (g *Grokker) mtime() (timestamp time.Time, err error) {
 }
 
 // tokens returns the tokens for a text segment.
-func (g *Grokker) tokens(text string) (tokens []string, err error) {
+func (g *GrokkerInternal) tokens(text string) (tokens []string, err error) {
 	defer Return(&err)
 	_, tokens, err = g.tokenizer.Encode(text)
 	Ck(err)
