@@ -16,15 +16,18 @@ Summarize the bullet points found in the context into a single line of 60 charac
 */
 
 var GitSummaryPrompt = `
-Describe the most important item in the context in a single line of 60 characters or less.  Add nothing else.  Use present tense.  Do not quote.  Use present tense.  Use active voice.  Do not use passive voice.
-`
-
-var GitCommitPrompt = `
-Describe the most important bullet point in the context in a single line of 60 characters or less.  Add nothing else.  Use present tense.  Do not quote.  Use present tense.  Use active voice.  Do not use passive voice.
+In a single line of 60 characters or less, describe the changes
+described in the context.
+Use present tense, active, imperative statements as if giving directions.
+Add nothing else.  Never add quote marks.
 `
 
 var GitDiffPrompt = `
-Summarize the bullet points and 'git diff' fragments found in the context into bullet points to be used in the body of a git commit message.  Add nothing else. Use present tense.  Use active voice.  Do not use passive voice.
+In bullet points, describe the changes found in the 'git diff'
+fragments in the context.  The bullet points will be used in the body
+of a git commit message.
+Use present tense, active, imperative statements as if giving directions.
+Add nothing else.  Never add quote marks.
 `
 
 // summarizeDiff recursively summarizes a diff until the summary is
@@ -67,7 +70,7 @@ func (g *GrokkerInternal) summarizeDiff(diff string) (sumlines string, diffSumma
 		// file?
 
 		// get a summary line of the changes for this file
-		resp, err := g.generate(SysMsgChat, GitCommitPrompt, fileSummary, false)
+		resp, err := g.generate(SysMsgChat, GitSummaryPrompt, fileSummary, false)
 		Ck(err)
 		sumLine := resp.Choices[0].Message.Content
 		// append the summary line to the list of summary lines
