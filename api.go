@@ -11,6 +11,7 @@ import (
 
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/semver"
+	"github.com/tiktoken-go/tokenizer"
 )
 
 // XXX move to api/api.go
@@ -31,7 +32,6 @@ func (g *GrokkerInternal) AddDocument(path string) (err error) {
 	// ensure the document exists
 	_, err = os.Stat(g.absPath(doc))
 	if os.IsNotExist(err) {
-		err = fmt.Errorf("not found: %s", doc.RelPath)
 		return
 	}
 	Ck(err)
@@ -59,15 +59,20 @@ func (g *GrokkerInternal) ForgetDocument(path string) (err error) {
 	// remove the document from the database.
 	for i, d := range g.Documents {
 		match := false
-		// try comparing the paths directly first.
-		if d.RelPath == path {
-			match = true
-		}
-		// if that doesn't work, try comparing the absolute paths.
-		relpath, err := filepath.Abs(path)
-		Ck(err)
-		if g.absPath(d) == relpath {
-			match = true
+		for {
+			// try comparing the paths directly first.
+			if d.RelPath == path {
+				match = true
+				break
+			}
+			// if that doesn't work, try comparing the absolute paths.
+			relpath, err := filepath.Abs(path)
+			Ck(err)
+			if g.absPath(d) == relpath {
+				match = true
+				break
+			}
+			break
 		}
 		if match {
 			Debug("forgetting document %s ...", path)
@@ -85,10 +90,10 @@ func (g *GrokkerInternal) Continue(in string, global bool) (out, sysmsg string, 
 	defer Return(&err)
 	sysmsg = SysMsgContinue
 	// tokenize sysmsg
-	_, sysmsgTokens, err := g.tokenizer.Encode(sysmsg)
+	_, sysmsgTokens, err := Tokenizer.Encode(sysmsg)
 	Ck(err)
 	// tokenize input
-	_, inTokens, err := g.tokenizer.Encode(in)
+	_, inTokens, err := Tokenizer.Encode(in)
 	Ck(err)
 	// get chunks, sorted by similarity to the txt.
 	tokenLimit := int(float64(g.tokenLimit)*0.4) - len(sysmsgTokens) - len(inTokens)
@@ -441,5 +446,12 @@ func (g *GrokkerInternal) Msg(sysmsg, txt string) (resp string, err error) {
 	respmsg, err := g.msg(sysmsg, txt)
 	Ck(err)
 	resp = respmsg.Choices[0].Message.Content
+	return
+}
+
+// InitTokenizer initializes the tokenizer.
+func InitTokenizer() (err error) {
+	Tokenizer, err = tokenizer.Get(tokenizer.Cl100kBase)
+	Ck(err)
 	return
 }

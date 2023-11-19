@@ -5,7 +5,6 @@ import (
 
 	oai "github.com/sashabaranov/go-openai"
 	. "github.com/stevegt/goadapt"
-	"github.com/tiktoken-go/tokenizer"
 )
 
 var DefaultModel = "gpt-3.5-turbo"
@@ -80,9 +79,6 @@ func (g *GrokkerInternal) setup(model string) (err error) {
 	err = g.initModel(model)
 	Ck(err)
 	g.initClients()
-	// initialize the tokenizer
-	g.tokenizer, err = tokenizer.Get(tokenizer.Cl100kBase)
-	Ck(err)
 	return
 }
 

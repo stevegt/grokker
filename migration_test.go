@@ -12,7 +12,7 @@ import (
 	. "github.com/stevegt/goadapt"
 )
 
-// mkFile creates a file with the given name, approximate chunk size in bytes, and chunk count.
+// mkDataFile creates a file with the given name, approximate chunk size in bytes, and chunk count.
 // Each line of each chunk is a string of the form:
 //
 //	"file name: chunk number: chunk line number: sha256 hash hex digest of all previous lines"
@@ -21,7 +21,7 @@ import (
 // exists, it is overwritten. The chunk size is approximate because
 // each chunk will be slightly larger than the given size in order to
 // complete the last line of the chunk.
-func mkFile(name string, chunkCount, chunkSize int) {
+func mkDataFile(name string, chunkCount, chunkSize int) {
 	var buf bytes.Buffer
 	hash := sha256.New()
 	for i := 0; i < chunkCount; i++ {
@@ -139,7 +139,7 @@ func TestMigration_0_1_0(t *testing.T) {
 	// handle chunks larger than token limit
 	//
 	// create a file with 10 chunks of 1000 bytes
-	mkFile("testfile-10-100.txt", 10, 1000)
+	mkDataFile("testfile-10-100.txt", 10, 1000)
 
 	// grok add testfile-10-100.txt
 	run(t, "./grok", "add", "testfile-10-100.txt")
@@ -160,13 +160,13 @@ func TestMigration_2_1_2(t *testing.T) {
 	// test with 1 chunk slightly larger than GPT-4 token size
 	// create a file with 1 chunk of 20000 bytes
 	// (about 11300 tokens each chunk depending on hash content)
-	mkFile("testfile-1-20000.txt", 1, 20000)
+	mkDataFile("testfile-1-20000.txt", 1, 20000)
 	run(t, "grok", "add", "testfile-1-20000.txt")
 
 	// test with 3 chunks much larger than GPT-4 token size
 	// create a file with 3 chunks of 300000 bytes
 	// (about 167600 tokens each chunk depending on hash content)
-	mkFile("testfile-3-300000.txt", 3, 300000)
+	mkDataFile("testfile-3-300000.txt", 3, 300000)
 	run(t, "grok", "add", "testfile-3-300000.txt")
 }
 

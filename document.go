@@ -41,6 +41,9 @@ func (g *GrokkerInternal) updateDocument(doc *Document) (updated bool, err error
 	// hash, offset, and length.  We'll get embeddings later.
 	var newChunks []*Chunk
 	for _, chunk := range chunks {
+		// setChunk unsets the stale bit if the chunk is already in the
+		// database.
+		// XXX move the stale bit unset to this loop instead, for readability.
 		newChunk := g.setChunk(chunk)
 		if newChunk != nil {
 			updated = true

@@ -138,7 +138,7 @@ func Cli(args []string, config *Config) (rc int, err error) {
 	cmd := ctx.Command()
 
 	// list of commands that don't require an existing database
-	noDbCmds := []string{"init", "version", "msg", "tc"}
+	noDbCmds := []string{"init", "msg", "tc"}
 	needsDb := true
 	if stringInSlice(cmd, noDbCmds) {
 		needsDb = false
@@ -147,6 +147,10 @@ func Cli(args []string, config *Config) (rc int, err error) {
 	var grok *GrokkerInternal
 	var migrated, save bool
 	var was, now string
+	// initialize Tokenizer
+	err = InitTokenizer()
+	Ck(err)
+	// initialize Grokker object if needed
 	if needsDb {
 		grok, migrated, was, now, err = Load()
 		Ck(err)
@@ -186,7 +190,9 @@ func Cli(args []string, config *Config) (rc int, err error) {
 			// add the document
 			Fpf(os.Stderr, " adding %s...\n", docfn)
 			err = grok.AddDocument(docfn)
-			Ck(err)
+			if err != nil {
+				return
+			}
 		}
 		// save the grok file
 		save = true

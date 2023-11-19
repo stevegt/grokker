@@ -99,6 +99,8 @@ func TestChunkTextAfterRemovingFile(t *testing.T) {
 	// copy a document to a temporary file
 	srcPath := "testdata/te-full.txt"
 	docPath := "testdata/te-full-copy.txt"
+	// remove the temporary file first, in case it already exists
+	_ = os.Remove(docPath)
 	err = copyFile(srcPath, docPath)
 	Tassert(t, err == nil, "error copying file: %v", err)
 

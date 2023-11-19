@@ -302,14 +302,23 @@ func (g *GrokkerInternal) setChunk(chunk *Chunk) (newChunk *Chunk) {
 	return
 }
 
-// gc removes any chunks that are marked as stale
+// gc removes any chunks that are marked as stale or that are orphaned.
 func (g *GrokkerInternal) gc() (err error) {
 	defer Return(&err)
-	// for each chunk, check if it is referenced by any document.
-	// if not, remove it from the database.
+	// build doc name map
+	docMap := make(map[string]bool)
+	for _, doc := range g.Documents {
+		docMap[doc.RelPath] = true
+	}
 	oldLen := len(g.Chunks)
 	var keepChunks []*Chunk
 	for _, chunk := range g.Chunks {
+		// check if chunk is referenced by any document.
+		_, ok := docMap[chunk.Document.RelPath]
+		if !ok {
+			chunk.stale = true
+		}
+		// keep the chunk if it's not stale.
 		if !chunk.stale {
 			keepChunks = append(keepChunks, chunk)
 		}

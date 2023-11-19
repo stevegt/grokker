@@ -55,7 +55,7 @@ import (
 //
 // PATCH version when you make backwards compatible bug fixes.
 const (
-	version = "2.1.4"
+	version = "2.1.5"
 )
 
 type GrokkerInternal struct {
@@ -75,7 +75,6 @@ type GrokkerInternal struct {
 	models              *Models
 	Model               string
 	oaiModel            string
-	tokenizer           tokenizer.Codec
 	tokenLimit          int
 	embeddingTokenLimit int
 	grokpath            string
@@ -85,6 +84,8 @@ type GrokkerInternal struct {
 	// maxEmbeddingChunkLen int
 	// the path to the grokker db
 }
+
+var Tokenizer tokenizer.Codec
 
 // mtime returns the last modified time of the Grokker database.
 func (g *GrokkerInternal) mtime() (timestamp time.Time, err error) {
@@ -98,7 +99,7 @@ func (g *GrokkerInternal) mtime() (timestamp time.Time, err error) {
 // tokens returns the tokens for a text segment.
 func (g *GrokkerInternal) tokens(text string) (tokens []string, err error) {
 	defer Return(&err)
-	_, tokens, err = g.tokenizer.Encode(text)
+	_, tokens, err = Tokenizer.Encode(text)
 	Ck(err)
 	return
 }
