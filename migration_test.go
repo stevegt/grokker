@@ -48,6 +48,7 @@ func mkFile(name string, chunkCount, chunkSize int) {
 
 // mkGrok builds the given version of grok and puts it in tmpDataDir
 func mkGrok(t *testing.T, version string) {
+	ckReady(t)
 	// cd into temp repo directory
 	cd(t, tmpRepoDir)
 	run(t, "git", "checkout", version)
@@ -125,8 +126,6 @@ func TestMigrationSetup(t *testing.T) {
 }
 
 func TestMigration_0_1_0(t *testing.T) {
-	ckReady(t)
-
 	// checkout v0.1.0, build grok, move to temp data directory, cd there
 	mkGrok(t, "v0.1.0")
 
@@ -147,8 +146,15 @@ func TestMigration_0_1_0(t *testing.T) {
 
 }
 
+func TestMigration_1_1_1(t *testing.T) {
+	mkGrok(t, "v1.1.1")
+	// run ls to get upgraded to 1.1.1
+	// - this is to ensure we're ignoring the patch version during
+	//   subsequent migrations
+	run(t, "./grok", "ls")
+}
+
 func TestMigration_2_1_2(t *testing.T) {
-	ckReady(t)
 	mkGrok(t, "v2.1.2")
 
 	// test with 1 chunk slightly larger than GPT-4 token size
@@ -165,7 +171,6 @@ func TestMigration_2_1_2(t *testing.T) {
 }
 
 func TestMigrationHead(t *testing.T) {
-	ckReady(t)
 	// mkGrok(t, "50635ed58e15af224ae118e762a4291cc0f54aa6")
 	mkGrok(t, "main")
 

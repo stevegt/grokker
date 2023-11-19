@@ -90,9 +90,14 @@ func (g *GrokkerInternal) migrate() (migrated bool, was, now string, err error) 
 func (g *GrokkerInternal) migrateOneVersion() (err error) {
 	defer Return(&err)
 
-	switch g.Version {
+	// we only care about the major and minor version numbers
+	v, err := semver.Parse([]byte(g.Version))
+	Ck(err)
+	vstr := fmt.Sprintf("%s.%s.X", v.Major, v.Minor)
 
-	case "0.1.0":
+	switch vstr {
+
+	case "0.1.X":
 		// copy Document.Path to Document.RelPath, leave old content
 		// for now
 		for _, doc := range g.Documents {
@@ -113,7 +118,7 @@ func (g *GrokkerInternal) migrateOneVersion() (err error) {
 		Ck(err)
 		g.Version = "1.0.0"
 
-	case "1.0.0":
+	case "1.0.X":
 		// add file paths to chunks -- all we need to do here is refresh
 		// all of the doc chunks to get the file paths added
 		err = g.setup(g.Model)
@@ -122,11 +127,11 @@ func (g *GrokkerInternal) migrateOneVersion() (err error) {
 		Ck(err)
 		g.Version = "1.1.0"
 
-	case "1.1.0":
+	case "1.1.X":
 		// API change, so this is a no-op as far as the db is concerned
 		g.Version = "2.0.0"
 
-	case "2.0.0":
+	case "2.0.X":
 		// replace Text field with Hash, Offset, and Length fields in
 		// Chunk struct -- all we need to do here is refresh all of the
 		// doc chunks to get the new fields added
