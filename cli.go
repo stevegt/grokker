@@ -135,7 +135,35 @@ func Cli(args []string, config *Config) (rc int, err error) {
 		os.Setenv("DEBUG", "1")
 	}
 
-	if ctx.Command() == "init" {
+	cmd := ctx.Command()
+
+	// list of commands that don't require an existing database
+	noDbCmds := []string{"init", "version", "msg", "tc"}
+	needsDb := true
+	if stringInSlice(cmd, noDbCmds) {
+		needsDb = false
+	}
+
+	var grok *GrokkerInternal
+	var migrated, save bool
+	var was, now string
+	if needsDb {
+		grok, migrated, was, now, err = Load()
+		Ck(err)
+		if migrated {
+			// save the old db
+			var fn string
+			fn, err = grok.Backup()
+			Ck(err)
+			Pf("migrated grokker db from version %s to %s\n", was, now)
+			Pf("backup of old db saved to %s\n", fn)
+			save = true
+		}
+	}
+
+	// XXX replace this with "command pattern" or "command object"
+	switch cmd {
+	case "init":
 		// initialize a new .grok file in the current directory
 		// create a new Grokker object
 		// XXX assume current directory for now, but should be able to
@@ -145,24 +173,8 @@ func Cli(args []string, config *Config) (rc int, err error) {
 		_, err = Init(".", "")
 		Ck(err)
 		Pl("Initialized a new .grok file in the current directory.")
+		// Init calls Save() for us
 		return
-	}
-
-	save := false
-	grok, migrated, was, now, err := Load()
-	Ck(err)
-	if migrated {
-		// save the old db
-		var fn string
-		fn, err = grok.Backup()
-		Ck(err)
-		Pf("migrated grokker db from version %s to %s\n", was, now)
-		Pf("backup of old db saved to %s\n", fn)
-		save = true
-	}
-
-	// XXX move all of this to a sub
-	switch ctx.Command() {
 	case "add <paths>":
 		if len(cli.Add.Paths) < 1 {
 			Fpf(config.Stderr, "Error: add command requires a filename argument\n")

@@ -43,3 +43,13 @@ func similarity(a, b []float64) float64 {
 	}
 	return dot / (math.Sqrt(magA) * math.Sqrt(magB))
 }
+
+// stringInSlice returns true if str is in list.
+func stringInSlice(str string, list []string) bool {
+	for _, v := range list {
+		if v == str {
+			return true
+		}
+	}
+	return false
+}

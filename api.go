@@ -348,8 +348,10 @@ func InitNamed(rootdir, name, model string) (g *GrokkerInternal, err error) {
 		return
 	}
 	// save the db
+	// XXX why are we creating an empty file here?
 	fh, err := os.Create(g.grokpath)
 	Ck(err)
+	// XXX let caller save the db instead of doing it here
 	err = g.Save()
 	Ck(err)
 	fh.Close()
