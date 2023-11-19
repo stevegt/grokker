@@ -159,6 +159,9 @@ func TestChatQuery(t *testing.T) {
 	Tassert(t, err == nil, "error answering query: %v", err)
 	Pl("answer:")
 	Pprint(resp)
+
+	// grok msg "You are an expert in the following topic.  Tell me if the provided text agrees with deterministic ordering.  Say 'answer=yes' or 'answer=no'."
+
 }
 
 // test splitting chunks when chunk size is greater than token limit
@@ -217,4 +220,6 @@ func TestRevise(t *testing.T) {
 	Tassert(t, len(revparas) >= 2, "expected at least two paragraphs in revised text, got %d", len(revparas))
 	Pl("revised text:")
 	Pl(rev)
+
+	// grok msg "You are an expert in the following topic.  Say 'rating=N', where N is an integer from 0 to 100, where 0 means the provided text disregards the halting problem in systems administration, and 100 considers it paramount."  < testdata/revise.txt
 }

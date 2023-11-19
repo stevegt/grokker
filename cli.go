@@ -1,6 +1,7 @@
 package grokker
 
 import (
+	"io"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -84,13 +85,10 @@ type Config struct {
 	// Version is the version of the program
 	Version string
 	// Exit is the function to call to exit the program
-	Exit func(int)
-	// Stdin is the standard input file
-	Stdin *os.File
-	// Stdout is the standard output file
-	Stdout *os.File
-	// Stderr is the standard error file
-	Stderr *os.File
+	Exit   func(int)
+	Stdin  io.Reader
+	Stdout io.Writer
+	Stderr io.Writer
 }
 
 // NewConfig returns a new Config struct with default values populated
@@ -112,7 +110,7 @@ func NewConfig() *Config {
 // We use this function instead of kong.Parse() so that we can pass in
 // the arguments to parse.  This allows us to more easily test the
 // cli subcommands, and could later ease e.g. WASM usage.
-func Cli(args []string, config *Config) (err error) {
+func Cli(args []string, config *Config) (rc int, err error) {
 	defer Return(&err)
 
 	options := []kong.Option{
@@ -126,7 +124,7 @@ func Cli(args []string, config *Config) (err error) {
 	}
 
 	var parser *kong.Kong
-	parser, err = kong.New(cli, options...)
+	parser, err = kong.New(&cli, options...)
 	Ck(err)
 	ctx, err := parser.Parse(args)
 	parser.FatalIfErrorf(err)
@@ -144,17 +142,19 @@ func Cli(args []string, config *Config) (err error) {
 		// specify rootdir on command line
 		// XXX use the default model for now, but we should accept an
 		// optional model name as an init argument
-		_, err := Init(".", "")
+		_, err = Init(".", "")
 		Ck(err)
 		Pl("Initialized a new .grok file in the current directory.")
-		os.Exit(0)
+		return
 	}
 
 	save := false
 	grok, migrated, was, now, err := Load()
 	Ck(err)
 	if migrated {
-		fn, err := grok.Backup()
+		// save the old db
+		var fn string
+		fn, err = grok.Backup()
 		Ck(err)
 		Pf("migrated grokker db from version %s to %s\n", was, now)
 		Pf("backup of old db saved to %s\n", fn)
@@ -165,8 +165,9 @@ func Cli(args []string, config *Config) (err error) {
 	switch ctx.Command() {
 	case "add <paths>":
 		if len(cli.Add.Paths) < 1 {
-			Fpf(os.Stderr, "Error: add command requires a filename argument\n")
-			os.Exit(1)
+			Fpf(config.Stderr, "Error: add command requires a filename argument\n")
+			rc = 1
+			return
 		}
 		// add the documents
 		for _, docfn := range cli.Add.Paths {
@@ -179,8 +180,9 @@ func Cli(args []string, config *Config) (err error) {
 		save = true
 	case "forget <paths>":
 		if len(cli.Forget.Paths) < 1 {
-			Fpf(os.Stderr, "Error: forget command requires a filename argument\n")
-			os.Exit(1)
+			Fpf(config.Stderr, "Error: forget command requires a filename argument\n")
+			rc = 1
+			return
 		}
 		// forget the documents
 		for _, docfn := range cli.Forget.Paths {
@@ -206,8 +208,9 @@ func Cli(args []string, config *Config) (err error) {
 	case "q <question>":
 		// get question from args and print the answer
 		if cli.Q.Question == "" {
-			Fpf(os.Stderr, "Error: q command requires a question argument\n")
-			os.Exit(1)
+			Fpf(config.Stderr, "Error: q command requires a question argument\n")
+			rc = 1
+			return
 		}
 		question := cli.Q.Question
 		resp, _, updated, err := answer(grok, question, cli.Global)
@@ -301,8 +304,9 @@ func Cli(args []string, config *Config) (err error) {
 		// print the version of the grok db
 		Pf("grok db version %s\n", grok.DBVersion())
 	default:
-		Fpf(os.Stderr, "Error: unrecognized command: %s\n", ctx.Command())
-		os.Exit(1)
+		Fpf(config.Stderr, "Error: unrecognized command: %s\n", ctx.Command())
+		rc = 1
+		return
 	}
 
 	if save {

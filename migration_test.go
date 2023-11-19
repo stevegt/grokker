@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 
@@ -47,28 +46,16 @@ func mkFile(name string, chunkCount, chunkSize int) {
 	Ck(err)
 }
 
-// run executes the given command with the given arguments.
-func run(t *testing.T, cmd string, args ...string) {
-	c := exec.Command(cmd, args...)
-	c.Stdout = os.Stdout
-	c.Stderr = os.Stderr
-	err := c.Run()
-	Tassert(t, err == nil, "error running `%s`: %v", cmd, err)
-}
-
-// runOut executes the given command with the given arguments and returns the output.
-func runOut(t *testing.T, cmd string, args ...string) string {
-	c := exec.Command(cmd, args...)
-	c.Stderr = os.Stderr
-	out, err := c.Output()
-	Tassert(t, err == nil, "error running `%s`: %v", cmd, err)
-	return string(out)
-}
-
-// cd changes the current working directory to the given directory.
-func cd(t *testing.T, dir string) {
-	err := os.Chdir(dir)
-	Tassert(t, err == nil, "error changing to directory %s: %v", dir, err)
+// mkGrok builds the given version of grok and puts it in tmpDataDir
+func mkGrok(t *testing.T, version string) {
+	// cd into temp repo directory
+	cd(t, tmpRepoDir)
+	run(t, "git", "checkout", version)
+	// build grok and move to temp data directory
+	cd(t, "cmd/grok")
+	run(t, "go", "build")
+	run(t, "mv", "grok", tmpDataDir)
+	cd(t, tmpDataDir)
 }
 
 var (
@@ -84,6 +71,36 @@ func ckReady(t *testing.T) {
 	Tassert(t, tmpDataDir != "", "temporary data directory not created")
 	Tassert(t, tmpRepoDir != "", "temporary repo directory not created")
 }
+
+/*
+XXX move setup to here after db is its own package and this test file is in there
+
+// TestMain
+func TestMain(m *testing.M) {
+	// create a temporary directory
+	var err error
+	tmpBaseDir, err = os.MkdirTemp("", "grokker")
+	if err != nil {
+		panic(err)
+	}
+	// create a temporary data directory
+	tmpDataDir, err = os.MkdirTemp(tmpBaseDir, "data")
+	if err != nil {
+		panic(err)
+	}
+	// create a temporary repo directory
+	tmpRepoDir, err = os.MkdirTemp(tmpBaseDir, "repo")
+	if err != nil {
+		panic(err)
+	}
+	// run tests
+	code := m.Run()
+	// remove temporary directory
+	os.RemoveAll(tmpBaseDir)
+	// exit
+	os.Exit(code)
+}
+*/
 
 func TestMigrationSetup(t *testing.T) {
 	// get current working directory
@@ -110,19 +127,8 @@ func TestMigrationSetup(t *testing.T) {
 func TestMigration_0_1_0(t *testing.T) {
 	ckReady(t)
 
-	// cd into temp repo directory
-	cd(t, tmpRepoDir)
-
-	// git checkout v0.1.0  # 2d3d3ff60feb2935b81035d44d944df8bc2c70f8
-	run(t, "git", "checkout", "v0.1.0")
-
-	// build grok and move to temp data directory
-	cd(t, "cmd/grok")
-	run(t, "go", "build")
-	run(t, "mv", "grok", tmpDataDir)
-
-	// cd into temp data directory
-	cd(t, tmpDataDir)
+	// checkout v0.1.0, build grok, move to temp data directory, cd there
+	mkGrok(t, "v0.1.0")
 
 	// grok init
 	run(t, "./grok", "init")
@@ -139,23 +145,35 @@ func TestMigration_0_1_0(t *testing.T) {
 	// grok add testfile-10-100.txt
 	run(t, "./grok", "add", "testfile-10-100.txt")
 
+}
+
+func TestMigration_2_1_2(t *testing.T) {
+	ckReady(t)
+	mkGrok(t, "v2.1.2")
+
+	// test with 1 chunk slightly larger than GPT-4 token size
+	// create a file with 1 chunk of 20000 bytes
+	// (about 11300 tokens each chunk depending on hash content)
+	mkFile("testfile-1-20000.txt", 1, 20000)
+	run(t, "grok", "add", "testfile-1-20000.txt")
+
+	// test with 3 chunks much larger than GPT-4 token size
+	// create a file with 3 chunks of 300000 bytes
+	// (about 167600 tokens each chunk depending on hash content)
+	mkFile("testfile-3-300000.txt", 3, 300000)
+	run(t, "grok", "add", "testfile-3-300000.txt")
+}
+
+func TestMigrationHead(t *testing.T) {
+	ckReady(t)
+	// mkGrok(t, "50635ed58e15af224ae118e762a4291cc0f54aa6")
+	mkGrok(t, "main")
+
 	// run this and check the output for 5731294f1fbb4b48756f72a36838350d9353965ddad9f4fd6ad21a9daccd6dea
 	out := runOut(t, "./grok", "q", "what is the hash after testfile-10-100.txt:9:10?")
 	// search for the expected hash
 	ok := strings.Contains(out, "5731294f1fbb4b48756f72a36838350d9353965ddad9f4fd6ad21a9daccd6dea")
 	Tassert(t, ok, "expected hash not found in output: %s", out)
-}
 
-func TestMigrationHead(t *testing.T) {
-	ckReady(t)
-
-	// test with 1 chunk slightly larger than GPT-4 token size
-	// create a file with 1 chunk of 20000 bytes
-	// (about 11300 tokens each chunk depending on hash content)
-	// mkFile("testfile-1-20000.txt", 1, 20000)
-
-	// test with 3 chunks much larger than GPT-4 token size
-	// create a file with 3 chunks of 300000 bytes
-	// (about 167600 tokens each chunk depending on hash content)
-	// mkFile("testfile-3-300000.txt", 3, 300000)
+	// XXX check large file hashes
 }

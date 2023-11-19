@@ -17,4 +17,5 @@
 # stevegt
 local/
 .grok
-
+go.work
+go.work.sum
