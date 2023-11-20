@@ -103,6 +103,7 @@ func (g *GrokkerInternal) Continue(in string, global bool) (out, sysmsg string, 
 	resp, err := g.generate(sysmsg, in, context, global)
 	Ck(err)
 	out = resp.Choices[0].Message.Content
+	Debug("Continue() in: %s\ncontext: %s\nout: %s\n", in, context, out)
 	return
 }
 
@@ -128,7 +129,6 @@ func (g *GrokkerInternal) Revise(in string, global, sysmsgin bool) (out, sysmsg 
 	// tokenize the entire input
 	inTokens, err := g.tokens(in)
 
-	var body string
 	if sysmsgin {
 		// split input into sysmsg and txt
 		paragraphs := strings.Split(in, "\n\n")
@@ -137,15 +137,14 @@ func (g *GrokkerInternal) Revise(in string, global, sysmsgin bool) (out, sysmsg 
 			return
 		}
 		sysmsg = paragraphs[0]
-		// in = strings.Join(paragraphs[1:], "\n\n")
-		body = strings.Join(paragraphs, "\n\n")
+		in = strings.Join(paragraphs[1:], "\n\n")
 	} else {
 		sysmsg = SysMsgRevise
 	}
 
 	// get context
 	maxTokens := int(float64(g.tokenLimit)*0.5) - len(inTokens)
-	context, err := g.getContext(body, maxTokens)
+	context, err := g.getContext(in, maxTokens)
 	Ck(err)
 
 	// generate the answer.
@@ -156,6 +155,8 @@ func (g *GrokkerInternal) Revise(in string, global, sysmsgin bool) (out, sysmsg 
 	} else {
 		out = resp.Choices[0].Message.Content
 	}
+
+	Debug("Revise() in: %s\ncontext: %s\nout: %s\n", in, context, out)
 	return
 }
 

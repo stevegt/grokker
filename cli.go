@@ -46,34 +46,35 @@ In the above code, `args` is your custom arguments array slice. Here, the slice 
 
 // parse args using kong package
 var cli struct {
-	Init struct{} `cmd:"" help:"Initialize a new .grok file in the current directory."`
-	Add  struct {
+	Add struct {
 		Paths []string `arg:"" type:"string" help:"Path to file to add to knowledge base."`
 	} `cmd:"" help:"Add a file to the knowledge base."`
+	Backup struct{} `cmd:"" help:"Backup the knowledge base."`
+	Commit struct{} `cmd:"" help:"Generate a git commit message on stdout."`
 	Forget struct {
 		Paths []string `arg:"" type:"string" help:"Path to file to remove from knowledge base."`
 	} `cmd:"" help:"Forget about a file, removing it from the knowledge base."`
-	Refresh struct{} `cmd:"" help:"Refresh the embeddings for all documents in the knowledge base."`
-	Ls      struct{} `cmd:"" help:"List all documents in the knowledge base."`
-	Q       struct {
-		Question string `arg:"" help:"Question to ask the knowledge base."`
-	} `cmd:"" help:"Ask the knowledge base a question."`
-	Qc  struct{} `cmd:"" help:"Continue text from stdin based on the context in the knowledge base."`
-	Qi  struct{} `cmd:"" help:"Ask the knowledge base a question on stdin."`
-	Qr  struct{} `cmd:"" help:"Revise stdin based on the context in the knowledge base."`
-	Tc  struct{} `cmd:"" help:"Calculate the token count of stdin."`
+	Global bool     `short:"g" help:"Include results from OpenAI's global knowledge base as well as from local documents."`
+	Init   struct{} `cmd:"" help:"Initialize a new .grok file in the current directory."`
+	Ls     struct{} `cmd:"" help:"List all documents in the knowledge base."`
+	Models struct{} `cmd:"" help:"List all available models."`
+	Model  struct {
+		Model string `arg:"" help:"Model to switch to."`
+	} `cmd:"" help:"Upgrade the model used by the knowledge base."`
 	Msg struct {
 		Sysmsg string `arg:"" help:"System message to send to control behavior of openAI's API."`
 	} `cmd:"" help:"Send message to openAI's API from stdin and print response on stdout."`
-	Global  bool     `short:"g" help:"Include results from OpenAI's global knowledge base as well as from local documents."`
+	Q struct {
+		Question string `arg:"" help:"Question to ask the knowledge base."`
+	} `cmd:"" help:"Ask the knowledge base a question."`
+	Qc      struct{} `cmd:"" help:"Continue text from stdin based on the context in the knowledge base."`
+	Qi      struct{} `cmd:"" help:"Ask the knowledge base a question on stdin."`
+	Qr      struct{} `cmd:"" help:"Revise stdin based on the context in the knowledge base."`
+	Refresh struct{} `cmd:"" help:"Refresh the embeddings for all documents in the knowledge base."`
 	SysMsg  bool     `short:"s" help:"expect sysmsg in first paragraph of stdin, return same on stdout."`
+	Tc      struct{} `cmd:"" help:"Calculate the token count of stdin."`
 	Verbose bool     `short:"v" help:"Show debug and progress information on stderr."`
 	Version struct{} `cmd:"" help:"Show version of grok and its database."`
-	Commit  struct{} `cmd:"" help:"Generate a git commit message on stdout."`
-	Models  struct{} `cmd:"" help:"List all available models."`
-	Model   struct {
-		Model string `arg:"" help:"Model to switch to."`
-	} `cmd:"" help:"Upgrade the model used by the knowledge base."`
 }
 
 // Config contains the configuration for grokker
@@ -239,12 +240,12 @@ func Cli(args []string, config *Config) (rc int, err error) {
 		}
 	case "qc":
 		// get text from stdin and print both text and continuation
-		buf, err := ioutil.ReadAll(os.Stdin)
+		buf, err := ioutil.ReadAll(config.Stdin)
 		Ck(err)
 		txt := string(buf)
 		// trim whitespace
-		txt = strings.TrimSpace(txt)
-		resp, _, updated, err := answer(grok, txt, cli.Global)
+		// txt = strings.TrimSpace(txt)
+		resp, _, updated, err := cont(grok, txt, cli.Global)
 		Ck(err)
 		Pf("%s\n%s\n", txt, resp)
 		if updated {
@@ -252,7 +253,7 @@ func Cli(args []string, config *Config) (rc int, err error) {
 		}
 	case "qi":
 		// get question from stdin and print both question and answer
-		buf, err := ioutil.ReadAll(os.Stdin)
+		buf, err := ioutil.ReadAll(config.Stdin)
 		Ck(err)
 		question := string(buf)
 		// trim whitespace
@@ -266,7 +267,7 @@ func Cli(args []string, config *Config) (rc int, err error) {
 		}
 	case "qr":
 		// get content from stdin and emit revised version on stdout
-		buf, err := ioutil.ReadAll(os.Stdin)
+		buf, err := ioutil.ReadAll(config.Stdin)
 		Ck(err)
 		in := string(buf)
 		// in = strings.TrimSpace(in)
@@ -280,7 +281,7 @@ func Cli(args []string, config *Config) (rc int, err error) {
 		}
 	case "tc":
 		// get content from stdin and emit token count on stdout
-		buf, err := ioutil.ReadAll(os.Stdin)
+		buf, err := ioutil.ReadAll(config.Stdin)
 		Ck(err)
 		in := string(buf)
 		in = strings.TrimSpace(in)
@@ -289,7 +290,7 @@ func Cli(args []string, config *Config) (rc int, err error) {
 		Pf("%d\n", count)
 	case "msg <sysmsg>":
 		// get message from stdin and print response
-		buf, err := ioutil.ReadAll(os.Stdin)
+		buf, err := ioutil.ReadAll(config.Stdin)
 		Ck(err)
 		input := string(buf)
 		// trim whitespace
@@ -321,6 +322,11 @@ func Cli(args []string, config *Config) (rc int, err error) {
 		Pf("grokker version %s\n", CodeVersion())
 		// print the version of the grok db
 		Pf("grok db version %s\n", grok.DBVersion())
+	case "backup":
+		// backup the grok db
+		fn, err := grok.Backup()
+		Ck(err)
+		Pf("backup of grok db saved to %s\n", fn)
 	default:
 		Fpf(config.Stderr, "Error: unrecognized command: %s\n", ctx.Command())
 		rc = 1
@@ -346,6 +352,22 @@ func answer(grok *GrokkerInternal, question string, global bool) (resp, query st
 
 	// answer the question
 	resp, err = grok.Answer(question, global)
+	Ck(err)
+
+	return
+}
+
+// continue text
+func cont(grok *GrokkerInternal, in string, global bool) (resp, query string, updated bool, err error) {
+	defer Return(&err)
+
+	// update the knowledge base
+	updated, err = grok.UpdateEmbeddings()
+	Ck(err)
+
+	// continue the text
+	Debug("cont: in: %s", in)
+	resp, query, err = grok.Continue(in, global)
 	Ck(err)
 
 	return

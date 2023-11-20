@@ -48,6 +48,7 @@ func grok(stdin bytes.Buffer, args ...string) (stdout, stderr bytes.Buffer, err 
 
 	// also pass stdio to the CLI
 	config := NewConfig()
+	config.Stdin = &stdin
 	config.Stdout = &stdout
 	config.Stderr = &stderr
 
@@ -94,21 +95,25 @@ func TestCli(t *testing.T) {
 	cd(t, dir)
 	defer cd(t, cwd)
 
-	// create a stdin buffer
-	var stdin bytes.Buffer
+	// create an empty emptyStdin buffer
+	var emptyStdin bytes.Buffer
 
 	// initialize a grokker repository
-	stdout, stderr, err := grok(stdin, "init")
+	stdout, stderr, err := grok(emptyStdin, "init")
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
 
 	// pass in a command line that should work
-	stdout, stderr, err = grok(stdin, "models")
+	stdout, stderr, err = grok(emptyStdin, "models")
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
 	// check that the stdout buffer contains the expected output
 	match := strings.Contains(stdout.String(), "gpt-")
 	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
 	// check that the stderr buffer is empty
 	Tassert(t, stderr.String() == "", "CLI returned unexpected error: %s", stderr.String())
+
+	// set model
+	stdout, stderr, err = grok(emptyStdin, "model", "gpt-4")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
 
 	// create a file
 	f, err := os.Create("test.txt")
@@ -120,18 +125,18 @@ func TestCli(t *testing.T) {
 	err = f.Close()
 
 	// add the file to the repository
-	stdout, stderr, err = grok(stdin, "add", "test.txt")
+	stdout, stderr, err = grok(emptyStdin, "add", "test.txt")
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
 
 	// ask a question
-	stdout, stderr, err = grok(stdin, "q", "Does the context claim testing is good?  Answer yes or no.")
+	stdout, stderr, err = grok(emptyStdin, "q", "Does the context claim testing is good?  Answer yes or no.")
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
 	// check that the stdout buffer contains the expected output
 	match = strings.Contains(stdout.String(), "yes") || strings.Contains(stdout.String(), "Yes")
 	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
 
 	// try adding the file again
-	stdout, stderr, err = grok(stdin, "add", "test.txt")
+	stdout, stderr, err = grok(emptyStdin, "add", "test.txt")
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
 	// check that the stdout buffer is empty
 	Tassert(t, stdout.String() == "", "CLI returned unexpected output: %s", stdout.String())
@@ -139,50 +144,74 @@ func TestCli(t *testing.T) {
 	Tassert(t, stderr.String() == "", "CLI returned unexpected error: %s", stderr.String())
 
 	// try adding a file that doesn't exist
-	stdout, stderr, err = grok(stdin, "add", "test2.txt")
+	stdout, stderr, err = grok(emptyStdin, "add", "test2.txt")
 	// if the file doesn't exist, err will be an *fs.PathError
 	Tassert(t, err.(*fs.PathError).Err == syscall.ENOENT, "CLI returned unexpected error: %#v", err)
 
 	// create and add a couple of files we'll forget
 	mkFile(t, "test2.txt", "forget daisies")
 	mkFile(t, "test3.txt", "forget submarines")
-	stdout, stderr, err = grok(stdin, "add", "test2.txt", "test3.txt")
+	stdout, stderr, err = grok(emptyStdin, "add", "test2.txt", "test3.txt")
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
 	// make sure the files are in the repository
-	stdout, stderr, err = grok(stdin, "q", "what should we forget?")
+	stdout, stderr, err = grok(emptyStdin, "q", "what should we forget?")
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
 	match = strings.Contains(stdout.String(), "daisies") && strings.Contains(stdout.String(), "submarines")
 	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
 
 	// forget the files using relative and absolute paths
-	stdout, stderr, err = grok(stdin, "forget", "test2.txt", Spf("%s/test3.txt", dir))
+	stdout, stderr, err = grok(emptyStdin, "forget", "test2.txt", Spf("%s/test3.txt", dir))
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
 	// make sure the files are no longer in the repository
-	stdout, stderr, err = grok(stdin, "q", "what should we forget?")
+	stdout, stderr, err = grok(emptyStdin, "q", "what should we forget?")
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
 	match = !strings.Contains(stdout.String(), "daisies") && !strings.Contains(stdout.String(), "submarines")
 	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
 
-	/*
-		right now ForgetDocument doesn't work because it doesn't mark
-			chunks as stale, so gc() isn't removing them, but gc() isn't being
-			called anyway.  make recommendations for how to fix this -- should ForgetDocument
-			mark all the chunks as stale? or should gc() be comparing all the chunks
-			to the list of Documents and removing the ones that aren't referenced?
-			should we even be using the stale bit?
+	// test continuation
+	mkFile(t, "continue.txt", "roses are red, violets are blue, grokker is great, and so are you!")
+	stdout, stderr, err = grok(emptyStdin, "add", "continue.txt")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	// create a stdin buffer with the preface
+	preface := "roses are red,"
+	stdinContinue := bytes.Buffer{}
+	stdinContinue.WriteString(preface)
+	// run the CLI with the preface as stdin
+	stdout, stderr, err = grok(stdinContinue, "qc")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	// fmt.Println(stdout.String())
+	match = strings.Contains(stdout.String(), "violets are blue")
+	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
 
-		To resolve this issue, marking all the chunks as stale in the ForgetDocument function could be done as the first step. This means iterating over all chunks in the Grokker database and checking if the Document.RelPath of the chunk matches the path of the document being forgotten. If a match is found, the chunk's stale bit should be set to true.
+	// test revision
+	stdinRevision := bytes.Buffer{}
+	stdinRevision.WriteString("roses are orange")
+	// run the CLI with the incorrect text as stdin
+	stdout, stderr, err = grok(stdinRevision, "qr")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	// fmt.Println(stdout.String())
+	match = strings.Contains(stdout.String(), "are red")
+	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
 
-		Setting the stale bit to true during ForgetDocument and finally removing them using gc() is a better approach as it gives the garbage collector function responsibility for removing chunks, allowing it maintain the integrity of the Chunks list.
+	// test revision with custom sysmsg
+	stdinRevisionWithSysmsg := bytes.Buffer{}
+	stdinRevisionWithSysmsg.WriteString("you are an expert botanist.  make corrections in the color of roses based on the provided context.\n\nroses are orange")
+	// run the CLI with the incorrect text as stdin
+	stdout, stderr, err = grok(stdinRevisionWithSysmsg, "qr", "-s")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	fmt.Println(stdout.String())
+	match = strings.Contains(stdout.String(), "red")
+	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
 
-		Moreover, to improve the effectiveness of the garbage collection, gc() function could also be adjusted to check if the document of the chunks is still present in the list of Documents. If not, these chunks should be marked stale, ready for garbage collection.
+	// test revision with custom sysmsg but one paragraph
+	stdinRevisionWithSysmsg = bytes.Buffer{}
+	stdinRevisionWithSysmsg.WriteString("this is a one-paragraph input that should not work.")
+	// run the CLI with the incorrect text as stdin
+	stdout, stderr, err = grok(stdinRevisionWithSysmsg, "qr", "-s")
+	Tassert(t, err != nil, "CLI returned no error when it should have")
 
-		In terms of using the stale bit, it's a useful mechanism for denoting chunks that are 'dirty' or no longer needed, essentially marking them for deletion. It allows for efficient ways of managing memory or storage and ensures that unused items can be wiped during the next garbage collection cycle, rather than immediately. This gives you control over when the deletion occurs, which can be beneficial in managing system performance.
-
-		To strengthen this approach, calling the gc() function at more regular intervals or right after the ForgetDocument operation might be effective to ensure stale chunks are removed in time.
-
-		So, in summary, the "stale" bit mechanism coupled with some adjustments to the "ForgetDocument" and "gc()" function would be a good fix for the problem.
-
-	*/
+	// test backup
+	stdout, stderr, err = grok(emptyStdin, "backup")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
 
 }
