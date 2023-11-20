@@ -391,9 +391,8 @@ func revise(grok *GrokkerInternal, in string, global, sysmsgin bool) (out string
 // send a message to openAI's API
 func msg(g *GrokkerInternal, sysmsg string, input string) (res string, err error) {
 	defer Return(&err)
-	respmsg, err := g.msg(sysmsg, input)
+	res, err = g.Msg(sysmsg, input)
 	Ck(err)
-	res = respmsg.Choices[0].Message.Content
 	return
 }
 

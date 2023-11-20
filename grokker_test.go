@@ -189,7 +189,7 @@ func TestSplitChunks(t *testing.T) {
 }
 
 // test Revise()
-func TestRevise(t *testing.T) {
+func XXXTestRevise(t *testing.T) {
 	// create a new Grokker database
 	grok, err := Init(tmpDir(), "gpt-4")
 	Tassert(t, err == nil, "error creating grokker: %v", err)

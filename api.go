@@ -426,21 +426,6 @@ func (g *GrokkerInternal) GitCommitMessage(diff string) (msg string, err error) 
 	return
 }
 
-// TokenCount returns the number of tokens in a chunk, and caches the
-// result in the chunk.
-func (chunk *Chunk) TokenCount(g *GrokkerInternal) (count int, err error) {
-	defer Return(&err)
-	if chunk.tokenLength == 0 {
-		text, err := g.chunkText(chunk, false)
-		Ck(err)
-		tokens, err := g.tokens(text)
-		Ck(err)
-		chunk.tokenLength = len(tokens)
-	}
-	count = chunk.tokenLength
-	return
-}
-
 // Msg sends sysmsg and txt to openai and returns the response.
 func (g *GrokkerInternal) Msg(sysmsg, txt string) (resp string, err error) {
 	defer Return(&err)

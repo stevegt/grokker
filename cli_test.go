@@ -83,6 +83,12 @@ func mkFile(t *testing.T, name, content string) {
 	Tassert(t, err == nil, "error closing file: %v", err)
 }
 
+// cimatch returns true if the given string contains the given
+// substring, ignoring case.
+func cimatch(s, substr string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
+}
+
 func TestCli(t *testing.T) {
 	// get current working directory
 	cwd, err := os.Getwd()
@@ -95,18 +101,33 @@ func TestCli(t *testing.T) {
 	cd(t, dir)
 	defer cd(t, cwd)
 
+	var stdout, stderr bytes.Buffer
 	// create an empty emptyStdin buffer
 	var emptyStdin bytes.Buffer
+	var match bool
+
+	// test TokenCount
+	stdinTokenCount := bytes.Buffer{}
+	stdinTokenCount.WriteString("token count test")
+	stdout, stderr, err = grok(stdinTokenCount, "tc")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	// check that the stdout buffer contains the expected output
+	match = cimatch(stdout.String(), "3")
+	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
 
 	// initialize a grokker repository
-	stdout, stderr, err := grok(emptyStdin, "init")
+	stdout, stderr, err = grok(emptyStdin, "init")
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+
+	// try initializing a grokker repository in a directory that already has one
+	stdout, stderr, err = grok(emptyStdin, "init")
+	Tassert(t, err != nil, "CLI returned no error when it should have")
 
 	// pass in a command line that should work
 	stdout, stderr, err = grok(emptyStdin, "models")
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
 	// check that the stdout buffer contains the expected output
-	match := strings.Contains(stdout.String(), "gpt-")
+	match = strings.Contains(stdout.String(), "gpt-")
 	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
 	// check that the stderr buffer is empty
 	Tassert(t, stderr.String() == "", "CLI returned unexpected error: %s", stderr.String())
@@ -114,6 +135,15 @@ func TestCli(t *testing.T) {
 	// set model
 	stdout, stderr, err = grok(emptyStdin, "model", "gpt-4")
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+
+	// test msg
+	// XXX msg should not need to load entire db, but will need to know model
+	msgStdin := bytes.Buffer{}
+	msgStdin.WriteString("1 == 2")
+	stdout, stderr, err = grok(msgStdin, "msg", "you are a logic machine.  answer the provided question.  say answer=true or answer=false.")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	// check that the stdout buffer contains the expected output
+	match = strings.Contains(stdout.String(), "answer=false")
 
 	// create a file
 	f, err := os.Create("test.txt")
@@ -132,7 +162,7 @@ func TestCli(t *testing.T) {
 	stdout, stderr, err = grok(emptyStdin, "q", "Does the context claim testing is good?  Answer yes or no.")
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
 	// check that the stdout buffer contains the expected output
-	match = strings.Contains(stdout.String(), "yes") || strings.Contains(stdout.String(), "Yes")
+	match = cimatch(stdout.String(), "yes") || cimatch(stdout.String(), "Yes")
 	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
 
 	// try adding the file again
@@ -156,7 +186,7 @@ func TestCli(t *testing.T) {
 	// make sure the files are in the repository
 	stdout, stderr, err = grok(emptyStdin, "q", "what should we forget?")
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
-	match = strings.Contains(stdout.String(), "daisies") && strings.Contains(stdout.String(), "submarines")
+	match = cimatch(stdout.String(), "daisies") && cimatch(stdout.String(), "submarines")
 	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
 
 	// forget the files using relative and absolute paths
@@ -165,7 +195,7 @@ func TestCli(t *testing.T) {
 	// make sure the files are no longer in the repository
 	stdout, stderr, err = grok(emptyStdin, "q", "what should we forget?")
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
-	match = !strings.Contains(stdout.String(), "daisies") && !strings.Contains(stdout.String(), "submarines")
+	match = !cimatch(stdout.String(), "daisies") && !cimatch(stdout.String(), "submarines")
 	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
 
 	// test continuation
@@ -180,7 +210,7 @@ func TestCli(t *testing.T) {
 	stdout, stderr, err = grok(stdinContinue, "qc")
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
 	// fmt.Println(stdout.String())
-	match = strings.Contains(stdout.String(), "violets are blue")
+	match = cimatch(stdout.String(), "violets are blue")
 	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
 
 	// test revision
@@ -190,7 +220,7 @@ func TestCli(t *testing.T) {
 	stdout, stderr, err = grok(stdinRevision, "qr")
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
 	// fmt.Println(stdout.String())
-	match = strings.Contains(stdout.String(), "are red")
+	match = cimatch(stdout.String(), "are red")
 	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
 
 	// test revision with custom sysmsg
@@ -199,8 +229,8 @@ func TestCli(t *testing.T) {
 	// run the CLI with the incorrect text as stdin
 	stdout, stderr, err = grok(stdinRevisionWithSysmsg, "qr", "-s")
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
-	fmt.Println(stdout.String())
-	match = strings.Contains(stdout.String(), "red")
+	// fmt.Println(stdout.String())
+	match = cimatch(stdout.String(), "red")
 	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
 
 	// test revision with custom sysmsg but one paragraph
@@ -213,5 +243,79 @@ func TestCli(t *testing.T) {
 	// test backup
 	stdout, stderr, err = grok(emptyStdin, "backup")
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+
+	// test UpdateEmbeddings
+	// create and add a file we'll add, change, then unlink
+	mkFile(t, "deleteme.txt", "this file will not be deleted")
+	stdout, stderr, err = grok(emptyStdin, "add", "deleteme.txt")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	// add the file to the repository
+	stdout, stderr, err = grok(emptyStdin, "add", "deleteme.txt")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	// check the file's contents
+	stdout, stderr, err = grok(emptyStdin, "q", "will a file be deleted? Say answer=yes or answer=no.")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	// check that the stdout buffer contains the expected output
+	match = cimatch(stdout.String(), "answer=no")
+	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
+	// change the file's contents
+	f, err = os.OpenFile("deleteme.txt", os.O_WRONLY, 0644)
+	Tassert(t, err == nil, "error opening file: %v", err)
+	_, err = f.WriteString("this file will be deleted")
+	Tassert(t, err == nil, "error writing to file: %v", err)
+	err = f.Close()
+	Tassert(t, err == nil, "error closing file: %v", err)
+	// check the file's contents
+	stdout, stderr, err = grok(emptyStdin, "q", "will a file be deleted? Say answer=yes or answer=no.")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	// check that the stdout buffer contains the expected output
+	match = cimatch(stdout.String(), "answer=yes")
+	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
+	// delete the file
+	err = os.Remove("deleteme.txt")
+	Tassert(t, err == nil, "error deleting file: %v", err)
+	// check the file's contents
+	stdout, stderr, err = grok(emptyStdin, "q", "will a file be deleted? Say answer=yes or answer=no.")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	// check that the stdout buffer contains the expected output
+	match = cimatch(stdout.String(), "answer=no")
+	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
+
+	// test DBVersion
+	stdout, stderr, err = grok(emptyStdin, "version")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	// check that the stdout buffer contains the expected output
+	match = strings.Contains(stdout.String(), Spf("db version %s", version))
+
+	// test refresh
+	// get list of files in the db
+	stdout, stderr, err = grok(emptyStdin, "ls")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	// check that the stdout buffer mentions deleteme.txt
+	match = cimatch(stdout.String(), "deleteme.txt")
+	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
+	// do the refresh
+	stdout, stderr, err = grok(emptyStdin, "refresh")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	stdout, stderr, err = grok(emptyStdin, "ls")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	// check that the stdout buffer does not mention deleteme.txt
+	match = !strings.Contains(stdout.String(), "deleteme.txt")
+	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
+
+	// test git commit
+	// git init
+	run(t, "git", "init")
+	// git add
+	run(t, "git", "add", ".")
+	// git diff
+	stdout, stderr, err = grok(emptyStdin, "commit")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	// check that the stdout buffer contains the expected output
+	match = strings.Contains(stdout.String(), "diff --git")
+	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
+	match = strings.Contains(stdout.String(), "test.txt")
+	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
+	match = strings.Contains(stdout.String(), "add")
 
 }
