@@ -7,7 +7,7 @@ import (
 	. "github.com/stevegt/goadapt"
 )
 
-var DefaultModel = "gpt-3.5-turbo"
+var DefaultModel = "gpt-4"
 
 // Model is a type for model name and characteristics
 type Model struct {

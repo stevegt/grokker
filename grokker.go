@@ -55,7 +55,7 @@ import (
 //
 // PATCH version when you make backwards compatible bug fixes.
 const (
-	version = "2.1.5"
+	version = "2.1.6"
 )
 
 type GrokkerInternal struct {

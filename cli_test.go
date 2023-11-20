@@ -47,7 +47,7 @@ func grok(stdin bytes.Buffer, args ...string) (stdout, stderr bytes.Buffer, err 
 	defer SetStdio(nil, nil, nil)
 
 	// also pass stdio to the CLI
-	config := NewConfig()
+	config := NewCliConfig()
 	config.Stdin = &stdin
 	config.Stdout = &stdout
 	config.Stderr = &stderr

@@ -77,8 +77,8 @@ var cli struct {
 	Version struct{} `cmd:"" help:"Show version of grok and its database."`
 }
 
-// Config contains the configuration for grokker
-type Config struct {
+// CliConfig contains the configuration for grokker's cli
+type CliConfig struct {
 	// Name is the name of the program
 	Name string
 	// Description is a short description of the program
@@ -92,9 +92,9 @@ type Config struct {
 	Stderr io.Writer
 }
 
-// NewConfig returns a new Config struct with default values populated
-func NewConfig() *Config {
-	return &Config{
+// NewCliConfig returns a new Config struct with default values populated
+func NewCliConfig() *CliConfig {
+	return &CliConfig{
 		Name:        "grokker",
 		Description: "A command-line tool for having a conversation with a set of local documents and the OpenAI API.",
 		Version:     CodeVersion(),
@@ -111,7 +111,7 @@ func NewConfig() *Config {
 // We use this function instead of kong.Parse() so that we can pass in
 // the arguments to parse.  This allows us to more easily test the
 // cli subcommands, and could later ease e.g. WASM usage.
-func Cli(args []string, config *Config) (rc int, err error) {
+func Cli(args []string, config *CliConfig) (rc int, err error) {
 	defer Return(&err)
 
 	options := []kong.Option{
