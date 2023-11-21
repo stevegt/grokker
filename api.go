@@ -86,6 +86,15 @@ func (g *GrokkerInternal) ForgetDocument(path string) (err error) {
 	return
 }
 
+// Context returns the context for a given text, limited by the
+// tokenLimit.
+func (g *GrokkerInternal) Context(text string, tokenLimit int) (context string, err error) {
+	defer Return(&err)
+	// call getContext() with the tokenLimit
+	context, err = g.getContext(text, tokenLimit)
+	return
+}
+
 // Continue returns a continuation of the input text.
 func (g *GrokkerInternal) Continue(in string, global bool) (out, sysmsg string, err error) {
 	defer Return(&err)

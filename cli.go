@@ -52,6 +52,9 @@ var cli struct {
 	} `cmd:"" help:"Add a file to the knowledge base."`
 	Backup struct{} `cmd:"" help:"Backup the knowledge base."`
 	Commit struct{} `cmd:"" help:"Generate a git commit message on stdout."`
+	Ctx    struct {
+		Tokenlimit int `arg:"" type:"int" help:"Maximum number of tokens to include in the context."`
+	} `cmd:"" help:"Extract the context from the knowledge base most closely related to stdin."`
 	Forget struct {
 		Paths []string `arg:"" type:"string" help:"Path to file to remove from knowledge base."`
 	} `cmd:"" help:"Forget about a file, removing it from the knowledge base."`
@@ -156,7 +159,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 	}
 
 	// list of commands that can use a read-only db
-	roCmds := []string{"ls", "models", "version", "backup", "msg"}
+	roCmds := []string{"ls", "models", "version", "backup", "msg", "ctx"}
 	readonly := false
 	if cmdInSlice(cmd, roCmds) {
 		Debug("command %s can use a read-only grok db", cmd)
@@ -221,6 +224,17 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		}
 		// save the grok file
 		save = true
+	case "ctx <tokenlimit>":
+		// get text from stdin and print the context
+		buf, err := ioutil.ReadAll(config.Stdin)
+		Ck(err)
+		intxt := string(buf)
+		// trim whitespace
+		intxt = strings.TrimSpace(intxt)
+		// get the context
+		outtxt, err := grok.Context(intxt, cli.Ctx.Tokenlimit)
+		Ck(err)
+		Pl(outtxt)
 	case "forget <paths>":
 		if len(cli.Forget.Paths) < 1 {
 			Fpf(config.Stderr, "Error: forget command requires a filename argument\n")

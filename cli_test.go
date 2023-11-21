@@ -222,6 +222,16 @@ func TestCli(t *testing.T) {
 	match = cimatch(stdout.String(), "violets are blue")
 	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
 
+	// test context
+	fmt.Println("testing context...")
+	stdinContext := bytes.Buffer{}
+	stdinContext.WriteString("roses are red")
+	stdout, stderr, err = grok(stdinContext, "ctx", "30")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	// check that the stdout buffer contains the expected output
+	match = strings.Contains(stdout.String(), "violets are blue")
+	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
+
 	// test revision
 	stdinRevision := bytes.Buffer{}
 	stdinRevision.WriteString("roses are orange")

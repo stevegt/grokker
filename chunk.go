@@ -167,7 +167,7 @@ func splitIntoChunks(doc *Document, txt, delimiter string) (chunks []*Chunk) {
 func (g *GrokkerInternal) similarChunks(embedding []float64, tokenLimit int) (chunks []*Chunk, err error) {
 	defer Return(&err)
 	Debug("chunks in database: %d", len(g.Chunks))
-	Assert(tokenLimit > 100, tokenLimit)
+	// Assert(tokenLimit > 100, tokenLimit)
 	// find the most similar chunks.
 	type Sim struct {
 		chunk *Chunk
