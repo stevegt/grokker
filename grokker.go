@@ -50,12 +50,20 @@ import (
 // https://semver.org/spec/v2.0.0.html
 // MAJOR.MINOR.PATCH
 // MAJOR version when you make incompatible API changes,
-// MINOR version when you add functionality in a backwards compatible manner, and
+// MINOR version when you add functionality in a backwards compatible manner
 //   - we're using this for db version migrations
 //
 // PATCH version when you make backwards compatible bug fixes.
+//
+// Any odd-numbered element indicates an unstable pre-release version
+// that is collecting changes for the next stable release, and these
+// changes may be pushed without a version number increase. Examples:
+//   - 2.2.2 is a stable release version
+//   - 2.2.3 is collecting code changes that will become 2.2.4
+//   - 2.3.4 is collecting db and code changes that will become 2.4.0
+//   - 3.2.2 is collecting API, db, and code changes that will become 4.0.0
 const (
-	version = "2.1.8"
+	version = "3.0.0"
 )
 
 type GrokkerInternal struct {
