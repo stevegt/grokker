@@ -8,8 +8,10 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
+	"time"
 
 	. "github.com/stevegt/goadapt"
 )
@@ -90,6 +92,13 @@ func cimatch(s, substr string) bool {
 }
 
 func TestCli(t *testing.T) {
+
+	// test stringInSlice
+	// XXX move to util_test.go
+	slice := []string{"msg", "tc"}
+	Tassert(t, stringInSlice("msg", slice), "stringInSlice failed")
+	Tassert(t, !stringInSlice("msg2", slice), "stringInSlice failed")
+
 	// get current working directory
 	cwd, err := os.Getwd()
 	Tassert(t, err == nil, "error getting current working directory: %v", err)
@@ -137,7 +146,6 @@ func TestCli(t *testing.T) {
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
 
 	// test msg
-	// XXX msg should not need to load entire db, but will need to know model
 	msgStdin := bytes.Buffer{}
 	msgStdin.WriteString("1 == 2")
 	stdout, stderr, err = grok(msgStdin, "msg", "you are a logic machine.  answer the provided question.  say answer=true or answer=false.")
@@ -176,6 +184,7 @@ func TestCli(t *testing.T) {
 	// try adding a file that doesn't exist
 	stdout, stderr, err = grok(emptyStdin, "add", "test2.txt")
 	// if the file doesn't exist, err will be an *fs.PathError
+	Tassert(t, err != nil, "CLI returned no error when it should have")
 	Tassert(t, err.(*fs.PathError).Err == syscall.ENOENT, "CLI returned unexpected error: %#v", err)
 
 	// create and add a couple of files we'll forget
@@ -317,5 +326,101 @@ func TestCli(t *testing.T) {
 	match = strings.Contains(stdout.String(), "test.txt")
 	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
 	match = strings.Contains(stdout.String(), "add")
+
+	// test locking
+	fmt.Println("testing locking...")
+	// use a channel to track lock/unlock sequence
+	seq := make(chan int, 99)
+	// start a goroutine that will lock the db
+	go func() {
+		seq <- 0
+		// lock the db by calling LoadFrom directly
+		_, _, _, _, lock, err := LoadFrom(".grok", false)
+		Tassert(t, err == nil, "error locking db: %v", err)
+		seq <- 1
+		// sleep for a bit; this should block the other goroutine
+		time.Sleep(3 * time.Second)
+		// unlock the db
+		err = lock.Unlock()
+		Tassert(t, err == nil, "error unlocking db: %v", err)
+		seq <- 3
+	}()
+	// start another goroutine that will lock the db
+	go func() {
+		// sleep for a bit to let the other goroutine lock the db
+		time.Sleep(1 * time.Second)
+		seq <- 2
+		// try to lock the db; this should block until the other goroutine unlocks it
+		_, _, _, _, lock, err := LoadFrom(".grok", false)
+		Tassert(t, err == nil, "error locking db: %v", err)
+		seq <- 4
+		// unlock the db
+		err = lock.Unlock()
+		Tassert(t, err == nil, "error unlocking db: %v", err)
+		seq <- 5
+		close(seq)
+	}()
+	// check the sequence
+	var i int
+	for got := range seq {
+		Tassert(t, got == i, "expected %d, got %d", i, got)
+		i++
+	}
+
+	// test read-only locking
+	// ensure msg does not lock the db
+	// start a goroutine that will lock the db
+	fmt.Println("testing non-locking...")
+	seq = make(chan int, 99)
+	go func() {
+		seq <- 0
+		// lock the db by calling LoadFrom directly
+		_, _, _, _, lock, err := LoadFrom(".grok", true)
+		Tassert(t, err == nil, "error locking db: %v", err)
+		seq <- 1
+		// sleep for a bit; this should not block msg
+		time.Sleep(3 * time.Second)
+		seq <- 4
+		// unlock the db
+		err = lock.Unlock()
+		Tassert(t, err == nil, "error unlocking db: %v", err)
+		seq <- 5
+		close(seq)
+	}()
+	// start another goroutine that will run msg
+	go func() {
+		// sleep for a bit to let the other goroutine lock the db
+		time.Sleep(1 * time.Second)
+		seq <- 2
+		// try to run msg; this should not block
+		lockStdin := bytes.Buffer{}
+		lockStdin.WriteString("1 == 2")
+		stdout, stderr, err = grok(lockStdin, "msg", "you will answer the provided question with one word.")
+		Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+		seq <- 3
+	}()
+	// check the sequence
+	i = 0
+	for got := range seq {
+		Tassert(t, got == i, "expected %d, got %d", i, got)
+		i++
+	}
+
+	// try to cause locking race conditions for a few seconds
+	fmt.Println("testing for locking race conditions...")
+	var wg sync.WaitGroup
+	for i := 0; i < 30; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// try running a command that will modify the db
+			// - we use 'model' because it modifies the db but doesn't
+			//   contact any servers
+			// - if we get db data corruption then locking failed
+			stdout, stderr, err = grok(emptyStdin, "model", "gpt-4")
+			Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+		}()
+	}
+	wg.Wait()
 
 }

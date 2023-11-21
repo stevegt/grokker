@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gofrs/flock"
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/semver"
 	"github.com/tiktoken-go/tokenizer"
@@ -301,9 +302,28 @@ func (g *GrokkerInternal) ListDocuments() (paths []string) {
 // LoadFrom loads a Grokker database from a given path.
 // XXX replace the json db with a kv store, store vectors as binary
 // floating point values.
-func LoadFrom(grokpath string) (g *GrokkerInternal, migrated bool, oldver, newver string, err error) {
+func LoadFrom(grokpath string, readonly bool) (g *GrokkerInternal, migrated bool, oldver, newver string, lock *flock.Flock, err error) {
 	g = &GrokkerInternal{}
 	g.grokpath = grokpath
+	lockpath := grokpath + ".lock"
+	// ensure the lock file exists
+	lockfh, err := os.OpenFile(lockpath, os.O_CREATE, 0644)
+	Ck(err)
+	err = lockfh.Close()
+	Ck(err)
+	lock = flock.New(lockpath)
+	if readonly {
+		// get a shared lock
+		Debug("locking %s ro...", lockpath)
+		err = lock.RLock()
+		Ck(err)
+	} else {
+		// get an exclusive lock
+		lock = flock.New(lockpath)
+		Debug("locking %s rw...", lockpath)
+		err = lock.Lock()
+		Ck(err)
+	}
 	// load the db
 	fh, err := os.Open(g.grokpath)
 	Ck(err)
@@ -365,7 +385,7 @@ func InitNamed(rootdir, name, model string) (g *GrokkerInternal, err error) {
 }
 
 // Load loads a Grokker database from the current or any parent directory.
-func Load() (g *GrokkerInternal, migrated bool, oldver, newver string, err error) {
+func Load(readonly bool) (g *GrokkerInternal, migrated bool, oldver, newver string, lock *flock.Flock, err error) {
 	defer Return(&err)
 
 	// find the .grok file in the current or any parent directory
@@ -378,7 +398,7 @@ func Load() (g *GrokkerInternal, migrated bool, oldver, newver string, err error
 			break
 		}
 	}
-	g, migrated, oldver, newver, err = LoadFrom(grokpath)
+	g, migrated, oldver, newver, lock, err = LoadFrom(grokpath, readonly)
 	Ck(err)
 	return
 }

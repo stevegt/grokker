@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/alecthomas/kong"
+	"github.com/gofrs/flock"
 	. "github.com/stevegt/goadapt"
 )
 
@@ -105,6 +106,13 @@ func NewCliConfig() *CliConfig {
 	}
 }
 
+// cmdInSlice returns true if cmd is in cmds. This function only looks
+// at the first word in cmd.
+func cmdInSlice(cmd string, cmds []string) bool {
+	first := strings.Split(cmd, " ")[0]
+	return stringInSlice(first, cmds)
+}
+
 // Cli parses the given arguments and then executes the appropriate
 // subcommand.
 //
@@ -137,12 +145,22 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 	}
 
 	cmd := ctx.Command()
+	Debug("cmd: %s", cmd)
 
 	// list of commands that don't require an existing database
-	noDbCmds := []string{"init", "msg", "tc"}
+	noDbCmds := []string{"init", "tc"}
 	needsDb := true
-	if stringInSlice(cmd, noDbCmds) {
+	if cmdInSlice(cmd, noDbCmds) {
+		Debug("command %s does not require a grok db", cmd)
 		needsDb = false
+	}
+
+	// list of commands that can use a read-only db
+	roCmds := []string{"ls", "models", "version", "backup", "msg"}
+	readonly := false
+	if cmdInSlice(cmd, roCmds) {
+		Debug("command %s can use a read-only grok db", cmd)
+		readonly = true
 	}
 
 	var grok *GrokkerInternal
@@ -153,8 +171,14 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 	Ck(err)
 	// initialize Grokker object if needed
 	if needsDb {
-		grok, migrated, was, now, err = Load()
+		var lock *flock.Flock
+		grok, migrated, was, now, lock, err = Load(readonly)
 		Ck(err)
+		defer func() {
+			// unlock the db
+			Debug("unlocking db")
+			lock.Unlock()
+		}()
 		if migrated {
 			// save the old db
 			var fn string
@@ -333,8 +357,11 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		return
 	}
 
-	if save {
+	if save && !readonly {
 		// save the grok file
+		// XXX saving when !readonly means we might refresh embeddings
+		// or migrate the db in ram over and over until we run a rw
+		// command
 		err = grok.Save()
 		Ck(err)
 	}

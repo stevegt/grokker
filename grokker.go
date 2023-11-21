@@ -55,7 +55,7 @@ import (
 //
 // PATCH version when you make backwards compatible bug fixes.
 const (
-	version = "2.1.6"
+	version = "2.1.7"
 )
 
 type GrokkerInternal struct {
@@ -78,11 +78,7 @@ type GrokkerInternal struct {
 	tokenLimit          int
 	embeddingTokenLimit int
 	grokpath            string
-	// XXX use a real tokenizer and replace maxChunkLen with tokenLimit.
-	// tokenLimit int
-	// maxChunkLen          int
-	// maxEmbeddingChunkLen int
-	// the path to the grokker db
+	// lock                *flock.Flock
 }
 
 var Tokenizer tokenizer.Codec

@@ -3,6 +3,7 @@ package grokker
 import (
 	"context"
 	"os"
+	"time"
 
 	"github.com/fabiustech/openai"
 	fabius_models "github.com/fabiustech/openai/models"
@@ -43,8 +44,18 @@ func (g *GrokkerInternal) createEmbeddings(texts []string) (embeddings [][]float
 		}
 		Debug("creating embedding for chunk %d of %d ...", i+1, len(texts))
 		Debug("text: %q", text)
-		res, err := c.CreateEmbeddings(context.Background(), req)
-		Ck(err)
+		// loop with backoff until we get a response
+		var res *openai.EmbeddingResponse
+		for backoff := 1; backoff < 10; backoff++ {
+			res, err = c.CreateEmbeddings(context.Background(), req)
+			if err == nil {
+				break
+			}
+			Pf("openai API error, retrying: %#v", err)
+			// wait and try again
+			time.Sleep(time.Second * time.Duration(backoff))
+		}
+		Ck(err, "%T: %#v", err, err)
 		for _, em := range res.Data {
 			embeddings = append(embeddings, em.Embedding)
 		}
@@ -103,7 +114,7 @@ func (g *GrokkerInternal) generate(sysmsg, question, ctxt string, global bool) (
 
 	// get the answer
 	resp, err = g.chat(messages)
-	Ck(err, "context length: %d", len(ctxt))
+	Ck(err, "context length: %d type: %T: %#v", len(ctxt), ctxt, ctxt)
 
 	// fmt.Println(resp.Choices[0].Message.Content)
 	// Pprint(messages)
