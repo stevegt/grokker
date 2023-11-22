@@ -322,6 +322,16 @@ func TestCli(t *testing.T) {
 	match = !strings.Contains(stdout.String(), "deleteme.txt")
 	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
 
+	// test embed subcommand
+	// provide a phrase that will be embedded
+	stdinEmbed := bytes.Buffer{}
+	stdinEmbed.WriteString("roses are red")
+	stdout, stderr, err = grok(stdinEmbed, "embed")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	// check that the stdout buffer contains the expected output
+	match = strings.Contains(stdout.String(), "-0.00136807,")
+	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
+
 	// test git commit
 	// git init
 	run(t, "git", "init")

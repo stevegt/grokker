@@ -255,6 +255,19 @@ func (g *GrokkerInternal) DBVersion() string {
 	return g.Version
 }
 
+// Embed returns the embedding for a given text as a JSON string.
+func (g *GrokkerInternal) Embed(text string) (jsonEmbedding string, err error) {
+	defer Return(&err)
+	// call createEmbeddings() to get the embedding.
+	embedding, err := g.createEmbeddings([]string{text})
+	Ck(err)
+	// convert the embedding to an indented JSON string.
+	buf, err := json.MarshalIndent(embedding, "", "  ")
+	Ck(err)
+	jsonEmbedding = string(buf)
+	return
+}
+
 // TokenCount returns the number of tokens in a string.
 func (g *GrokkerInternal) TokenCount(text string) (count int, err error) {
 	defer Return(&err)

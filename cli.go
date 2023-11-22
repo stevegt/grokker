@@ -55,6 +55,7 @@ var cli struct {
 	Ctx    struct {
 		Tokenlimit int `arg:"" type:"int" help:"Maximum number of tokens to include in the context."`
 	} `cmd:"" help:"Extract the context from the knowledge base most closely related to stdin."`
+	Embed  struct{} `cmd:"" help:"print the embedding vector for the given stdin text."`
 	Forget struct {
 		Paths []string `arg:"" type:"string" help:"Path to file to remove from knowledge base."`
 	} `cmd:"" help:"Forget about a file, removing it from the knowledge base."`
@@ -233,6 +234,15 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		intxt = strings.TrimSpace(intxt)
 		// get the context
 		outtxt, err := grok.Context(intxt, cli.Ctx.Tokenlimit)
+		Ck(err)
+		Pl(outtxt)
+	case "embed":
+		// get text from stdin and print the embedding vector
+		buf, err := ioutil.ReadAll(config.Stdin)
+		Ck(err)
+		intxt := string(buf)
+		// get the embedding vector
+		outtxt, err := grok.Embed(intxt)
 		Ck(err)
 		Pl(outtxt)
 	case "forget <paths>":

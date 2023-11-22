@@ -141,7 +141,7 @@ func (g *GrokkerInternal) migrateOneVersion() (err error) {
 		Ck(err)
 		g.Version = "2.1.0"
 
-	case "3.0.X":
+	case "2.1.X":
 		// API change, so this is a no-op as far as the db is concerned
 		g.Version = "3.0.0"
 
