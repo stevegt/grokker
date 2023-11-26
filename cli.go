@@ -72,10 +72,14 @@ var cli struct {
 	Q struct {
 		Question string `arg:"" help:"Question to ask the knowledge base."`
 	} `cmd:"" help:"Ask the knowledge base a question."`
-	Qc      struct{} `cmd:"" help:"Continue text from stdin based on the context in the knowledge base."`
-	Qi      struct{} `cmd:"" help:"Ask the knowledge base a question on stdin."`
-	Qr      struct{} `cmd:"" help:"Revise stdin based on the context in the knowledge base."`
-	Refresh struct{} `cmd:"" help:"Refresh the embeddings for all documents in the knowledge base."`
+	Qc         struct{} `cmd:"" help:"Continue text from stdin based on the context in the knowledge base."`
+	Qi         struct{} `cmd:"" help:"Ask the knowledge base a question on stdin."`
+	Qr         struct{} `cmd:"" help:"Revise stdin based on the context in the knowledge base."`
+	Refresh    struct{} `cmd:"" help:"Refresh the embeddings for all documents in the knowledge base."`
+	Similarity struct {
+		Refpath string   `arg:"" help:"Reference file path."`
+		Paths   []string `arg:"" help:"Files to compare to reference file."`
+	} `cmd:"" help:"Calculate the similarity between two or more files in the knowledge base."`
 	SysMsg  bool     `short:"s" help:"expect sysmsg in first paragraph of stdin, return same on stdout."`
 	Tc      struct{} `cmd:"" help:"Calculate the token count of stdin."`
 	Verbose bool     `short:"v" help:"Show debug and progress information on stderr."`
@@ -326,6 +330,29 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		Pf("%s", out)
 		if updated {
 			save = true
+		}
+	case "similarity <refpath> <paths>":
+		// get paths from args and print the similarity
+		if cli.Similarity.Refpath == "" || len(cli.Similarity.Paths) < 1 {
+			Fpf(config.Stderr, "Error: similarity command requires at least two filename arguments\n")
+			rc = 1
+			return
+		}
+		refpath := cli.Similarity.Refpath
+		paths := cli.Similarity.Paths
+		// read the text from the files
+		reftext, err := ioutil.ReadFile(refpath)
+		Ck(err)
+		texts := []string{}
+		for _, path := range paths {
+			text, err := ioutil.ReadFile(path)
+			Ck(err)
+			texts = append(texts, string(text))
+		}
+		sims, err := grok.Similarity(string(reftext), texts...)
+		Ck(err)
+		for i, sim := range sims {
+			Pf("%f %s\n", sim, paths[i])
 		}
 	case "tc":
 		// get content from stdin and emit token count on stdout

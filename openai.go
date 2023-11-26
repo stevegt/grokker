@@ -32,6 +32,8 @@ func (g *GrokkerInternal) createEmbeddings(texts []string) (embeddings [][]float
 	// simply call c.CreateEmbeddings() once for each text chunk.
 	for i := 0; i < len(texts); i++ {
 		text := texts[i]
+		// XXX don't exceed max tokens
+
 		// set empty chunk embedding to nil
 		if len(text) == 0 {
 			embeddings = append(embeddings, nil)

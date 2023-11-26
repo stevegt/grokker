@@ -268,6 +268,26 @@ func (g *GrokkerInternal) Embed(text string) (jsonEmbedding string, err error) {
 	return
 }
 
+// Similarity returns the similarity between two or more texts.  Each text
+// is compared to the reference text, and the similarities are returned as
+// a float64 slice.
+func (g *GrokkerInternal) Similarity(reftext string, texts ...string) (sims []float64, err error) {
+	defer Return(&err)
+	// get the mean vector of the reference text
+	refVec, err := g.meanVectorFromLongString(reftext)
+	Ck(err)
+	// compare each text to the reference text
+	for _, text := range texts {
+		// get the mean vector of the text
+		vec, err := g.meanVectorFromLongString(text)
+		Ck(err)
+		// calculate the similarity
+		sim := similarity(refVec, vec)
+		sims = append(sims, sim)
+	}
+	return
+}
+
 // TokenCount returns the number of tokens in a string.
 func (g *GrokkerInternal) TokenCount(text string) (count int, err error) {
 	defer Return(&err)

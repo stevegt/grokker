@@ -107,3 +107,17 @@ func (g *GrokkerInternal) tokens(text string) (tokens []string, err error) {
 	Ck(err)
 	return
 }
+
+// meanVectorFromLongString returns the mean vector of a long string.
+func (g *GrokkerInternal) meanVectorFromLongString(text string) (vector []float64, err error) {
+	defer Return(&err)
+	// break up the text into strings smaller than the token limit
+	texts, err := g.stringsFromString(text, g.tokenLimit)
+	Ck(err)
+	// get the embeddings for each string
+	embeddings, err := g.createEmbeddings(texts)
+	Ck(err)
+	// get the mean vector of the embeddings
+	vector = meanVector(embeddings)
+	return
+}

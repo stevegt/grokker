@@ -35,6 +35,9 @@ func copyFile(src, dst string) (err error) {
 
 // similarity returns the cosine similarity between two embeddings.
 func similarity(a, b []float64) float64 {
+	if len(a) != len(b) {
+		return 0
+	}
 	var dot, magA, magB float64
 	for i := range a {
 		dot += a[i] * b[i]
@@ -42,6 +45,38 @@ func similarity(a, b []float64) float64 {
 		magB += b[i] * b[i]
 	}
 	return dot / (math.Sqrt(magA) * math.Sqrt(magB))
+}
+
+// meanSimilarity returns the mean cosine similarity between two sets of embeddings.
+func XXXmeanSimilarity(a, b [][]float64) float64 {
+	var sum float64
+	for i := range a {
+		for j := range b {
+			sum += similarity(a[i], b[j])
+		}
+	}
+	return sum / float64(len(a)*len(b))
+}
+
+// meanVector returns the mean vector of a set of embedding vectors.
+func meanVector(vectors [][]float64) (mean []float64) {
+	if len(vectors) == 0 {
+		return
+	}
+	// get size of the first vector
+	size := len(vectors[0])
+	// initialize mean vector
+	mean = make([]float64, size)
+	// calculate mean vector by iterating over each dimension
+	for dim := 0; dim < size; dim++ {
+		var sum float64
+		// iterate over each vector
+		for i := 0; i < len(vectors); i++ {
+			sum += vectors[i][dim]
+		}
+		mean[dim] = sum / float64(len(vectors))
+	}
+	return mean
 }
 
 // stringInSlice returns true if str is in list.

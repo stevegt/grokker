@@ -237,6 +237,19 @@ func (g *GrokkerInternal) findChunks(query string, tokenLimit int) (chunks []*Ch
 	return
 }
 
+// stringsFromString splits a string into a slice of strings.  Each
+// string will be no longer than tokenLimit tokens.
+func (g *GrokkerInternal) stringsFromString(txt string, tokenLimit int) (strings []string, err error) {
+	defer Return(&err)
+	Assert(tokenLimit > 0)
+	chunks, err := g.chunksFromString(nil, txt, tokenLimit)
+	Ck(err)
+	for _, chunk := range chunks {
+		strings = append(strings, chunk.text)
+	}
+	return
+}
+
 // chunksFromString splits a string into a slice of Chunks.  If doc is
 // not nil, it is used to set the Document field of each chunk.  Each
 // chunk will be no longer than tokenLimit tokens.

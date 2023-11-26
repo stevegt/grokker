@@ -93,11 +93,36 @@ func cimatch(s, substr string) bool {
 
 func TestCli(t *testing.T) {
 
+	var stdout, stderr bytes.Buffer
+	var emptyStdin bytes.Buffer
+	var match bool
+	var err error
+
 	// test stringInSlice
 	// XXX move to util_test.go
 	slice := []string{"msg", "tc"}
 	Tassert(t, stringInSlice("msg", slice), "stringInSlice failed")
 	Tassert(t, !stringInSlice("msg2", slice), "stringInSlice failed")
+
+	// test similarity subcommand
+	fmt.Println("testing similarity...")
+	// test with an empty file
+	stdout, stderr, err = grok(emptyStdin, "similarity", "testdata/sim1.md", "/dev/null")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	// check that the stdout buffer contains the expected output
+	match = strings.Contains(stdout.String(), "0.000000")
+	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
+	// provide two filenames that will be compared
+	stdout, stderr, err = grok(emptyStdin, "similarity", "testdata/sim1.md", "testdata/sim2.md")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v %v", err, stderr.String())
+	// check that the stdout buffer contains the expected output
+	match = strings.Contains(stdout.String(), "0.875")
+	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
+
+	///////////////////////////////////////////////////////////////
+	// everything below here requires a grokker repository to be
+	// initialized and takes place in that repository
+	///////////////////////////////////////////////////////////////
 
 	// get current working directory
 	cwd, err := os.Getwd()
@@ -109,11 +134,6 @@ func TestCli(t *testing.T) {
 	// cd into the temporary directory
 	cd(t, dir)
 	defer cd(t, cwd)
-
-	var stdout, stderr bytes.Buffer
-	// create an empty emptyStdin buffer
-	var emptyStdin bytes.Buffer
-	var match bool
 
 	// test TokenCount
 	stdinTokenCount := bytes.Buffer{}
