@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"sort"
+	"strings"
 
 	. "github.com/stevegt/goadapt"
 )
@@ -83,7 +84,7 @@ func (chunk *Chunk) splitChunk(g *GrokkerInternal, tokenLimit int) (newChunks []
 		}
 		docOffset := chunk.Offset + start
 		var text string
-		text, err = g.chunkText(chunk, false)
+		text, err = g.chunkText(chunk, false, false)
 		Ck(err)
 		subChunk := newChunk(chunk.Document, docOffset, end-start, text[start:end])
 		// recurse
@@ -97,36 +98,58 @@ func (chunk *Chunk) splitChunk(g *GrokkerInternal, tokenLimit int) (newChunks []
 }
 
 // chunkText returns the text of a chunk.
-func (g *GrokkerInternal) chunkText(c *Chunk, withHeader bool) (text string, err error) {
+func (g *GrokkerInternal) chunkText(c *Chunk, withHeader, withLineNumbers bool) (text string, err error) {
 	Debug("ChunkText(%#v)", c)
 	if c.Document == nil {
 		Assert(c.text != "", "ChunkText: c.Document == nil && c.text == \"\"")
 		text = c.text
-	} else {
-		// read the chunk from the document
-		var buf []byte
-		buf, err = ioutil.ReadFile(g.absPath(c.Document))
-		if os.IsNotExist(err) {
-			// document has been removed; don't remove it from the
-			// database, but don't return any text either.  The
-			// document might be on a different branch in e.g. git.
-			err = nil
-			Debug("ChunkText: document %q not found", c.Document.RelPath)
-			return
-		}
-		Ck(err)
-		start := c.Offset
-		stop := c.Offset + c.Length
-		if stop > len(buf) {
-			stop = len(buf)
-		}
-		if start < len(buf) {
-			text = string(buf[c.Offset:stop])
-		}
-		if withHeader {
-			text = fmt.Sprintf("from %s:\n%s\n", c.Document.RelPath, text)
-		}
+		return
 	}
+
+	// read the chunk from the document
+	var buf []byte
+	buf, err = ioutil.ReadFile(g.absPath(c.Document))
+	if os.IsNotExist(err) {
+		// document has been removed; don't remove it from the
+		// database, but don't return any text either.  The
+		// document might be on a different branch in e.g. git.
+		err = nil
+		Debug("ChunkText: document %q not found", c.Document.RelPath)
+		return
+	}
+	Ck(err)
+	start := c.Offset
+	stop := c.Offset + c.Length
+	if start >= len(buf) {
+		start = len(buf) - 1
+	}
+	if stop > len(buf) {
+		stop = len(buf)
+	}
+	if withHeader {
+		text = fmt.Sprintf("from %s:\n", c.Document.RelPath)
+	}
+	rawText := string(buf[start:stop])
+	if withLineNumbers {
+		// count the lines before start
+		// XXX this is inefficient because it has to be done for
+		// every chunk.  it would be better to do it once for
+		// the whole document and store that in the db or at least
+		// cache it during a single grok run.
+		docLines := strings.Split(string(buf[:start]), "\n")
+		startLine := len(docLines)
+		// add line numbers to the text
+		chunkLines := strings.Split(rawText, "\n")
+		for i := startLine; i < startLine+len(chunkLines); i++ {
+			// get the text of the line
+			lineTxt := chunkLines[i-startLine]
+			// add the line number
+			text += fmt.Sprintf("%d: %s\n", i, lineTxt)
+		}
+	} else {
+		text = rawText
+	}
+
 	Debug("ChunkText: %q", text)
 	return
 }
@@ -351,7 +374,7 @@ func (g *GrokkerInternal) getContext(query string, tokenLimit int) (context stri
 	chunks, err := g.findChunks(query, tokenLimit)
 	Ck(err)
 	for _, chunk := range chunks {
-		text, err := g.chunkText(chunk, true)
+		text, err := g.chunkText(chunk, true, false)
 		Ck(err)
 		context += text
 	}
@@ -364,7 +387,7 @@ func (g *GrokkerInternal) getContext(query string, tokenLimit int) (context stri
 func (chunk *Chunk) tokenCount(g *GrokkerInternal) (count int, err error) {
 	defer Return(&err)
 	if chunk.tokenLength == 0 {
-		text, err := g.chunkText(chunk, false)
+		text, err := g.chunkText(chunk, false, false)
 		Ck(err)
 		tokens, err := g.tokens(text)
 		Ck(err)

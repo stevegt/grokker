@@ -121,7 +121,7 @@ func TestChunkTextAfterRemovingFile(t *testing.T) {
 	Tassert(t, err == nil, "error removing document file: %v", err)
 
 	// now get the text of the chunk from the removed document
-	text, err := grok.chunkText(chunk, false)
+	text, err := grok.chunkText(chunk, false, false)
 	// check that there is no error and the text is empty
 	Tassert(t, err == nil, "error getting chunk text: %v", err)
 	Tassert(t, text == "", "expected chunk text to be empty")
@@ -140,7 +140,7 @@ func TestFindSimilar(t *testing.T) {
 	Tassert(t, err == nil, "error finding similar chunks: %v", err)
 	Pl("similar chunks:")
 	for _, chunk := range chunks {
-		text, err := grok.chunkText(chunk, true)
+		text, err := grok.chunkText(chunk, true, false)
 		Tassert(t, err == nil, "error getting chunk text: %v", err)
 		Tassert(t, len(text) > 0, "expected chunk text to be non-empty")
 	}
@@ -177,7 +177,7 @@ func TestSplitChunks(t *testing.T) {
 	// get the chunks
 	chunks, err := grok.findChunks("Why is order of operations important when administering a UNIX machine?", 2000)
 	for _, chunk := range chunks {
-		text, err := grok.chunkText(chunk, true)
+		text, err := grok.chunkText(chunk, false, false)
 		Tassert(t, err == nil, "error getting chunk text: %v", err)
 		Tassert(t, len(text) > 0, "expected chunk text to be non-empty")
 		// tokenize the text
