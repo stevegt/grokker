@@ -4,7 +4,7 @@ import (
 	"os"
 
 	. "github.com/stevegt/goadapt"
-	"github.com/stevegt/grokker"
+	"github.com/stevegt/grokker/v3"
 )
 
 // main simply calls the cli package's Cli() function

@@ -1,4 +1,4 @@
-module github.com/stevegt/grokker
+module github.com/stevegt/grokker/v3
 
 go 1.18
 
@@ -10,7 +10,6 @@ require (
 	github.com/stevegt/goadapt v0.6.0
 	github.com/stevegt/semver v0.0.0-20230512043732-92220054a49f
 	github.com/tiktoken-go/tokenizer v0.1.0
-	go.etcd.io/bbolt v1.3.7
 )
 
 require (

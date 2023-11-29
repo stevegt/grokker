@@ -47,13 +47,13 @@ func mkDataFile(name string, chunkCount, chunkSize int) {
 }
 
 // mkGrok builds the given version of grok and puts it in tmpDataDir
-func mkGrok(t *testing.T, version string) {
+func mkGrok(t *testing.T, version, dir string) {
 	ckReady(t)
 	// cd into temp repo directory
 	cd(t, tmpRepoDir)
 	run(t, "git", "checkout", version)
 	// build grok and move to temp data directory
-	cd(t, "cmd/grok")
+	cd(t, dir)
 	run(t, "go", "build")
 	run(t, "mv", "grok", tmpDataDir)
 	cd(t, tmpDataDir)
@@ -104,11 +104,13 @@ func TestMain(m *testing.M) {
 */
 
 func TestMigrationSetup(t *testing.T) {
-	// get current working directory
-	cwd, err := os.Getwd()
-	Tassert(t, err == nil, "error getting current working directory: %v", err)
+	// get current repo root directory
+	// git rev-parse --show-toplevel
+	out := runOut(t, "git", "rev-parse", "--show-toplevel")
+	repoRoot := strings.TrimSpace(out)
 
 	// create temporary base directory
+	var err error
 	tmpBaseDir, err = os.MkdirTemp("", "grokker-migration-test")
 	Tassert(t, err == nil, "error creating temporary base directory: %v", err)
 	tmpRepoDir = tmpBaseDir + "/grokker"
@@ -118,16 +120,16 @@ func TestMigrationSetup(t *testing.T) {
 	cd(t, tmpBaseDir)
 
 	// clone repo into subdir of temporary base directory
-	run(t, "git", "clone", cwd, "grokker")
+	run(t, "git", "clone", repoRoot, "grokker")
 
 	// create data directory
-	err = os.Mkdir(tmpDataDir, 0755)
+	err = os.MkdirAll(tmpDataDir, 0755)
 	Tassert(t, err == nil, "error creating testdata directory: %v", err)
 }
 
 func TestMigration_0_1_0(t *testing.T) {
 	// checkout v0.1.0, build grok, move to temp data directory, cd there
-	mkGrok(t, "v0.1.0")
+	mkGrok(t, "v0.1.0", "cmd/grok")
 
 	// grok init
 	run(t, "./grok", "init")
@@ -147,7 +149,7 @@ func TestMigration_0_1_0(t *testing.T) {
 }
 
 func TestMigration_1_1_1(t *testing.T) {
-	mkGrok(t, "v1.1.1")
+	mkGrok(t, "v1.1.1", "cmd/grok")
 	// run ls to get upgraded to 1.1.1
 	// - this is to ensure we're ignoring the patch version during
 	//   subsequent migrations
@@ -155,7 +157,7 @@ func TestMigration_1_1_1(t *testing.T) {
 }
 
 func TestMigration_2_1_2(t *testing.T) {
-	mkGrok(t, "v2.1.2")
+	mkGrok(t, "v2.1.2", "cmd/grok")
 
 	// test with 1 chunk slightly larger than GPT-4 token size
 	// create a file with 1 chunk of 20000 bytes
@@ -172,7 +174,7 @@ func TestMigration_2_1_2(t *testing.T) {
 
 func TestMigrationHead(t *testing.T) {
 	// mkGrok(t, "50635ed58e15af224ae118e762a4291cc0f54aa6")
-	mkGrok(t, "main")
+	mkGrok(t, "main", "v3/cmd/grok")
 
 	// run this and check the output for 5731294f1fbb4b48756f72a36838350d9353965ddad9f4fd6ad21a9daccd6dea
 	out := runOut(t, "./grok", "q", "what is the hash after testfile-10-100.txt:9:10?")

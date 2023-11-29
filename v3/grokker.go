@@ -63,7 +63,7 @@ import (
 //   - 2.3.4 is collecting db and code changes that will become 2.4.0
 //   - 3.2.2 is collecting API, db, and code changes that will become 4.0.0
 const (
-	version = "3.0.1"
+	version = "3.0.2"
 )
 
 type GrokkerInternal struct {
