@@ -172,13 +172,14 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 	}
 
 	var grok *GrokkerInternal
-	var migrated, save bool
-	var was, now string
+	var save bool
 	// initialize Tokenizer
 	err = InitTokenizer()
 	Ck(err)
 	// initialize Grokker object if needed
 	if needsDb {
+		var migrated bool
+		var was, now string
 		var lock *flock.Flock
 		grok, migrated, was, now, lock, err = Load(readonly)
 		Ck(err)
@@ -188,12 +189,12 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 			lock.Unlock()
 		}()
 		if migrated {
-			// save the old db
+			// backup the old db
 			var fn string
 			fn, err = grok.Backup()
 			Ck(err)
-			Pf("migrated grokker db from version %s to %s\n", was, now)
-			Pf("backup of old db saved to %s\n", fn)
+			Fpf(config.Stderr, "migrated grokker db from version %s to %s\n", was, now)
+			Fpf(config.Stderr, "backup of old db saved to %s\n", fn)
 			save = true
 		}
 	}
