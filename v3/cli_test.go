@@ -44,11 +44,8 @@ func cd(t *testing.T, dir string) {
 // stdout, stderr, rc, and err
 func grok(stdin bytes.Buffer, args ...string) (stdout, stderr bytes.Buffer, err error) {
 	defer Return(&err)
-	// capture goadapt stdio
-	SetStdio(&stdin, &stdout, &stderr)
-	defer SetStdio(nil, nil, nil)
 
-	// also pass stdio to the CLI
+	// pass stdio to the CLI
 	config := NewCliConfig()
 	config.Stdin = &stdin
 	config.Stdout = &stdout

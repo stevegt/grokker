@@ -130,6 +130,14 @@ func cmdInSlice(cmd string, cmds []string) bool {
 func Cli(args []string, config *CliConfig) (rc int, err error) {
 	defer Return(&err)
 
+	// capture goadapt stdio
+	SetStdio(
+		config.Stdin,
+		config.Stdout,
+		config.Stderr,
+	)
+	defer SetStdio(nil, nil, nil)
+
 	options := []kong.Option{
 		kong.Name(config.Name),
 		kong.Description(config.Description),
