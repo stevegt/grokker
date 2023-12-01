@@ -63,7 +63,7 @@ func (g *GrokkerInternal) updateDocument(doc *Document) (updated bool, err error
 		Assert(chunk.Embedding == nil, "chunk embedding is not nil")
 		Assert(chunk.stale == false, "chunk is stale")
 		Assert(chunk.Hash != "", "chunk hash is empty")
-		text, err := g.chunkText(chunk, true)
+		text, err := g.chunkText(chunk, true, false)
 		Ck(err)
 		newChunkStrings = append(newChunkStrings, text)
 	}
