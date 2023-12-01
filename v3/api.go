@@ -88,10 +88,10 @@ func (g *GrokkerInternal) ForgetDocument(path string) (err error) {
 
 // Context returns the context for a given text, limited by the
 // tokenLimit.
-func (g *GrokkerInternal) Context(text string, tokenLimit int) (context string, err error) {
+func (g *GrokkerInternal) Context(text string, tokenLimit int, withLineNumbers bool) (context string, err error) {
 	defer Return(&err)
 	// call getContext() with the tokenLimit
-	context, err = g.getContext(text, tokenLimit)
+	context, err = g.getContext(text, tokenLimit, withLineNumbers)
 	return
 }
 
@@ -107,7 +107,7 @@ func (g *GrokkerInternal) Continue(in string, global bool) (out, sysmsg string, 
 	Ck(err)
 	// get chunks, sorted by similarity to the txt.
 	tokenLimit := int(float64(g.tokenLimit)*0.4) - len(sysmsgTokens) - len(inTokens)
-	context, err := g.getContext(in, tokenLimit)
+	context, err := g.getContext(in, tokenLimit, false)
 	Ck(err)
 	// generate the answer.
 	resp, err := g.generate(sysmsg, in, context, global)
@@ -124,7 +124,7 @@ func (g *GrokkerInternal) Answer(question string, global bool) (resp string, err
 	qtokens, err := g.tokens(question)
 	Ck(err)
 	maxTokens := int(float64(g.tokenLimit)*0.5) - len(qtokens)
-	context, err := g.getContext(question, maxTokens)
+	context, err := g.getContext(question, maxTokens, false)
 	Ck(err)
 	// generate the answer.
 	respmsg, err := g.generate(SysMsgChat, question, context, global)
@@ -154,7 +154,7 @@ func (g *GrokkerInternal) Revise(in string, global, sysmsgin bool) (out, sysmsg 
 
 	// get context
 	maxTokens := int(float64(g.tokenLimit)*0.5) - len(inTokens)
-	context, err := g.getContext(in, maxTokens)
+	context, err := g.getContext(in, maxTokens, false)
 	Ck(err)
 
 	// generate the answer.

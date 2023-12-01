@@ -53,7 +53,8 @@ var cli struct {
 	Backup struct{} `cmd:"" help:"Backup the knowledge base."`
 	Commit struct{} `cmd:"" help:"Generate a git commit message on stdout."`
 	Ctx    struct {
-		Tokenlimit int `arg:"" type:"int" help:"Maximum number of tokens to include in the context."`
+		Tokenlimit      int  `arg:"" type:"int" help:"Maximum number of tokens to include in the context."`
+		WithLineNumbers bool `short:"n" help:"Include line numbers in the context."`
 	} `cmd:"" help:"Extract the context from the knowledge base most closely related to stdin."`
 	Embed  struct{} `cmd:"" help:"print the embedding vector for the given stdin text."`
 	Forget struct {
@@ -246,7 +247,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		// trim whitespace
 		intxt = strings.TrimSpace(intxt)
 		// get the context
-		outtxt, err := grok.Context(intxt, cli.Ctx.Tokenlimit)
+		outtxt, err := grok.Context(intxt, cli.Ctx.Tokenlimit, cli.Ctx.WithLineNumbers)
 		Ck(err)
 		Pl(outtxt)
 	case "embed":

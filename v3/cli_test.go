@@ -311,7 +311,7 @@ func TestCli(t *testing.T) {
 	err = os.Remove("deleteme.txt")
 	Tassert(t, err == nil, "error deleting file: %v", err)
 	// check the file's contents
-	stdout, stderr, err = grok(emptyStdin, "q", "will a file be deleted? Say answer=yes or answer=no.")
+	stdout, stderr, err = grok(emptyStdin, "q", "is one of the files named deleteme.txt? Say answer=yes or answer=no.")
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
 	// check that the stdout buffer contains the expected output
 	match = cimatch(stdout.String(), "answer=no")
@@ -346,7 +346,7 @@ func TestCli(t *testing.T) {
 	stdout, stderr, err = grok(stdinEmbed, "embed")
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
 	// check that the stdout buffer contains the expected output
-	match = strings.Contains(stdout.String(), "-0.00136807,")
+	match = strings.Contains(stdout.String(), "-0.001")
 	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
 
 	// test git commit

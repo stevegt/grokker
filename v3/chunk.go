@@ -126,9 +126,6 @@ func (g *GrokkerInternal) chunkText(c *Chunk, withHeader, withLineNumbers bool) 
 	if stop > len(buf) {
 		stop = len(buf)
 	}
-	if withHeader {
-		text = fmt.Sprintf("from %s:\n", c.Document.RelPath)
-	}
 	rawText := string(buf[start:stop])
 	if withLineNumbers {
 		// count the lines before start
@@ -148,6 +145,9 @@ func (g *GrokkerInternal) chunkText(c *Chunk, withHeader, withLineNumbers bool) 
 		}
 	} else {
 		text = rawText
+	}
+	if withHeader {
+		text = fmt.Sprintf("from %s:\n%s\n", c.Document.RelPath, text)
 	}
 
 	Debug("ChunkText: %q", text)
@@ -367,14 +367,14 @@ func (g *GrokkerInternal) gc() (err error) {
 }
 
 // getContext returns the context for a query.
-func (g *GrokkerInternal) getContext(query string, tokenLimit int) (context string, err error) {
+func (g *GrokkerInternal) getContext(query string, tokenLimit int, withLineNumbers bool) (context string, err error) {
 	defer Return(&err)
 	Debug("getting context, tokenLimit: %d, query: %q", tokenLimit, query)
 	// get chunks, sorted by similarity to the query.
 	chunks, err := g.findChunks(query, tokenLimit)
 	Ck(err)
 	for _, chunk := range chunks {
-		text, err := g.chunkText(chunk, true, false)
+		text, err := g.chunkText(chunk, true, withLineNumbers)
 		Ck(err)
 		context += text
 	}
