@@ -46,14 +46,22 @@ In the above code, `args` is your custom arguments array slice. Here, the slice 
 */
 
 // parse args using kong package
+type cmdChat struct {
+	Sysmsg string `short:"s" default:"" help:"System message to send to control behavior of openAI's API."`
+	File   string `arg:"" type:"string" help:"Memory file to use for chat."`
+}
+
 var cli struct {
 	Add struct {
 		Paths []string `arg:"" type:"string" help:"Path to file to add to knowledge base."`
 	} `cmd:"" help:"Add a file to the knowledge base."`
 	Backup struct{} `cmd:"" help:"Backup the knowledge base."`
+	// grok chat -s sysmsg -f memoryfile < prompt
+	Chat   cmdChat  `cmd:"" help:"Have a conversation with the knowledge base."`
 	Commit struct{} `cmd:"" help:"Generate a git commit message on stdout."`
 	Ctx    struct {
 		Tokenlimit      int  `arg:"" type:"int" help:"Maximum number of tokens to include in the context."`
+		WithHeaders     bool `short:"h" help:"Include filename headers in the context."`
 		WithLineNumbers bool `short:"n" help:"Include line numbers in the context."`
 	} `cmd:"" help:"Extract the context from the knowledge base most closely related to stdin."`
 	Embed  struct{} `cmd:"" help:"print the embedding vector for the given stdin text."`
@@ -239,6 +247,19 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		}
 		// save the grok file
 		save = true
+	case "chat <file>":
+		// get text from stdin and print the response
+		buf, err := ioutil.ReadAll(config.Stdin)
+		Ck(err)
+		intxt := string(buf)
+		// trim whitespace
+		intxt = strings.TrimSpace(intxt)
+		// get the response
+		outtxt, err := grok.Chat(cli.Chat.Sysmsg, intxt, cli.Chat.File)
+		Ck(err)
+		Pl(outtxt)
+		// save the grok file
+		save = true
 	case "ctx <tokenlimit>":
 		// get text from stdin and print the context
 		buf, err := ioutil.ReadAll(config.Stdin)
@@ -247,7 +268,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		// trim whitespace
 		intxt = strings.TrimSpace(intxt)
 		// get the context
-		outtxt, err := grok.Context(intxt, cli.Ctx.Tokenlimit, cli.Ctx.WithLineNumbers)
+		outtxt, err := grok.Context(intxt, cli.Ctx.Tokenlimit, cli.Ctx.WithHeaders, cli.Ctx.WithLineNumbers)
 		Ck(err)
 		Pl(outtxt)
 	case "embed":
@@ -439,7 +460,7 @@ func answer(grok *GrokkerInternal, question string, global bool) (resp, query st
 	Ck(err)
 
 	// answer the question
-	resp, err = grok.Answer(question, global)
+	resp, err = grok.Answer(question, false, false, global)
 	Ck(err)
 
 	return

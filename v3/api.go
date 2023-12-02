@@ -86,12 +86,29 @@ func (g *GrokkerInternal) ForgetDocument(path string) (err error) {
 	return
 }
 
+// Chat uses the given sysmsg and prompt along with context from the
+// knowledge base and message history file to generate a response.
+func (g *GrokkerInternal) Chat(sysmsg, prompt, fileName string) (resp string, err error) {
+	defer Return(&err)
+	// open the message history file
+	history, err := g.OpenChatHistory(fileName, sysmsg)
+	Ck(err)
+	defer func() {
+		err := history.Save()
+		Ck(err)
+	}()
+	// get response
+	resp, err = history.continueChat(prompt)
+	Ck(err)
+	return
+}
+
 // Context returns the context for a given text, limited by the
 // tokenLimit.
-func (g *GrokkerInternal) Context(text string, tokenLimit int, withLineNumbers bool) (context string, err error) {
+func (g *GrokkerInternal) Context(text string, tokenLimit int, withHeaders, withLineNumbers bool) (context string, err error) {
 	defer Return(&err)
 	// call getContext() with the tokenLimit
-	context, err = g.getContext(text, tokenLimit, withLineNumbers)
+	context, err = g.getContext(text, tokenLimit, withHeaders, withLineNumbers, nil)
 	return
 }
 
@@ -107,7 +124,7 @@ func (g *GrokkerInternal) Continue(in string, global bool) (out, sysmsg string, 
 	Ck(err)
 	// get chunks, sorted by similarity to the txt.
 	tokenLimit := int(float64(g.tokenLimit)*0.4) - len(sysmsgTokens) - len(inTokens)
-	context, err := g.getContext(in, tokenLimit, false)
+	context, err := g.getContext(in, tokenLimit, false, false, nil)
 	Ck(err)
 	// generate the answer.
 	resp, err := g.generate(sysmsg, in, context, global)
@@ -118,13 +135,13 @@ func (g *GrokkerInternal) Continue(in string, global bool) (out, sysmsg string, 
 }
 
 // Answer returns the answer to a question.
-func (g *GrokkerInternal) Answer(question string, global bool) (resp string, err error) {
+func (g *GrokkerInternal) Answer(question string, withHeaders, withLineNumbers, global bool) (resp string, err error) {
 	defer Return(&err)
 	// tokenize the question
 	qtokens, err := g.tokens(question)
 	Ck(err)
 	maxTokens := int(float64(g.tokenLimit)*0.5) - len(qtokens)
-	context, err := g.getContext(question, maxTokens, false)
+	context, err := g.getContext(question, maxTokens, withHeaders, withLineNumbers, nil)
 	Ck(err)
 	// generate the answer.
 	respmsg, err := g.generate(SysMsgChat, question, context, global)
@@ -154,7 +171,7 @@ func (g *GrokkerInternal) Revise(in string, global, sysmsgin bool) (out, sysmsg 
 
 	// get context
 	maxTokens := int(float64(g.tokenLimit)*0.5) - len(inTokens)
-	context, err := g.getContext(in, maxTokens, false)
+	context, err := g.getContext(in, maxTokens, false, false, nil)
 	Ck(err)
 
 	// generate the answer.

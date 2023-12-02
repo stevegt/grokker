@@ -187,7 +187,7 @@ func splitIntoChunks(doc *Document, txt, delimiter string) (chunks []*Chunk) {
 
 // similarChunks returns the most similar chunks to an embedding,
 // limited by tokenLimit.
-func (g *GrokkerInternal) similarChunks(embedding []float64, tokenLimit int) (chunks []*Chunk, err error) {
+func (g *GrokkerInternal) similarChunks(embedding []float64, tokenLimit int, files []string) (chunks []*Chunk, err error) {
 	defer Return(&err)
 	Debug("chunks in database: %d", len(g.Chunks))
 	// Assert(tokenLimit > 100, tokenLimit)
@@ -198,6 +198,19 @@ func (g *GrokkerInternal) similarChunks(embedding []float64, tokenLimit int) (ch
 	}
 	sims := make([]Sim, 0, len(g.Chunks))
 	for _, chunk := range g.Chunks {
+		// skip chunks from other files if files is not nil
+		if files != nil {
+			var found bool
+			for _, file := range files {
+				if chunk.Document.RelPath == file {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
+		}
 		score := similarity(embedding, chunk.Embedding)
 		sims = append(sims, Sim{chunk, score})
 	}
@@ -245,7 +258,7 @@ func (g *GrokkerInternal) similarChunks(embedding []float64, tokenLimit int) (ch
 }
 
 // findChunks returns the most relevant chunks for a query, limited by tokenLimit.
-func (g *GrokkerInternal) findChunks(query string, tokenLimit int) (chunks []*Chunk, err error) {
+func (g *GrokkerInternal) findChunks(query string, tokenLimit int, files []string) (chunks []*Chunk, err error) {
 	defer Return(&err)
 	// get the embeddings for the query.
 	embeddings, err := g.createEmbeddings([]string{query})
@@ -255,7 +268,7 @@ func (g *GrokkerInternal) findChunks(query string, tokenLimit int) (chunks []*Ch
 		return
 	}
 	// find the most similar chunks.
-	chunks, err = g.similarChunks(queryEmbedding, tokenLimit)
+	chunks, err = g.similarChunks(queryEmbedding, tokenLimit, files)
 	Ck(err)
 	return
 }
@@ -367,14 +380,14 @@ func (g *GrokkerInternal) gc() (err error) {
 }
 
 // getContext returns the context for a query.
-func (g *GrokkerInternal) getContext(query string, tokenLimit int, withLineNumbers bool) (context string, err error) {
+func (g *GrokkerInternal) getContext(query string, tokenLimit int, withHeaders, withLineNumbers bool, files []string) (context string, err error) {
 	defer Return(&err)
 	Debug("getting context, tokenLimit: %d, query: %q", tokenLimit, query)
 	// get chunks, sorted by similarity to the query.
-	chunks, err := g.findChunks(query, tokenLimit)
+	chunks, err := g.findChunks(query, tokenLimit, files)
 	Ck(err)
 	for _, chunk := range chunks {
-		text, err := g.chunkText(chunk, true, withLineNumbers)
+		text, err := g.chunkText(chunk, withHeaders, withLineNumbers)
 		Ck(err)
 		context += text
 	}

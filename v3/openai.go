@@ -67,6 +67,56 @@ func (g *GrokkerInternal) createEmbeddings(texts []string) (embeddings [][]float
 	return
 }
 
+// completeChat uses the openai API to complete a chat.  It converts the
+// role in the ChatMsg slice to the appropriate openai.ChatMessageRole
+// value.
+func (g *GrokkerInternal) completeChat(sysmsg string, msgs []ChatMsg) (response string, err error) {
+	defer Return(&err)
+
+	Debug("msgs: %s", Spprint(msgs))
+
+	omsgs := []oai.ChatCompletionMessage{
+		{
+			Role:    oai.ChatMessageRoleSystem,
+			Content: sysmsg,
+		},
+	}
+
+	// convert the ChatMsg slice to an oai.ChatCompletionMessage slice
+	for _, msg := range msgs {
+		var role string
+		switch msg.Role {
+		case "USER":
+			role = oai.ChatMessageRoleUser
+		case "AI":
+			role = oai.ChatMessageRoleAssistant
+		default:
+			Assert(false, "unknown role: %q", msg)
+		}
+		omsgs = append(omsgs, oai.ChatCompletionMessage{
+			Role:    role,
+			Content: msg.Txt,
+		})
+	}
+
+	Debug("omsgs: %s", Spprint(omsgs))
+
+	client := g.chatClient
+	resp, err := client.CreateChatCompletion(
+		context.Background(),
+		oai.ChatCompletionRequest{
+			Model:    g.oaiModel,
+			Messages: omsgs,
+		},
+	)
+	Ck(err)
+	response = resp.Choices[0].Message.Content
+
+	Debug("response: %s", response)
+
+	return
+}
+
 // generate returns the answer to a question.
 func (g *GrokkerInternal) generate(sysmsg, question, ctxt string, global bool) (resp oai.ChatCompletionResponse, err error) {
 	defer Return(&err)

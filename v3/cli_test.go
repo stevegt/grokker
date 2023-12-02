@@ -461,3 +461,69 @@ func TestCli(t *testing.T) {
 	wg.Wait()
 
 }
+
+func TestCliChat(t *testing.T) {
+
+	var stdout, stderr bytes.Buffer
+	_ = stderr
+	var emptyStdin bytes.Buffer
+	var match bool
+	var err error
+
+	///////////////////////////////////////////////////////////////
+	// everything below here requires a grokker repository to be
+	// initialized and takes place in that repository
+	///////////////////////////////////////////////////////////////
+
+	// get current working directory
+	cwd, err := os.Getwd()
+	Tassert(t, err == nil, "error getting current working directory: %v", err)
+	// create a temporary directory
+	dir, err := os.MkdirTemp("", "grokker")
+	Ck(err)
+	defer os.RemoveAll(dir)
+	// cd into the temporary directory
+	cd(t, dir)
+	defer cd(t, cwd)
+
+	// initialize a grokker repository
+	stdout, stderr, err = grok(emptyStdin, "init")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+
+	// set model
+	stdout, stderr, err = grok(emptyStdin, "model", "gpt-4")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+
+	// test chat with no files in the db
+	msgStdin := bytes.Buffer{}
+	msgStdin.WriteString("Let's discuss neural nets.")
+	stdout, stderr, err = grok(msgStdin, "chat", "nets")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	// check that the stdout buffer contains the expected output
+	match = cimatch(stdout.String(), "neural")
+	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
+	msgStdin.Reset()
+	msgStdin.WriteString("What were we talking about?")
+	stdout, stderr, err = grok(msgStdin, "chat", "nets")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	// check that the stdout buffer contains the expected output
+	match = cimatch(stdout.String(), "neural")
+	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
+
+	// see if the nets file got indexed
+	stdout, stderr, err = grok(emptyStdin, "ls")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	// check that the stdout buffer contains the expected output
+	match = cimatch(stdout.String(), "nets")
+	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
+
+	// make sure the nets file is showing up in a different chat context
+	msgStdin.Reset()
+	msgStdin.WriteString("What were we talking about?")
+	stdout, stderr, err = grok(msgStdin, "chat", "roses")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	// check that the stdout buffer contains the expected output
+	match = cimatch(stdout.String(), "neural")
+	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
+
+}

@@ -109,7 +109,7 @@ func TestChunkTextAfterRemovingFile(t *testing.T) {
 	Tassert(t, err == nil, "error adding doc: %v", err)
 
 	// get chunks from the document
-	chunks, err := grok.findChunks("Why is order of operations important when administering a UNIX machine?", 2000)
+	chunks, err := grok.findChunks("Why is order of operations important when administering a UNIX machine?", 2000, nil)
 	Tassert(t, err == nil, "error finding chunks: %v", err)
 	Tassert(t, len(chunks) > 0, "expected at least one chunk")
 	chunk := chunks[0]
@@ -136,7 +136,7 @@ func TestFindSimilar(t *testing.T) {
 	err = grok.AddDocument("testdata/te-abstract.txt")
 	Tassert(t, err == nil, "error adding doc: %v", err)
 	// find similar chunks
-	chunks, err := grok.findChunks("Why is order of operations important when administering a UNIX machine?", 2000)
+	chunks, err := grok.findChunks("Why is order of operations important when administering a UNIX machine?", 2000, nil)
 	Tassert(t, err == nil, "error finding similar chunks: %v", err)
 	Pl("similar chunks:")
 	for _, chunk := range chunks {
@@ -157,7 +157,7 @@ func TestChatQuery(t *testing.T) {
 	// answer the query
 	query := "What is the cheapest and easiest way to make a set of changes to a set of machines if you want them all to behave the same when you're done?"
 	Pl("query:", query)
-	resp, err := grok.Answer(query, false)
+	resp, err := grok.Answer(query, false, false, false)
 	Tassert(t, err == nil, "error answering query: %v", err)
 	Pl("answer:")
 	Pprint(resp)
@@ -175,7 +175,7 @@ func TestSplitChunks(t *testing.T) {
 	err = grok.AddDocument("testdata/te-full.txt")
 	Tassert(t, err == nil, "error adding doc: %v", err)
 	// get the chunks
-	chunks, err := grok.findChunks("Why is order of operations important when administering a UNIX machine?", 2000)
+	chunks, err := grok.findChunks("Why is order of operations important when administering a UNIX machine?", 2000, nil)
 	for _, chunk := range chunks {
 		text, err := grok.chunkText(chunk, false, false)
 		Tassert(t, err == nil, "error getting chunk text: %v", err)
