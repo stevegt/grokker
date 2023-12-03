@@ -24,6 +24,11 @@ type ChatMsg struct {
 	Txt  string
 }
 
+var SysMsgSummarizeChat = `You are an editor.  Rewrite the chat
+history to make it about half as long, focusing on the following
+topic.  Your answer must be in the same chat format.  Please include
+the AI: and USER: headers in your response.\n\nTopic:\n%s\n`
+
 // OpenChatHistory opens a chat history file and returns a ChatHistory
 // object.  The chat history file is a special format that is amenable
 // to context chunking and summarization.  The first line of the file
@@ -35,7 +40,7 @@ type ChatMsg struct {
 // ...where <role> is either "USER" or "AI", and <message> is the text
 // of the message.  The last message in the file is the most recent
 // message.
-func (g *GrokkerInternal) OpenChatHistory(relPath, sysmsg string) (history *ChatHistory, err error) {
+func (g *GrokkerInternal) OpenChatHistory(sysmsg, relPath string) (history *ChatHistory, err error) {
 	defer Return(&err)
 	Assert(relPath != "", "relPath is required")
 	path := filepath.Join(g.Root, relPath)
@@ -87,27 +92,40 @@ func (g *GrokkerInternal) OpenChatHistory(relPath, sysmsg string) (history *Chat
 	return
 }
 
-// continueChat continues a chat history.
-func (history *ChatHistory) continueChat(prompt string) (resp string, err error) {
+// continueChat continues a chat history.  The debug map contains
+// interesting statistics about the process, for testing and debugging
+// purposes.
+func (history *ChatHistory) continueChat(prompt string, limitContext, fast bool) (resp string, debug map[string]int, err error) {
 	defer Return(&err)
 	g := history.g
 
-	Debug("continueChat: prompt=%s", prompt)
+	Debug("continueChat: prompt len=%d", len(prompt))
 
 	// create a temporary slice of messages to work with
 	var msgs []ChatMsg
 
-	// get context from the knowledge base -- this includes the chat history
-	// file itself, because it is a document in the knowledge base
-	var context string
-	maxTokens := int(float64(g.tokenLimit) * 0.5)
-	if maxTokens > int(float64(g.tokenLimit)*0.1) {
-		context, err = g.getContext(prompt, maxTokens, false, false, nil)
+	if !fast {
+		// get context
+		maxTokens := int(float64(g.tokenLimit) * 0.5)
+		var context string
+		var files []string
+		if limitContext {
+			// get context only from the chat history file itself
+			files = []string{history.relPath}
+		} else {
+			// get context from all files in the knowledge base -- this
+			// includes the chat history file itself, because it is a
+			// document in the knowledge base
+			files = nil
+		}
+		context, err = g.getContext(prompt, maxTokens, false, false, files)
 		Ck(err)
-		// make context look like a message exchange
-		msgs = []ChatMsg{
-			ChatMsg{Role: "USER", Txt: context},
-			ChatMsg{Role: "AI", Txt: "I understand the context."},
+		if context != "" {
+			// make context look like a message exchange
+			msgs = []ChatMsg{
+				ChatMsg{Role: "USER", Txt: context},
+				ChatMsg{Role: "AI", Txt: "I understand the context."},
+			}
 		}
 	}
 
@@ -117,9 +135,24 @@ func (history *ChatHistory) continueChat(prompt string) (resp string, err error)
 	// append the prompt to the context
 	msgs = append(msgs, ChatMsg{Role: "USER", Txt: prompt})
 
-	// summarize
-	msgs, err = history.summarize(msgs)
+	peakCount, err := history.tokenCount(msgs)
 	Ck(err)
+
+	// summarize
+	promptTc, err := g.TokenCount(prompt)
+	Debug("continueChat: promptTc=%d", promptTc)
+	Ck(err)
+	maxTokens := g.tokenLimit / 2
+	msgs, err = history.summarize(prompt, msgs, maxTokens, fast)
+	Ck(err)
+
+	finalCount, err := history.tokenCount(msgs)
+	Ck(err)
+
+	debug = map[string]int{
+		"peakCount":  peakCount,
+		"finalCount": finalCount,
+	}
 
 	// generate the response
 	resp, err = g.completeChat(history.Sysmsg, msgs)
@@ -131,52 +164,115 @@ func (history *ChatHistory) continueChat(prompt string) (resp string, err error)
 	return
 }
 
-// summarize summarizes a chat history until it is within the
-// tokenLimit/2.  It always leaves the last message intact.
-func (history *ChatHistory) summarize(msgs []ChatMsg) (summarized []ChatMsg, err error) {
+// summarize summarizes a chat history until it is within
+// maxTokens.  It always leaves the last message intact.
+func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens int, fast bool) (summarized []ChatMsg, err error) {
 	defer Return(&err)
 	g := history.g
 
 	// count tokens
-	msgsCount, err := history.TokenCount(msgs)
+	msgsCount, err := history.tokenCount(msgs)
 	Ck(err)
 
-	Debug("summarize: msgsCount=%d, tokenLimit=%d", msgsCount, g.tokenLimit)
-	Debug("summarize: msgs=%v", Spprint(msgs))
+	Debug("summarize: msgsCount=%d, maxTokens=%d", msgsCount, maxTokens)
+	// Debug("summarize: msgsBefore=%v", Spprint(msgs))
+
+	minTokens := g.tokenLimit / 10
+	Assert(maxTokens > minTokens, "maxTokens must be greater than %d", minTokens)
 
 	// if we are already within the limit, return
-	if msgsCount <= g.tokenLimit/2 {
+	if msgsCount <= maxTokens {
 		summarized = msgs
+		Debug("summarize: done")
 		return
 	}
 
-	for len(summarized) == 0 {
-		// summarize the first half of the messages by converting them to
-		// a text format that GPT-4 can understand, sending them to GPT-4,
-		// and then converting the response back to a slice of messages.
-		// The format is the same as the chat history file format.
-		txt := history.chat2txt(msgs[:len(msgs)/2])
-		// send to GPT-4
-		resp, err := g.Msg("You are an editor.  Rewrite the chat history to make it about half as long.  Your answer must be in the same chat format.  Please include the AI: and USER: headers in your response.", txt)
+	var sysmsg string
+	if !fast {
+		// generate a sysmsg that includes a short summary of the prompt
+		topic, err := g.Msg("Summarize the topic in one sentence.", prompt)
 		Ck(err)
-		// convert the response back to a slice of messages
-		Debug("summarize: resp=%s", resp)
-		summarized = history.parseChat(resp)
+		sysmsg = Spf(SysMsgSummarizeChat, topic)
+	}
+	// sysmsgTc, err := g.TokenCount(sysmsg)
+	// Ck(err)
+
+	// find the middle message, where "middle" is defined as the point
+	// either maxTokens from the start or msgsCount/2 from the start,
+	// whichever comes first
+	var middleI int
+	// total token count of the first half of the messages
+	var firstHalfCount int
+	for i, msg := range msgs {
+		// count tokens
+		count, err := g.TokenCount(msg.Txt)
+		Ck(err)
+		if firstHalfCount+count > msgsCount/2 {
+			// we are nearing maxTokens from the end
+			middleI = i
+			break
+		}
+		if firstHalfCount+count > maxTokens {
+			// we are nearing maxTokens from the start
+			middleI = i
+			break
+		}
+		firstHalfCount += count
+	}
+	// define a variable that shows where the second half of the messages
+	// will begin
+	secondHalfI := middleI + 1
+
+	// Rewrite the middle message by splitting it into two messages
+	// from the same role, such that the first message when added to
+	// the first half of the messages will cause firstHalfCount to be
+	// maxTokens.  We go to all this trouble because the middle
+	// message might be longer than maxTokens.
+	middleMsg := msgs[middleI]
+	txt1, txt2 := g.splitAt(middleMsg.Txt, maxTokens-firstHalfCount)
+	// create two new messages
+	msg1 := ChatMsg{Role: middleMsg.Role, Txt: txt1}
+	msg2 := ChatMsg{Role: middleMsg.Role, Txt: txt2}
+	// replace the middle message with the first new message
+	msgs[middleI] = msg1
+	// append a new message to the end of the slice as a placeholder
+	msgs = append(msgs, ChatMsg{})
+	// shift the second half of the messages right by one
+	// - this copies over the placeholder
+	copy(msgs[secondHalfI+1:], msgs[secondHalfI:])
+	// insert the second new message as the first message in the
+	// second half of the messages
+	msgs[secondHalfI] = msg2
+
+	if !fast {
+		for len(summarized) == 0 {
+			// summarize the first half of the messages by converting them to
+			// a text format that GPT-4 can understand, sending them to GPT-4,
+			// and then converting the response back to a slice of messages.
+			// The format is the same as the chat history file format.
+			txt := history.chat2txt(msgs[:secondHalfI])
+			// send to GPT-4
+			resp, err := g.Msg(sysmsg, txt)
+			Ck(err)
+			// convert the response back to a slice of messages
+			// Debug("summarize: resp=%s", resp)
+			summarized = history.parseChat(resp)
+		}
 	}
 
 	// append the second half of the messages to the summarized messages
-	summarized = append(summarized, msgs[len(msgs)/2:]...)
+	summarized = append(summarized, msgs[secondHalfI:]...)
 
 	// recurse
-	summarized, err = history.summarize(summarized)
-	Ck(err)
-
-	return
+	return history.summarize(prompt, summarized, maxTokens, fast)
 }
 
 // chat2txt returns the given history messages as a text string.
 func (history *ChatHistory) chat2txt(msgs []ChatMsg) (txt string) {
 	for _, msg := range msgs {
+		if strings.TrimSpace(msg.Txt) == "" {
+			continue
+		}
 		txt += Spf("%s:\n%s\n\n", msg.Role, msg.Txt)
 	}
 	return
@@ -187,10 +283,12 @@ func (history *ChatHistory) chat2txt(msgs []ChatMsg) (txt string) {
 func (history *ChatHistory) parseChat(txt string) (msgs []ChatMsg) {
 	// split into lines
 	lines := strings.Split(txt, "\n")
-	// parse each line
-	pattern := `^([A-Z]+):`
+	// the first line of each message is the role followed by a colon
+	// and an optional line of text
+	pattern := `^([A-Z]+):(.*$)`
 	re := regexp.MustCompile(pattern)
 	var msg *ChatMsg
+	// parse each line
 	for _, line := range lines {
 		// look for a role
 		m := re.FindStringSubmatch(line)
@@ -200,8 +298,9 @@ func (history *ChatHistory) parseChat(txt string) (msgs []ChatMsg) {
 				msgs = append(msgs, *msg)
 			}
 			role := history.fixRole(m[1])
+			txt := strings.TrimSpace(m[2])
 			// create a new message
-			msg = &ChatMsg{Role: role}
+			msg = &ChatMsg{Role: role, Txt: txt}
 			continue
 		}
 		if msg == nil {
@@ -283,8 +382,8 @@ func (history *ChatHistory) Save() (err error) {
 	return nil
 }
 
-// TokenCount returns the number of tokens in the given chat history.
-func (history *ChatHistory) TokenCount(msgs []ChatMsg) (count int, err error) {
+// tokenCount returns the number of tokens in the given chat history.
+func (history *ChatHistory) tokenCount(msgs []ChatMsg) (count int, err error) {
 	defer Return(&err)
 	g := history.g
 	// convert the chat history to a text string
@@ -292,5 +391,41 @@ func (history *ChatHistory) TokenCount(msgs []ChatMsg) (count int, err error) {
 	// get the token count
 	count, err = g.TokenCount(txt)
 	Ck(err)
+	return
+}
+
+// splitAt splits a string at the given token count.  It returns two
+// strings, the first of which is the first part of the string, and
+// the second of which is the second part of the string.
+func (g *GrokkerInternal) splitAt(txt string, tokenCount int) (txt1, txt2 string) {
+	middle := len(txt) / 2
+	// use binary search to find the middle
+	move := middle / 2
+	for {
+		// split the string in half
+		txt1 = txt[:middle]
+		txt2 = txt[middle:]
+		// count the tokens in the first half
+		count, err := g.TokenCount(txt1)
+		Ck(err)
+		// move a shorter distance
+		move = int(float64(move) * 0.5)
+		if move == 0 {
+			// we are done without finding the exact token count
+			break
+		}
+		// if the token count is too high, move the middle to the left
+		if count > tokenCount {
+			middle -= move
+			continue
+		}
+		// if the token count is too low, move the middle to the right
+		if count < tokenCount {
+			middle += move
+			continue
+		}
+		// if we get here, count == tokenCount
+		break
+	}
 	return
 }

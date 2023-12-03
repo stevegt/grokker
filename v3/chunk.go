@@ -54,7 +54,7 @@ func newChunk(doc *Document, offset, length int, text string) (c *Chunk) {
 		Hash:     hashStr,
 		text:     text,
 	}
-	Debug("NewChunk: %#v", c)
+	// Debug("NewChunk: %#v", c)
 	return
 }
 
@@ -99,7 +99,7 @@ func (chunk *Chunk) splitChunk(g *GrokkerInternal, tokenLimit int) (newChunks []
 
 // chunkText returns the text of a chunk.
 func (g *GrokkerInternal) chunkText(c *Chunk, withHeader, withLineNumbers bool) (text string, err error) {
-	Debug("ChunkText(%#v)", c)
+	// Debug("ChunkText(%#v)", c)
 	if c.Document == nil {
 		Assert(c.text != "", "ChunkText: c.Document == nil && c.text == \"\"")
 		text = c.text
@@ -150,7 +150,7 @@ func (g *GrokkerInternal) chunkText(c *Chunk, withHeader, withLineNumbers bool) 
 		text = fmt.Sprintf("from %s:\n%s\n", c.Document.RelPath, text)
 	}
 
-	Debug("ChunkText: %q", text)
+	// Debug("ChunkText: %q", text)
 	return
 }
 
@@ -382,7 +382,7 @@ func (g *GrokkerInternal) gc() (err error) {
 // getContext returns the context for a query.
 func (g *GrokkerInternal) getContext(query string, tokenLimit int, withHeaders, withLineNumbers bool, files []string) (context string, err error) {
 	defer Return(&err)
-	Debug("getting context, tokenLimit: %d, query: %q", tokenLimit, query)
+	// Debug("getting context, tokenLimit: %d, query: %q", tokenLimit, query)
 	// get chunks, sorted by similarity to the query.
 	chunks, err := g.findChunks(query, tokenLimit, files)
 	Ck(err)

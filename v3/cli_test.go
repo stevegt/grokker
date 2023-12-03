@@ -526,4 +526,13 @@ func TestCliChat(t *testing.T) {
 	match = cimatch(stdout.String(), "neural")
 	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
 
+	// test sysmsg flag
+	msgStdin.Reset()
+	msgStdin.WriteString("Write a simple neural net in Go.")
+	stdout, stderr, err = grok(msgStdin, "chat", "nets", "-s", "You are a neural net expert and Go developer.")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	// check that the stdout buffer contains the expected output
+	match = cimatch(stdout.String(), "import")
+	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
+
 }

@@ -2,7 +2,9 @@ package grokker
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/fabiustech/openai"
@@ -44,8 +46,8 @@ func (g *GrokkerInternal) createEmbeddings(texts []string) (embeddings [][]float
 			Input: inputs,
 			Model: fabius_models.AdaEmbeddingV2,
 		}
-		Debug("creating embedding for chunk %d of %d ...", i+1, len(texts))
-		Debug("text: %q", text)
+		// Debug("creating embedding for chunk %d of %d ...", i+1, len(texts))
+		// Debug("text: %q", text)
 		// loop with backoff until we get a response
 		var res *openai.EmbeddingResponse
 		for backoff := 1; backoff < 10; backoff++ {
@@ -73,7 +75,7 @@ func (g *GrokkerInternal) createEmbeddings(texts []string) (embeddings [][]float
 func (g *GrokkerInternal) completeChat(sysmsg string, msgs []ChatMsg) (response string, err error) {
 	defer Return(&err)
 
-	Debug("msgs: %s", Spprint(msgs))
+	// Debug("msgs: %s", Spprint(msgs))
 
 	omsgs := []oai.ChatCompletionMessage{
 		{
@@ -84,6 +86,10 @@ func (g *GrokkerInternal) completeChat(sysmsg string, msgs []ChatMsg) (response 
 
 	// convert the ChatMsg slice to an oai.ChatCompletionMessage slice
 	for _, msg := range msgs {
+		// skip empty messages
+		if len(strings.TrimSpace(msg.Txt)) == 0 {
+			continue
+		}
 		var role string
 		switch msg.Role {
 		case "USER":
@@ -99,7 +105,7 @@ func (g *GrokkerInternal) completeChat(sysmsg string, msgs []ChatMsg) (response 
 		})
 	}
 
-	Debug("omsgs: %s", Spprint(omsgs))
+	// Debug("omsgs: %s", Spprint(omsgs))
 
 	client := g.chatClient
 	resp, err := client.CreateChatCompletion(
@@ -112,7 +118,7 @@ func (g *GrokkerInternal) completeChat(sysmsg string, msgs []ChatMsg) (response 
 	Ck(err)
 	response = resp.Choices[0].Message.Content
 
-	Debug("response: %s", response)
+	// Debug("response: %s", response)
 
 	return
 }
@@ -178,7 +184,15 @@ func (g *GrokkerInternal) generate(sysmsg, question, ctxt string, global bool) (
 func (g *GrokkerInternal) msg(sysmsg, input string) (resp oai.ChatCompletionResponse, err error) {
 	defer Return(&err)
 
-	// XXX don't exceed max tokens
+	// don't exceed max tokens
+	sysmsgTc, err := g.TokenCount(sysmsg)
+	Ck(err)
+	inputTc, err := g.TokenCount(input)
+	Ck(err)
+	if sysmsgTc+inputTc > g.tokenLimit {
+		err = fmt.Errorf("token count %d exceeds token limit %d", sysmsgTc+inputTc, g.tokenLimit)
+		return
+	}
 
 	messages := []oai.ChatCompletionMessage{
 		{
@@ -204,7 +218,7 @@ func (g *GrokkerInternal) chat(messages []oai.ChatCompletionMessage) (resp oai.C
 
 	model := g.oaiModel
 	Debug("chat model: %s", model)
-	Debug("chat: messages: %v", messages)
+	// Debug("chat: messages: %v", messages)
 
 	// use 	"github.com/sashabaranov/go-openai"
 	client := g.chatClient
@@ -222,7 +236,7 @@ func (g *GrokkerInternal) chat(messages []oai.ChatCompletionMessage) (resp oai.C
 	}
 	totalBytes += len(resp.Choices[0].Message.Content)
 	ratio := float64(totalBytes) / float64(resp.Usage.TotalTokens)
-	Debug("chat response: %s", resp)
+	// Debug("chat response: %s", resp)
 	Debug("total tokens: %d  char/token ratio: %.1f\n", resp.Usage.TotalTokens, ratio)
 	return
 }

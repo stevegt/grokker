@@ -45,10 +45,62 @@ In the above code, `args` is your custom arguments array slice. Here, the slice 
 
 */
 
+/*
+
+
+
+how do i make kong parse this:  `grok chat -s sysmsg  chatfile`
+...in other words, the sysmsg is optional and denoted by the -s flag, while the chatfile is required and not denoted by a flag.
+
+To make Kong parse the `grok chat -s sysmsg chatfile` command where `sysmsg` is an optional flag and `chatfile` is a required argument, you can structure your Kong CLI arguments as follows:
+
+```go
+type CLI struct {
+    Chat struct {
+        Sysmsg    string `name:"s" help:"Optional sysmsg argument"`
+        Chatfile  string `arg:"" required:"" help:"Required chatfile argument"`
+    } `cmd help:"Your command description"`
+}
+```
+
+- `Chat` is the command (like `chat` in `grok chat`).
+- `Sysmsg` is the optional argument denoted by `-s`.
+- `Chatfile` is the mandatory argument.
+
+You can provide help messages through `help` tags, which Kong will use during error reporting and for generating help screens. The flags `required` and `arg` are used to declare `Chatfile` as a required argument.
+
+$ grok chat -s "You are a python programmer."  test
+grokker: error: unexpected argument test
+
+To modify the Kong interface to correctly parse the command `grok chat -s sysmsg chatfile`, you might need to adjust the placement of the `name` and `arg` tags in the struct, like so:
+
+```go
+type CLI struct {
+    Chat struct {
+        Sysmsg    string `help:"Optional sysmsg argument" name:"s" optional:""`
+        Chatfile  string `name:"" help:"Required chatfile argument" arg:""`
+    } `cmd help:"Your command description"`
+}
+```
+
+Here, the `name` tag in the `Sysmsg` line has been moved to define `sysmsg` as optional and under the `-s` flag, while the `Chatfile` line now includes `arg` to declare it as a positional argument, which Kong recognizes as a required argument even without the `required` flag.
+
+Remember, the `arg` string should be empty to denote that `Chatfile` doesn't have a preceding flag.
+
+Now if you try: `grok chat -s "You are a python programmer." test`
+It should correctly interpret `test` as a required `Chatfile`, rather than an unexpected argument.
+
+
+
+*/
+
 // parse args using kong package
 type cmdChat struct {
-	Sysmsg string `short:"s" default:"" help:"System message to send to control behavior of openAI's API."`
-	File   string `arg:"" type:"string" help:"Memory file to use for chat."`
+	// grok chat -s sysmsg memoryfile < prompt
+	Sysmsg       string `name:"sysmsg" short:"s" default:"" help:"System message to send to control behavior of openAI's API."`
+	LimitContext bool   `short:"L" help:"Limit context to the chat file only."`
+	Fast         bool   `short:"F" help:"Run fast by using only the more recent messages in the chat as context."`
+	File         string `arg:"" required:"" help:"Memory file to use for chat."`
 }
 
 var cli struct {
@@ -81,15 +133,16 @@ var cli struct {
 	Q struct {
 		Question string `arg:"" help:"Question to ask the knowledge base."`
 	} `cmd:"" help:"Ask the knowledge base a question."`
-	Qc         struct{} `cmd:"" help:"Continue text from stdin based on the context in the knowledge base."`
-	Qi         struct{} `cmd:"" help:"Ask the knowledge base a question on stdin."`
-	Qr         struct{} `cmd:"" help:"Revise stdin based on the context in the knowledge base."`
+	Qc struct{} `cmd:"" help:"Continue text from stdin based on the context in the knowledge base."`
+	Qi struct{} `cmd:"" help:"Ask the knowledge base a question on stdin."`
+	Qr struct {
+		SysMsg bool `short:"s" help:"expect sysmsg in first paragraph of stdin, return same on stdout."`
+	} `cmd:"" help:"Revise stdin based on the context in the knowledge base."`
 	Refresh    struct{} `cmd:"" help:"Refresh the embeddings for all documents in the knowledge base."`
 	Similarity struct {
 		Refpath string   `arg:"" help:"Reference file path."`
 		Paths   []string `arg:"" help:"Files to compare to reference file."`
 	} `cmd:"" help:"Calculate the similarity between two or more files in the knowledge base."`
-	SysMsg  bool     `short:"s" help:"expect sysmsg in first paragraph of stdin, return same on stdout."`
 	Tc      struct{} `cmd:"" help:"Calculate the token count of stdin."`
 	Verbose bool     `short:"v" help:"Show debug and progress information on stderr."`
 	Version struct{} `cmd:"" help:"Show version of grok and its database."`
@@ -255,7 +308,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		// trim whitespace
 		intxt = strings.TrimSpace(intxt)
 		// get the response
-		outtxt, err := grok.Chat(cli.Chat.Sysmsg, intxt, cli.Chat.File)
+		outtxt, err := grok.Chat(cli.Chat.Sysmsg, intxt, cli.Chat.File, cli.Chat.LimitContext, cli.Chat.Fast)
 		Ck(err)
 		Pl(outtxt)
 		// save the grok file
@@ -354,7 +407,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		Ck(err)
 		in := string(buf)
 		// in = strings.TrimSpace(in)
-		out, updated, err := revise(grok, in, cli.Global, cli.SysMsg)
+		out, updated, err := revise(grok, in, cli.Global, cli.Qr.SysMsg)
 		Ck(err)
 		// Pf("%s\n\n%s\n", sysmsg, out)
 		// Pf("%s\n\n%s\n\n", in, out)
