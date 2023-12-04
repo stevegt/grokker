@@ -194,12 +194,15 @@ func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens i
 		Ck(err)
 		sysmsg = Spf(SysMsgSummarizeChat, topic)
 	}
-	// sysmsgTc, err := g.TokenCount(sysmsg)
-	// Ck(err)
+	sysmsgTc, err := g.TokenCount(sysmsg)
+	Ck(err)
+	Debug("summarize: sysmsgTc=%d", sysmsgTc)
 
 	// find the middle message, where "middle" is defined as the point
-	// either maxTokens from the start or msgsCount/2 from the start,
+	// either maxTokens from the start or endStop tokens from the end,
 	// whichever comes first
+	endStop := maxTokens - sysmsgTc*2
+	Debug("endstop=%d", endStop)
 	var middleI int
 	// total token count of the first half of the messages
 	var firstHalfCount int
@@ -207,7 +210,7 @@ func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens i
 		// count tokens
 		count, err := g.TokenCount(msg.Txt)
 		Ck(err)
-		if firstHalfCount+count > msgsCount/2 {
+		if firstHalfCount+count > endStop {
 			// we are nearing maxTokens from the end
 			middleI = i
 			break
