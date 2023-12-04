@@ -97,10 +97,11 @@ It should correctly interpret `test` as a required `Chatfile`, rather than an un
 // parse args using kong package
 type cmdChat struct {
 	// grok chat -s sysmsg memoryfile < prompt
-	Sysmsg       string `name:"sysmsg" short:"s" default:"" help:"System message to send to control behavior of openAI's API."`
-	LimitContext bool   `short:"L" help:"Limit context to the chat file only."`
-	Fast         bool   `short:"F" help:"Run fast by using only the more recent messages in the chat as context."`
-	File         string `arg:"" required:"" help:"Memory file to use for chat."`
+	Sysmsg      string `name:"sysmsg" short:"s" default:"" help:"System message to send to control behavior of openAI's API."`
+	ContextRepo bool   `short:"C" help:"Add context from the entire grokker repository (includes chat file)."`
+	ContextChat bool   `short:"c" help:"Add context from the entire chat file."`
+	Prompt      string `short:"m" help:"Prompt message to use instead of stdin."`
+	File        string `arg:"" required:"" help:"File to store the chat history -- by default the tail is used for context."`
 }
 
 var cli struct {
@@ -109,7 +110,7 @@ var cli struct {
 	} `cmd:"" help:"Add a file to the knowledge base."`
 	Backup struct{} `cmd:"" help:"Backup the knowledge base."`
 	// grok chat -s sysmsg -f memoryfile < prompt
-	Chat   cmdChat  `cmd:"" help:"Have a conversation with the knowledge base."`
+	Chat   cmdChat  `cmd:"" help:"Have a conversation with the knowledge base; accepts prompt on stdin."`
 	Commit struct{} `cmd:"" help:"Generate a git commit message on stdout."`
 	Ctx    struct {
 		Tokenlimit      int  `arg:"" type:"int" help:"Maximum number of tokens to include in the context."`
@@ -301,14 +302,21 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		// save the grok file
 		save = true
 	case "chat <file>":
-		// get text from stdin and print the response
-		buf, err := ioutil.ReadAll(config.Stdin)
-		Ck(err)
-		intxt := string(buf)
+		var prompt string
+		if cli.Chat.Prompt != "" {
+			prompt = cli.Chat.Prompt
+		} else {
+			// get text from stdin and print the response
+			buf, err := ioutil.ReadAll(config.Stdin)
+			Ck(err)
+			prompt = string(buf)
+		}
 		// trim whitespace
-		intxt = strings.TrimSpace(intxt)
+		prompt = strings.TrimSpace(prompt)
 		// get the response
-		outtxt, err := grok.Chat(cli.Chat.Sysmsg, intxt, cli.Chat.File, cli.Chat.LimitContext, cli.Chat.Fast)
+		limitContext := !cli.Chat.ContextRepo
+		fast := !cli.Chat.ContextChat
+		outtxt, err := grok.Chat(cli.Chat.Sysmsg, prompt, cli.Chat.File, limitContext, fast)
 		Ck(err)
 		Pl(outtxt)
 		// save the grok file

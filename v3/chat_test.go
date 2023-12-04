@@ -65,6 +65,7 @@ func TestChatSummarization(t *testing.T) {
 	// initialize Tokenizer
 	err = InitTokenizer()
 	Ck(err)
+	defer grok.Save()
 
 	// start a chat by mentioning something not in GPT-4's global context
 	res, err := grok.Chat("", "Pretend a blue widget has a red center.", "chat1", false, false)
@@ -88,7 +89,7 @@ func TestChatSummarization(t *testing.T) {
 	res, debug, err := history.continueChat("Talk about complex systems.", false, false)
 	Tassert(t, err == nil, "error continuing chat: %v", err)
 	err = history.Save()
-	Ck(err)
+	Tassert(t, err == nil, "error saving chat history: %v", err)
 	// should take no more than a few iterations to reach half the token limit
 	tokenLimit := grok.tokenLimit
 	ok := false
@@ -130,6 +131,9 @@ func TestChatSummarization(t *testing.T) {
 			Pl("using prebaked chat file")
 			err = os.WriteFile("chat1", largeChatBuf, 0644)
 			Tassert(t, err == nil, "error writing file: %v", err)
+			// add the file to the database
+			err = grok.AddDocument("chat1")
+			Tassert(t, err == nil, "error adding file: %v", err)
 		} else {
 			Pl("generating chat file")
 			ctx, err := grok.Context("system", 3000, false, false)

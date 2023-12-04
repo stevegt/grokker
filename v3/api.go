@@ -200,7 +200,7 @@ func (g *GrokkerInternal) Backup() (backpath string, err error) {
 	return
 }
 
-// Save saves the Grokker database as json data in an io.Writer.
+// Save saves the Grokker database to the stored path.
 func (g *GrokkerInternal) Save() (err error) {
 	defer Return(&err)
 

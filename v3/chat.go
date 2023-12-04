@@ -86,9 +86,6 @@ func (g *GrokkerInternal) OpenChatHistory(sysmsg, relPath string) (history *Chat
 	// set grokker
 	history.g = g
 
-	// add the history file to grokker's list of files
-	g.AddDocument(relPath)
-
 	return
 }
 
@@ -381,6 +378,11 @@ func (history *ChatHistory) Save() (err error) {
 		err = os.Remove(backup)
 		Ck(err)
 	}
+
+	// call AddDocument to update the embeddings
+	err = history.g.AddDocument(path)
+	Ck(err)
+
 	Debug("chat history saved to %s", path)
 	return nil
 }
