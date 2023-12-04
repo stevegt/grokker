@@ -92,23 +92,22 @@ func (g *GrokkerInternal) OpenChatHistory(sysmsg, relPath string) (history *Chat
 // continueChat continues a chat history.  The debug map contains
 // interesting statistics about the process, for testing and debugging
 // purposes.
-func (history *ChatHistory) continueChat(prompt string, limitContext, fast bool) (resp string, debug map[string]int, err error) {
+func (history *ChatHistory) continueChat(prompt string, level ContextLevel) (resp string, debug map[string]int, err error) {
 	defer Return(&err)
 	g := history.g
 
 	Debug("continueChat: prompt len=%d", len(prompt))
-	Debug("continueChat: limitContext=%v", limitContext)
-	Debug("continueChat: fast=%v", fast)
+	Debug("continueChat: context level=%s", level)
 
 	// create a temporary slice of messages to work with
 	var msgs []ChatMsg
 
-	if !fast || !limitContext {
+	if level != ContextRecent {
 		// get context
 		maxTokens := int(float64(g.tokenLimit) * 0.5)
 		var context string
 		var files []string
-		if limitContext {
+		if level == ContextChat {
 			// get context only from the chat history file itself
 			files = []string{history.relPath}
 		} else {
@@ -143,7 +142,7 @@ func (history *ChatHistory) continueChat(prompt string, limitContext, fast bool)
 	Debug("continueChat: promptTc=%d", promptTc)
 	Ck(err)
 	maxTokens := g.tokenLimit / 2
-	msgs, err = history.summarize(prompt, msgs, maxTokens, fast)
+	msgs, err = history.summarize(prompt, msgs, maxTokens, level)
 	Ck(err)
 
 	finalCount, err := history.tokenCount(msgs)
@@ -166,7 +165,7 @@ func (history *ChatHistory) continueChat(prompt string, limitContext, fast bool)
 
 // summarize summarizes a chat history until it is within
 // maxTokens.  It always leaves the last message intact.
-func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens int, fast bool) (summarized []ChatMsg, err error) {
+func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens int, level ContextLevel) (summarized []ChatMsg, err error) {
 	defer Return(&err)
 	g := history.g
 
@@ -188,7 +187,7 @@ func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens i
 	}
 
 	var sysmsg string
-	if !fast {
+	if level != ContextRecent {
 		// generate a sysmsg that includes a short summary of the prompt
 		topic, err := g.Msg("Summarize the topic in one sentence.", prompt)
 		Ck(err)
@@ -247,7 +246,7 @@ func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens i
 	// second half of the messages
 	msgs[secondHalfI] = msg2
 
-	if !fast {
+	if level != ContextRecent {
 		for len(summarized) == 0 {
 			// summarize the first half of the messages by converting them to
 			// a text format that GPT-4 can understand, sending them to GPT-4,
@@ -267,7 +266,7 @@ func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens i
 	summarized = append(summarized, msgs[secondHalfI:]...)
 
 	// recurse
-	return history.summarize(prompt, summarized, maxTokens, fast)
+	return history.summarize(prompt, summarized, maxTokens, level)
 }
 
 // chat2txt returns the given history messages as a text string.

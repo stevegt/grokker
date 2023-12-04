@@ -68,7 +68,7 @@ func TestChatSummarization(t *testing.T) {
 	defer grok.Save()
 
 	// start a chat by mentioning something not in GPT-4's global context
-	res, err := grok.Chat("", "Pretend a blue widget has a red center.", "chat1", false, false)
+	res, err := grok.Chat("", "Pretend a blue widget has a red center.", "chat1", ContextAll)
 	Tassert(t, err == nil, "error starting chat: %v", err)
 	// check that the response contains the expected output
 	match = cimatch(res, "red")
@@ -86,7 +86,7 @@ func TestChatSummarization(t *testing.T) {
 	Pl("testing large context")
 	history, err := grok.OpenChatHistory("", "chat1")
 	Tassert(t, err == nil, "error opening chat history: %v", err)
-	res, debug, err := history.continueChat("Talk about complex systems.", false, false)
+	res, debug, err := history.continueChat("Talk about complex systems.", ContextAll)
 	Tassert(t, err == nil, "error continuing chat: %v", err)
 	err = history.Save()
 	Tassert(t, err == nil, "error saving chat history: %v", err)
@@ -98,7 +98,7 @@ func TestChatSummarization(t *testing.T) {
 		ctx, err := grok.Context("system", 3000, false, false)
 		Tassert(t, err == nil, "error getting context: %v", err)
 		prompt := Spf("%s\n\nDiscuss complex systems more.", ctx)
-		res, debug, err = history.continueChat(prompt, false, false)
+		res, debug, err = history.continueChat(prompt, ContextAll)
 		Tassert(t, err == nil, "error continuing chat: %v", err)
 		err = history.Save()
 		Ck(err)
@@ -118,7 +118,7 @@ func TestChatSummarization(t *testing.T) {
 	Tassert(t, ok, "peak token count never exceeded token limit: %v", debug)
 
 	// check that we still remember the blue widget
-	res, err = grok.Chat("", "What color is the center of the blue widget?", "chat1", false, false)
+	res, err = grok.Chat("", "What color is the center of the blue widget?", "chat1", ContextAll)
 	match = cimatch(res, "red")
 	Tassert(t, match, "CLI did not return expected output: %s", res)
 
@@ -139,7 +139,7 @@ func TestChatSummarization(t *testing.T) {
 			ctx, err := grok.Context("system", 3000, false, false)
 			Tassert(t, err == nil, "error getting context: %v", err)
 			prompt := Spf("Discuss this topic more:\n%s\n\n", ctx)
-			res, _, err = history.continueChat(prompt, false, false)
+			res, _, err = history.continueChat(prompt, ContextAll)
 			Tassert(t, err == nil, "error continuing chat: %v", err)
 			err = history.Save()
 			Ck(err)
@@ -160,7 +160,7 @@ func TestChatSummarization(t *testing.T) {
 	Tassert(t, ok, "chat1 file never exceeded token limit: %v", debug)
 
 	// check that we still remember the blue widget
-	res, err = grok.Chat("", "What color is the center of the blue widget?", "chat1", false, false)
+	res, err = grok.Chat("", "What color is the center of the blue widget?", "chat1", ContextAll)
 	match = cimatch(res, "red")
 	Tassert(t, match, "CLI did not return expected output: %s", res)
 

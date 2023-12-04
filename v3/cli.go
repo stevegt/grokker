@@ -314,9 +314,15 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		// trim whitespace
 		prompt = strings.TrimSpace(prompt)
 		// get the response
-		limitContext := !cli.Chat.ContextRepo
-		fast := !cli.Chat.ContextChat
-		outtxt, err := grok.Chat(cli.Chat.Sysmsg, prompt, cli.Chat.File, limitContext, fast)
+		var level ContextLevel
+		if cli.Chat.ContextRepo {
+			level = ContextAll
+		} else if cli.Chat.ContextChat {
+			level = ContextChat
+		} else {
+			level = ContextRecent
+		}
+		outtxt, err := grok.Chat(cli.Chat.Sysmsg, prompt, cli.Chat.File, level)
 		Ck(err)
 		Pl(outtxt)
 		// save the grok file

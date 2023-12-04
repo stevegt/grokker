@@ -86,9 +86,24 @@ func (g *GrokkerInternal) ForgetDocument(path string) (err error) {
 	return
 }
 
+type ContextLevel int
+
+const (
+	// Recent means to use only the most recent chat messages for
+	// context.
+	ContextRecent ContextLevel = iota
+	// Chat means to use all chat messages for context.  The oldest messages
+	// will be automatically summarized to remain within the token limit.
+	ContextChat
+	// All means to use all chat messages and all documents in the
+	// repository for context.  The documents and the oldest chat messages
+	// will be automatically summarized to remain within the token limit.
+	ContextAll
+)
+
 // Chat uses the given sysmsg and prompt along with context from the
 // knowledge base and message history file to generate a response.
-func (g *GrokkerInternal) Chat(sysmsg, prompt, fileName string, limitContext, fast bool) (resp string, err error) {
+func (g *GrokkerInternal) Chat(sysmsg, prompt, fileName string, level ContextLevel) (resp string, err error) {
 	defer Return(&err)
 	// open the message history file
 	history, err := g.OpenChatHistory(sysmsg, fileName)
@@ -98,7 +113,7 @@ func (g *GrokkerInternal) Chat(sysmsg, prompt, fileName string, limitContext, fa
 		Ck(err)
 	}()
 	// get response
-	resp, _, err = history.continueChat(prompt, limitContext, fast)
+	resp, _, err = history.continueChat(prompt, level)
 	Ck(err)
 	return
 }
