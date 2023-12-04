@@ -481,7 +481,7 @@ func TestCliChat(t *testing.T) {
 	// create a temporary directory
 	dir, err := os.MkdirTemp("", "grokker")
 	Ck(err)
-	defer os.RemoveAll(dir)
+	// defer os.RemoveAll(dir)
 	// cd into the temporary directory
 	cd(t, dir)
 	defer cd(t, cwd)
@@ -520,7 +520,7 @@ func TestCliChat(t *testing.T) {
 	// make sure the nets file is showing up in a different chat context
 	msgStdin.Reset()
 	msgStdin.WriteString("What were we talking about?")
-	stdout, stderr, err = grok(msgStdin, "chat", "roses")
+	stdout, stderr, err = grok(msgStdin, "chat", "roses", "-C")
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
 	// check that the stdout buffer contains the expected output
 	match = cimatch(stdout.String(), "neural")

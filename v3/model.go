@@ -45,8 +45,7 @@ func newModels() (m *Models) {
 	m.Available = map[string]*Model{
 		"gpt-3.5-turbo": {"", 4096, oai.GPT3Dot5Turbo, false},
 		"gpt-4":         {"", 8192, oai.GPT4, false},
-		"gpt-4-32k":     {"", 32768, oai.GPT432K, false}, // XXX deprecated in openai-go 1.9.0
-		// "gpt-4-32k": {"", 32768, oai.GPT4_32K, false}, // XXX future version of openai-go
+		"gpt-4-32k":     {"", 32768, oai.GPT432K, false},
 	}
 	// fill in the model names
 	for k, v := range m.Available {

@@ -97,11 +97,13 @@ func (history *ChatHistory) continueChat(prompt string, limitContext, fast bool)
 	g := history.g
 
 	Debug("continueChat: prompt len=%d", len(prompt))
+	Debug("continueChat: limitContext=%v", limitContext)
+	Debug("continueChat: fast=%v", fast)
 
 	// create a temporary slice of messages to work with
 	var msgs []ChatMsg
 
-	if !fast {
+	if !fast || !limitContext {
 		// get context
 		maxTokens := int(float64(g.tokenLimit) * 0.5)
 		var context string
@@ -124,6 +126,7 @@ func (history *ChatHistory) continueChat(prompt string, limitContext, fast bool)
 				ChatMsg{Role: "AI", Txt: "I understand the context."},
 			}
 		}
+		Debug("continueChat: context len=%d", len(context))
 	}
 
 	// append stored messages to the context
