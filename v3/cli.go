@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 
 	"github.com/alecthomas/kong"
@@ -97,11 +98,14 @@ It should correctly interpret `test` as a required `Chatfile`, rather than an un
 // parse args using kong package
 type cmdChat struct {
 	// grok chat -s sysmsg memoryfile < prompt
-	Sysmsg      string `name:"sysmsg" short:"s" default:"" help:"System message to send to control behavior of openAI's API."`
-	ContextRepo bool   `short:"C" help:"Add context from the entire grokker repository (includes chat file)."`
-	ContextChat bool   `short:"c" help:"Add context from the entire chat file."`
-	Prompt      string `short:"m" help:"Prompt message to use instead of stdin."`
-	File        string `arg:"" required:"" help:"File to store the chat history -- by default the tail is used for context."`
+	Sysmsg           string   `name:"sysmsg" short:"s" default:"" help:"System message to send to control behavior of openAI's API."`
+	ContextRepo      bool     `short:"C" help:"Add context from the entire grokker repository (includes chat file)."`
+	ContextChat      bool     `short:"c" help:"Add context from the entire chat file."`
+	Prompt           string   `short:"m" help:"Prompt message to use instead of stdin."`
+	InputFiles       []string `short:"i" type:"string" help:"Input files to be provided in the prompt."`
+	OutputFiles      []string `short:"o" type:"string" help:"Output files to be created or overwritten."`
+	OutputFilesRegex bool     `short:"X" help:"Show the regular expression used to find output files in the GPT response."`
+	ChatFile         string   `arg:"" required:"" help:"File to store the chat history -- by default the tail is used for context."`
 }
 
 var cli struct {
@@ -301,7 +305,27 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		}
 		// save the grok file
 		save = true
-	case "chat <file>":
+	case "chat <chat-file>":
+		if cli.Chat.OutputFilesRegex {
+			// if chatfile exists, check the regex against it
+			_, err = os.Stat(cli.Chat.ChatFile)
+			if err == nil {
+				// chatfile exists
+				re := regexp.MustCompile(OutfilesRegex(false))
+				buf, err := ioutil.ReadFile(cli.Chat.ChatFile)
+				Ck(err)
+				txt := string(buf)
+				matches := re.FindAllStringSubmatch(txt, -1)
+				for _, match := range matches {
+					Pl(match[1])
+				}
+			} else {
+				// chatfile does not exist, so just show the regex
+				err = nil
+				Pl(OutfilesRegex(false))
+			}
+			return
+		}
 		var prompt string
 		if cli.Chat.Prompt != "" {
 			prompt = cli.Chat.Prompt
@@ -322,7 +346,9 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		} else {
 			level = ContextRecent
 		}
-		outtxt, err := grok.Chat(cli.Chat.Sysmsg, prompt, cli.Chat.File, level)
+		infiles := cli.Chat.InputFiles
+		outfiles := cli.Chat.OutputFiles
+		outtxt, err := grok.Chat(cli.Chat.Sysmsg, prompt, cli.Chat.ChatFile, level, infiles, outfiles)
 		Ck(err)
 		Pl(outtxt)
 		// save the grok file

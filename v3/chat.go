@@ -2,6 +2,7 @@ package grokker
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -92,9 +93,15 @@ func (g *GrokkerInternal) OpenChatHistory(sysmsg, relPath string) (history *Chat
 // continueChat continues a chat history.  The debug map contains
 // interesting statistics about the process, for testing and debugging
 // purposes.
-func (history *ChatHistory) continueChat(prompt string, level ContextLevel) (resp string, debug map[string]int, err error) {
+func (history *ChatHistory) continueChat(prompt string, level ContextLevel, infiles, outfiles []string) (resp string, debug map[string]int, err error) {
 	defer Return(&err)
 	g := history.g
+
+	// include the input files in the prompt
+	prompt, err = history.includeFiles(prompt, infiles)
+	if err != nil {
+		return "", nil, err
+	}
 
 	Debug("continueChat: prompt len=%d", len(prompt))
 	Debug("continueChat: context level=%s", level)
@@ -153,12 +160,24 @@ func (history *ChatHistory) continueChat(prompt string, level ContextLevel) (res
 		"finalCount": finalCount,
 	}
 
+	sysmsg := history.Sysmsg
+	// add regex to sysmsg if outfiles are provided
+	if len(outfiles) > 0 {
+		sysmsg += Spf("\nYour response must match this regular expression: '%s'", OutfilesRegex(true))
+		Fpf(os.Stderr, "System message:  %s\n", sysmsg)
+	}
+	Debug("continueChat: sysmsg %s", sysmsg)
+
 	// generate the response
-	resp, err = g.completeChat(history.Sysmsg, msgs)
+	Fpf(os.Stderr, "Sending %d tokens to OpenAI...\n", finalCount)
+	resp, err = g.completeChat(sysmsg, msgs)
 
 	// append the prompt and response to the stored messages
 	history.msgs = append(history.msgs, ChatMsg{Role: "USER", Txt: prompt})
 	history.msgs = append(history.msgs, ChatMsg{Role: "AI", Txt: resp})
+
+	// save the output files
+	err = history.extractFiles(outfiles, resp)
 
 	return
 }
@@ -185,6 +204,8 @@ func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens i
 		Debug("summarize: done")
 		return
 	}
+
+	Fpf(os.Stderr, "Summarizing %d tokens...\n", msgsCount)
 
 	var sysmsg string
 	if level != ContextRecent {
@@ -433,6 +454,103 @@ func (g *GrokkerInternal) splitAt(txt string, tokenCount int) (txt1, txt2 string
 		}
 		// if we get here, count == tokenCount
 		break
+	}
+	return
+}
+
+// OutfilesRegex returns a regular expression that matches the format
+// of output files embedded in chat responses.  The 'repeat' flag
+// wraps the regex in a non-capturing group that allows the regex to
+// match multiple files.
+func OutfilesRegex(repeat bool) string {
+	/*
+		The regex matches the following:
+
+		<ignored optional text>
+		File: <filename>
+		```foo
+		<text>
+		```
+		<ignored optional text>
+		File: <filename>
+		```foo
+		<text>
+		```
+		<ignored optional text>
+		...
+
+	*/
+
+	// (?:...) is a non-capturing group
+	// (?s:...) is a dot-all group
+	// (?i:...) is a case-insensitive group
+
+	text := `(?s)(.*?)`
+	tripleBackticks := "```"
+	body := Spf("%s%s%s", tripleBackticks, text, tripleBackticks)
+	header := Spf(`(?:^|\n)(?i)File:\s*(\S+)\s*\n`)
+	zeroOrMoreBlankLines := `(?:\s*\n)*`
+
+	// the regex for a single file
+	singleFile := Spf(`%s%s%s`, header, zeroOrMoreBlankLines, body)
+
+	// the regex for multiple files
+	// - go doesn't support this, but GPT-4 does
+	multipleFiles := Spf(`^(?:%s)+$`, singleFile)
+
+	if repeat {
+		return multipleFiles
+	}
+	return singleFile
+}
+
+// includeFiles includes the given files in the prompt.  It returns a
+// new prompt string.
+func (history *ChatHistory) includeFiles(prompt string, files []string) (newPrompt string, err error) {
+	newPrompt = prompt
+	for _, fn := range files {
+		buf, err := ioutil.ReadFile(fn)
+		if err != nil {
+			return "", fmt.Errorf("could not read file '%s': %s", fn, err)
+		}
+		txt := string(buf)
+		// ensure that the file ends with a newline
+		if !strings.HasSuffix(txt, "\n") {
+			txt += "\n"
+		}
+		newPrompt += Spf("\n\nFile: %s\n```%s\n```\n", fn, txt)
+	}
+	return
+}
+
+// extractFiles extracts the output files from the given response and
+// saves them to the given files, overwriting any existing files.
+func (history *ChatHistory) extractFiles(outfiles []string, resp string) (err error) {
+	defer Return(&err)
+	// compile the regex
+	re := regexp.MustCompile(OutfilesRegex(false))
+	// find all matches
+	matches := re.FindAllStringSubmatch(resp, -1)
+	// loop over the expected outfiles
+	// - we ignore any files the AI provides that are not in the list
+	for _, fn := range outfiles {
+		// see if we have a match for this file
+		found := false
+		txt := ""
+		for _, match := range matches {
+			if match[1] == fn {
+				found = true
+				txt = match[2]
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("file '%s' was not found in the response", fn)
+		}
+		// save the text to the file
+		path := filepath.Join(history.g.Root, fn)
+		err = os.WriteFile(path, []byte(txt), 0644)
+		Ck(err)
 	}
 	return
 }
