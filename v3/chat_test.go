@@ -68,7 +68,7 @@ func TestChatSummarization(t *testing.T) {
 	defer grok.Save()
 
 	// start a chat by mentioning something not in GPT-4's global context
-	res, err := grok.Chat("", "Pretend a blue widget has a red center.", "chat1", ContextAll, nil, nil)
+	res, err := grok.Chat("", "Pretend a blue widget has a red center.", "chat1", ContextAll, nil, nil, 0)
 	Tassert(t, err == nil, "error starting chat: %v", err)
 	// check that the response contains the expected output
 	match = cimatch(res, "red")
@@ -118,7 +118,7 @@ func TestChatSummarization(t *testing.T) {
 	Tassert(t, ok, "peak token count never exceeded token limit: %v", debug)
 
 	// check that we still remember the blue widget
-	res, err = grok.Chat("", "What color is the center of the blue widget?", "chat1", ContextAll, nil, nil)
+	res, err = grok.Chat("", "What color is the center of the blue widget?", "chat1", ContextAll, nil, nil, 0)
 	match = cimatch(res, "red")
 	Tassert(t, match, "CLI did not return expected output: %s", res)
 
@@ -160,7 +160,7 @@ func TestChatSummarization(t *testing.T) {
 	Tassert(t, ok, "chat1 file never exceeded token limit: %v", debug)
 
 	// check that we still remember the blue widget
-	res, err = grok.Chat("", "What color is the center of the blue widget?", "chat1", ContextAll, nil, nil)
+	res, err = grok.Chat("", "What color is the center of the blue widget?", "chat1", ContextAll, nil, nil, 0)
 	match = cimatch(res, "red")
 	Tassert(t, match, "CLI did not return expected output: %s", res)
 

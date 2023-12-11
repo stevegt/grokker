@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -44,10 +43,13 @@ the AI: and USER: headers in your response.\n\nTopic:\n%s\n`
 func (g *GrokkerInternal) OpenChatHistory(sysmsg, relPath string) (history *ChatHistory, err error) {
 	defer Return(&err)
 	Assert(relPath != "", "relPath is required")
-	path := filepath.Join(g.Root, relPath)
+	// path := filepath.Join(g.Root, relPath)
+	path := relPath
 	_, err = os.Stat(path)
 	if err != nil {
 		// file does not exist
+		// XXX move sysmsg into SYSMSG headings in the file so we can
+		// track changes to the sysmsg
 		history = &ChatHistory{relPath: relPath,
 			Sysmsg:  sysmsg,
 			msgs:    make([]ChatMsg, 0),
@@ -163,7 +165,9 @@ func (history *ChatHistory) continueChat(prompt string, level ContextLevel, infi
 	sysmsg := history.Sysmsg
 	// add regex to sysmsg if outfiles are provided
 	if len(outfiles) > 0 {
+		sysmsg += Spf("\nYour response must include the following files: '%s'", strings.Join(outfiles, "', '"))
 		sysmsg += Spf("\nYour response must match this regular expression: '%s'", OutfilesRegex(true))
+		sysmsg += Spf("\n...where each file is in the format:\n\n<blank line>\nFile: <filename>\n```<language>\n<text>\n```")
 		Fpf(os.Stderr, "System message:  %s\n", sysmsg)
 	}
 	Debug("continueChat: sysmsg %s", sysmsg)
@@ -177,7 +181,7 @@ func (history *ChatHistory) continueChat(prompt string, level ContextLevel, infi
 	history.msgs = append(history.msgs, ChatMsg{Role: "AI", Txt: resp})
 
 	// save the output files
-	err = history.extractFiles(outfiles, resp)
+	err = history.extractFiles(outfiles, resp, false)
 
 	return
 }
@@ -205,10 +209,9 @@ func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens i
 		return
 	}
 
-	Fpf(os.Stderr, "Summarizing %d tokens...\n", msgsCount)
-
 	var sysmsg string
 	if level != ContextRecent {
+		Fpf(os.Stderr, "Summarizing %d tokens...\n", msgsCount)
 		// generate a sysmsg that includes a short summary of the prompt
 		topic, err := g.Msg("Summarize the topic in one sentence.", prompt)
 		Ck(err)
@@ -218,11 +221,36 @@ func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens i
 	Ck(err)
 	Debug("summarize: sysmsgTc=%d", sysmsgTc)
 
-	// find the middle message, where "middle" is defined as the point
-	// either maxTokens from the start or endStop tokens from the end,
-	// whichever comes first
-	endStop := maxTokens - sysmsgTc*2
-	Debug("endstop=%d", endStop)
+	/*
+		// find the middle message, where "middle" is defined as
+		// either maxTokens from the start or maxTokens from the end,
+		// whichever comes first
+		endStop := msgsCount - maxTokens - sysmsgTc*2
+		Debug("endstop=%d", endStop)
+		var middleI int
+		// total token count of the first half of the messages
+		var firstHalfCount int
+		for i, msg := range msgs {
+			// count tokens
+			count, err := g.TokenCount(msg.Txt)
+			Ck(err)
+			if firstHalfCount+count > endStop {
+				// we are nearing maxTokens from the end
+				middleI = i
+				break
+			}
+			if firstHalfCount+count > maxTokens {
+				// we are nearing maxTokens from the start
+				middleI = i
+				break
+			}
+			firstHalfCount += count
+		}
+	*/
+
+	// find the middle message, where "middle" is defined as
+	// either maxTokens from the start or msgsCount/2, whichever
+	// comes first
 	var middleI int
 	// total token count of the first half of the messages
 	var firstHalfCount int
@@ -230,8 +258,8 @@ func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens i
 		// count tokens
 		count, err := g.TokenCount(msg.Txt)
 		Ck(err)
-		if firstHalfCount+count > endStop {
-			// we are nearing maxTokens from the end
+		if firstHalfCount+count > msgsCount/2 {
+			// we are nearing msgsCount/2
 			middleI = i
 			break
 		}
@@ -242,6 +270,7 @@ func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens i
 		}
 		firstHalfCount += count
 	}
+
 	// define a variable that shows where the second half of the messages
 	// will begin
 	secondHalfI := middleI + 1
@@ -381,7 +410,8 @@ func (history *ChatHistory) Save() (err error) {
 	Ck(err)
 	// replace the chat history file with the temp file
 	Assert(history.relPath != "", "relPath is required")
-	path := filepath.Join(history.g.Root, history.relPath)
+	// path := filepath.Join(history.g.Root, history.relPath)
+	path := history.relPath
 	// move the chat history file to a backup file
 	var backup string
 	_, err = os.Stat(path)
@@ -485,17 +515,20 @@ func OutfilesRegex(repeat bool) string {
 	// (?s:...) is a dot-all group
 	// (?i:...) is a case-insensitive group
 
-	text := `(?s)(.*?)`
-	tripleBackticks := "```"
-	body := Spf("%s%s%s", tripleBackticks, text, tripleBackticks)
-	header := Spf(`(?:^|\n)(?i)File:\s*(\S+)\s*\n`)
+	openCodeBlock := "```" + `(\w*)\n`
+	// we use extra characters in the close code block to ensure that
+	// we don't match any close code block embedded in the text
+	closeCodeBlock := "```" + `\nEOF\n`
+	text := `(?s)(.*)`
+	header := Spf(`(?:^|\n)(?i)File:\s*([\w\-\.]+)\s*\n`)
+	body := Spf("%s%s%s", openCodeBlock, text, closeCodeBlock)
 	zeroOrMoreBlankLines := `(?:\s*\n)*`
 
 	// the regex for a single file
 	singleFile := Spf(`%s%s%s`, header, zeroOrMoreBlankLines, body)
 
 	// the regex for multiple files
-	// - go doesn't support this, but GPT-4 does
+	// - go doesn't support this, but GPT-4 seems to
 	multipleFiles := Spf(`^(?:%s)+$`, singleFile)
 
 	if repeat {
@@ -523,9 +556,45 @@ func (history *ChatHistory) includeFiles(prompt string, files []string) (newProm
 	return
 }
 
+// extractFromChat extracts the Nth most recent version of the given
+// files from the chat history and saves them to the given files,
+// overwriting any existing files.  The most recent version is N=1.
+func (history *ChatHistory) extractFromChat(outfiles []string, N int) (err error) {
+	defer Return(&err)
+	for _, fn := range outfiles {
+		foundN := 0
+		// iterate over responses starting with the most recent
+		for i := len(history.msgs) - 1; i >= 0; i-- {
+			// skip messages that are not from the AI
+			if history.msgs[i].Role != "AI" {
+				continue
+			}
+			// see if we have a match for this file
+			dryrun := true
+			err = history.extractFiles([]string{fn}, history.msgs[i].Txt, dryrun)
+			if err != nil {
+				// file not found in this response
+				continue
+			}
+			foundN++
+			if foundN == N {
+				// we found the Nth most recent version of the file
+				dryrun = false
+				err = history.extractFiles([]string{fn}, history.msgs[i].Txt, dryrun)
+				Ck(err)
+				break
+			}
+		}
+		if foundN < N {
+			return fmt.Errorf("file '%s' was not found in the chat history", fn)
+		}
+	}
+	return
+}
+
 // extractFiles extracts the output files from the given response and
 // saves them to the given files, overwriting any existing files.
-func (history *ChatHistory) extractFiles(outfiles []string, resp string) (err error) {
+func (history *ChatHistory) extractFiles(outfiles []string, resp string, dryrun bool) (err error) {
 	defer Return(&err)
 	// compile the regex
 	re := regexp.MustCompile(OutfilesRegex(false))
@@ -537,20 +606,31 @@ func (history *ChatHistory) extractFiles(outfiles []string, resp string) (err er
 		// see if we have a match for this file
 		found := false
 		txt := ""
+		// match[1] is file name
+		// match[2] is language
+		// match[3] is text
 		for _, match := range matches {
 			if match[1] == fn {
 				found = true
-				txt = match[2]
+				txt = match[3]
 				break
 			}
+			// Pf("fn='%s', match[2]='%s'\n", fn, match[2])
 		}
 		if !found {
-			return fmt.Errorf("file '%s' was not found in the response", fn)
+			if dryrun {
+				return fmt.Errorf("file '%s' was not found in the response", fn)
+			}
+			// return fmt.Errorf("file '%s' was not found in the response", fn)
+			Fpf(os.Stderr, "Warning: file not found in the response: '%s'\n", fn)
+			continue
 		}
-		// save the text to the file
-		path := filepath.Join(history.g.Root, fn)
-		err = os.WriteFile(path, []byte(txt), 0644)
-		Ck(err)
+		if !dryrun {
+			// save the text to the file
+			// path := filepath.Join(history.g.Root, fn)
+			err = os.WriteFile(fn, []byte(txt), 0644)
+			Ck(err)
+		}
 	}
 	return
 }

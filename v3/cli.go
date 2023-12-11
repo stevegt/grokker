@@ -105,6 +105,7 @@ type cmdChat struct {
 	InputFiles       []string `short:"i" type:"string" help:"Input files to be provided in the prompt."`
 	OutputFiles      []string `short:"o" type:"string" help:"Output files to be created or overwritten."`
 	OutputFilesRegex bool     `short:"X" help:"Show the regular expression used to find output files in the GPT response."`
+	Extract          int      `short:"x" help:"Extract the Nth most recent version of the output files from the GPT response.  The most recent version is 1."`
 	ChatFile         string   `arg:"" required:"" help:"File to store the chat history -- by default the tail is used for context."`
 }
 
@@ -327,17 +328,19 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 			return
 		}
 		var prompt string
-		if cli.Chat.Prompt != "" {
-			prompt = cli.Chat.Prompt
-		} else {
-			// get text from stdin and print the response
-			buf, err := ioutil.ReadAll(config.Stdin)
-			Ck(err)
-			prompt = string(buf)
+		extract := cli.Chat.Extract
+		if extract < 1 {
+			if cli.Chat.Prompt != "" {
+				prompt = cli.Chat.Prompt
+			} else {
+				// get text from stdin and print the response
+				buf, err := ioutil.ReadAll(config.Stdin)
+				Ck(err)
+				prompt = string(buf)
+			}
+			// trim whitespace
+			prompt = strings.TrimSpace(prompt)
 		}
-		// trim whitespace
-		prompt = strings.TrimSpace(prompt)
-		// get the response
 		var level ContextLevel
 		if cli.Chat.ContextRepo {
 			level = ContextAll
@@ -348,7 +351,8 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		}
 		infiles := cli.Chat.InputFiles
 		outfiles := cli.Chat.OutputFiles
-		outtxt, err := grok.Chat(cli.Chat.Sysmsg, prompt, cli.Chat.ChatFile, level, infiles, outfiles)
+		// get the response
+		outtxt, err := grok.Chat(cli.Chat.Sysmsg, prompt, cli.Chat.ChatFile, level, infiles, outfiles, extract)
 		Ck(err)
 		Pl(outtxt)
 		// save the grok file

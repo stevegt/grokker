@@ -105,7 +105,7 @@ func (g *GrokkerInternal) completeChat(sysmsg string, msgs []ChatMsg) (response 
 		})
 	}
 
-	// Debug("omsgs: %s", Spprint(omsgs))
+	Debug("sending to OpenAI: %s", Spprint(omsgs))
 
 	client := g.chatClient
 	resp, err := client.CreateChatCompletion(
@@ -118,7 +118,7 @@ func (g *GrokkerInternal) completeChat(sysmsg string, msgs []ChatMsg) (response 
 	Ck(err)
 	response = resp.Choices[0].Message.Content
 
-	// Debug("response: %s", response)
+	Debug("response from OpenAI: %s", response)
 
 	return
 }
