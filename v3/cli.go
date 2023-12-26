@@ -312,7 +312,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 			_, err = os.Stat(cli.Chat.ChatFile)
 			if err == nil {
 				// chatfile exists
-				re := regexp.MustCompile(OutfilesRegex(false))
+				re := regexp.MustCompile(OutfilesRegex(nil))
 				buf, err := ioutil.ReadFile(cli.Chat.ChatFile)
 				Ck(err)
 				txt := string(buf)
@@ -323,7 +323,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 			} else {
 				// chatfile does not exist, so just show the regex
 				err = nil
-				Pl(OutfilesRegex(false))
+				Pl(OutfilesRegex(nil))
 			}
 			return
 		}
@@ -350,7 +350,37 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 			level = ContextRecent
 		}
 		infiles := cli.Chat.InputFiles
-		outfiles := cli.Chat.OutputFiles
+		// split each outfile on equal sign to get the filename and language
+		// XXX maybe move this, and much of the rest of this case, into API
+		var outfiles []FileLang
+		for _, outfile := range cli.Chat.OutputFiles {
+			parts := strings.Split(outfile, "=")
+			if len(parts) != 2 {
+				// language is derived from the file extension
+				// split on dots and take the last part
+				parts = strings.Split(outfile, ".")
+				if len(parts) < 2 {
+					Fpf(config.Stderr, "Error: output file %s needs a language or extension\n", outfile)
+					rc = 1
+					return
+				}
+				lang := parts[len(parts)-1]
+				// see if we can convert the file extension to a language name
+				switch lang {
+				case "md":
+					lang = "markdown"
+				case "py":
+					lang = "python"
+				case "rb":
+					lang = "ruby"
+				default:
+					Fpf(config.Stderr, "Assuming language %s for output file %s\n", lang, outfile)
+				}
+				outfiles = append(outfiles, FileLang{outfile, lang})
+			} else {
+				outfiles = append(outfiles, FileLang{parts[0], parts[1]})
+			}
+		}
 		// get the response
 		outtxt, err := grok.Chat(cli.Chat.Sysmsg, prompt, cli.Chat.ChatFile, level, infiles, outfiles, extract)
 		Ck(err)

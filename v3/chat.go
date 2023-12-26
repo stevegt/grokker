@@ -95,7 +95,7 @@ func (g *GrokkerInternal) OpenChatHistory(sysmsg, relPath string) (history *Chat
 // continueChat continues a chat history.  The debug map contains
 // interesting statistics about the process, for testing and debugging
 // purposes.
-func (history *ChatHistory) continueChat(prompt string, level ContextLevel, infiles, outfiles []string) (resp string, debug map[string]int, err error) {
+func (history *ChatHistory) continueChat(prompt string, level ContextLevel, infiles []string, outfiles []FileLang) (resp string, debug map[string]int, err error) {
 	defer Return(&err)
 	g := history.g
 
@@ -165,9 +165,14 @@ func (history *ChatHistory) continueChat(prompt string, level ContextLevel, infi
 	sysmsg := history.Sysmsg
 	// add regex to sysmsg if outfiles are provided
 	if len(outfiles) > 0 {
-		sysmsg += Spf("\nYour response must include the following files: '%s'", strings.Join(outfiles, "', '"))
-		sysmsg += Spf("\nYour response must match this regular expression: '%s'", OutfilesRegex(true))
-		sysmsg += Spf("\n...where each file is in the format:\n\n<blank line>\nFile: <filename>\n```<language>\n<text>\n```")
+		// build filename list
+		var fns []string
+		for _, fn := range outfiles {
+			fns = append(fns, fn.File)
+		}
+		sysmsg += Spf("\nYour response must include the following files: '%s'", strings.Join(fns, "', '"))
+		sysmsg += Spf("\nYour response must match this regular expression: '%s'", OutfilesRegex(outfiles))
+		sysmsg += Spf("\n...where each file is in the format:\n\n<blank line>\nFile: <filename>\n```<language>\n<text>\n```EOF_<filename>")
 		Fpf(os.Stderr, "System message:  %s\n", sysmsg)
 	}
 	Debug("continueChat: sysmsg %s", sysmsg)
@@ -488,11 +493,17 @@ func (g *GrokkerInternal) splitAt(txt string, tokenCount int) (txt1, txt2 string
 	return
 }
 
+type FileLang struct {
+	File     string
+	Language string
+}
+
 // OutfilesRegex returns a regular expression that matches the format
-// of output files embedded in chat responses.  The 'repeat' flag
-// wraps the regex in a non-capturing group that allows the regex to
-// match multiple files.
-func OutfilesRegex(repeat bool) string {
+// of output files embedded in chat responses.  The Language field of
+// each FileLang struct is used to generate a repeating regex that
+// matches multiple files.  If the files argument is nil, the regex
+// matches a single file.
+func OutfilesRegex(files []FileLang) string {
 	/*
 		The regex matches the following:
 
@@ -515,26 +526,29 @@ func OutfilesRegex(repeat bool) string {
 	// (?s:...) is a dot-all group
 	// (?i:...) is a case-insensitive group
 
-	openCodeBlock := "```" + `(\w*)\n`
-	// we use extra characters in the close code block to ensure that
-	// we don't match any close code block embedded in the text
-	closeCodeBlock := "```" + `\nEOF\n`
+	headerTmpl := `(?:^|\n)(?i)File:\s*(%s)\s*\n`
+	// zeroOrMoreBlankLines := `(?:\s*\n)*`
+	openCodeBlockTmpl := "```" + `(%s)\n`
 	text := `(?s)(.*)`
-	header := Spf(`(?:^|\n)(?i)File:\s*([\w\-\.]+)\s*\n`)
-	body := Spf("%s%s%s", openCodeBlock, text, closeCodeBlock)
-	zeroOrMoreBlankLines := `(?:\s*\n)*`
+	closeCodeBlockTmpl := "```" + `\nEOF_%s(?:\s*|\n)*`
 
-	// the regex for a single file
-	singleFile := Spf(`%s%s%s`, header, zeroOrMoreBlankLines, body)
-
-	// the regex for multiple files
-	// - go doesn't support this, but GPT-4 seems to
-	multipleFiles := Spf(`^(?:%s)+$`, singleFile)
-
-	if repeat {
-		return multipleFiles
+	var header, openCodeBlock, closeCodeBlock, out string
+	if len(files) == 0 {
+		// single file, unknown name or language
+		header = Spf(headerTmpl, `[\w\-\.]+`)
+		openCodeBlock = Spf(openCodeBlockTmpl, `\w+`)
+		closeCodeBlock = Spf(closeCodeBlockTmpl, `\S+`)
+		out = Spf(`%s%s%s%s`, header, openCodeBlock, text, closeCodeBlock)
+	} else {
+		// multiple files, known names and languages
+		for _, fileLang := range files {
+			header = Spf(headerTmpl, fileLang.File)
+			openCodeBlock := Spf(openCodeBlockTmpl, fileLang.Language)
+			closeCodeBlock := Spf(closeCodeBlockTmpl, fileLang.File)
+			out += Spf(`%s%s%s%s`, header, openCodeBlock, text, closeCodeBlock)
+		}
 	}
-	return singleFile
+	return out
 }
 
 // includeFiles includes the given files in the prompt.  It returns a
@@ -559,9 +573,10 @@ func (history *ChatHistory) includeFiles(prompt string, files []string) (newProm
 // extractFromChat extracts the Nth most recent version of the given
 // files from the chat history and saves them to the given files,
 // overwriting any existing files.  The most recent version is N=1.
-func (history *ChatHistory) extractFromChat(outfiles []string, N int) (err error) {
+func (history *ChatHistory) extractFromChat(outfiles []FileLang, N int) (err error) {
 	defer Return(&err)
-	for _, fn := range outfiles {
+	for _, fileLang := range outfiles {
+		fl := []FileLang{fileLang}
 		foundN := 0
 		// iterate over responses starting with the most recent
 		for i := len(history.msgs) - 1; i >= 0; i-- {
@@ -571,7 +586,7 @@ func (history *ChatHistory) extractFromChat(outfiles []string, N int) (err error
 			}
 			// see if we have a match for this file
 			dryrun := true
-			err = history.extractFiles([]string{fn}, history.msgs[i].Txt, dryrun)
+			err = history.extractFiles(fl, history.msgs[i].Txt, dryrun)
 			if err != nil {
 				// file not found in this response
 				continue
@@ -580,13 +595,13 @@ func (history *ChatHistory) extractFromChat(outfiles []string, N int) (err error
 			if foundN == N {
 				// we found the Nth most recent version of the file
 				dryrun = false
-				err = history.extractFiles([]string{fn}, history.msgs[i].Txt, dryrun)
+				err = history.extractFiles(fl, history.msgs[i].Txt, dryrun)
 				Ck(err)
 				break
 			}
 		}
 		if foundN < N {
-			return fmt.Errorf("file '%s' was not found in the chat history", fn)
+			return fmt.Errorf("file '%s' was not found in the chat history", fl[0].File)
 		}
 	}
 	return
@@ -594,41 +609,39 @@ func (history *ChatHistory) extractFromChat(outfiles []string, N int) (err error
 
 // extractFiles extracts the output files from the given response and
 // saves them to the given files, overwriting any existing files.
-func (history *ChatHistory) extractFiles(outfiles []string, resp string, dryrun bool) (err error) {
+func (history *ChatHistory) extractFiles(outfiles []FileLang, resp string, dryrun bool) (err error) {
 	defer Return(&err)
-	// compile the regex
-	re := regexp.MustCompile(OutfilesRegex(false))
-	// find all matches
-	matches := re.FindAllStringSubmatch(resp, -1)
 	// loop over the expected outfiles
 	// - we ignore any files the AI provides that are not in the list
-	for _, fn := range outfiles {
-		// see if we have a match for this file
-		found := false
-		txt := ""
-		// match[1] is file name
-		// match[2] is language
-		// match[3] is text
-		for _, match := range matches {
-			if match[1] == fn {
-				found = true
-				txt = match[3]
+	for _, fileLang := range outfiles {
+		fn := fileLang.File
+		// get the regex for this file
+		var pat string
+		// XXX make outfiles a map or make this a method
+		for _, fl := range outfiles {
+			if fl.File == fn {
+				pat = OutfilesRegex([]FileLang{fl})
 				break
 			}
-			// Pf("fn='%s', match[2]='%s'\n", fn, match[2])
 		}
-		if !found {
+		re := regexp.MustCompile(pat)
+		// see if we have a match for this file
+		match := re.FindStringSubmatch(resp)
+		if len(match) == 0 {
 			if dryrun {
 				return fmt.Errorf("file '%s' was not found in the response", fn)
 			}
 			// return fmt.Errorf("file '%s' was not found in the response", fn)
-			Fpf(os.Stderr, "Warning: file not found in the response: '%s'\n", fn)
+			Fpf(os.Stderr, "Warning: file not found in the response: '%s'\nregex was: '%s'\n", fn, pat)
 			continue
 		}
+		// match[1] is file name
+		// match[2] is language
+		// match[3] is text
 		if !dryrun {
 			// save the text to the file
 			// path := filepath.Join(history.g.Root, fn)
-			err = os.WriteFile(fn, []byte(txt), 0644)
+			err = os.WriteFile(fn, []byte(match[3]), 0644)
 			Ck(err)
 		}
 	}
