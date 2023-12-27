@@ -1,13 +1,50 @@
 # grokker
 
-A tool for interactive conversation with your own documents and code
--- for design, research, and rapid learning. Uses OpenAI API services
-for backend.
+A swiss-army-knife tool for natural language processing, code and file
+interpretation and generation, and AI-based research and development.
+Uses OpenAI API services for backend.
 
-Grokker helped create this document in a VIM session by reading its
-own source code along with iterations of this document.
+- Interactive conversation with one or more documents and/or code
+- Design, research, and rapid learning 
+- Local vector database with several useful interfaces
+- Easy VIM integration
+- Chat client with named file I/O
+- Able to accept and generate file content in natural language, code,
+  structured messages, or a combination
+- LLM tooling including system message inputs, token counting and
+  embedding subcommands
 
-## Example
+Grokker helped create and maintain this document in a VIM session by
+reading its own source code along with iterations of this document.
+
+## Roadmap
+
+Here's where it appears this project is going:
+
+- Multi-agent collaboration (with human, AI, and algorithmic agents)
+   - working on this right now
+- Decentralized consensus tool
+   - a useful side-effect of multi-agent collaboration
+- Web Assembly (WASM/WASI) execution
+   - enables easy use and distribution
+- Web UI (while keeping CLI)
+   - enabled by WASM/WASI
+- Plugin architecture
+   - enabled by WASM/WASI
+- Decentralized storage
+   - enabled by WASM/WASI
+- Decentralized virtual machine
+   - enabled by WASM/WASI
+- Decentralized vector database 
+   - enabled by decentralized storage/VM
+- Decentralized neural nets
+   - enabled by decentralized computing/storage/VM
+- Decentralized LLM/AI
+   - enabled by all of the above
+- Decentralized community consensus and governance
+   - enabled by all of the above
+
+## Example Usage
 
 ```
 
@@ -39,6 +76,10 @@ Grokker has several subcommands, including:
 5. `q`: Asks a question and returns an answer. You can include the
    `-g` flag to also search the OpenAI global knowledge base.
 6. `qi`: Reads a question from standard input and returns an answer.
+7. `chat`: Runs one query in a chat session.  Context can read from
+   named files and documents in the local knowledge base as well as 
+   previous queries and answers.  Output can write to named files as
+   well as showing conversational text on stdout.
 
 The `init` subcommand is only used once to create the grok file, while
 the rest are used to manage and interact with the documents in the
@@ -74,13 +115,28 @@ following command:
 export OPENAI_API_KEY=<your_api_key> 
 ```
 
+
+## Tell me more about the `chat` subcommand
+
+The `chat` subcommand allows you to interact with the system's
+knowledge base in a conversational manner. It accepts a `chatfile` as
+a mandatory argument, which is where the chat history is stored. The
+`-s` flag is optional and can be used to pass a system message, which
+controls the behavior of the OpenAI API. In usage, it might look like
+`grok chat chatfile -s sysmsg`, where `sysmsg` is an optional system
+message, and `chatfile` is the required text file where the chat
+history is stored.  There are several other optional flags that can be
+used with the `chat` subcommand, such as a `-m` flag so you can
+provide the prompt on the command line instead of on stdin, and `-i`
+and `-o` flags to specify input and output files.  There are also
+flags to control context sources.  See `grok chat -h` for more
+details.
+
 ## Tell me more about the `qi` subcommand
 
-The `qi` subcommand allows you to ask a question by typing it in to
-the standard input rather than passing it as a command-line argument.
-The question is read from stdin and the answer is generated using the
-Grokker library. It's a way to generate quick answers to questions
-without having to provide the question as a command-line argument.
+The `qi` subcommand allows you to ask a question by providing it on
+stdin. It's a way to generate quick answers to questions without
+having to provide the question as a command-line argument.
 
 The `qi` subcommand enables you to use grokker as a chat client in an
 editor session by typing questions directly in your document and
@@ -158,22 +214,31 @@ queries.  This default is stored in the local .grok db.  (I haven't
 added a flag to override this default for a single query, but this
 would be doable.)
 
-## What is the `migrate` subcommand?
+## About the words `grokker` and `grok`
 
-The `migrate` subcommand transfers the Grokker database to a new
-version, updating its structure to ensure compatibility with the
-latest version of Grokker. Depending on the major and minor semantic
-versioning, migration might be either optional or required. In both
-cases, the subcommand automatically creates a timestamped backup of
-the grokker db and stores it in the current directory. You can safely
-delete this backup when you no longer need it.
+The word `grok` is from Robert Heinlein's [Stranger in a Strange
+Land](https://en.wikipedia.org/wiki/Stranger_in_a_Strange_Land) --
+there's a good summary of the word's meaning and history in
+[Wikipedia](https://en.wikipedia.org/wiki/Grok).  Roughly translated,
+it means "to understand something so thoroughly that the observer
+becomes a part of the observed".  
 
-## Does the `grok` command conflict with any other common UNIX/Linux commands?
+It's a popular word in science fiction and computer science and the
+namespace is crowded.  
 
-Yes.  For instance, Jordan Sissel's log file analysis tool also uses a
-`grok` command.  If you want to install grokker on the same machine,
-you can install it using an alternate command name.  Here's an example
-of installing grokker as `grokker` instead of `grok`:
+The name `grokker` is used by the company grokker.com, though the
+problem domains are different.  We are not affiliated with
+grokker.com.
+
+The folks at xAI released and filed a trademark application for the
+`grok` online AI tool several months after we were already using the
+word in this project.  We're not affiliated with xAI, but we wish them
+well.  
+
+Jordan Sissel's log file analysis tool also uses a `grok` command.  If
+you want to install grokker on the same machine, you can install it
+using an alternate command name.  Here's an example of installing
+grokker as `grokker` instead of `grok`:
 
 ``` 
 cd /tmp 

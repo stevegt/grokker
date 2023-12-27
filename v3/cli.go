@@ -101,12 +101,14 @@ type cmdChat struct {
 	Sysmsg           string   `name:"sysmsg" short:"s" default:"" help:"System message to send to control behavior of openAI's API."`
 	ContextRepo      bool     `short:"C" help:"Add context from the entire grokker repository (includes chat file)."`
 	ContextChat      bool     `short:"c" help:"Add context from the entire chat file."`
+	ContextNone      bool     `short:"N" help:"Do not add any context."`
 	Prompt           string   `short:"m" help:"Prompt message to use instead of stdin."`
 	InputFiles       []string `short:"i" type:"string" help:"Input files to be provided in the prompt."`
 	OutputFiles      []string `short:"o" type:"string" help:"Output files to be created or overwritten."`
 	OutputFilesRegex bool     `short:"X" help:"Show the regular expression used to find output files in the GPT response."`
 	Extract          int      `short:"x" help:"Extract the Nth most recent version of the output files from the GPT response.  The most recent version is 1."`
 	ChatFile         string   `arg:"" required:"" help:"File to store the chat history -- by default the tail is used for context."`
+	PromptTokenLimit int      `short:"P" help:"Override the default prompt token limit."`
 }
 
 var cli struct {
@@ -342,7 +344,9 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 			prompt = strings.TrimSpace(prompt)
 		}
 		var level ContextLevel
-		if cli.Chat.ContextRepo {
+		if cli.Chat.ContextNone {
+			level = ContextNone
+		} else if cli.Chat.ContextRepo {
 			level = ContextAll
 		} else if cli.Chat.ContextChat {
 			level = ContextChat
@@ -382,7 +386,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 			}
 		}
 		// get the response
-		outtxt, err := grok.Chat(cli.Chat.Sysmsg, prompt, cli.Chat.ChatFile, level, infiles, outfiles, extract)
+		outtxt, err := grok.Chat(cli.Chat.Sysmsg, prompt, cli.Chat.ChatFile, level, infiles, outfiles, extract, cli.Chat.PromptTokenLimit)
 		Ck(err)
 		Pl(outtxt)
 		// save the grok file

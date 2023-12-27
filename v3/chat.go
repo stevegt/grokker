@@ -95,7 +95,7 @@ func (g *GrokkerInternal) OpenChatHistory(sysmsg, relPath string) (history *Chat
 // continueChat continues a chat history.  The debug map contains
 // interesting statistics about the process, for testing and debugging
 // purposes.
-func (history *ChatHistory) continueChat(prompt string, level ContextLevel, infiles []string, outfiles []FileLang) (resp string, debug map[string]int, err error) {
+func (history *ChatHistory) continueChat(prompt string, level ContextLevel, infiles []string, outfiles []FileLang, promptTokenLimit int) (resp string, debug map[string]int, err error) {
 	defer Return(&err)
 	g := history.g
 
@@ -111,20 +111,38 @@ func (history *ChatHistory) continueChat(prompt string, level ContextLevel, infi
 	// create a temporary slice of messages to work with
 	var msgs []ChatMsg
 
-	if level != ContextRecent {
-		// get context
+	// add context
+	getContext := false
+	appendMsgs := false
+	var files []string
+	switch level {
+	case ContextNone:
+		// no context
+	case ContextRecent:
+		// get context only from the most recent messages
+		appendMsgs = true
+	case ContextChat:
+		// get context from the entire chat history file
+		files = []string{history.relPath}
+		getContext = true
+		appendMsgs = true
+	case ContextAll:
+		// get context from all files in the knowledge base -- this
+		// includes the chat history file itself, because it is a
+		// document in the knowledge base
+		files = nil
+		getContext = true
+		appendMsgs = true
+	default:
+		Assert(false, "invalid context level: %s", level)
+	}
+
+	if getContext {
 		maxTokens := int(float64(g.tokenLimit) * 0.5)
-		var context string
-		var files []string
-		if level == ContextChat {
-			// get context only from the chat history file itself
-			files = []string{history.relPath}
-		} else {
-			// get context from all files in the knowledge base -- this
-			// includes the chat history file itself, because it is a
-			// document in the knowledge base
-			files = nil
+		if promptTokenLimit > 0 {
+			maxTokens = promptTokenLimit
 		}
+		var context string
 		context, err = g.getContext(prompt, maxTokens, false, false, files)
 		Ck(err)
 		if context != "" {
@@ -137,8 +155,10 @@ func (history *ChatHistory) continueChat(prompt string, level ContextLevel, infi
 		Debug("continueChat: context len=%d", len(context))
 	}
 
-	// append stored messages to the context
-	msgs = append(msgs, history.msgs...)
+	if appendMsgs {
+		// append the most recent messages to the context
+		msgs = append(msgs, history.msgs...)
+	}
 
 	// append the prompt to the context
 	msgs = append(msgs, ChatMsg{Role: "USER", Txt: prompt})
@@ -151,6 +171,9 @@ func (history *ChatHistory) continueChat(prompt string, level ContextLevel, infi
 	Debug("continueChat: promptTc=%d", promptTc)
 	Ck(err)
 	maxTokens := g.tokenLimit / 2
+	if promptTokenLimit > 0 {
+		maxTokens = promptTokenLimit
+	}
 	msgs, err = history.summarize(prompt, msgs, maxTokens, level)
 	Ck(err)
 
@@ -215,7 +238,7 @@ func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens i
 	}
 
 	var sysmsg string
-	if level != ContextRecent {
+	if level > ContextRecent {
 		Fpf(os.Stderr, "Summarizing %d tokens...\n", msgsCount)
 		// generate a sysmsg that includes a short summary of the prompt
 		topic, err := g.Msg("Summarize the topic in one sentence.", prompt)
@@ -301,7 +324,7 @@ func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens i
 	// second half of the messages
 	msgs[secondHalfI] = msg2
 
-	if level != ContextRecent {
+	if level > ContextRecent {
 		for len(summarized) == 0 {
 			// summarize the first half of the messages by converting them to
 			// a text format that GPT-4 can understand, sending them to GPT-4,

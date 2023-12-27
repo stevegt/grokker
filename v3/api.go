@@ -89,9 +89,11 @@ func (g *GrokkerInternal) ForgetDocument(path string) (err error) {
 type ContextLevel int
 
 const (
+	// ContextNone means to add no context.
+	ContextNone ContextLevel = iota
 	// Recent means to use only the most recent chat messages for
 	// context.
-	ContextRecent ContextLevel = iota
+	ContextRecent
 	// Chat means to use all chat messages for context.  The oldest messages
 	// will be automatically summarized to remain within the token limit.
 	ContextChat
@@ -103,7 +105,7 @@ const (
 
 // Chat uses the given sysmsg and prompt along with context from the
 // knowledge base and message history file to generate a response.
-func (g *GrokkerInternal) Chat(sysmsg, prompt, fileName string, level ContextLevel, infiles []string, outfiles []FileLang, extract int) (resp string, err error) {
+func (g *GrokkerInternal) Chat(sysmsg, prompt, fileName string, level ContextLevel, infiles []string, outfiles []FileLang, extract, promptTokenLimit int) (resp string, err error) {
 	defer Return(&err)
 	// open the message history file
 	history, err := g.OpenChatHistory(sysmsg, fileName)
@@ -119,7 +121,7 @@ func (g *GrokkerInternal) Chat(sysmsg, prompt, fileName string, level ContextLev
 		return
 	}
 	// get response
-	resp, _, err = history.continueChat(prompt, level, infiles, outfiles)
+	resp, _, err = history.continueChat(prompt, level, infiles, outfiles, promptTokenLimit)
 	Ck(err)
 	return
 }
