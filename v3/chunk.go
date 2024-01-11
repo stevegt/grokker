@@ -293,20 +293,32 @@ func (g *GrokkerInternal) chunksFromString(doc *Document, txt string, tokenLimit
 	defer Return(&err)
 	Assert(tokenLimit > 0)
 
-	// split the text into paragraphs
-	// XXX splitting on paragraphs is not ideal.  smarter splitting
-	// might look at the structure of the text and split on
-	// sections, chapters, etc.  it might also be useful to include
-	// metadata such as file names.
-	paragraphs := splitIntoChunks(doc, txt, "\n\n")
+	/*
+		lang, _, _ := Ext2Lang(doc.RelPath)
+		switch lang {
+		case "go":
+			chunks = lang.SplitGo(doc, txt)
+		default:
+			// split the text into paragraphs
+			// XXX splitting on paragraphs is not ideal.  smarter splitting
+			// might look at the structure of the text and split on
+			// sections, chapters, etc.  it might also be useful to include
+			// metadata such as file names.
+			chunks = splitIntoChunks(doc, txt, "\n\n")
+		}
+	*/
+	chunks = splitIntoChunks(doc, txt, "\n\n")
 
-	for _, chunk := range paragraphs {
-		// ensure no paragraph is longer than the token limit
+	// ensure no chunk is longer than the token limit
+	var newChunks []*Chunk
+	for _, chunk := range chunks {
 		var subChunks []*Chunk
 		subChunks, err = chunk.splitChunk(g, tokenLimit)
 		Ck(err)
-		chunks = append(chunks, subChunks...)
+		newChunks = append(newChunks, subChunks...)
 	}
+	chunks = newChunks
+
 	return
 }
 

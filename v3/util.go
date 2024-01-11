@@ -1,9 +1,11 @@
 package grokker
 
 import (
+	"fmt"
 	"io"
 	"math"
 	"os"
+	"strings"
 
 	. "github.com/stevegt/goadapt"
 )
@@ -87,4 +89,32 @@ func stringInSlice(str string, list []string) bool {
 		}
 	}
 	return false
+}
+
+// Ext2Lang derives language from file extension.
+func Ext2Lang(fn string) (lang string, known bool, err error) {
+	// split on dots and take the last part
+	parts := strings.Split(fn, ".")
+	if len(parts) < 2 {
+		err = fmt.Errorf("file %s missing language or extension", fn)
+		return
+	}
+	lang = parts[len(parts)-1]
+	// see if we can convert the file extension to a language name
+	known = true
+	switch lang {
+	case "md":
+		lang = "markdown"
+	case "py":
+		lang = "python"
+	case "rb":
+		lang = "ruby"
+	case "rs":
+		lang = "rust"
+	case "go":
+		lang = "go"
+	default:
+		known = false
+	}
+	return
 }

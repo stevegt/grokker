@@ -359,30 +359,21 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		var outfiles []FileLang
 		for _, outfile := range cli.Chat.OutputFiles {
 			parts := strings.Split(outfile, "=")
-			if len(parts) != 2 {
-				// language is derived from the file extension
-				// split on dots and take the last part
-				parts = strings.Split(outfile, ".")
-				if len(parts) < 2 {
-					Fpf(config.Stderr, "Error: output file %s needs a language or extension\n", outfile)
+			if len(parts) == 2 {
+				outfiles = append(outfiles, FileLang{parts[0], parts[1]})
+			} else {
+				var lang string
+				var known bool
+				lang, known, err = Ext2Lang(outfile)
+				if err != nil {
+					Fpf(config.Stderr, err.Error())
 					rc = 1
 					return
 				}
-				lang := parts[len(parts)-1]
-				// see if we can convert the file extension to a language name
-				switch lang {
-				case "md":
-					lang = "markdown"
-				case "py":
-					lang = "python"
-				case "rb":
-					lang = "ruby"
-				default:
+				if !known {
 					Fpf(config.Stderr, "Assuming language %s for output file %s\n", lang, outfile)
 				}
 				outfiles = append(outfiles, FileLang{outfile, lang})
-			} else {
-				outfiles = append(outfiles, FileLang{parts[0], parts[1]})
 			}
 		}
 		// get the response
