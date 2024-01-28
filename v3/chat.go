@@ -209,7 +209,7 @@ func (history *ChatHistory) continueChat(prompt string, level ContextLevel, infi
 	history.msgs = append(history.msgs, ChatMsg{Role: "AI", Txt: resp})
 
 	// save the output files
-	err = history.extractFiles(outfiles, resp, false)
+	err = history.extractFiles(outfiles, resp, false, false)
 
 	return
 }
@@ -595,8 +595,10 @@ func (history *ChatHistory) includeFiles(prompt string, files []string) (newProm
 
 // extractFromChat extracts the Nth most recent version of the given
 // files from the chat history and saves them to the given files,
-// overwriting any existing files.  The most recent version is N=1.
-func (history *ChatHistory) extractFromChat(outfiles []FileLang, N int) (err error) {
+// overwriting any existing files unless extractToStdout is true, in
+// which case the extracted files are written to stdout.  The most
+// recent version of a file is N=1.
+func (history *ChatHistory) extractFromChat(outfiles []FileLang, N int, extractToStdout bool) (err error) {
 	defer Return(&err)
 	for _, fileLang := range outfiles {
 		fl := []FileLang{fileLang}
@@ -609,7 +611,7 @@ func (history *ChatHistory) extractFromChat(outfiles []FileLang, N int) (err err
 			}
 			// see if we have a match for this file
 			dryrun := true
-			err = history.extractFiles(fl, history.msgs[i].Txt, dryrun)
+			err = history.extractFiles(fl, history.msgs[i].Txt, dryrun, false)
 			if err != nil {
 				// file not found in this response
 				continue
@@ -618,7 +620,7 @@ func (history *ChatHistory) extractFromChat(outfiles []FileLang, N int) (err err
 			if foundN == N {
 				// we found the Nth most recent version of the file
 				dryrun = false
-				err = history.extractFiles(fl, history.msgs[i].Txt, dryrun)
+				err = history.extractFiles(fl, history.msgs[i].Txt, dryrun, extractToStdout)
 				Ck(err)
 				break
 			}
@@ -632,7 +634,7 @@ func (history *ChatHistory) extractFromChat(outfiles []FileLang, N int) (err err
 
 // extractFiles extracts the output files from the given response and
 // saves them to the given files, overwriting any existing files.
-func (history *ChatHistory) extractFiles(outfiles []FileLang, resp string, dryrun bool) (err error) {
+func (history *ChatHistory) extractFiles(outfiles []FileLang, resp string, dryrun, extractToStdout bool) (err error) {
 	defer Return(&err)
 	// loop over the expected outfiles
 	// - we ignore any files the AI provides that are not in the list
@@ -662,10 +664,16 @@ func (history *ChatHistory) extractFiles(outfiles []FileLang, resp string, dryru
 		// match[2] is language
 		// match[3] is text
 		if !dryrun {
-			// save the text to the file
-			// path := filepath.Join(history.g.Root, fn)
-			err = os.WriteFile(fn, []byte(match[3]), 0644)
-			Ck(err)
+			if extractToStdout {
+				// write raw text to stdout
+				_, err = Pf("%s", match[3])
+				Ck(err)
+			} else {
+				// save the text to the file
+				// path := filepath.Join(history.g.Root, fn)
+				err = os.WriteFile(fn, []byte(match[3]), 0644)
+				Ck(err)
+			}
 		}
 	}
 	return

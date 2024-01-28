@@ -95,7 +95,9 @@ It should correctly interpret `test` as a required `Chatfile`, rather than an un
 
 */
 
-// parse args using kong package
+// cmdChat is the struct for the chat subcommand.  The chat subcommand
+// is used to have a conversation with the knowledge base using
+// a chat history stored in a local file.
 type cmdChat struct {
 	// grok chat -s sysmsg memoryfile < prompt
 	Sysmsg           string   `name:"sysmsg" short:"s" default:"" help:"System message to send to control behavior of openAI's API."`
@@ -107,6 +109,7 @@ type cmdChat struct {
 	OutputFiles      []string `short:"o" type:"string" help:"Output files to be created or overwritten."`
 	OutputFilesRegex bool     `short:"X" help:"Show the regular expression used to find output files in the GPT response."`
 	Extract          int      `short:"x" help:"Extract the Nth most recent version of the output files from the GPT response.  The most recent version is 1."`
+	ExtractToStdout  bool     `short:"O" help:"When extracting with -x, send the extracted text to stdout instead of to the output file(s)."`
 	ChatFile         string   `arg:"" required:"" help:"File to store the chat history -- by default the tail is used for context."`
 	PromptTokenLimit int      `short:"P" help:"Override the default prompt token limit."`
 }
@@ -377,7 +380,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 			}
 		}
 		// get the response
-		outtxt, err := grok.Chat(cli.Chat.Sysmsg, prompt, cli.Chat.ChatFile, level, infiles, outfiles, extract, cli.Chat.PromptTokenLimit)
+		outtxt, err := grok.Chat(cli.Chat.Sysmsg, prompt, cli.Chat.ChatFile, level, infiles, outfiles, extract, cli.Chat.PromptTokenLimit, cli.Chat.ExtractToStdout)
 		Ck(err)
 		Pl(outtxt)
 		// save the grok file

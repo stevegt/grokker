@@ -2,7 +2,10 @@ package grokker
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -13,8 +16,54 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sergi/go-diff/diffmatchpatch"
+
 	. "github.com/stevegt/goadapt"
 )
+
+// dumpDiff returns a pretty-printed diff between two byte slices
+func dumpDiff(bufA, bufB []byte) string {
+	dmp := diffmatchpatch.New()
+	diffs := dmp.DiffMain(string(bufA), string(bufB), false)
+	return fmt.Sprintf("%s\n", dmp.DiffPrettyText(diffs))
+}
+
+// hashFile returns the SHA256 hash of the given file
+func hashFile(filename string) (digest string, err error) {
+	defer Return(&err)
+	// Open the file for reading
+	file, err := os.Open(filename)
+	Ck(err)
+	defer file.Close()
+	digest, err = hashReader(file)
+	Ck(err)
+	return
+}
+
+// hashBytes returns the SHA256 hash of the given byte slice
+func hashBytes(buf []byte) (digest string, err error) {
+	defer Return(&err)
+	// create a reader from the byte slice
+	reader := bytes.NewReader(buf)
+	digest, err = hashReader(reader)
+	Ck(err)
+	return
+}
+
+// hashReader returns the SHA256 hash of the given io.Reader
+func hashReader(file io.Reader) (digest string, err error) {
+	defer Return(&err)
+	// Create a new SHA256 hash.Hash object
+	hash := sha256.New()
+	// Copy the file content to the hash interface writer
+	_, err = io.Copy(hash, file)
+	Ck(err)
+	// Summarize the hash into a final hash result
+	// then convert it to a hexadecimal string.
+	buf := hash.Sum(nil)
+	digest = hex.EncodeToString(buf)
+	return
+}
 
 // run executes the given command with the given arguments.
 func run(t *testing.T, cmd string, args ...string) {
@@ -526,13 +575,54 @@ func TestCliChat(t *testing.T) {
 	match = cimatch(stdout.String(), "neural")
 	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
 
-	// test sysmsg flag
+	// test sysmsg flag and output file
 	msgStdin.Reset()
 	msgStdin.WriteString("Write a simple neural net in Go.")
-	stdout, stderr, err = grok(msgStdin, "chat", "nets", "-s", "You are a neural net expert and Go developer.")
+	stdout, stderr, err = grok(msgStdin, "chat", "nets",
+		"-s", "You are a neural net expert and Go developer.",
+		"-o", "net.go")
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
-	// check that the stdout buffer contains the expected output
-	match = cimatch(stdout.String(), "import")
-	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())
+	// check that the output file exists
+	if _, err := os.Stat("net.go"); os.IsNotExist(err) {
+		Tassert(t, false, "output file does not exist")
+	}
+	// get the contents of the output file
+	bufA, err := os.ReadFile("net.go")
+	Tassert(t, err == nil, "error reading file: %v", err)
+
+	// generate a different output file
+	msgStdin.Reset()
+	msgStdin.WriteString("Write a simple neural net in Go with two layers.")
+	stdout, stderr, err = grok(msgStdin, "chat", "nets",
+		"-o", "net.go")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	// get the contents of the output file
+	bufB, err := os.ReadFile("net.go")
+	Tassert(t, err == nil, "error reading file: %v", err)
+	// check that the output file changed
+	Tassert(t, !bytes.Equal(bufA, bufB), "output file did not change")
+
+	// extract the original output file using -x 2 -O, which should not change the file on disk
+	stdout, stderr, err = grok(emptyStdin, "chat", "nets",
+		"-x", "2", "-O",
+		"-o", "net.go")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	// get the contents of the output file
+	bufC, err := os.ReadFile("net.go")
+	Tassert(t, err == nil, "error reading file: %v", err)
+	// check that the output file did not change
+	Tassert(t, bytes.Equal(bufB, bufC), dumpDiff(bufB, bufC))
+
+	// extract the original output file using -x 2, which should make
+	// the file on disk identical to the bufA version
+	stdout, stderr, err = grok(emptyStdin, "chat", "nets",
+		"-x", "2",
+		"-o", "net.go")
+	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	// get the contents of the output file
+	bufD, err := os.ReadFile("net.go")
+	Tassert(t, err == nil, "error reading file: %v", err)
+	// check that the output file is the same as the original output file
+	Tassert(t, bytes.Equal(bufA, bufD), dumpDiff(bufA, bufD))
 
 }
