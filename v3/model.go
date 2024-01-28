@@ -43,9 +43,10 @@ type Models struct {
 func newModels() (m *Models) {
 	m = &Models{}
 	m.Available = map[string]*Model{
-		"gpt-3.5-turbo": {"", 4096, oai.GPT3Dot5Turbo, false},
-		"gpt-4":         {"", 8192, oai.GPT4, false},
-		"gpt-4-32k":     {"", 32768, oai.GPT432K, false},
+		"gpt-3.5-turbo":       {"", 4096, oai.GPT3Dot5Turbo, false},
+		"gpt-4":               {"", 8192, oai.GPT4, false},
+		"gpt-4-32k":           {"", 32768, oai.GPT432K, false},
+		"gpt-4-turbo-preview": {"", 128000, oai.GPT4TurboPreview, false},
 	}
 	// fill in the model names
 	for k, v := range m.Available {
