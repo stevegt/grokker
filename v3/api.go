@@ -105,13 +105,13 @@ const (
 
 // Chat uses the given sysmsg and prompt along with context from the
 // knowledge base and message history file to generate a response.
-func (g *GrokkerInternal) Chat(sysmsg, prompt, fileName string, level ContextLevel, infiles []string, outfiles []FileLang, extract, promptTokenLimit int, extractToStdout bool) (resp string, err error) {
+func (g *GrokkerInternal) Chat(sysmsg, prompt, fileName string, level ContextLevel, infiles []string, outfiles []FileLang, extract, promptTokenLimit int, extractToStdout, addToDb bool) (resp string, err error) {
 	defer Return(&err)
 	// open the message history file
 	history, err := g.OpenChatHistory(sysmsg, fileName)
 	Ck(err)
 	defer func() {
-		err := history.Save()
+		err := history.Save(addToDb)
 		Ck(err)
 	}()
 	if extract > 0 {

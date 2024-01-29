@@ -415,7 +415,7 @@ func (history *ChatHistory) fixRole(role string) (fixed string) {
 }
 
 // Save saves the chat history file.
-func (history *ChatHistory) Save() (err error) {
+func (history *ChatHistory) Save(addToDb bool) (err error) {
 	defer Return(&err)
 	// marshal the struct into a json string
 	buf, err := json.Marshal(history)
@@ -460,9 +460,11 @@ func (history *ChatHistory) Save() (err error) {
 		Ck(err)
 	}
 
-	// call AddDocument to update the embeddings
-	err = history.g.AddDocument(path)
-	Ck(err)
+	if addToDb {
+		// call AddDocument to update the embeddings
+		err = history.g.AddDocument(path)
+		Ck(err)
+	}
 
 	Debug("chat history saved to %s", path)
 	return nil

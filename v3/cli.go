@@ -112,6 +112,7 @@ type cmdChat struct {
 	ExtractToStdout  bool     `short:"O" help:"When extracting with -x, send the extracted text to stdout instead of to the output file(s)."`
 	ChatFile         string   `arg:"" required:"" help:"File to store the chat history -- by default the tail is used for context."`
 	PromptTokenLimit int      `short:"P" help:"Override the default prompt token limit."`
+	NoAddToDb        bool     `short:"D" help:"Do not add the chat history file to the knowledge base."`
 }
 
 var cli struct {
@@ -380,7 +381,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 			}
 		}
 		// get the response
-		outtxt, err := grok.Chat(cli.Chat.Sysmsg, prompt, cli.Chat.ChatFile, level, infiles, outfiles, extract, cli.Chat.PromptTokenLimit, cli.Chat.ExtractToStdout)
+		outtxt, err := grok.Chat(cli.Chat.Sysmsg, prompt, cli.Chat.ChatFile, level, infiles, outfiles, extract, cli.Chat.PromptTokenLimit, cli.Chat.ExtractToStdout, !cli.Chat.NoAddToDb)
 		Ck(err)
 		Pl(outtxt)
 		// save the grok file
