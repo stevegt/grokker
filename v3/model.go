@@ -25,10 +25,10 @@ func (m *Model) String() string {
 	return fmt.Sprintf("%1s %-20s tokens: %d)", status, m.Name, m.TokenLimit)
 }
 
-// getModel returns the current model name and model_t from the db
-func (g *GrokkerInternal) getModel() (model string, m *Model, err error) {
+// GetModel returns the current model name and model_t from the db
+func (g *GrokkerInternal) GetModel() (model string, m *Model, err error) {
 	defer Return(&err)
-	model, m, err = g.models.findModel(g.Model)
+	model, m, err = g.models.FindModel(g.Model)
 	Ck(err)
 	return
 }
@@ -56,9 +56,9 @@ func newModels() (m *Models) {
 	return
 }
 
-// findModel returns the model name and model_t given a model name.
+// FindModel returns the model name and model_t given a model name.
 // if the given model name is empty, then use DefaultModel.
-func (models *Models) findModel(model string) (name string, m *Model, err error) {
+func (models *Models) FindModel(model string) (name string, m *Model, err error) {
 	if model == "" {
 		model = DefaultModel
 	}
@@ -71,10 +71,10 @@ func (models *Models) findModel(model string) (name string, m *Model, err error)
 	return
 }
 
-// setup the model and oai clients.
+// Setup the model and oai clients.
 // This function needs to be idempotent because it might be called multiple
 // times during the lifetime of a Grokker object.
-func (g *GrokkerInternal) setup(model string) (err error) {
+func (g *GrokkerInternal) Setup(model string) (err error) {
 	defer Return(&err)
 	err = g.initModel(model)
 	Ck(err)
@@ -89,7 +89,7 @@ func (g *GrokkerInternal) initModel(model string) (err error) {
 	defer Return(&err)
 	Assert(g.Root != "", "root directory not set")
 	g.models = newModels()
-	model, m, err := g.models.findModel(model)
+	model, m, err := g.models.FindModel(model)
 	Ck(err)
 	m.active = true
 	g.Model = model

@@ -112,7 +112,7 @@ func (g *GrokkerInternal) migrateOneVersion() (err error) {
 		// refresh embeddings now because we are about to save the grok file
 		// and that will make its timestamp newer than any possibly-modified
 		// documents
-		err = g.setup(g.Model)
+		err = g.Setup(g.Model)
 		Ck(err)
 		err = g.RefreshEmbeddings()
 		Ck(err)
@@ -121,7 +121,7 @@ func (g *GrokkerInternal) migrateOneVersion() (err error) {
 	case "1.0.X":
 		// add file paths to chunks -- all we need to do here is refresh
 		// all of the doc chunks to get the file paths added
-		err = g.setup(g.Model)
+		err = g.Setup(g.Model)
 		Ck(err)
 		err = g.RefreshEmbeddings()
 		Ck(err)
@@ -135,7 +135,7 @@ func (g *GrokkerInternal) migrateOneVersion() (err error) {
 		// replace Text field with Hash, Offset, and Length fields in
 		// Chunk struct -- all we need to do here is refresh all of the
 		// doc chunks to get the new fields added
-		err = g.setup(g.Model)
+		err = g.Setup(g.Model)
 		Ck(err)
 		err = g.RefreshEmbeddings()
 		Ck(err)

@@ -424,7 +424,7 @@ func LoadFrom(grokpath string, readonly bool) (g *GrokkerInternal, migrated bool
 	migrated, oldver, newver, err = g.migrate()
 	Ck(err)
 
-	err = g.setup(g.Model)
+	err = g.Setup(g.Model)
 	Ck(err)
 	return
 }
@@ -449,7 +449,7 @@ func InitNamed(rootdir, name, model string) (g *GrokkerInternal, err error) {
 		Version: version,
 	}
 	// initialize other bits
-	err = g.setup(model)
+	err = g.Setup(model)
 	Ck(err)
 	// ensure there is no existing db
 	g.grokpath = filepath.Join(rootdir, name)
@@ -500,11 +500,11 @@ func (g *GrokkerInternal) ListModels() (models []*Model, err error) {
 // SetModel sets the default chat completion model for queries.
 func (g *GrokkerInternal) SetModel(model string) (oldModel string, err error) {
 	defer Return(&err)
-	model, _, err = g.models.findModel(model)
+	model, _, err = g.models.FindModel(model)
 	Ck(err)
-	oldModel, _, err = g.getModel()
+	oldModel, _, err = g.GetModel()
 	Ck(err)
-	err = g.setup(model)
+	err = g.Setup(model)
 	Ck(err)
 	return
 }
