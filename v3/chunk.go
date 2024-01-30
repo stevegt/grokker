@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/v3/util"
 )
 
 // Chunk is a single chunk of text from a document.
@@ -211,7 +212,7 @@ func (g *GrokkerInternal) similarChunks(embedding []float64, tokenLimit int, fil
 				continue
 			}
 		}
-		score := similarity(embedding, chunk.Embedding)
+		score := util.Similarity(embedding, chunk.Embedding)
 		sims = append(sims, Sim{chunk, score})
 	}
 	// sort the chunks by similarity.

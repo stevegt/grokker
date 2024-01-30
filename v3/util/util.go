@@ -1,4 +1,4 @@
-package grokker
+package util
 
 import (
 	"fmt"
@@ -10,8 +10,8 @@ import (
 	. "github.com/stevegt/goadapt"
 )
 
-// copyFile copies a file from src to dst
-func copyFile(src, dst string) (err error) {
+// CopyFile copies a file from src to dst
+func CopyFile(src, dst string) (err error) {
 	defer Return(&err)
 	// open src file
 	srcfh, err := os.Open(src)
@@ -35,8 +35,8 @@ func copyFile(src, dst string) (err error) {
 	return
 }
 
-// similarity returns the cosine similarity between two embeddings.
-func similarity(a, b []float64) float64 {
+// Similarity returns the cosine Similarity between two embeddings.
+func Similarity(a, b []float64) float64 {
 	if len(a) != len(b) {
 		return 0
 	}
@@ -54,14 +54,14 @@ func XXXmeanSimilarity(a, b [][]float64) float64 {
 	var sum float64
 	for i := range a {
 		for j := range b {
-			sum += similarity(a[i], b[j])
+			sum += Similarity(a[i], b[j])
 		}
 	}
 	return sum / float64(len(a)*len(b))
 }
 
-// meanVector returns the mean vector of a set of embedding vectors.
-func meanVector(vectors [][]float64) (mean []float64) {
+// MeanVector returns the mean vector of a set of embedding vectors.
+func MeanVector(vectors [][]float64) (mean []float64) {
 	if len(vectors) == 0 {
 		return
 	}
@@ -81,8 +81,8 @@ func meanVector(vectors [][]float64) (mean []float64) {
 	return mean
 }
 
-// stringInSlice returns true if str is in list.
-func stringInSlice(str string, list []string) bool {
+// StringInSlice returns true if str is in list.
+func StringInSlice(str string, list []string) bool {
 	for _, v := range list {
 		if v == str {
 			return true

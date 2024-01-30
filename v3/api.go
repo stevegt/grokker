@@ -11,9 +11,12 @@ import (
 
 	"github.com/gofrs/flock"
 	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/v3/util"
 	"github.com/stevegt/semver"
 	"github.com/tiktoken-go/tokenizer"
 )
+
+// import "github.com/stevegt/grokker/v3/util"
 
 // XXX move to api/api.go
 
@@ -218,7 +221,7 @@ func (g *GrokkerInternal) Backup() (backpath string, err error) {
 	tmpdir := os.TempDir()
 	deslashed := strings.Replace(g.grokpath, "/", "-", -1)
 	backpath = fmt.Sprintf("%s/grokker-backup-%s%s", tmpdir, time.Now().Format("20060102-150405"), deslashed)
-	err = copyFile(g.grokpath, backpath)
+	err = util.CopyFile(g.grokpath, backpath)
 	Ck(err, "failed to backup %q to %q", g.grokpath, backpath)
 	return
 }
@@ -322,7 +325,7 @@ func (g *GrokkerInternal) Similarity(reftext string, texts ...string) (sims []fl
 		vec, err := g.meanVectorFromLongString(text)
 		Ck(err)
 		// calculate the similarity
-		sim := similarity(refVec, vec)
+		sim := util.Similarity(refVec, vec)
 		sims = append(sims, sim)
 	}
 	return

@@ -7,6 +7,7 @@ import (
 	"github.com/fabiustech/openai"
 	oai "github.com/sashabaranov/go-openai"
 	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/v3/util"
 	"github.com/tiktoken-go/tokenizer"
 )
 
@@ -118,6 +119,6 @@ func (g *GrokkerInternal) meanVectorFromLongString(text string) (vector []float6
 	embeddings, err := g.createEmbeddings(texts)
 	Ck(err)
 	// get the mean vector of the embeddings
-	vector = meanVector(embeddings)
+	vector = util.MeanVector(embeddings)
 	return
 }

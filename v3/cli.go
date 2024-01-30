@@ -11,6 +11,7 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/gofrs/flock"
 	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/v3/util"
 )
 
 // XXX move to cli/cli.go
@@ -192,7 +193,7 @@ func NewCliConfig() *CliConfig {
 // at the first word in cmd.
 func cmdInSlice(cmd string, cmds []string) bool {
 	first := strings.Split(cmd, " ")[0]
-	return stringInSlice(first, cmds)
+	return util.StringInSlice(first, cmds)
 }
 
 // Cli parses the given arguments and then executes the appropriate
@@ -368,7 +369,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 			} else {
 				var lang string
 				var known bool
-				lang, known, err = Ext2Lang(outfile)
+				lang, known, err = util.Ext2Lang(outfile)
 				if err != nil {
 					Fpf(config.Stderr, err.Error())
 					rc = 1

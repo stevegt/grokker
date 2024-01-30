@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/v3/util"
 )
 
 /*
@@ -101,7 +102,7 @@ func TestChunkTextAfterRemovingFile(t *testing.T) {
 	docPath := "testdata/te-full-copy.txt"
 	// remove the temporary file first, in case it already exists
 	_ = os.Remove(docPath)
-	err = copyFile(srcPath, docPath)
+	err = util.CopyFile(srcPath, docPath)
 	Tassert(t, err == nil, "error copying file: %v", err)
 
 	// add the temporary file to the database

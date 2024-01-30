@@ -19,6 +19,7 @@ import (
 	"github.com/sergi/go-diff/diffmatchpatch"
 
 	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/v3/util"
 )
 
 // dumpDiff returns a pretty-printed diff between two byte slices
@@ -147,8 +148,8 @@ func TestCli(t *testing.T) {
 	// test stringInSlice
 	// XXX move to util_test.go
 	slice := []string{"msg", "tc"}
-	Tassert(t, stringInSlice("msg", slice), "stringInSlice failed")
-	Tassert(t, !stringInSlice("msg2", slice), "stringInSlice failed")
+	Tassert(t, util.StringInSlice("msg", slice), "stringInSlice failed")
+	Tassert(t, !util.StringInSlice("msg2", slice), "stringInSlice failed")
 
 	// test similarity subcommand
 	fmt.Println("testing similarity...")
