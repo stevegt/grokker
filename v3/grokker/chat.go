@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/v3/util"
 )
 
 type ChatHistory struct {
@@ -95,7 +96,7 @@ func (g *GrokkerInternal) OpenChatHistory(sysmsg, relPath string) (history *Chat
 // continueChat continues a chat history.  The debug map contains
 // interesting statistics about the process, for testing and debugging
 // purposes.
-func (history *ChatHistory) continueChat(prompt string, level ContextLevel, infiles []string, outfiles []FileLang, promptTokenLimit int) (resp string, debug map[string]int, err error) {
+func (history *ChatHistory) continueChat(prompt string, level util.ContextLevel, infiles []string, outfiles []FileLang, promptTokenLimit int) (resp string, debug map[string]int, err error) {
 	defer Return(&err)
 	g := history.g
 
@@ -116,17 +117,17 @@ func (history *ChatHistory) continueChat(prompt string, level ContextLevel, infi
 	appendMsgs := false
 	var files []string
 	switch level {
-	case ContextNone:
+	case util.ContextNone:
 		// no context
-	case ContextRecent:
+	case util.ContextRecent:
 		// get context only from the most recent messages
 		appendMsgs = true
-	case ContextChat:
+	case util.ContextChat:
 		// get context from the entire chat history file
 		files = []string{history.relPath}
 		getContext = true
 		appendMsgs = true
-	case ContextAll:
+	case util.ContextAll:
 		// get context from all files in the knowledge base -- this
 		// includes the chat history file itself, because it is a
 		// document in the knowledge base
@@ -216,7 +217,7 @@ func (history *ChatHistory) continueChat(prompt string, level ContextLevel, infi
 
 // summarize summarizes a chat history until it is within
 // maxTokens.  It always leaves the last message intact.
-func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens int, level ContextLevel) (summarized []ChatMsg, err error) {
+func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens int, level util.ContextLevel) (summarized []ChatMsg, err error) {
 	defer Return(&err)
 	g := history.g
 
@@ -238,7 +239,7 @@ func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens i
 	}
 
 	var sysmsg string
-	if level > ContextRecent {
+	if level > util.ContextRecent {
 		Fpf(os.Stderr, "Summarizing %d tokens...\n", msgsCount)
 		// generate a sysmsg that includes a short summary of the prompt
 		topic, err := g.Msg("Summarize the topic in one sentence.", prompt)
@@ -324,7 +325,7 @@ func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens i
 	// second half of the messages
 	msgs[secondHalfI] = msg2
 
-	if level > ContextRecent {
+	if level > util.ContextRecent {
 		for len(summarized) == 0 {
 			// summarize the first half of the messages by converting them to
 			// a text format that GPT-4 can understand, sending them to GPT-4,

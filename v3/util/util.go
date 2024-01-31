@@ -10,6 +10,23 @@ import (
 	. "github.com/stevegt/goadapt"
 )
 
+type ContextLevel int
+
+const (
+	// ContextNone means to add no context.
+	ContextNone ContextLevel = iota
+	// Recent means to use only the most recent chat messages for
+	// context.
+	ContextRecent
+	// Chat means to use all chat messages for context.  The oldest messages
+	// will be automatically summarized to remain within the token limit.
+	ContextChat
+	// All means to use all chat messages and all documents in the
+	// repository for context.  The documents and the oldest chat messages
+	// will be automatically summarized to remain within the token limit.
+	ContextAll
+)
+
 // CopyFile copies a file from src to dst
 func CopyFile(src, dst string) (err error) {
 	defer Return(&err)

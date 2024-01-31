@@ -39,8 +39,8 @@ type Models struct {
 	Available map[string]*Model
 }
 
-// newModels creates a new Models object.
-func newModels() (m *Models) {
+// NewModels creates a new Models object.
+func NewModels() (m *Models) {
 	m = &Models{}
 	m.Available = map[string]*Model{
 		"gpt-3.5-turbo":       {"", 4096, oai.GPT3Dot5Turbo, false},
@@ -88,7 +88,7 @@ func (g *GrokkerInternal) Setup(model string) (err error) {
 func (g *GrokkerInternal) initModel(model string) (err error) {
 	defer Return(&err)
 	Assert(g.Root != "", "root directory not set")
-	g.models = newModels()
+	g.models = NewModels()
 	model, m, err := g.models.FindModel(model)
 	Ck(err)
 	m.active = true

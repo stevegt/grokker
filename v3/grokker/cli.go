@@ -348,15 +348,15 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 			// trim whitespace
 			prompt = strings.TrimSpace(prompt)
 		}
-		var level ContextLevel
+		var level util.ContextLevel
 		if cli.Chat.ContextNone {
-			level = ContextNone
+			level = util.ContextNone
 		} else if cli.Chat.ContextRepo {
-			level = ContextAll
+			level = util.ContextAll
 		} else if cli.Chat.ContextChat {
-			level = ContextChat
+			level = util.ContextChat
 		} else {
-			level = ContextRecent
+			level = util.ContextRecent
 		}
 		infiles := cli.Chat.InputFiles
 		// split each outfile on equal sign to get the filename and language
