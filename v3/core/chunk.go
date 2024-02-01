@@ -1,4 +1,4 @@
-package grokker
+package core
 
 import (
 	"crypto/sha256"

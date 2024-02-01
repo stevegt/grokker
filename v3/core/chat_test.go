@@ -1,4 +1,4 @@
-package grokker
+package core
 
 import (
 	"flag"
