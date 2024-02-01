@@ -96,6 +96,12 @@ It should correctly interpret `test` as a required `Chatfile`, rather than an un
 
 */
 
+type cmdAdd struct {
+	Paths []string `arg:"" type:"string" help:"Path to file to add to knowledge base."`
+}
+
+type cmdBackup struct{}
+
 // cmdChat is the struct for the chat subcommand.  The chat subcommand
 // is used to have a conversation with the knowledge base using
 // a chat history stored in a local file.
@@ -116,49 +122,80 @@ type cmdChat struct {
 	NoAddToDb        bool     `short:"D" help:"Do not add the chat history file to the knowledge base."`
 }
 
+type cmdCommit struct{}
+
+type cmdCtx struct {
+	Tokenlimit      int  `arg:"" type:"int" help:"Maximum number of tokens to include in the context."`
+	WithHeaders     bool `short:"h" help:"Include filename headers in the context."`
+	WithLineNumbers bool `short:"n" help:"Include line numbers in the context."`
+}
+
+type cmdEmbed struct{}
+
+type cmdForget struct {
+	Paths []string `arg:"" type:"string" help:"Path to file to remove from knowledge base."`
+}
+
+type cmdInit struct{}
+
+type cmdLs struct{}
+
+type cmdModels struct{}
+
+type cmdModel struct {
+	Model string `arg:"" help:"Model to switch to."`
+}
+
+type cmdMsg struct {
+	Sysmsg string `arg:"" help:"System message to send to control behavior of openAI's API."`
+}
+
+type cmdQ struct {
+	Question string `arg:"" help:"Question to ask the knowledge base."`
+}
+
+type cmdQc struct{}
+
+type cmdQi struct{}
+
+type cmdQr struct {
+	SysMsg bool `short:"s" help:"expect sysmsg in first paragraph of stdin, return same on stdout."`
+}
+
+type cmdRefresh struct{}
+
+type cmdSimilarity struct {
+	Refpath string   `arg:"" help:"Reference file path."`
+	Paths   []string `arg:"" help:"Files to compare to reference file."`
+}
+
+type cmdTc struct{}
+
+type cmdVersion struct{}
+
 var cli struct {
-	Add struct {
-		Paths []string `arg:"" type:"string" help:"Path to file to add to knowledge base."`
-	} `cmd:"" help:"Add a file to the knowledge base."`
-	Backup struct{} `cmd:"" help:"Backup the knowledge base."`
-	// grok chat -s sysmsg -f memoryfile < prompt
-	Chat   cmdChat  `cmd:"" help:"Have a conversation with the knowledge base; accepts prompt on stdin."`
-	Commit struct{} `cmd:"" help:"Generate a git commit message on stdout."`
-	Ctx    struct {
-		Tokenlimit      int  `arg:"" type:"int" help:"Maximum number of tokens to include in the context."`
-		WithHeaders     bool `short:"h" help:"Include filename headers in the context."`
-		WithLineNumbers bool `short:"n" help:"Include line numbers in the context."`
-	} `cmd:"" help:"Extract the context from the knowledge base most closely related to stdin."`
-	Embed  struct{} `cmd:"" help:"print the embedding vector for the given stdin text."`
-	Forget struct {
-		Paths []string `arg:"" type:"string" help:"Path to file to remove from knowledge base."`
-	} `cmd:"" help:"Forget about a file, removing it from the knowledge base."`
-	Global bool     `short:"g" help:"Include results from OpenAI's global knowledge base as well as from local documents."`
-	Init   struct{} `cmd:"" help:"Initialize a new .grok file in the current directory."`
-	Ls     struct{} `cmd:"" help:"List all documents in the knowledge base."`
-	Models struct{} `cmd:"" help:"List all available models."`
-	Model  struct {
-		Model string `arg:"" help:"Model to switch to."`
-	} `cmd:"" help:"Upgrade the model used by the knowledge base."`
-	Msg struct {
-		Sysmsg string `arg:"" help:"System message to send to control behavior of openAI's API."`
-	} `cmd:"" help:"Send message to openAI's API from stdin and print response on stdout."`
-	Q struct {
-		Question string `arg:"" help:"Question to ask the knowledge base."`
-	} `cmd:"" help:"Ask the knowledge base a question."`
-	Qc struct{} `cmd:"" help:"Continue text from stdin based on the context in the knowledge base."`
-	Qi struct{} `cmd:"" help:"Ask the knowledge base a question on stdin."`
-	Qr struct {
-		SysMsg bool `short:"s" help:"expect sysmsg in first paragraph of stdin, return same on stdout."`
-	} `cmd:"" help:"Revise stdin based on the context in the knowledge base."`
-	Refresh    struct{} `cmd:"" help:"Refresh the embeddings for all documents in the knowledge base."`
-	Similarity struct {
-		Refpath string   `arg:"" help:"Reference file path."`
-		Paths   []string `arg:"" help:"Files to compare to reference file."`
-	} `cmd:"" help:"Calculate the similarity between two or more files in the knowledge base."`
-	Tc      struct{} `cmd:"" help:"Calculate the token count of stdin."`
-	Verbose bool     `short:"v" help:"Show debug and progress information on stderr."`
-	Version struct{} `cmd:"" help:"Show version of grok and its database."`
+	Add        cmdAdd        `cmd:"" help:"Add a file to the knowledge base."`
+	Backup     cmdBackup     `cmd:"" help:"Backup the knowledge base."`
+	Chat       cmdChat       `cmd:"" help:"Have a conversation with the knowledge base; accepts prompt on stdin."`
+	Commit     cmdCommit     `cmd:"" help:"Generate a git commit message on stdout."`
+	Ctx        cmdCtx        `cmd:"" help:"Extract the context from the knowledge base most closely related to stdin."`
+	Embed      cmdEmbed      `cmd:"" help:"print the embedding vector for the given stdin text."`
+	Forget     cmdForget     `cmd:"" help:"Forget about a file, removing it from the knowledge base."`
+	Global     bool          `short:"g" help:"Include results from OpenAI's global knowledge base as well as from local documents."`
+	Init       cmdInit       `cmd:"" help:"Initialize a new .grok file in the current directory."`
+	Ls         cmdLs         `cmd:"" help:"List all documents in the knowledge base."`
+	Models     cmdModels     `cmd:"" help:"List all available models."`
+	Model      cmdModel      `cmd:"" help:"Upgrade the model used by the knowledge base."`
+	Msg        cmdMsg        `cmd:"" help:"Send message to openAI's API from stdin and print response on stdout."`
+	Q          cmdQ          `cmd:"" help:"Ask the knowledge base a question."`
+	Qc         cmdQc         `cmd:"" help:"Continue text from stdin based on the context in the knowledge base."`
+	Qi         cmdQi         `cmd:"" help:"Ask the knowledge base a question on stdin."`
+	Qr         cmdQr         `cmd:"" help:"Revise stdin based on the context in the knowledge base."`
+	Refresh    cmdRefresh    `cmd:"" help:"Refresh the embeddings for all documents in the knowledge base."`
+	Similarity cmdSimilarity `cmd:"" help:"Calculate the similarity between two or more files in the knowledge base."`
+	Tc         cmdTc         `cmd:"" help:"Calculate the token count of stdin."`
+	Verbose    bool          `short:"v" help:"Show debug and progress information on stderr."`
+	Version    cmdVersion    `cmd:"" help:"Show version of grok and its database."`
 }
 
 // CliConfig contains the configuration for grokker's cli
