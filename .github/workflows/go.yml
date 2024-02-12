@@ -55,12 +55,12 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: binaries-${{ steps.get_tag.outputs.TAG }}
-        path: release/
+        path: v3/release/
 
     - name: Release
       uses: softprops/action-gh-release@v1
       with:
-        files: release/*
+        files: v3/release/*
         tag_name: ${{ steps.get_tag.outputs.TAG }}
         draft: false
         prerelease: false
