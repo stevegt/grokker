@@ -46,16 +46,18 @@ Here's where it appears this project is going:
 
 ## Example Usage
 
+Getting started, using grokker's own source code as example documents:
+
+```
+$ git clone https://github.com/stevegt/grokker.git
+$ cd grokker
+$ grok init
+$ grok add README.md TODO.md $(find v3 -name '*.go')
 ```
 
-$ grok init
-Initialized a new .grok file in the current directory.
+Make a one-time query without storing chat history:
 
-$ grok add README.md cmd/grok/main.go grokker.go TODO.md
-
-Creating .grok file... adding README.md... adding cmd/grok/main.go...
-adding grokker.go... adding TODO.md... done!
-
+```
 $ grok q "What is grokker?"
 
 Grokker is a tool for interactive conversation with one or more
@@ -64,39 +66,48 @@ utilizes OpenAI API services for the backend. Essentially, you can
 input documents into Grokker and it will use natural language
 processing to analyze the text and help you answer questions about
 those documents.
+```
 
-$ grok q "Describe grokker's subcommands."
+Same thing, but providing the question on stdin:
 
-Grokker has several subcommands, including:
-
-1. `init`: Initializes a new .grok file in the current directory.
-2. `add`: Adds one or more documents to the database.
-3. `refresh`: Refreshes the embeddings for all documents.
-4. `ls`: Lists all the documents in the .grok file.
-5. `q`: Asks a question and returns an answer. You can include the
-   `-g` flag to also search the OpenAI global knowledge base.
-6. `qi`: Reads a question from standard input and returns an answer.
-7. `chat`: Runs one query in a chat session.  Context can read from
-   named files and documents in the local knowledge base as well as 
-   previous queries and answers.  Output can write to named files as
-   well as showing conversational text on stdout.
-
-The `init` subcommand is only used once to create the grok file, while
-the rest are used to manage and interact with the documents in the
-grok file.
-
-$ grok q "What is the `qi` subcommand for?"
+```
+$ echo "What is the `qi` subcommand for?" | grok qi
 
 The 'qi' subcommand allows you to ask a question by providing it on
-standard input rather than passing it as a command-line argument.
-For example, you could say:
-
-  echo "What is the 'qi' subcommand for?" | grok qi 
-
-This would read the question from standard input and return the
-answer.  This subcommand is especially useful in editor sessions and
-when writing plugins -- more about this below. 
+standard input rather than passing it as a command-line argument. This
+subcommand is especially useful in editor sessions and when writing
+plugins -- more about this below. 
 ```
+
+You can execute more complex queries using the newer `chat`
+subcommand. This will create or append to an existing chat history
+file, and will use prior messages in the chat history as context.
+Flags allow you to provide a system message and one or more complete
+files as specific context or generate new files on local disk.  You
+can see an example of a generated file in [STORIES.md](./STORIES.md),
+which I created using the following command:
+
+```
+echo "Write user stories for grokker based on the README." | grok chat STORIES.chat -s "You are a technical writer." -i README.md -o STORIES.md
+```
+
+Grokker can automatically generate git commit messages -- it will
+review the `git diff` of whatever you've staged, and generate a commit
+message on stdout.  See grokker's own commit history for examples of
+what this looks like in practice.
+
+```
+$ git add .
+$ grok commit
+```
+
+In practice, I tend to simply say `!!grok commit` in the VIM session
+that pops open when I run `git commit -a`.  Similarly, I use `grok qi`
+and `grok chat` in VIM while working on code or docs, with the current
+paragraph or visual selection as the input to the query and stdout
+directed to the current buffer.  There are some examples of this
+below.
+
 
 ## Installation
 
@@ -123,8 +134,8 @@ knowledge base in a conversational manner. It accepts a `chatfile` as
 a mandatory argument, which is where the chat history is stored. The
 `-s` flag is optional and can be used to pass a system message, which
 controls the behavior of the OpenAI API. In usage, it might look like
-`grok chat chatfile -s sysmsg`, where `sysmsg` is an optional system
-message, and `chatfile` is the required text file where the chat
+`grok chat foo.chat -s sysmsg`, where `sysmsg` is an optional system
+message, and `foo.chat` is the required text file where the chat
 history is stored.  There are several other optional flags that can be
 used with the `chat` subcommand, such as a `-m` flag so you can
 provide the prompt on the command line instead of on stdin, and `-i`
@@ -266,7 +277,7 @@ projects that were previously stalled.
 
 ### What are some use cases grokker already supports?
 
-In all of the following use cases, I tend to create and `grok add` a
+In most of the following use cases, I tend to create and `grok add` a
 `context.md` file that I use as a scratchpad, writing and refining
 questions and answers as I work on other files in the same directory
 or repository. This file is my interactive, animated [rubber
@@ -274,6 +285,12 @@ duck](https://en.wikipedia.org/wiki/Rubber_duck_debugging).  This
 technique has worked well.  I'm considering switching to using
 something like `grok.md`, `grokker.md`, `groktext.md`, or `gpt.md` for
 this filename and proposing it as a best practice.
+
+The newer `chat` subcommand is turning out to be even more useful -- I
+tend to name the chat history file after the problem I'm working on,
+such as `protocol.chat` or `design.chat`, and then use the `-i` and
+`-o` flags to specify input and output files to generate code or docs
+based on the conversation, requirements etc.
 
 Grokker has been a huge help in its original use case -- getting up to
 speed quickly on complex topics, documents, and code bases.  It's

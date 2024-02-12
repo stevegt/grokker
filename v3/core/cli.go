@@ -342,7 +342,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		// add the documents
 		for _, docfn := range cli.Add.Paths {
 			// add the document
-			Fpf(os.Stderr, " adding %s...\n", docfn)
+			Fpf(os.Stderr, " adding %s ...\n", docfn)
 			err = grok.AddDocument(docfn)
 			if err != nil {
 				return
