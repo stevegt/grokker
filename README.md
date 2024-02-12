@@ -112,8 +112,18 @@ below.
 ## Installation
 
 ``` 
-go install github.com/stevegt/grokker/cmd/grok 
+go install github.com/stevegt/grokker/cmd/grok@latest
 ``` 
+
+See the "Semantic Versioning" section below for important information
+about versioning, particularly if you're using grokker as a library or
+in a shell script.
+
+If you're installing a particular version instead of `@latest` it's
+important to know that the even-numbered major versions, e.g. v2.X.X,
+v4.X.X, etc., are stable releases, while odd-numbered major
+versions, e.g. v3.X.X, v5.X.X, etc., are development releases that may
+have breaking changes 
 
 You'll need an account with OpenAI and an API key. You can create and
 manage your API keys in your OpenAI dashboard.
@@ -318,6 +328,32 @@ context in future model queries, this provides feedback to the model,
 causing future answers to converge toward my intent.  (See
 [RLHF](https://en.wikipedia.org/wiki/Reinforcement_learning_from_human_feedback)
 for one possible way of formalizing this.)
+
+## Semantic Versioning
+
+Grokker uses semantic versioning, with odd-numbered versions
+representing unstable development versions.  See
+[semver.org](https://semver.org/spec/v2.0.0.html) for more details
+about semantic versioning itself, and [Go's module release
+workflow](https://go.dev/doc/modules/release-workflow) for more
+details about how semantic versioning is used in Go.
+
+A version number is in the form: MAJOR.MINOR.PATCH
+
+- MAJOR version changes when making incompatible API or CLI changes
+- MINOR version changes when making API or CLI changes in a backwards
+  compatible manner
+     - we're also using this to trigger db version migrations
+- PATCH version changes when making backwards compatible bug fixes or
+  minor feature enhancements
+
+Any odd-numbered element indicates an unstable pre-release version
+that is collecting changes for the next stable release.
+
+Examples:
+- 2.2.2 is a stable release version
+- 2.3.X is a pre-release version of 2.4.0
+- 3.X.X is a pre-release version of 4.0.0
 
 # Important disclaimer regarding sensitive and confidential information
 

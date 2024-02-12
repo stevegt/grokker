@@ -47,24 +47,10 @@ import (
 // Repeat steps 3-5 for each question asked, updating the conversation
 // prompt as needed.
 
-// Semantic Versioning
-// https://semver.org/spec/v2.0.0.html
-// MAJOR.MINOR.PATCH
-// MAJOR version when you make incompatible API changes,
-// MINOR version when you add functionality in a backwards compatible manner
-//   - we're using this for db version migrations
-//
-// PATCH version when you make backwards compatible bug fixes.
-//
-// Any odd-numbered element indicates an unstable pre-release version
-// that is collecting changes for the next stable release, and these
-// changes may be pushed without a version number increase. Examples:
-//   - 2.2.2 is a stable release version
-//   - 2.2.3 is collecting code changes that will become 2.2.4
-//   - 2.3.4 is collecting db and code changes that will become 2.4.0
-//   - 3.2.2 is collecting API, db, and code changes that will become 4.0.0
 const (
-	version = "3.0.6"
+	// See the "Semantic Versioning" section of the README for
+	// information on API and db stability and versioning.
+	version = "3.0.7"
 )
 
 type GrokkerInternal struct {
