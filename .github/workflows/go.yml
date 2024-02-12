@@ -13,6 +13,9 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: v3
     steps:
     - uses: actions/checkout@v3
 
@@ -25,6 +28,6 @@ jobs:
       run: go mod tidy
         
     - name: Build
-      run: go build -v ./v3/cmd/grok
+      run: go build -v cmd/grok
 
 
