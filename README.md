@@ -19,7 +19,8 @@ reading its own source code along with iterations of this document.
 
 ## Roadmap
 
-Here's where it appears this project is going:
+Here's where it appears this project is going as we migrate grokker to
+[PromiseGrid](https://github.com/promisegrid/promisegrid):
 
 - Multi-agent collaboration (with human, AI, and algorithmic agents)
    - working on this right now
