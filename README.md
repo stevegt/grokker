@@ -80,17 +80,25 @@ subcommand is especially useful in editor sessions and when writing
 plugins -- more about this below. 
 ```
 
-You can execute more complex queries using the newer `chat`
+### Queries with chat history on local disk
+
+Execute more complex queries using the newer `chat`
 subcommand. This will create or append to an existing chat history
 file, and will use prior messages in the chat history as context.
-Flags allow you to provide a system message and one or more complete
-files as specific context or generate new files on local disk.  You
-can see an example of a generated file in [STORIES.md](./STORIES.md),
+Flags allow you to provide a system message.  You can specify local 
+files as context, and you can generate new files on local disk.  
+
+You can see an example of a generated file in [STORIES.md](./STORIES.md),
 which I created using the following command:
 
 ```
-echo "Write user stories for grokker based on the README." | grok chat STORIES.chat -s "You are a technical writer." -i README.md -o STORIES.md
+echo "Write user stories for grokker based on the README." \
+   | grok chat STORIES.chat \
+     -s "You are a technical writer." \
+     -i README.md -o STORIES.md
 ```
+
+### Automatically generating git commit messages
 
 Grokker can automatically generate git commit messages -- it will
 review the `git diff` of whatever you've staged, and generate a commit
