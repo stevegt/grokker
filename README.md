@@ -201,9 +201,9 @@ keyboard mapping to your vimrc file. Here's an example mapping:
 
 This mapping will allow you to ask a question by typing it in VIM and
 then pressing `<leader>g`. The `vap` causes the current paragraph to be
-hightlighted, and the `:!grok qi` causes it to be sent as input to the
+highlighted, and the `:!grok qi` causes it to be sent as input to the
 `qi` subcommand of Grokker.  The answer will be inserted into the
-buffer below the current paragrpah. Note that the mapping assumes that
+buffer below the current paragraph. Note that the mapping assumes that
 Grokker's `grok` command is installed and in your system path.
 
 You will get better results if you `:set autowrite` so the current
