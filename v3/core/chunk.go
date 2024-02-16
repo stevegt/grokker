@@ -261,13 +261,21 @@ func (g *GrokkerInternal) similarChunks(embedding []float64, tokenLimit int, fil
 // findChunks returns the most relevant chunks for a query, limited by tokenLimit.
 func (g *GrokkerInternal) findChunks(query string, tokenLimit int, files []string) (chunks []*Chunk, err error) {
 	defer Return(&err)
-	// get the embeddings for the query.
-	embeddings, err := g.createEmbeddings([]string{query})
+	// break the query into chunks.
+	queryChunks, err := g.chunksFromString(nil, query, g.embeddingTokenLimit)
 	Ck(err)
-	queryEmbedding := embeddings[0]
-	if queryEmbedding == nil {
+	// get the embeddings for the chunks.
+	var queryStrings []string
+	for _, chunk := range queryChunks {
+		queryStrings = append(queryStrings, chunk.text)
+	}
+	embeddings, err := g.createEmbeddings(queryStrings)
+	Ck(err)
+	if len(embeddings) == 0 {
 		return
 	}
+	// average the embeddings.
+	queryEmbedding := util.MeanVector(embeddings)
 	// find the most similar chunks.
 	chunks, err = g.similarChunks(queryEmbedding, tokenLimit, files)
 	Ck(err)

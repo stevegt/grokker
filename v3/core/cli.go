@@ -239,6 +239,8 @@ func cmdInSlice(cmd string, cmds []string) bool {
 // We use this function instead of kong.Parse() so that we can pass in
 // the arguments to parse.  This allows us to more easily test the
 // cli subcommands, and could later ease e.g. WASM usage.
+//
+// XXX note how gitea/tea does this, also uses urfave instead of kong
 func Cli(args []string, config *CliConfig) (rc int, err error) {
 	defer Return(&err)
 

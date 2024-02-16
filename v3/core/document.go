@@ -3,6 +3,7 @@ package core
 import (
 	"path/filepath"
 
+	"github.com/stevegt/envi"
 	. "github.com/stevegt/goadapt"
 )
 
@@ -41,6 +42,15 @@ func (g *GrokkerInternal) updateDocument(doc *Document) (updated bool, err error
 	// hash, offset, and length.  We'll get embeddings later.
 	var newChunks []*Chunk
 	for _, chunk := range chunks {
+		if envi.Bool("DEBUG", false) {
+			// verify chunk text length
+			txt, err := g.chunkText(chunk, true, false)
+			Ck(err)
+			_, tokens, err := Tokenizer.Encode(txt)
+			Ck(err)
+			tc := len(tokens)
+			Assert(tc < g.embeddingTokenLimit, "chunk tokens %d exceeds limit %d: %v", tc, g.embeddingTokenLimit, chunk)
+		}
 		// setChunk unsets the stale bit if the chunk is already in the
 		// database.
 		// XXX move the stale bit unset to this loop instead, for readability.
@@ -52,6 +62,18 @@ func (g *GrokkerInternal) updateDocument(doc *Document) (updated bool, err error
 	}
 	Debug("found %d new chunks", len(newChunks))
 	// orphaned chunks will be garbage collected.
+
+	if envi.Bool("DEBUG", false) {
+		// verify newChunks text length
+		for _, chunk := range newChunks {
+			txt, err := g.chunkText(chunk, true, false)
+			Ck(err)
+			_, tokens, err := Tokenizer.Encode(txt)
+			Ck(err)
+			tc := len(tokens)
+			Assert(tc < g.embeddingTokenLimit, "chunk tokens %d exceeds limit %d: %v", tc, g.embeddingTokenLimit, chunk)
+		}
+	}
 
 	// For each new chunk, generate an embedding using the
 	// openai.Embedding.create() function. Store the embeddings for each

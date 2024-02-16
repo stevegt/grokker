@@ -34,8 +34,6 @@ func (g *GrokkerInternal) createEmbeddings(texts []string) (embeddings [][]float
 	// simply call c.CreateEmbeddings() once for each text chunk.
 	for i := 0; i < len(texts); i++ {
 		text := texts[i]
-		// XXX don't exceed max tokens
-
 		// set empty chunk embedding to nil
 		if len(text) == 0 {
 			embeddings = append(embeddings, nil)
@@ -46,7 +44,7 @@ func (g *GrokkerInternal) createEmbeddings(texts []string) (embeddings [][]float
 			Input: inputs,
 			Model: fabius_models.AdaEmbeddingV2,
 		}
-		// Debug("creating embedding for chunk %d of %d ...", i+1, len(texts))
+		Debug("creating embedding for chunk %d of %d ...", i+1, len(texts))
 		// Debug("text: %q", text)
 		// loop with backoff until we get a response
 		var res *openai.EmbeddingResponse
