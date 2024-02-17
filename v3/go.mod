@@ -9,13 +9,13 @@ require (
 	// github.com/sashabaranov/go-openai v1.9.0
 	github.com/sashabaranov/go-openai v1.19.1
 	github.com/stevegt/goadapt v0.7.0
-	github.com/stevegt/semver v0.0.0-20230512043732-92220054a49f
 	github.com/tiktoken-go/tokenizer v0.1.0
 )
 
 require (
 	github.com/sergi/go-diff v1.3.1
 	github.com/stevegt/envi v0.2.0
+	github.com/stevegt/semver v0.0.0-20240217000820-5913d1a31c26
 )
 
 require (

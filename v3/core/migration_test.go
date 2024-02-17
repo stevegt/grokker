@@ -163,13 +163,25 @@ func TestMigration_2_1_2(t *testing.T) {
 	// create a file with 1 chunk of 20000 bytes
 	// (about 11300 tokens each chunk depending on hash content)
 	mkDataFile("testfile-1-20000.txt", 1, 20000)
-	run(t, "grok", "add", "testfile-1-20000.txt")
+	run(t, "./grok", "add", "testfile-1-20000.txt")
 
 	// test with 3 chunks much larger than GPT-4 token size
 	// create a file with 3 chunks of 300000 bytes
 	// (about 167600 tokens each chunk depending on hash content)
 	mkDataFile("testfile-3-300000.txt", 3, 300000)
-	run(t, "grok", "add", "testfile-3-300000.txt")
+	run(t, "./grok", "add", "testfile-3-300000.txt")
+}
+
+// test migration from v3.0.9 to 3.0.10 so we know integer ordering
+// works as expected
+func TestMigration_3_0_10(t *testing.T) {
+	mkGrok(t, "v3.0.9", "v3/cmd/grok")
+	// run ls to get upgraded to 3.0.9
+	run(t, "./grok", "ls")
+	// now build 3.0.10
+	mkGrok(t, "v3.0.10", "v3/cmd/grok")
+	// run ls to get upgraded to 3.0.10
+	run(t, "./grok", "ls")
 }
 
 func TestMigrationHead(t *testing.T) {

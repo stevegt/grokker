@@ -47,13 +47,16 @@ func (g *GrokkerInternal) migrate() (migrated bool, was, now string, err error) 
 		Ck(err)
 		codever, err = semver.Parse([]byte(version))
 		Ck(err)
-		if semver.Cmp(dbver, codever) == 0 {
+		var cmp int
+		cmp, err = semver.Cmp(dbver, codever)
+		Ck(err)
+		if cmp == 0 {
 			// no migration necessary
 			break
 		}
 
 		// see if db is newer version than code
-		if semver.Cmp(dbver, codever) > 0 {
+		if cmp > 0 {
 			// db is newer than code
 			err = fmt.Errorf("grokker db is version %s, but you're running version %s -- upgrade grokker", g.Version, version)
 			return
@@ -62,7 +65,8 @@ func (g *GrokkerInternal) migrate() (migrated bool, was, now string, err error) 
 		Fpf(os.Stderr, "migrating from %s to %s\n", g.Version, version)
 
 		// if we get here, then dbver < codever
-		_, minor, patch := semver.Upgrade(dbver, codever)
+		var minor, patch bool
+		_, minor, patch, _, err = semver.Upgrade(dbver, codever)
 		Assert(patch, "patch should be true: %s -> %s", dbver, codever)
 
 		// figure out what kind of migration we need to do

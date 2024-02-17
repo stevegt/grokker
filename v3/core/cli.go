@@ -122,7 +122,9 @@ type cmdChat struct {
 	NoAddToDb        bool     `short:"D" help:"Do not add the chat history file to the knowledge base."`
 }
 
-type cmdCommit struct{}
+type cmdCommit struct {
+	Diffargs []string `arg:"" optional:"" type:"string" help:"Arguments to pass to git diff.  If not provided, defaults to '--staged'."`
+}
 
 type cmdCtx struct {
 	Tokenlimit      int  `arg:"" type:"int" help:"Maximum number of tokens to include in the context."`
@@ -572,8 +574,13 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		Ck(err)
 		Pl(res)
 	case "commit":
+		fallthrough
+	case "commit <diffargs>":
 		// generate a git commit message
-		summary, err := commitMessage(grok)
+		if len(cli.Commit.Diffargs) < 1 {
+			cli.Commit.Diffargs = []string{"--staged"}
+		}
+		summary, err := commitMessage(grok, cli.Commit.Diffargs...)
 		Ck(err)
 		Pl(summary)
 	case "models":
@@ -672,11 +679,12 @@ func msg(g *GrokkerInternal, sysmsg string, input string) (res string, err error
 }
 
 // generate a git commit message
-func commitMessage(grok *GrokkerInternal) (summary string, err error) {
+func commitMessage(grok *GrokkerInternal, args ...string) (summary string, err error) {
 	defer Return(&err)
 
-	// run `git diff --staged`
-	cmd := exec.Command("git", "diff", "--staged")
+	// run `git diff @args
+	args = append([]string{"diff"}, args...)
+	cmd := exec.Command("git", args...)
 	cmd.Stderr = os.Stderr
 	out, err := cmd.Output()
 	Ck(err)

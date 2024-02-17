@@ -359,7 +359,9 @@ func (g *GrokkerInternal) ListDocuments() (paths []string) {
 		v100, err := semver.Parse([]byte("1.0.0"))
 		current, err := semver.Parse([]byte(g.Version))
 		Ck(err)
-		if semver.Cmp(current, v100) > 0 {
+		cmp, err := semver.Cmp(current, v100)
+		Ck(err)
+		if cmp > 0 {
 			path = doc.RelPath
 		}
 		paths = append(paths, path)
