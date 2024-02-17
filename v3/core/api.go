@@ -506,8 +506,12 @@ func (g *GrokkerInternal) GitCommitMessage(diff string) (msg string, err error) 
 
 	// summarize the sumLines to create the first line of the commit
 	// message
-	resp, err := g.generate(SysMsgChat, GitSummaryPrompt, sumLines, false)
-	Ck(err)
+	// resp, err := g.generate(SysMsgChat, GitSummaryPrompt, sumLines, false)
+	// Ck(err)
+	_ = sumLines
+	//
+	// summarize the entire commit message to create the first line
+	resp, err := g.generate(SysMsgChat, GitSummaryPrompt, msg, false)
 	summary := resp.Choices[0].Message.Content
 
 	// glue it all together
