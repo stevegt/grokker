@@ -73,7 +73,7 @@ func (g *GrokkerInternal) createEmbeddings(texts []string) (embeddings [][]float
 func (g *GrokkerInternal) completeChat(sysmsg string, msgs []ChatMsg) (response string, err error) {
 	defer Return(&err)
 
-	// Debug("msgs: %s", Spprint(msgs))
+	Debug("msgs: %s", Spprint(msgs))
 
 	omsgs := []oai.ChatCompletionMessage{
 		{

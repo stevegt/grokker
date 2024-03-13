@@ -91,7 +91,7 @@ func (g *GrokkerInternal) ForgetDocument(path string) (err error) {
 
 // Chat uses the given sysmsg and prompt along with context from the
 // knowledge base and message history file to generate a response.
-func (g *GrokkerInternal) Chat(sysmsg, prompt, fileName string, level util.ContextLevel, infiles []string, outfiles []FileLang, extract, promptTokenLimit int, extractToStdout, addToDb bool) (resp string, err error) {
+func (g *GrokkerInternal) Chat(sysmsg, prompt, fileName string, level util.ContextLevel, infiles []string, outfiles []FileLang, extract, promptTokenLimit int, extractToStdout, addToDb, edit bool) (resp string, err error) {
 	defer Return(&err)
 	// open the message history file
 	history, err := g.OpenChatHistory(sysmsg, fileName)
@@ -107,7 +107,7 @@ func (g *GrokkerInternal) Chat(sysmsg, prompt, fileName string, level util.Conte
 		return
 	}
 	// get response
-	resp, _, err = history.continueChat(prompt, level, infiles, outfiles, promptTokenLimit)
+	resp, _, err = history.continueChat(prompt, level, infiles, outfiles, promptTokenLimit, edit)
 	Ck(err)
 	return
 }

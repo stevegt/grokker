@@ -7,6 +7,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker/v3/util"
@@ -96,7 +97,7 @@ func (g *GrokkerInternal) OpenChatHistory(sysmsg, relPath string) (history *Chat
 // continueChat continues a chat history.  The debug map contains
 // interesting statistics about the process, for testing and debugging
 // purposes.
-func (history *ChatHistory) continueChat(prompt string, level util.ContextLevel, infiles []string, outfiles []FileLang, promptTokenLimit int) (resp string, debug map[string]int, err error) {
+func (history *ChatHistory) continueChat(prompt string, contextLevel util.ContextLevel, infiles []string, outfiles []FileLang, promptTokenLimit int, edit bool) (resp string, debug map[string]int, err error) {
 	defer Return(&err)
 	g := history.g
 
@@ -107,7 +108,7 @@ func (history *ChatHistory) continueChat(prompt string, level util.ContextLevel,
 	}
 
 	Debug("continueChat: prompt len=%d", len(prompt))
-	Debug("continueChat: context level=%s", level)
+	Debug("continueChat: context level=%s", contextLevel)
 
 	// create a temporary slice of messages to work with
 	var msgs []ChatMsg
@@ -116,7 +117,7 @@ func (history *ChatHistory) continueChat(prompt string, level util.ContextLevel,
 	getContext := false
 	appendMsgs := false
 	var files []string
-	switch level {
+	switch contextLevel {
 	case util.ContextNone:
 		// no context
 	case util.ContextRecent:
@@ -135,7 +136,7 @@ func (history *ChatHistory) continueChat(prompt string, level util.ContextLevel,
 		getContext = true
 		appendMsgs = true
 	default:
-		Assert(false, "invalid context level: %s", level)
+		Assert(false, "invalid context level: %s", contextLevel)
 	}
 
 	if getContext {
@@ -161,8 +162,14 @@ func (history *ChatHistory) continueChat(prompt string, level util.ContextLevel,
 		msgs = append(msgs, history.msgs...)
 	}
 
-	// append the prompt to the context
-	msgs = append(msgs, ChatMsg{Role: "USER", Txt: prompt})
+	if edit {
+		// get the prompt from the most recent message
+		Assert(len(prompt) == 0, "edit mode expects an empty prompt")
+		prompt = history.msgs[len(history.msgs)-1].Txt
+	} else {
+		// append the prompt to the context
+		msgs = append(msgs, ChatMsg{Role: "USER", Txt: prompt})
+	}
 
 	peakCount, err := history.tokenCount(msgs)
 	Ck(err)
@@ -175,7 +182,7 @@ func (history *ChatHistory) continueChat(prompt string, level util.ContextLevel,
 	if promptTokenLimit > 0 {
 		maxTokens = promptTokenLimit
 	}
-	msgs, err = history.summarize(prompt, msgs, maxTokens, level)
+	msgs, err = history.summarize(prompt, msgs, maxTokens, contextLevel)
 	Ck(err)
 
 	finalCount, err := history.tokenCount(msgs)
@@ -203,7 +210,11 @@ func (history *ChatHistory) continueChat(prompt string, level util.ContextLevel,
 
 	// generate the response
 	Fpf(os.Stderr, "Sending %d tokens to OpenAI...\n", finalCount)
+	Debug("continueChat: sysmsg len=%d", len(sysmsg))
+	Debug("continueChat: msgs len=%d", len(msgs))
 	resp, err = g.completeChat(sysmsg, msgs)
+	Ck(err)
+	Debug("continueChat: resp len=%d", len(resp))
 
 	// append the prompt and response to the stored messages
 	history.msgs = append(history.msgs, ChatMsg{Role: "USER", Txt: prompt})
@@ -217,7 +228,7 @@ func (history *ChatHistory) continueChat(prompt string, level util.ContextLevel,
 
 // summarize summarizes a chat history until it is within
 // maxTokens.  It always leaves the last message intact.
-func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens int, level util.ContextLevel) (summarized []ChatMsg, err error) {
+func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens int, contextLevel util.ContextLevel) (summarized []ChatMsg, err error) {
 	defer Return(&err)
 	g := history.g
 
@@ -239,7 +250,7 @@ func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens i
 	}
 
 	var sysmsg string
-	if level > util.ContextRecent {
+	if contextLevel > util.ContextRecent {
 		Fpf(os.Stderr, "Summarizing %d tokens...\n", msgsCount)
 		// generate a sysmsg that includes a short summary of the prompt
 		topic, err := g.Msg("Summarize the topic in one sentence.", prompt)
@@ -325,7 +336,7 @@ func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens i
 	// second half of the messages
 	msgs[secondHalfI] = msg2
 
-	if level > util.ContextRecent {
+	if contextLevel > util.ContextRecent {
 		for len(summarized) == 0 {
 			// summarize the first half of the messages by converting them to
 			// a text format that GPT-4 can understand, sending them to GPT-4,
@@ -345,7 +356,7 @@ func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens i
 	summarized = append(summarized, msgs[secondHalfI:]...)
 
 	// recurse
-	return history.summarize(prompt, summarized, maxTokens, level)
+	return history.summarize(prompt, summarized, maxTokens, contextLevel)
 }
 
 // chat2txt returns the given history messages as a text string.
@@ -385,8 +396,8 @@ func (history *ChatHistory) parseChat(txt string) (msgs []ChatMsg) {
 			continue
 		}
 		if msg == nil {
-			// we are in some sort of preamble -- credit it to the AI
-			msg = &ChatMsg{Role: "AI"}
+			// we are in some sort of preamble -- credit it to the user
+			msg = &ChatMsg{Role: "USER"}
 		}
 		// if we get here, we are in the middle of a message
 		msg.Txt += line + "\n"
@@ -401,6 +412,7 @@ func (history *ChatHistory) parseChat(txt string) (msgs []ChatMsg) {
 // fixRole fixes the role in a chat history file.  This might be
 // necessary if GPT-4 changes the role names.
 func (history *ChatHistory) fixRole(role string) (fixed string) {
+	role = strings.TrimSpace(role)
 	role = strings.ToUpper(role)
 	switch role {
 	case "USER":
@@ -437,28 +449,37 @@ func (history *ChatHistory) Save(addToDb bool) (err error) {
 	// close the temp file
 	err = fh.Close()
 	Ck(err)
-	// replace the chat history file with the temp file
 	Assert(history.relPath != "", "relPath is required")
-	// path := filepath.Join(history.g.Root, history.relPath)
 	path := history.relPath
-	// move the chat history file to a backup file
+	// move the existing chat history file to a backup file
 	var backup string
 	_, err = os.Stat(path)
 	if err == nil {
 		// file exists
-		backup = path + ".bak"
+		// get a timestamp string
+		ts := time.Now().Format("20060102-150405")
+		// split on dots
+		parts := strings.Split(path, ".")
+		// insert the timestamp before the file extension
+		parts = append(parts[:len(parts)-1], ts, parts[len(parts)-1])
+		// join the parts
+		backup = strings.Join(parts, ".")
 		err = os.Rename(path, backup)
 		Ck(err)
 	}
 	// move the temp file to the chat history file
 	err = os.Rename(fh.Name(), path)
 	Ck(err)
-	// remove the backup file
-	_, err = os.Stat(backup)
-	if err == nil {
-		// file exists
-		err = os.Remove(backup)
-		Ck(err)
+
+	// XXX this should be a flag
+	if false {
+		// remove the backup file
+		_, err = os.Stat(backup)
+		if err == nil {
+			// file exists
+			err = os.Remove(backup)
+			Ck(err)
+		}
 	}
 
 	if addToDb {

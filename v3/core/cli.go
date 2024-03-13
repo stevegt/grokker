@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/alecthomas/kong"
+	"github.com/anmitsu/go-shlex"
 	"github.com/gofrs/flock"
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker/v3/util"
@@ -111,6 +112,7 @@ type cmdChat struct {
 	ContextRepo      bool     `short:"C" help:"Add context from the entire grokker repository (includes chat file)."`
 	ContextChat      bool     `short:"c" help:"Add context from the entire chat file."`
 	ContextNone      bool     `short:"N" help:"Do not add any context."`
+	Edit             bool     `short:"e" help:"Open the chat file in GROKKER_EDITOR for editing."`
 	Prompt           string   `short:"m" help:"Prompt message to use instead of stdin."`
 	InputFiles       []string `short:"i" type:"string" help:"Input files to be provided in the prompt."`
 	OutputFiles      []string `short:"o" type:"string" help:"Output files to be created or overwritten."`
@@ -377,9 +379,14 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		}
 		var prompt string
 		extract := cli.Chat.Extract
+		edit := cli.Chat.Edit
 		if extract < 1 {
 			if cli.Chat.Prompt != "" {
 				prompt = cli.Chat.Prompt
+			} else if edit {
+				// open the chat file in the editor
+				err = EditFile(cli.Chat.ChatFile)
+				Ck(err)
 			} else {
 				// get text from stdin and print the response
 				buf, err := ioutil.ReadAll(config.Stdin)
@@ -423,7 +430,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 			}
 		}
 		// get the response
-		outtxt, err := grok.Chat(cli.Chat.Sysmsg, prompt, cli.Chat.ChatFile, level, infiles, outfiles, extract, cli.Chat.PromptTokenLimit, cli.Chat.ExtractToStdout, !cli.Chat.NoAddToDb)
+		outtxt, err := grok.Chat(cli.Chat.Sysmsg, prompt, cli.Chat.ChatFile, level, infiles, outfiles, extract, cli.Chat.PromptTokenLimit, cli.Chat.ExtractToStdout, !cli.Chat.NoAddToDb, edit)
 		Ck(err)
 		Pl(outtxt)
 		// save the grok file
@@ -692,6 +699,65 @@ func commitMessage(grok *GrokkerInternal, args ...string) (summary string, err e
 
 	// call grokker
 	summary, err = grok.GitCommitMessage(diff)
+	Ck(err)
+
+	return
+}
+
+// EditFile opens the chat file in the editor
+func EditFile(fn string) (err error) {
+	defer Return(&err)
+
+	// first append a ### USER heading to the file if it doesn't exist
+	_, err = os.Stat(fn)
+	if err != nil {
+		// file does not exist
+		err = ioutil.WriteFile(fn, []byte("### USER\n"), 0644)
+		Ck(err)
+	} else {
+		// file exists -- check for the heading at the end of the file
+		buf, err := ioutil.ReadFile(fn)
+		Ck(err)
+		lines := strings.Split(string(buf), "\n")
+		for i := len(lines) - 1; i >= 0; i-- {
+			if lines[i] == "### USER" {
+				// heading exists
+				break
+			}
+			if lines[i] == "" {
+				// empty line
+				continue
+			}
+			// heading does not exist -- append it
+			fh, err := os.OpenFile(fn, os.O_APPEND|os.O_WRONLY, 0644)
+			Ck(err)
+			defer fh.Close()
+			_, err = fh.WriteString("\n\n### USER\n\n")
+			Ck(err)
+			break
+		}
+	}
+
+	// open the file in the editor
+	editor := os.Getenv("GROKKER_EDITOR")
+	if editor == "" {
+		editor = "vi +"
+	}
+	// use shlex to split the editor command
+	cmdline, err := shlex.Split(editor, true)
+	Ck(err)
+	editor = cmdline[0]
+	var args []string
+	if len(cmdline) == 1 {
+		args = []string{fn}
+	} else {
+		args = append(cmdline[1:], fn)
+	}
+	cmd := exec.Command(editor, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
 	Ck(err)
 
 	return

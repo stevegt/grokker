@@ -531,6 +531,7 @@ func TestCliChat(t *testing.T) {
 	// create a temporary directory
 	dir, err := os.MkdirTemp("", "grokker")
 	Ck(err)
+	Pf("dir: %s\n", dir)
 	// defer os.RemoveAll(dir)
 	// cd into the temporary directory
 	cd(t, dir)
