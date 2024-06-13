@@ -59,6 +59,9 @@ func Similarity(a, b []float64) float64 {
 	}
 	var dot, magA, magB float64
 	for i := range a {
+		if math.IsNaN(a[i]) || math.IsNaN(b[i]) {
+			continue
+		}
 		dot += a[i] * b[i]
 		magA += a[i] * a[i]
 		magB += b[i] * b[i]
