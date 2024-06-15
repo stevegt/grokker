@@ -18,7 +18,7 @@ type ChatHistory struct {
 	Version string
 	relPath string
 	msgs    []ChatMsg
-	g       *GrokkerInternal
+	g       *Grokker
 }
 
 type ChatMsg struct {
@@ -42,7 +42,7 @@ the AI: and USER: headers in your response.\n\nTopic:\n%s\n`
 // ...where <role> is either "USER" or "AI", and <message> is the text
 // of the message.  The last message in the file is the most recent
 // message.
-func (g *GrokkerInternal) OpenChatHistory(sysmsg, relPath string) (history *ChatHistory, err error) {
+func (g *Grokker) OpenChatHistory(sysmsg, relPath string) (history *ChatHistory, err error) {
 	defer Return(&err)
 	Assert(relPath != "", "relPath is required")
 	// path := filepath.Join(g.Root, relPath)
@@ -101,13 +101,6 @@ func (history *ChatHistory) continueChat(prompt string, contextLevel util.Contex
 	defer Return(&err)
 	g := history.g
 
-	// include the input files in the prompt
-	prompt, err = history.includeFiles(prompt, infiles)
-	if err != nil {
-		return "", nil, err
-	}
-
-	Debug("continueChat: prompt len=%d", len(prompt))
 	Debug("continueChat: context level=%s", contextLevel)
 
 	// create a temporary slice of messages to work with
@@ -192,11 +185,42 @@ func (history *ChatHistory) continueChat(prompt string, contextLevel util.Contex
 		"peakCount":  peakCount,
 		"finalCount": finalCount,
 	}
+	Fpf(os.Stderr, "Sending %d tokens to OpenAI...\n", finalCount)
 
-	sysmsg := history.Sysmsg
-	// add regex to sysmsg if outfiles are provided
+	// generate the response
+	resp, err = g.SendWithFiles(history.Sysmsg, msgs, infiles, outfiles)
+	Ck(err)
+
+	// append the prompt and response to the stored messages
+	history.msgs = append(history.msgs, ChatMsg{Role: "USER", Txt: prompt})
+	history.msgs = append(history.msgs, ChatMsg{Role: "AI", Txt: resp})
+
+	// save the output files
+	err = ExtractFiles(outfiles, resp, false, false)
+	Ck(err)
+
+	return
+}
+
+// SendWithFiles sends a chat to GPT-4 and returns the
+// response.  If assumes the prompt is the last message in the
+// history.  The sysmsg is a message that is sent to GPT-4 before the
+// prompt.  The msgs are the chat history up to the prompt.  The
+// infiles are the input files that are included in the prompt.  The
+// outfiles are the output files that are required in the response.
+func (g *Grokker) SendWithFiles(sysmsg string, msgs []ChatMsg, infiles []string, outfiles []FileLang) (resp string, err error) {
+	defer Return(&err)
+
+	if len(infiles) > 0 {
+		// include the input files in the prompt
+		promptFrag, err := IncludeFiles(infiles)
+		Ck(err)
+		// append the prompt fragment to the last message
+		msgs[len(msgs)-1].Txt += promptFrag
+	}
+
 	if len(outfiles) > 0 {
-		// build filename list
+		// require the output files in the response
 		var fns []string
 		for _, fn := range outfiles {
 			fns = append(fns, fn.File)
@@ -204,25 +228,11 @@ func (history *ChatHistory) continueChat(prompt string, contextLevel util.Contex
 		sysmsg += Spf("\nYour response must include the following files: '%s'", strings.Join(fns, "', '"))
 		sysmsg += Spf("\nYour response must match this regular expression: '%s'", OutfilesRegex(outfiles))
 		sysmsg += Spf("\n...where each file is in the format:\n\n<blank line>\nFile: <filename>\n```<language>\n<text>\n```EOF_<filename>")
-		Fpf(os.Stderr, "System message:  %s\n", sysmsg)
 	}
-	Debug("continueChat: sysmsg %s", sysmsg)
+	Debug("sysmsg %s", sysmsg)
 
-	// generate the response
-	Fpf(os.Stderr, "Sending %d tokens to OpenAI...\n", finalCount)
-	Debug("continueChat: sysmsg len=%d", len(sysmsg))
-	Debug("continueChat: msgs len=%d", len(msgs))
-	resp, err = g.completeChat(sysmsg, msgs)
+	resp, err = g.CompleteChat(sysmsg, msgs)
 	Ck(err)
-	Debug("continueChat: resp len=%d", len(resp))
-
-	// append the prompt and response to the stored messages
-	history.msgs = append(history.msgs, ChatMsg{Role: "USER", Txt: prompt})
-	history.msgs = append(history.msgs, ChatMsg{Role: "AI", Txt: resp})
-
-	// save the output files
-	err = history.extractFiles(outfiles, resp, false, false)
-
 	return
 }
 
@@ -507,7 +517,7 @@ func (history *ChatHistory) tokenCount(msgs []ChatMsg) (count int, err error) {
 // splitAt splits a string at the given token count.  It returns two
 // strings, the first of which is the first part of the string, and
 // the second of which is the second part of the string.
-func (g *GrokkerInternal) splitAt(txt string, tokenCount int) (txt1, txt2 string) {
+func (g *Grokker) splitAt(txt string, tokenCount int) (txt1, txt2 string) {
 	middle := len(txt) / 2
 	// use binary search to find the middle
 	move := middle / 2
@@ -575,7 +585,7 @@ func OutfilesRegex(files []FileLang) string {
 
 	headerTmpl := `(?:^|\n)(?i)File:\s*(%s)\s*\n`
 	// zeroOrMoreBlankLines := `(?:\s*\n)*`
-	openCodeBlockTmpl := "```" + `(%s)\n`
+	openCodeBlockTmpl := "```" + `(%s|)\n`
 	text := `(?s)(.*)`
 	closeCodeBlockTmpl := "```" + `\nEOF_%s(?:\s*|\n)*`
 
@@ -598,10 +608,9 @@ func OutfilesRegex(files []FileLang) string {
 	return out
 }
 
-// includeFiles includes the given files in the prompt.  It returns a
-// new prompt string.
-func (history *ChatHistory) includeFiles(prompt string, files []string) (newPrompt string, err error) {
-	newPrompt = prompt
+// IncludeFiles returns the contents of the given files as a prompt
+// fragment.
+func IncludeFiles(files []string) (prompt string, err error) {
 	for _, fn := range files {
 		buf, err := ioutil.ReadFile(fn)
 		if err != nil {
@@ -612,7 +621,7 @@ func (history *ChatHistory) includeFiles(prompt string, files []string) (newProm
 		if !strings.HasSuffix(txt, "\n") {
 			txt += "\n"
 		}
-		newPrompt += Spf("\n\nFile: %s\n```%s\n```\n", fn, txt)
+		prompt += Spf("\n\nFile: %s\n```\n%s```\nEOF_%s\n", fn, txt, fn)
 	}
 	return
 }
@@ -635,7 +644,7 @@ func (history *ChatHistory) extractFromChat(outfiles []FileLang, N int, extractT
 			}
 			// see if we have a match for this file
 			dryrun := true
-			err = history.extractFiles(fl, history.msgs[i].Txt, dryrun, false)
+			err = ExtractFiles(fl, history.msgs[i].Txt, dryrun, false)
 			if err != nil {
 				// file not found in this response
 				continue
@@ -644,7 +653,7 @@ func (history *ChatHistory) extractFromChat(outfiles []FileLang, N int, extractT
 			if foundN == N {
 				// we found the Nth most recent version of the file
 				dryrun = false
-				err = history.extractFiles(fl, history.msgs[i].Txt, dryrun, extractToStdout)
+				err = ExtractFiles(fl, history.msgs[i].Txt, dryrun, extractToStdout)
 				Ck(err)
 				break
 			}
@@ -656,9 +665,9 @@ func (history *ChatHistory) extractFromChat(outfiles []FileLang, N int, extractT
 	return
 }
 
-// extractFiles extracts the output files from the given response and
+// ExtractFiles extracts the output files from the given response and
 // saves them to the given files, overwriting any existing files.
-func (history *ChatHistory) extractFiles(outfiles []FileLang, resp string, dryrun, extractToStdout bool) (err error) {
+func ExtractFiles(outfiles []FileLang, resp string, dryrun, extractToStdout bool) (err error) {
 	defer Return(&err)
 	// loop over the expected outfiles
 	// - we ignore any files the AI provides that are not in the list
@@ -677,10 +686,6 @@ func (history *ChatHistory) extractFiles(outfiles []FileLang, resp string, dryru
 		// see if we have a match for this file
 		match := re.FindStringSubmatch(resp)
 		if len(match) == 0 {
-			if dryrun {
-				return fmt.Errorf("file '%s' was not found in the response", fn)
-			}
-			// return fmt.Errorf("file '%s' was not found in the response", fn)
 			Fpf(os.Stderr, "Warning: file not found in the response: '%s'\nregex was: '%s'\n", fn, pat)
 			continue
 		}

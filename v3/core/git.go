@@ -32,7 +32,7 @@ Add nothing else.  Never add quote marks.
 
 // summarizeDiff recursively summarizes a diff until the summary is
 // short enough to be used as a prompt.
-func (g *GrokkerInternal) summarizeDiff(diff string) (sumlines string, diffSummary string, err error) {
+func (g *Grokker) summarizeDiff(diff string) (sumlines string, diffSummary string, err error) {
 	defer Return(&err)
 	maxTokens := int(float64(g.tokenLimit) * .7)
 	// split the diff on filenames

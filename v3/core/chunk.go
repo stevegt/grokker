@@ -61,7 +61,7 @@ func newChunk(doc *Document, offset, length int, text string) (c *Chunk) {
 
 // splitChunk recursively splits a Chunk into smaller chunks until
 // each chunk is no longer than the token limit.
-func (chunk *Chunk) splitChunk(g *GrokkerInternal, tokenLimit int) (newChunks []*Chunk, err error) {
+func (chunk *Chunk) splitChunk(g *Grokker, tokenLimit int) (newChunks []*Chunk, err error) {
 	defer Return(&err)
 	// if the chunk is short enough, then we're done
 	tc, err := chunk.tokenCount(g)
@@ -99,7 +99,7 @@ func (chunk *Chunk) splitChunk(g *GrokkerInternal, tokenLimit int) (newChunks []
 }
 
 // chunkText returns the text of a chunk.
-func (g *GrokkerInternal) chunkText(c *Chunk, withHeader, withLineNumbers bool) (text string, err error) {
+func (g *Grokker) chunkText(c *Chunk, withHeader, withLineNumbers bool) (text string, err error) {
 	// Debug("ChunkText(%#v)", c)
 	if c.Document == nil {
 		Assert(c.text != "", "ChunkText: c.Document == nil && c.text == \"\"")
@@ -188,7 +188,7 @@ func splitIntoChunks(doc *Document, txt, delimiter string) (chunks []*Chunk) {
 
 // similarChunks returns the most similar chunks to an embedding,
 // limited by tokenLimit.
-func (g *GrokkerInternal) similarChunks(embedding []float64, tokenLimit int, files []string) (chunks []*Chunk, err error) {
+func (g *Grokker) similarChunks(embedding []float64, tokenLimit int, files []string) (chunks []*Chunk, err error) {
 	defer Return(&err)
 	Debug("chunks in database: %d", len(g.Chunks))
 	// Assert(tokenLimit > 100, tokenLimit)
@@ -259,7 +259,7 @@ func (g *GrokkerInternal) similarChunks(embedding []float64, tokenLimit int, fil
 }
 
 // findChunks returns the most relevant chunks for a query, limited by tokenLimit.
-func (g *GrokkerInternal) findChunks(query string, tokenLimit int, files []string) (chunks []*Chunk, err error) {
+func (g *Grokker) findChunks(query string, tokenLimit int, files []string) (chunks []*Chunk, err error) {
 	defer Return(&err)
 	// break the query into chunks.
 	queryChunks, err := g.chunksFromString(nil, query, g.embeddingTokenLimit)
@@ -284,7 +284,7 @@ func (g *GrokkerInternal) findChunks(query string, tokenLimit int, files []strin
 
 // stringsFromString splits a string into a slice of strings.  Each
 // string will be no longer than tokenLimit tokens.
-func (g *GrokkerInternal) stringsFromString(txt string, tokenLimit int) (strings []string, err error) {
+func (g *Grokker) stringsFromString(txt string, tokenLimit int) (strings []string, err error) {
 	defer Return(&err)
 	Assert(tokenLimit > 0)
 	chunks, err := g.chunksFromString(nil, txt, tokenLimit)
@@ -298,7 +298,7 @@ func (g *GrokkerInternal) stringsFromString(txt string, tokenLimit int) (strings
 // chunksFromString splits a string into a slice of Chunks.  If doc is
 // not nil, it is used to set the Document field of each chunk.  Each
 // chunk will be no longer than tokenLimit tokens.
-func (g *GrokkerInternal) chunksFromString(doc *Document, txt string, tokenLimit int) (chunks []*Chunk, err error) {
+func (g *Grokker) chunksFromString(doc *Document, txt string, tokenLimit int) (chunks []*Chunk, err error) {
 	defer Return(&err)
 	Assert(tokenLimit > 0)
 
@@ -332,7 +332,7 @@ func (g *GrokkerInternal) chunksFromString(doc *Document, txt string, tokenLimit
 }
 
 // chunksFromDoc returns a slice containing the chunks for a document.
-func (g *GrokkerInternal) chunksFromDoc(doc *Document) (chunks []*Chunk, err error) {
+func (g *Grokker) chunksFromDoc(doc *Document) (chunks []*Chunk, err error) {
 	defer Return(&err)
 	// read the document.
 	buf, err := ioutil.ReadFile(g.absPath(doc))
@@ -352,7 +352,7 @@ func (g *GrokkerInternal) chunksFromDoc(doc *Document) (chunks []*Chunk, err err
 // returns the chunk if it was added to the database, or nil if it was
 // already in the database. The caller needs to set the embedding if
 // newChunk is not nil.
-func (g *GrokkerInternal) setChunk(chunk *Chunk) (newChunk *Chunk) {
+func (g *Grokker) setChunk(chunk *Chunk) (newChunk *Chunk) {
 	// check if the chunk is already in the database.
 	var foundChunk *Chunk
 	for _, c := range g.Chunks {
@@ -373,7 +373,7 @@ func (g *GrokkerInternal) setChunk(chunk *Chunk) (newChunk *Chunk) {
 }
 
 // gc removes any chunks that are marked as stale or that are orphaned.
-func (g *GrokkerInternal) gc() (err error) {
+func (g *Grokker) gc() (err error) {
 	defer Return(&err)
 	// build doc name map
 	docMap := make(map[string]bool)
@@ -401,7 +401,7 @@ func (g *GrokkerInternal) gc() (err error) {
 }
 
 // getContext returns the context for a query.
-func (g *GrokkerInternal) getContext(query string, tokenLimit int, withHeaders, withLineNumbers bool, files []string) (context string, err error) {
+func (g *Grokker) getContext(query string, tokenLimit int, withHeaders, withLineNumbers bool, files []string) (context string, err error) {
 	defer Return(&err)
 	// Debug("getting context, tokenLimit: %d, query: %q", tokenLimit, query)
 	// get chunks, sorted by similarity to the query.
@@ -418,7 +418,7 @@ func (g *GrokkerInternal) getContext(query string, tokenLimit int, withHeaders, 
 
 // tokenCount returns the number of tokens in a chunk, and caches the
 // result in the chunk.
-func (chunk *Chunk) tokenCount(g *GrokkerInternal) (count int, err error) {
+func (chunk *Chunk) tokenCount(g *Grokker) (count int, err error) {
 	defer Return(&err)
 	if chunk.tokenLength == 0 {
 		text, err := g.chunkText(chunk, false, false)

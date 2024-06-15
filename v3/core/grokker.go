@@ -53,7 +53,7 @@ const (
 	version = "3.0.12"
 )
 
-type GrokkerInternal struct {
+type Grokker struct {
 	embeddingClient *openai.Client
 	chatClient      *oai.Client
 	// The grokker version number this db was last updated with.
@@ -72,14 +72,15 @@ type GrokkerInternal struct {
 	oaiModel            string
 	tokenLimit          int
 	embeddingTokenLimit int
-	grokpath            string
+	// pathname of the grokker database file
+	grokpath string
 	// lock                *flock.Flock
 }
 
 var Tokenizer tokenizer.Codec
 
 // mtime returns the last modified time of the Grokker database.
-func (g *GrokkerInternal) mtime() (timestamp time.Time, err error) {
+func (g *Grokker) mtime() (timestamp time.Time, err error) {
 	defer Return(&err)
 	fi, err := os.Stat(g.grokpath)
 	Ck(err)
@@ -88,7 +89,7 @@ func (g *GrokkerInternal) mtime() (timestamp time.Time, err error) {
 }
 
 // tokens returns the tokens for a text segment.
-func (g *GrokkerInternal) tokens(text string) (tokens []string, err error) {
+func (g *Grokker) tokens(text string) (tokens []string, err error) {
 	defer Return(&err)
 	_, tokens, err = Tokenizer.Encode(text)
 	Ck(err)
@@ -96,7 +97,7 @@ func (g *GrokkerInternal) tokens(text string) (tokens []string, err error) {
 }
 
 // meanVectorFromLongString returns the mean vector of a long string.
-func (g *GrokkerInternal) meanVectorFromLongString(text string) (vector []float64, err error) {
+func (g *Grokker) meanVectorFromLongString(text string) (vector []float64, err error) {
 	defer Return(&err)
 	// break up the text into strings smaller than the token limit
 	texts, err := g.stringsFromString(text, g.tokenLimit)

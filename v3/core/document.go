@@ -16,13 +16,13 @@ type Document struct {
 }
 
 // absPath returns the absolute path of a document.
-func (g *GrokkerInternal) absPath(doc *Document) string {
+func (g *Grokker) absPath(doc *Document) string {
 	return filepath.Join(g.Root, doc.RelPath)
 }
 
 // updateDocument updates the embeddings for a document and returns
 // true if the document was updated.
-func (g *GrokkerInternal) updateDocument(doc *Document) (updated bool, err error) {
+func (g *Grokker) updateDocument(doc *Document) (updated bool, err error) {
 	defer Return(&err)
 	// XXX much of this code is inefficient and will be replaced
 	// when we have a kv store.

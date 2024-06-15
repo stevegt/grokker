@@ -297,7 +297,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		readonly = true
 	}
 
-	var grok *GrokkerInternal
+	var grok *Grokker
 	var save bool
 	// initialize Tokenizer
 	err = InitTokenizer()
@@ -587,7 +587,8 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		if len(cli.Commit.Diffargs) < 1 {
 			cli.Commit.Diffargs = []string{"--staged"}
 		}
-		summary, err := commitMessage(grok, cli.Commit.Diffargs...)
+		// call grokker
+		summary, err := grok.GitCommitMessage(cli.Commit.Diffargs...)
 		Ck(err)
 		Pl(summary)
 	case "models":
@@ -632,7 +633,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 }
 
 // answer a question
-func answer(grok *GrokkerInternal, question string, global bool) (resp, query string, updated bool, err error) {
+func answer(grok *Grokker, question string, global bool) (resp, query string, updated bool, err error) {
 	defer Return(&err)
 
 	// update the knowledge base
@@ -647,7 +648,7 @@ func answer(grok *GrokkerInternal, question string, global bool) (resp, query st
 }
 
 // continue text
-func cont(grok *GrokkerInternal, in string, global bool) (resp, query string, updated bool, err error) {
+func cont(grok *Grokker, in string, global bool) (resp, query string, updated bool, err error) {
 	defer Return(&err)
 
 	// update the knowledge base
@@ -663,7 +664,7 @@ func cont(grok *GrokkerInternal, in string, global bool) (resp, query string, up
 }
 
 // revise text
-func revise(grok *GrokkerInternal, in string, global, sysmsgin bool) (out string, updated bool, err error) {
+func revise(grok *Grokker, in string, global, sysmsgin bool) (out string, updated bool, err error) {
 	defer Return(&err)
 
 	// update the knowledge base
@@ -678,29 +679,10 @@ func revise(grok *GrokkerInternal, in string, global, sysmsgin bool) (out string
 }
 
 // send a message to openAI's API
-func msg(g *GrokkerInternal, sysmsg string, input string) (res string, err error) {
+func msg(g *Grokker, sysmsg string, input string) (res string, err error) {
 	defer Return(&err)
 	res, err = g.Msg(sysmsg, input)
 	Ck(err)
-	return
-}
-
-// generate a git commit message
-func commitMessage(grok *GrokkerInternal, args ...string) (summary string, err error) {
-	defer Return(&err)
-
-	// run `git diff @args
-	args = append([]string{"diff"}, args...)
-	cmd := exec.Command("git", args...)
-	cmd.Stderr = os.Stderr
-	out, err := cmd.Output()
-	Ck(err)
-	diff := string(out)
-
-	// call grokker
-	summary, err = grok.GitCommitMessage(diff)
-	Ck(err)
-
 	return
 }
 
