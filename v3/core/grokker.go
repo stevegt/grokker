@@ -50,7 +50,7 @@ import (
 const (
 	// See the "Semantic Versioning" section of the README for
 	// information on API and db stability and versioning.
-	version = "3.0.12"
+	version = "3.0.13"
 )
 
 type Grokker struct {
@@ -77,6 +77,7 @@ type Grokker struct {
 	// lock                *flock.Flock
 }
 
+// XXX get rid of this global
 var Tokenizer tokenizer.Codec
 
 // mtime returns the last modified time of the Grokker database.

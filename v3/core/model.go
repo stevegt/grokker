@@ -80,6 +80,8 @@ func (g *Grokker) Setup(model string) (err error) {
 	err = g.initModel(model)
 	Ck(err)
 	g.initClients()
+	err = InitTokenizer()
+	Ck(err)
 	return
 }
 
