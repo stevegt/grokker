@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -11,10 +12,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/emersion/go-message/mail"
 	"github.com/google/shlex"
 	"github.com/stevegt/envi"
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker/v3/core"
+	"github.com/stevegt/grokker/v3/util"
 )
 
 // RunTee runs a command in the shell, with stdout and stderr tee'd to the terminal
@@ -179,11 +182,11 @@ func main() {
 	_, err = os.Stat(".grok")
 	Ck(err)
 
-	// generate a temporary filename for the prompt file
+	// generate a filename for the prompt file
 	dir := Spf("%s/.aidda", filepath.Dir(base))
 	err = os.MkdirAll(dir, 0755)
 	Ck(err)
-	fn := Spf("%s/prompt.md", dir)
+	fn := Spf("%s/prompt", dir)
 
 	// open or create a grokker db
 	g, lock, err := core.LoadOrInit(base, "gpt-4o")
@@ -197,6 +200,97 @@ func main() {
 		Ck(err)
 		time.Sleep(3 * time.Second)
 	}
+}
+
+// Prompt is a struct that represents a prompt
+type Prompt struct {
+	In  []string
+	Out []string
+	Txt string
+}
+
+// NewPrompt opens or creates a prompt object
+func NewPrompt(path string) (p *Prompt, err error) {
+	defer Return(&err)
+	// check if the file exists
+	_, err = os.Stat(path)
+	if os.IsNotExist(err) {
+		err = createPromptFile(path)
+		Ck(err)
+	} else {
+		Ck(err)
+	}
+	p, err = readPrompt(path)
+	Ck(err)
+	return
+}
+
+// readPrompt reads a prompt file
+func readPrompt(path string) (p *Prompt, err error) {
+	p = &Prompt{}
+	// parse the file as a mail message
+	file, err := os.Open(path)
+	Ck(err)
+	defer file.Close()
+	mr, err := mail.CreateReader(file)
+	Ck(err)
+	// read the message header
+	header := mr.Header
+	inStr := header.Get("In")
+	outStr := header.Get("Out")
+	p.In = strings.Split(inStr, ", ")
+	p.Out = strings.Split(outStr, ", ")
+	// read the message body
+	for {
+		part, err := mr.NextPart()
+		if err == io.EOF {
+			break
+		}
+		Ck(err)
+		switch h := part.Header.(type) {
+		case *mail.InlineHeader:
+			// prompt text is in the body
+			b, err := io.ReadAll(part.Body)
+			Ck(err)
+			p.Txt = string(b)
+		case *mail.AttachmentHeader:
+			// XXX keep this here because we might perhaps use
+			// attachments in the future for e.g. test results
+			filename, err := h.Filename()
+			Ck(err)
+			fmt.Printf("Got attachment: %v\n", filename)
+		}
+	}
+	return
+}
+
+// createPromptFile creates a new prompt file
+func createPromptFile(path string) (err error) {
+	defer Return(&err)
+	file, err := os.Create(path)
+	Ck(err)
+	defer file.Close()
+
+	// get the list of files to process
+	inFns, err := getFiles()
+	outFns := inFns[:]
+	inStr := strings.Join(inFns, ", ")
+	outStr := strings.Join(outFns, ", ")
+
+	// create headers
+	hmap := map[string][]string{
+		"In":  []string{inStr},
+		"Out": []string{outStr},
+	}
+	h := mail.HeaderFromMap(hmap)
+
+	// create mail writer
+	mw, err := mail.CreateSingleInlineWriter(file, h)
+	Ck(err)
+	// Write the body
+	io.WriteString(mw, "# enter prompt here")
+
+	return
 }
 
 func loop(g *core.Grokker, promptfn string) (done bool, err error) {
@@ -223,24 +317,33 @@ func loop(g *core.Grokker, promptfn string) (done bool, err error) {
 		Pl(string(stderr))
 	}
 
+	// read or create the prompt file
+	p, err := NewPrompt(promptfn)
+	Ck(err)
+
 	// present user with an editor buffer where they can type a natural language instruction
 	editor := envi.String("EDITOR", "vim")
 	rc, err = RunInteractive(Spf("%s %s", editor, promptfn))
 	Ck(err)
 	Assert(rc == 0, "editor failed")
-	buf, err := ioutil.ReadFile(promptfn)
+
+	// re-read the prompt file
+	p, err = NewPrompt(promptfn)
 	Ck(err)
-	prompt := string(buf)
+	prompt := p.Txt
+	inFns := p.In
+	outFns := p.Out
 
-	inFns, err := getFiles()
-
-	Pf("inFns: %v\n", inFns)
-
-	outFls := []core.FileLang{
-		core.FileLang{File: "main.go", Language: "go"},
-		core.FileLang{File: "main_test.go", Language: "go"},
+	var outFls []core.FileLang
+	for _, fn := range outFns {
+		lang, known, err := util.Ext2Lang(fn)
+		Ck(err)
+		if !known {
+			Pf("Unknown language for file %s, defaulting to text\n", fn)
+			lang = "text"
+		}
+		outFls = append(outFls, core.FileLang{File: fn, Language: lang})
 	}
-	// outFileRe := core.OutfilesRegex(outFls)
 
 	sysmsg := "You are an expert Go programmer. Please make the requested changes to the given code."
 	msgs := []core.ChatMsg{
