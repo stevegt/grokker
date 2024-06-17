@@ -1,0 +1,7 @@
+Mime-Version: 1.0
+Content-Transfer-Encoding: quoted-printable
+In: aidda.go, cmd/aidda3/main.go
+Out: aidda_test.go
+
+create test cases for aidda.go
+

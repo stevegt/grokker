@@ -553,7 +553,10 @@ func waitForFile(watcher *fsnotify.Watcher, fn string) (err error) {
 		case event, ok := <-watcher.Events:
 			Assert(ok, "watcher.Events closed")
 			Pf("event: %v\n", event)
-			if event.Op&fsnotify.Write == fsnotify.Write {
+			write := event.Op&fsnotify.Write == fsnotify.Write
+			create := event.Op&fsnotify.Create == fsnotify.Create
+			rename := event.Op&fsnotify.Rename == fsnotify.Rename
+			if write || create || rename {
 				Pf("modified file: %s\n", event.Name)
 				// check if absolute path of the file is the same as the
 				// file we are waiting for
