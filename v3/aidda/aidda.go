@@ -195,18 +195,14 @@ func Start(args ...string) {
 	Ck(err)
 	defer lock.Unlock()
 
-	// create fsnotify watcher
-	watcher, err := fsnotify.NewWatcher()
-	Ck(err)
-	defer watcher.Close()
-	// watch the prompt file
-	err = watcher.Add(fn)
+	// commit the current state
+	err = commit(g)
 	Ck(err)
 
 	// loop forever
 	done := false
 	for !done {
-		done, err = loop(g, fn, watcher)
+		done, err = loop(g, fn)
 		Ck(err)
 		time.Sleep(3 * time.Second)
 	}
@@ -260,9 +256,11 @@ func readPrompt(path string) (p *Prompt, err error) {
 		switch h := part.Header.(type) {
 		case *mail.InlineHeader:
 			// prompt text is in the body
-			b, err := io.ReadAll(part.Body)
+			buf, err := io.ReadAll(part.Body)
 			Ck(err)
-			p.Txt = string(b)
+			// trim leading and trailing whitespace
+			txt := strings.TrimSpace(string(buf))
+			p.Txt = string(txt)
 		case *mail.AttachmentHeader:
 			// XXX keep this here because we might perhaps use
 			// attachments in the future for e.g. test results
@@ -334,35 +332,63 @@ func ask(question, deflt string, others ...string) (response string, err error) 
 	}
 }
 
-func loop(g *core.Grokker, promptfn string, watcher *fsnotify.Watcher) (done bool, err error) {
+func loop(g *core.Grokker, promptfn string) (done bool, err error) {
 	defer Return(&err)
-	var rc int
-	var stdout, stderr []byte
+
+	p, err := getPrompt(promptfn)
+	Ck(err)
+	spew.Dump(p)
+
+	err = getChanges(g, p)
+	Ck(err)
+
+	err = runDiff()
+	Ck(err)
+
+	err = runTest(promptfn)
+	Ck(err)
 
 	err = commit(g)
 	Ck(err)
 
-	// read or create the prompt file
-	p, err := NewPrompt(promptfn)
-	Ck(err)
+	return
+}
 
-	// present user with an editor buffer where they can type a natural language instruction
-	editor := envi.String("EDITOR", "vim")
-	rc, err = RunInteractive(Spf("%s %s", editor, promptfn))
-	Ck(err)
-	Assert(rc == 0, "editor failed")
-	// wait for the file to be saved
-	err = waitForFile(watcher, promptfn)
-	Ck(err)
+func runTest(promptfn string) (err error) {
+	defer Return(&err)
+	Pf("Running tests\n")
 
-	// re-read the prompt file
-	p, err = NewPrompt(promptfn)
+	// run go test -v
+	stdout, stderr, _, _ := RunTee("go test -v")
+
+	// append test results to the prompt file
+	fh, err := os.OpenFile(promptfn, os.O_APPEND|os.O_WRONLY, 0644)
 	Ck(err)
+	_, err = fh.WriteString(Spf("\n\nstdout:\n%s\n\nstderr:%s\n\n", stdout, stderr))
+	Ck(err)
+	fh.Close()
+	return err
+}
+
+func runDiff() (err error) {
+	defer Return(&err)
+	// run difftool
+	difftool := envi.String("AIDDA_DIFFTOOL", "git difftool")
+	Pf("Running difftool %s\n", difftool)
+	var rc int
+	rc, err = RunInteractive(difftool)
+	Ck(err)
+	Assert(rc == 0, "difftool failed")
+	return err
+}
+
+func getChanges(g *core.Grokker, p *Prompt) (err error) {
+	defer Return(&err)
+	Pf("getting changes from GPT\n")
+
 	prompt := p.Txt
 	inFns := p.In
 	outFns := p.Out
-	spew.Dump(p)
-
 	var outFls []core.FileLang
 	for _, fn := range outFns {
 		lang, known, err := util.Ext2Lang(fn)
@@ -386,34 +412,48 @@ func loop(g *core.Grokker, promptfn string, watcher *fsnotify.Watcher) (done boo
 	err = core.ExtractFiles(outFls, resp, false, false)
 	Ck(err)
 
-	// run difftool
-	difftool := envi.String("DIFFTOOL", "git difftool")
-	rc, err = RunInteractive(difftool)
-	Ck(err)
-	Assert(rc == 0, "difftool failed")
-
-	// run go test -v
-	stdout, stderr, _, _ = RunTee("go test -v")
-
-	// ask if they want to continue
-	res, err := ask("Continue?", "y", "")
-	Ck(err)
-	if res != "y" {
-		done = true
-		return
-	}
-
-	// append test results to the prompt file
-	fh, err := os.OpenFile(promptfn, os.O_APPEND|os.O_WRONLY, 0644)
-	Ck(err)
-	_, err = fh.WriteString(Spf("\n\nstdout:\n%s\n\nstderr:%s\n\n", stdout, stderr))
-	Ck(err)
-	fh.Close()
-
 	return
 }
 
+func getPrompt(promptfn string) (p *Prompt, err error) {
+	defer Return(&err)
+	var rc int
+
+	// read or create the prompt file
+	p, err = NewPrompt(promptfn)
+	Ck(err)
+
+	// create fsnotify watcher
+	watcher, err := fsnotify.NewWatcher()
+	Ck(err)
+	defer watcher.Close()
+	// watch the prompt file
+	err = watcher.Add(promptfn)
+	Ck(err)
+
+	// if AIDDA_EDITOR is set, open the editor where the users can
+	// type a natural language instruction
+	editor := envi.String("AIDDA_EDITOR", "")
+	if editor != "" {
+		Pf("Opening editor %s\n", editor)
+		rc, err = RunInteractive(Spf("%s %s", editor, promptfn))
+		Ck(err)
+		Assert(rc == 0, "editor failed")
+	}
+	// wait for the file to be saved
+	Pf("Waiting for file %s to be saved\n", promptfn)
+	err = waitForFile(watcher, promptfn)
+	Ck(err)
+
+	// re-read the prompt file
+	p, err = NewPrompt(promptfn)
+	Ck(err)
+
+	return p, err
+}
+
 func commit(g *core.Grokker) (err error) {
+	defer Return(&err)
 	var rc int
 	// check git status for uncommitted changes
 	stdout, stderr, rc, err := Run("git status --porcelain", nil)
@@ -443,7 +483,8 @@ func commit(g *core.Grokker) (err error) {
 }
 
 // getFiles returns a list of files to be processed
-func getFiles() ([]string, error) {
+func getFiles() (files []string, err error) {
+	defer Return(&err)
 	// send that along with all files to GPT API
 	// get ignore list
 	ignore := []string{}
@@ -470,8 +511,8 @@ func getFiles() ([]string, error) {
 	}
 
 	// get list of files recursively
-	files := []string{}
-	err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+	files = []string{}
+	err = filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
 		// ignore .git and .aidda directories
 		if strings.Contains(path, ".git") || strings.Contains(path, ".aidda") {
 			return nil
@@ -509,8 +550,15 @@ func waitForFile(watcher *fsnotify.Watcher, fn string) (err error) {
 		select {
 		case event, ok := <-watcher.Events:
 			Assert(ok, "watcher.Events closed")
+			Pf("event: %v\n", event)
 			if event.Op&fsnotify.Write == fsnotify.Write {
-				if event.Name == fn {
+				Pf("modified file: %s\n", event.Name)
+				// check if absolute path of the file is the same as the
+				// file we are waiting for
+				if filepath.Clean(event.Name) == filepath.Clean(fn) {
+					Pf("file %s written to\n", fn)
+					// wait for writes to finish
+					time.Sleep(1 * time.Second)
 					return
 				}
 			}
