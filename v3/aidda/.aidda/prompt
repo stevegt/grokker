@@ -1,28 +1,21 @@
 Mime-Version: 1.0
 Content-Transfer-Encoding: quoted-printable
-In: aidda.go, cmd/aidda3/main.go
-Out: aidda_test.go
+In: aidda.go, cmd/aidda3/main.go, aidda_test.go
+Out: aidda.go, run.go
 
-create test cases 
-
-stdout:
-?   	github.com/stevegt/aidda/x/x3	[no test files]
-
-
-stderr:
-
+move the Run* functions to run.go
 
 
 stdout:
 === RUN   TestRunTee
 Hello, World!
---- PASS: TestRunTee (0.11s)
+--- PASS: TestRunTee (0.10s)
 === RUN   TestRun
---- PASS: TestRun (0.01s)
+--- PASS: TestRun (0.00s)
 === RUN   TestRunInteractive
 --- PASS: TestRunInteractive (0.02s)
 PASS
-ok  	github.com/stevegt/aidda/x/x3	0.138s
+ok  	github.com/stevegt/aidda/x/x3	0.136s
 
 
 stderr:
