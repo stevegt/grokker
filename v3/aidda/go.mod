@@ -1,8 +1,9 @@
-module main
+module github.com/stevegt/aidda/x/x3
 
 go 1.22.1
 
 require (
+	github.com/davecgh/go-spew v1.1.1
 	github.com/emersion/go-message v0.18.1
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510

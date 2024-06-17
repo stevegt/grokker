@@ -1,4 +1,4 @@
-package main
+package x3
 
 import (
 	"bufio"
@@ -171,8 +171,8 @@ func RunInteractive(command string) (rc int, err error) {
 	- include test results in the prompt file
 */
 
-func main() {
-	base := os.Args[1]
+func Start(args ...string) {
+	base := args[0]
 	err := os.Chdir(filepath.Dir(base))
 	Ck(err)
 
@@ -337,30 +337,10 @@ func ask(question, deflt string, others ...string) (response string, err error) 
 func loop(g *core.Grokker, promptfn string, watcher *fsnotify.Watcher) (done bool, err error) {
 	defer Return(&err)
 	var rc int
-	// check git status for uncommitted changes
-	stdout, stderr, rc, err := Run("git status --porcelain", nil)
+	var stdout, stderr []byte
+
+	err = commit(g)
 	Ck(err)
-	if len(stdout) > 0 {
-		Pl(string(stdout))
-		Pl(string(stderr))
-		res, err := ask("There are uncommitted changes. Commit?", "y", "n")
-		Ck(err)
-		if res == "y" {
-			// git add
-			rc, err = RunInteractive("git add -A")
-			Assert(rc == 0, "git add failed")
-			Ck(err)
-			// generate a commit message
-			summary, err := g.GitCommitMessage("--staged")
-			Ck(err)
-			// git commit
-			stdout, stderr, rc, err := Run("git commit -F-", []byte(summary))
-			Assert(rc == 0, "git commit failed")
-			Ck(err)
-			Pl(string(stdout))
-			Pl(string(stderr))
-		}
-	}
 
 	// read or create the prompt file
 	p, err := NewPrompt(promptfn)
@@ -431,6 +411,35 @@ func loop(g *core.Grokker, promptfn string, watcher *fsnotify.Watcher) (done boo
 	fh.Close()
 
 	return
+}
+
+func commit(g *core.Grokker) (err error) {
+	var rc int
+	// check git status for uncommitted changes
+	stdout, stderr, rc, err := Run("git status --porcelain", nil)
+	Ck(err)
+	if len(stdout) > 0 {
+		Pl(string(stdout))
+		Pl(string(stderr))
+		res, err := ask("There are uncommitted changes. Commit?", "y", "n")
+		Ck(err)
+		if res == "y" {
+			// git add
+			rc, err = RunInteractive("git add -A")
+			Assert(rc == 0, "git add failed")
+			Ck(err)
+			// generate a commit message
+			summary, err := g.GitCommitMessage("--staged")
+			Ck(err)
+			// git commit
+			stdout, stderr, rc, err := Run("git commit -F-", []byte(summary))
+			Assert(rc == 0, "git commit failed")
+			Ck(err)
+			Pl(string(stdout))
+			Pl(string(stderr))
+		}
+	}
+	return err
 }
 
 // getFiles returns a list of files to be processed
