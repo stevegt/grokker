@@ -12,7 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/emersion/go-message/mail"
+	"github.com/fsnotify/fsnotify"
 	"github.com/google/shlex"
 	"github.com/stevegt/envi"
 	. "github.com/stevegt/goadapt"
@@ -193,10 +195,18 @@ func main() {
 	Ck(err)
 	defer lock.Unlock()
 
+	// create fsnotify watcher
+	watcher, err := fsnotify.NewWatcher()
+	Ck(err)
+	defer watcher.Close()
+	// watch the prompt file
+	err = watcher.Add(fn)
+	Ck(err)
+
 	// loop forever
 	done := false
 	for !done {
-		done, err = loop(g, fn)
+		done, err = loop(g, fn, watcher)
 		Ck(err)
 		time.Sleep(3 * time.Second)
 	}
@@ -293,7 +303,38 @@ func createPromptFile(path string) (err error) {
 	return
 }
 
-func loop(g *core.Grokker, promptfn string) (done bool, err error) {
+// ask asks the user a question and gets a response
+func ask(question, deflt string, others ...string) (response string, err error) {
+	defer Return(&err)
+	var candidates []string
+	candidates = append(candidates, strings.ToUpper(deflt))
+	for _, o := range others {
+		candidates = append(candidates, strings.ToLower(o))
+	}
+	for {
+		fmt.Printf("%s [%s]: ", question, strings.Join(candidates, "/"))
+		reader := bufio.NewReader(os.Stdin)
+		response, err = reader.ReadString('\n')
+		Ck(err)
+		response = strings.TrimSpace(response)
+		if response == "" {
+			response = deflt
+		}
+		if len(others) == 0 {
+			// if others is empty, return the response without
+			// checking candidates
+			return
+		}
+		// check if the response is in the list of candidates
+		for _, c := range candidates {
+			if strings.ToLower(response) == strings.ToLower(c) {
+				return
+			}
+		}
+	}
+}
+
+func loop(g *core.Grokker, promptfn string, watcher *fsnotify.Watcher) (done bool, err error) {
 	defer Return(&err)
 	var rc int
 	// check git status for uncommitted changes
@@ -302,19 +343,23 @@ func loop(g *core.Grokker, promptfn string) (done bool, err error) {
 	if len(stdout) > 0 {
 		Pl(string(stdout))
 		Pl(string(stderr))
-		// git add
-		rc, err = RunInteractive("git add -A")
-		Assert(rc == 0, "git add failed")
+		res, err := ask("There are uncommitted changes. Commit?", "y", "n")
 		Ck(err)
-		// generate a commit message
-		summary, err := g.GitCommitMessage("--staged")
-		Ck(err)
-		// git commit
-		stdout, stderr, rc, err := Run("git commit -F-", []byte(summary))
-		Assert(rc == 0, "git commit failed")
-		Ck(err)
-		Pl(string(stdout))
-		Pl(string(stderr))
+		if res == "y" {
+			// git add
+			rc, err = RunInteractive("git add -A")
+			Assert(rc == 0, "git add failed")
+			Ck(err)
+			// generate a commit message
+			summary, err := g.GitCommitMessage("--staged")
+			Ck(err)
+			// git commit
+			stdout, stderr, rc, err := Run("git commit -F-", []byte(summary))
+			Assert(rc == 0, "git commit failed")
+			Ck(err)
+			Pl(string(stdout))
+			Pl(string(stderr))
+		}
 	}
 
 	// read or create the prompt file
@@ -326,6 +371,9 @@ func loop(g *core.Grokker, promptfn string) (done bool, err error) {
 	rc, err = RunInteractive(Spf("%s %s", editor, promptfn))
 	Ck(err)
 	Assert(rc == 0, "editor failed")
+	// wait for the file to be saved
+	err = waitForFile(watcher, promptfn)
+	Ck(err)
 
 	// re-read the prompt file
 	p, err = NewPrompt(promptfn)
@@ -333,6 +381,7 @@ func loop(g *core.Grokker, promptfn string) (done bool, err error) {
 	prompt := p.Txt
 	inFns := p.In
 	outFns := p.Out
+	spew.Dump(p)
 
 	var outFls []core.FileLang
 	for _, fn := range outFns {
@@ -367,12 +416,9 @@ func loop(g *core.Grokker, promptfn string) (done bool, err error) {
 	stdout, stderr, _, _ = RunTee("go test -v")
 
 	// ask if they want to continue
-	Pf("Enter to continue, or anything else to quit: ")
-	// get user input
-	reader := bufio.NewReader(os.Stdin)
-	text, _ := reader.ReadString('\n')
-	text = strings.TrimSpace(text)
-	if text != "" {
+	res, err := ask("Continue?", "y", "")
+	Ck(err)
+	if res != "y" {
 		done = true
 		return
 	}
@@ -444,4 +490,24 @@ func getFiles() ([]string, error) {
 	})
 	Ck(err)
 	return files, nil
+}
+
+// waitForFile waits for a file to be saved
+func waitForFile(watcher *fsnotify.Watcher, fn string) (err error) {
+	defer Return(&err)
+	// wait for the file to be saved
+	for {
+		select {
+		case event, ok := <-watcher.Events:
+			Assert(ok, "watcher.Events closed")
+			if event.Op&fsnotify.Write == fsnotify.Write {
+				if event.Name == fn {
+					return
+				}
+			}
+		case err, ok := <-watcher.Errors:
+			Assert(ok, "watcher.Errors closed")
+			return err
+		}
+	}
 }

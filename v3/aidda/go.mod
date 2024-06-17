@@ -4,6 +4,7 @@ go 1.22.1
 
 require (
 	github.com/emersion/go-message v0.18.1
+	github.com/fsnotify/fsnotify v1.7.0
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/stevegt/envi v0.2.0
 	github.com/stevegt/goadapt v0.7.0
