@@ -3,5 +3,27 @@ Content-Transfer-Encoding: quoted-printable
 In: aidda.go, cmd/aidda3/main.go
 Out: aidda_test.go
 
-create test cases for aidda.go
+create test cases 
+
+stdout:
+?   	github.com/stevegt/aidda/x/x3	[no test files]
+
+
+stderr:
+
+
+
+stdout:
+=== RUN   TestRunTee
+Hello, World!
+--- PASS: TestRunTee (0.11s)
+=== RUN   TestRun
+--- PASS: TestRun (0.01s)
+=== RUN   TestRunInteractive
+--- PASS: TestRunInteractive (0.02s)
+PASS
+ok  	github.com/stevegt/aidda/x/x3	0.138s
+
+
+stderr:
 
