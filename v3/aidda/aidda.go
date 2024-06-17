@@ -176,13 +176,15 @@ func Start(args ...string) {
 	err := os.Chdir(filepath.Dir(base))
 	Ck(err)
 
-	// ensure there is a .git directory
-	_, err = os.Stat(".git")
-	Ck(err)
+	/*
+		// ensure there is a .git directory
+		_, err = os.Stat(".git")
+		Ck(err)
 
-	// ensure there is a .grok file
-	_, err = os.Stat(".grok")
-	Ck(err)
+		// ensure there is a .grok file
+		_, err = os.Stat(".grok")
+		Ck(err)
+	*/
 
 	// generate a filename for the prompt file
 	dir := Spf("%s/.aidda", filepath.Dir(base))
