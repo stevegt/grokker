@@ -1,3 +1,5 @@
-/.idea
-/.git
-/.grok
+.git
+.idea
+.grok*
+go.*
+nv.shada

@@ -6,13 +6,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/emersion/go-message/mail"
 	"github.com/fsnotify/fsnotify"
+	gitignore "github.com/sabhiram/go-gitignore"
 	"github.com/stevegt/envi"
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker/v3/core"
@@ -47,11 +47,10 @@ func Start(args ...string) {
 		Ck(err)
 	*/
 
-	// generate a filename for the prompt file
+	// create a directory for aidda files
 	dir := Spf("%s/.aidda", filepath.Dir(base))
 	err = os.MkdirAll(dir, 0755)
 	Ck(err)
-	fn := Spf("%s/prompt", dir)
 
 	// open or create a grokker db
 	g, lock, err := core.LoadOrInit(base, "gpt-4o")
@@ -65,7 +64,7 @@ func Start(args ...string) {
 	// loop forever
 	done := false
 	for !done {
-		done, err = loop(g, fn)
+		done, err = loop(g, dir)
 		Ck(err)
 		time.Sleep(3 * time.Second)
 	}
@@ -195,10 +194,17 @@ func ask(question, deflt string, others ...string) (response string, err error) 
 	}
 }
 
-func loop(g *core.Grokker, promptfn string) (done bool, err error) {
+func loop(g *core.Grokker, dir string) (done bool, err error) {
 	defer Return(&err)
 
-	p, err := getPrompt(promptfn)
+	// generate filenames
+	promptFn := Spf("%s/prompt", dir)
+	ignoreFn := Spf("%s/ignore", dir)
+
+	err = ensureIgnoreFile(ignoreFn)
+	Ck(err)
+
+	p, err := getPrompt(promptFn)
 	Ck(err)
 	spew.Dump(p)
 
@@ -208,7 +214,7 @@ func loop(g *core.Grokker, promptfn string) (done bool, err error) {
 	err = runDiff()
 	Ck(err)
 
-	err = runTest(promptfn)
+	err = runTest(promptFn)
 	Ck(err)
 
 	err = commit(g)
@@ -217,7 +223,7 @@ func loop(g *core.Grokker, promptfn string) (done bool, err error) {
 	return
 }
 
-func runTest(promptfn string) (err error) {
+func runTest(promptFn string) (err error) {
 	defer Return(&err)
 	Pf("Running tests\n")
 
@@ -225,7 +231,7 @@ func runTest(promptfn string) (err error) {
 	stdout, stderr, _, _ := RunTee("go test -v")
 
 	// append test results to the prompt file
-	fh, err := os.OpenFile(promptfn, os.O_APPEND|os.O_WRONLY, 0644)
+	fh, err := os.OpenFile(promptFn, os.O_APPEND|os.O_WRONLY, 0644)
 	Ck(err)
 	_, err = fh.WriteString(Spf("\n\nstdout:\n%s\n\nstderr:%s\n\n", stdout, stderr))
 	Ck(err)
@@ -278,12 +284,12 @@ func getChanges(g *core.Grokker, p *Prompt) (err error) {
 	return
 }
 
-func getPrompt(promptfn string) (p *Prompt, err error) {
+func getPrompt(promptFn string) (p *Prompt, err error) {
 	defer Return(&err)
 	var rc int
 
 	// read or create the prompt file
-	p, err = NewPrompt(promptfn)
+	p, err = NewPrompt(promptFn)
 	Ck(err)
 
 	// create fsnotify watcher
@@ -291,7 +297,7 @@ func getPrompt(promptfn string) (p *Prompt, err error) {
 	Ck(err)
 	defer watcher.Close()
 	// watch the prompt file
-	err = watcher.Add(promptfn)
+	err = watcher.Add(promptFn)
 	Ck(err)
 
 	// if AIDDA_EDITOR is set, open the editor where the users can
@@ -299,17 +305,17 @@ func getPrompt(promptfn string) (p *Prompt, err error) {
 	editor := envi.String("AIDDA_EDITOR", "")
 	if editor != "" {
 		Pf("Opening editor %s\n", editor)
-		rc, err = RunInteractive(Spf("%s %s", editor, promptfn))
+		rc, err = RunInteractive(Spf("%s %s", editor, promptFn))
 		Ck(err)
 		Assert(rc == 0, "editor failed")
 	}
 	// wait for the file to be saved
-	Pf("Waiting for file %s to be saved\n", promptfn)
-	err = waitForFile(watcher, promptfn)
+	Pf("Waiting for file %s to be saved\n", promptFn)
+	err = waitForFile(watcher, promptFn)
 	Ck(err)
 
 	// re-read the prompt file
-	p, err = NewPrompt(promptfn)
+	p, err = NewPrompt(promptFn)
 	Ck(err)
 
 	return p, err
@@ -348,30 +354,11 @@ func commit(g *core.Grokker) (err error) {
 // getFiles returns a list of files to be processed
 func getFiles() (files []string, err error) {
 	defer Return(&err)
-	// send that along with all files to GPT API
+
 	// get ignore list
-	ignore := []string{}
-	ignorefn := ".aidda/ignore"
-	if _, err := os.Stat(ignorefn); err == nil {
-		// open the ignore file
-		fh, err := os.Open(ignorefn)
-		Ck(err)
-		defer fh.Close()
-		// read the ignore file
-		scanner := bufio.NewScanner(fh)
-		for scanner.Scan() {
-			// split the ignore file into a list of patterns, ignore blank
-			// lines and lines starting with #
-			line := scanner.Text()
-			if line == "" {
-				continue
-			}
-			if strings.HasPrefix(line, "#") {
-				continue
-			}
-			ignore = append(ignore, line)
-		}
-	}
+	ignoreFn := ".aidda/ignore"
+	ig, err := gitignore.CompileIgnoreFile(ignoreFn)
+	Ck(err)
 
 	// get list of files recursively
 	files = []string{}
@@ -381,13 +368,8 @@ func getFiles() (files []string, err error) {
 			return nil
 		}
 		// check if the file is in the ignore list
-		for _, pat := range ignore {
-			re, err := regexp.Compile(pat)
-			Ck(err)
-			m := re.MatchString(path)
-			if m {
-				return nil
-			}
+		if ig.MatchesPath(path) {
+			return nil
 		}
 		// skip non-files
 		if info.IsDir() {
@@ -396,7 +378,6 @@ func getFiles() (files []string, err error) {
 		if !info.Mode().IsRegular() {
 			return nil
 		}
-
 		// add the file to the list
 		files = append(files, path)
 		return nil
@@ -433,4 +414,22 @@ func waitForFile(watcher *fsnotify.Watcher, fn string) (err error) {
 			return err
 		}
 	}
+}
+
+// ensureIgnoreFile creates an ignore file if it doesn't exist
+func ensureIgnoreFile(fn string) (err error) {
+	defer Return(&err)
+	// check if the ignore file exists
+	_, err = os.Stat(fn)
+	if os.IsNotExist(err) {
+		err = nil
+		// create the ignore file
+		fh, err := os.Create(fn)
+		Ck(err)
+		defer fh.Close()
+		// write the default ignore patterns
+		_, err = fh.WriteString(".git\n.idea\n.grok*\ngo.*\nnv.shada\n")
+		Ck(err)
+	}
+	return err
 }
