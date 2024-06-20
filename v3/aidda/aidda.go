@@ -32,9 +32,10 @@ import (
 	- include test results in the prompt file
 */
 
-func Start(args ...string) {
-	base := args[0]
-	err := os.Chdir(filepath.Dir(base))
+func Do(cmd string) (err error) {
+	defer Return(&err)
+
+	base, err := os.Getwd()
 	Ck(err)
 
 	/*
@@ -57,17 +58,36 @@ func Start(args ...string) {
 	Ck(err)
 	defer lock.Unlock()
 
-	// commit the current state
-	err = commit(g)
+	// generate filenames
+	promptFn := Spf("%s/prompt", dir)
+	ignoreFn := Spf("%s/ignore", dir)
+
+	// ensure there is an ignore file
+	err = ensureIgnoreFile(ignoreFn)
 	Ck(err)
 
-	// loop forever
-	done := false
-	for !done {
-		done, err = loop(g, dir)
+	switch cmd {
+	case "commit":
+		// commit the current state
+		err = commit(g)
 		Ck(err)
-		time.Sleep(3 * time.Second)
+	case "prompt":
+		p, err := getPrompt(promptFn)
+		Ck(err)
+		spew.Dump(p)
+		err = getChanges(g, p)
+		Ck(err)
+	case "diff":
+		err = runDiff()
+		Ck(err)
+	case "test":
+		err = runTest(promptFn)
+		Ck(err)
+	default:
+		Assert(false, Spf("unknown command %s", cmd))
 	}
+
+	return
 }
 
 // Prompt is a struct that represents a prompt
@@ -192,35 +212,6 @@ func ask(question, deflt string, others ...string) (response string, err error) 
 			}
 		}
 	}
-}
-
-func loop(g *core.Grokker, dir string) (done bool, err error) {
-	defer Return(&err)
-
-	// generate filenames
-	promptFn := Spf("%s/prompt", dir)
-	ignoreFn := Spf("%s/ignore", dir)
-
-	err = ensureIgnoreFile(ignoreFn)
-	Ck(err)
-
-	p, err := getPrompt(promptFn)
-	Ck(err)
-	spew.Dump(p)
-
-	err = getChanges(g, p)
-	Ck(err)
-
-	err = runDiff()
-	Ck(err)
-
-	err = runTest(promptFn)
-	Ck(err)
-
-	err = commit(g)
-	Ck(err)
-
-	return
 }
 
 func runTest(promptFn string) (err error) {

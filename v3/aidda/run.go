@@ -5,7 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
-	"time"
+	"sync"
 
 	"github.com/google/shlex"
 	. "github.com/stevegt/goadapt"
@@ -27,8 +27,6 @@ func RunTee(command string) (stdout, stderr []byte, rc int, err error) {
 	}
 	// create the command
 	cobj := exec.Command(cmd, args...)
-	// connect stdin to the terminal
-	cobj.Stdin = os.Stdin
 
 	// create a tee for stdout
 	stdoutPipe, err := cobj.StdoutPipe()
@@ -38,20 +36,23 @@ func RunTee(command string) (stdout, stderr []byte, rc int, err error) {
 	stderrPipe, err := cobj.StderrPipe()
 	Ck(err)
 	stderrTee := io.TeeReader(stderrPipe, os.Stderr)
+	wg := sync.WaitGroup{}
+	wg.Add(2)
 	// read the stdout in a goroutine
 	go func() {
+		var err error
 		stdout, err = ioutil.ReadAll(stdoutTee)
 		Ck(err)
+		wg.Done()
 	}()
 
 	// read the stderr in a goroutine
 	go func() {
+		var err error
 		stderr, err = ioutil.ReadAll(stderrTee)
 		Ck(err)
+		wg.Done()
 	}()
-	// wait for goroutines to get started
-	// XXX use a waitgroup instead
-	time.Sleep(100 * time.Millisecond)
 
 	// start the command
 	err = cobj.Start()
@@ -61,6 +62,8 @@ func RunTee(command string) (stdout, stderr []byte, rc int, err error) {
 	Ck(err)
 	// get the return code
 	rc = cobj.ProcessState.ExitCode()
+	// wait for the goroutines to finish
+	wg.Wait()
 	return
 }
 
@@ -92,27 +95,37 @@ func Run(command string, stdin []byte) (stdout, stderr []byte, rc int, err error
 	// start the command
 	err = cobj.Start()
 	Ck(err)
+	wg := sync.WaitGroup{}
+	wg.Add(3)
 	// pipe stdin to the command in a goroutine
 	go func() {
+		var err error
 		_, err = stdinPipe.Write(stdin)
 		Ck(err)
 		stdinPipe.Close()
+		wg.Done()
 	}()
 	// read the stdout in a goroutine
 	go func() {
+		var err error
 		stdout, err = ioutil.ReadAll(stdoutPipe)
 		Ck(err)
+		wg.Done()
 	}()
 	// read the stderr in a goroutine
 	go func() {
+		var err error
 		stderr, err = ioutil.ReadAll(stderrPipe)
 		Ck(err)
+		wg.Done()
 	}()
 	// wait for the command to finish
 	err = cobj.Wait()
 	Ck(err)
 	// get the return code
 	rc = cobj.ProcessState.ExitCode()
+	// wait for the goroutines to finish
+	wg.Wait()
 	return
 }
 
