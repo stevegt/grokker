@@ -34,7 +34,9 @@ import (
 
 func Do(args ...string) (err error) {
 	defer Return(&err)
-	Assert(len(args) >= 2, "usage: go run main.go {subcommand ...}")
+	if len(args) < 1 {
+		PrintUsageAndExit()
+	}
 
 	base, err := os.Getwd()
 	Ck(err)
@@ -67,10 +69,16 @@ func Do(args ...string) (err error) {
 	err = ensureIgnoreFile(ignoreFn)
 	Ck(err)
 
+	// create the prompt file if it doesn't exist
+	_, err = NewPrompt(promptFn)
+	Ck(err)
+
 	for i := 0; i < len(args); i++ {
 		cmd := args[i]
 		Pl("aidda: running subcommand", cmd)
 		switch cmd {
+		case "init":
+			// already done by this point, so this is a no-op
 		case "commit":
 			// commit the current state
 			err = commit(g)
@@ -88,11 +96,21 @@ func Do(args ...string) (err error) {
 			err = runTest(promptFn)
 			Ck(err)
 		default:
-			Assert(false, Spf("unknown command %s", cmd))
+			PrintUsageAndExit()
 		}
 	}
 
 	return
+}
+
+func PrintUsageAndExit() {
+	fmt.Println("Usage: go run main.go {subcommand ...}")
+	fmt.Println("Subcommands:")
+	fmt.Println("  commit  - Commit the current state")
+	fmt.Println("  prompt  - Present the user with an editor to type a prompt and get changes from GPT")
+	fmt.Println("  diff    - Run 'git difftool' to review changes")
+	fmt.Println("  test    - Run tests and include the results in the prompt file")
+	os.Exit(1)
 }
 
 // Prompt is a struct that represents a prompt
@@ -259,8 +277,7 @@ func getChanges(g *core.Grokker, p *Prompt) (err error) {
 		lang, known, err := util.Ext2Lang(fn)
 		Ck(err)
 		if !known {
-			Pf("Unknown language for file %s, defaulting to text\n", fn)
-			lang = "text"
+			Pf("Unknown language for file %s, defaulting to %s\n", fn, lang)
 		}
 		outFls = append(outFls, core.FileLang{File: fn, Language: lang})
 	}
@@ -283,10 +300,6 @@ func getChanges(g *core.Grokker, p *Prompt) (err error) {
 func getPrompt(promptFn string) (p *Prompt, err error) {
 	defer Return(&err)
 	var rc int
-
-	// read or create the prompt file
-	p, err = NewPrompt(promptFn)
-	Ck(err)
 
 	// create fsnotify watcher
 	watcher, err := fsnotify.NewWatcher()

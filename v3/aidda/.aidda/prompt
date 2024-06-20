@@ -6,3 +6,19 @@ Out: aidda.go, aidda_test.go
 show a more complete usage message in case of missing or unrecognized
 subcommands
 
+
+
+stdout:
+=== RUN   TestRunTee
+Hello, World!
+--- PASS: TestRunTee (0.00s)
+=== RUN   TestRun
+--- PASS: TestRun (0.00s)
+=== RUN   TestRunInteractive
+--- PASS: TestRunInteractive (0.01s)
+PASS
+ok  	github.com/stevegt/aidda/x/x3	0.014s
+
+
+stderr:
+
