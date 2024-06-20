@@ -32,8 +32,9 @@ import (
 	- include test results in the prompt file
 */
 
-func Do(cmd string) (err error) {
+func Do(args ...string) (err error) {
 	defer Return(&err)
+	Assert(len(args) >= 2, "usage: go run main.go {subcommand ...}")
 
 	base, err := os.Getwd()
 	Ck(err)
@@ -66,26 +67,29 @@ func Do(cmd string) (err error) {
 	err = ensureIgnoreFile(ignoreFn)
 	Ck(err)
 
-	Pl("aidda: running subcommand", cmd)
-	switch cmd {
-	case "commit":
-		// commit the current state
-		err = commit(g)
-		Ck(err)
-	case "prompt":
-		p, err := getPrompt(promptFn)
-		Ck(err)
-		spew.Dump(p)
-		err = getChanges(g, p)
-		Ck(err)
-	case "diff":
-		err = runDiff()
-		Ck(err)
-	case "test":
-		err = runTest(promptFn)
-		Ck(err)
-	default:
-		Assert(false, Spf("unknown command %s", cmd))
+	for i := 0; i < len(args); i++ {
+		cmd := args[i]
+		Pl("aidda: running subcommand", cmd)
+		switch cmd {
+		case "commit":
+			// commit the current state
+			err = commit(g)
+			Ck(err)
+		case "prompt":
+			p, err := getPrompt(promptFn)
+			Ck(err)
+			spew.Dump(p)
+			err = getChanges(g, p)
+			Ck(err)
+		case "diff":
+			err = runDiff()
+			Ck(err)
+		case "test":
+			err = runTest(promptFn)
+			Ck(err)
+		default:
+			Assert(false, Spf("unknown command %s", cmd))
+		}
 	}
 
 	return
