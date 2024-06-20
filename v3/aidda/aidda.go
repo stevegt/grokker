@@ -49,7 +49,7 @@ func Do(cmd string) (err error) {
 	*/
 
 	// create a directory for aidda files
-	dir := Spf("%s/.aidda", filepath.Dir(base))
+	dir := Spf("%s/.aidda", base)
 	err = os.MkdirAll(dir, 0755)
 	Ck(err)
 
