@@ -1,7 +1,8 @@
 Mime-Version: 1.0
 Content-Transfer-Encoding: quoted-printable
 In: aidda.go, aidda_test.go
-Out: .aidda/advice.md
+Out: aidda.go, aidda_test.go
 
-suggest improvements to the code
+show a more complete usage message in case of missing or unrecognized
+subcommands
 
