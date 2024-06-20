@@ -300,10 +300,12 @@ func getPrompt(promptFn string) (p *Prompt, err error) {
 		Ck(err)
 		Assert(rc == 0, "editor failed")
 	}
-	// wait for the file to be saved
-	Pf("Waiting for file %s to be saved\n", promptFn)
-	err = waitForFile(watcher, promptFn)
-	Ck(err)
+	if false {
+		// wait for the file to be saved
+		Pf("Waiting for file %s to be saved\n", promptFn)
+		err = waitForFile(watcher, promptFn)
+		Ck(err)
+	}
 
 	// re-read the prompt file
 	p, err = NewPrompt(promptFn)
