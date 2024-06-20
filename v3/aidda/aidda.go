@@ -332,6 +332,7 @@ func commit(g *core.Grokker) (err error) {
 			// generate a commit message
 			summary, err := g.GitCommitMessage("--staged")
 			Ck(err)
+			Pl(summary)
 			// git commit
 			stdout, stderr, rc, err := Run("git commit -F-", []byte(summary))
 			Assert(rc == 0, "git commit failed")
