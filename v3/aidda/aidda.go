@@ -66,6 +66,7 @@ func Do(cmd string) (err error) {
 	err = ensureIgnoreFile(ignoreFn)
 	Ck(err)
 
+	Pl("aidda: running subcommand", cmd)
 	switch cmd {
 	case "commit":
 		// commit the current state
