@@ -321,9 +321,10 @@ func commit(g *core.Grokker) (err error) {
 	if len(stdout) > 0 {
 		Pl(string(stdout))
 		Pl(string(stderr))
-		res, err := ask("There are uncommitted changes. Commit?", "y", "n")
-		Ck(err)
-		if res == "y" {
+		// res, err := ask("There are uncommitted changes. Commit?", "y", "n")
+		// Ck(err)
+		// if res == "y" {
+		if true {
 			// git add
 			rc, err = RunInteractive("git add -A")
 			Assert(rc == 0, "git add failed")

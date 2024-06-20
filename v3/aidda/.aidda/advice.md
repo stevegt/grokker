@@ -1,121 +1,104 @@
-## Advice for Code Improvements
+Here are some improvements that can be made to the provided code:
 
-### General Adjustments
-1. **Code Formatting and Style**:
-   - Improve code readability with consistent use of comments and proper structuring.
-   - Follow idiomatic Go conventions for package layout and function segmentation.
-   - Ensure proper capitalization of comments for exported functions and types as per Go's best practices.
+1. **Modularize Code**: Split large functions into smaller reusable functions. This improves readability and maintainability.
 
-2. **Error Handling**:
-   - Simplify error handling with `defer` statements for closing resources like files.
-   - Use a more descriptive error message where applicable.
-   - Properly handle and log errors where returning or escalating errors isn't suitable.
+2. **Error Handling**: Instead of using assertions (`Assert`), handle errors gracefully to avoid abrupt termination. Provide meaningful error messages.
 
-### Specific Recommendations
+3. **Use of Context**: Incorporate the use of `context` package to manage timeouts and cancellations, particularly for IO operations and external commands.
 
-1. **Function `Start`**:
-   - Enhance error messaging in `defer` statements.
-   - Offer alternative to infinite loop by adding a termination criteria.
+4. **Logging**: Use a proper logging mechanism instead of using print statements (`Pf` & `Pl`). Consider using the `log` package for better control over the logging levels and outputs.
 
-2. **Function `NewPrompt`**:
-   - Combine redundant error/stat checking by implementing helper functions for initializing structs.
+5. **Remove Redundant Code**: The commented-out code related to checking for `.git` and `.grok` files can be removed if it's not needed.
 
-3. **Refactoring `getFiles`**:
-   - Use Go's `filepath.Glob` or `filepath.WalkDir` which are more modern and efficient, ensuring cleaner list derivation.
-   - Abstract `. Walk` specific logic into a separate function for single-responsibility and cleaner code.
+6. **Concurrent Operations**: For file-watching and other I/O operations that can benefit from concurrency, consider using goroutines and channels.
 
-4. **Safety in Concurrency**:
-   - Assess all global variables or shared resources for concurrent access to prevent race conditions.
+7. **Configuration Management**: Use a configuration file (like YAML or JSON) to manage different settings instead of relying on environment variables (`envi.String`).
 
-5. **Test Coverage**:
-   - Add further tests for more functions in `aidda.go` to ensure they behave as expected under various scenarios.
-   - Test more edge and failure cases to make the code more robust.
+8. **Security Considerations**: When running external commands, ensure the inputs are sanitized to avoid injection attacks.
 
-### Code Examples
+9. **Documentation**: Add comments and documentation to help other developers understand the code better.
 
-#### Improved `Start` Function
+10. **Testing**: Enhance the tests to cover more edge cases and ensure all code paths are exercised.
+
+11. **Utilize Go Modules**: Ensure dependencies are managed properly using Go modules.
+
+Here’s an example of refactoring the `ask` function to handle errors gracefully and improve readability:
+
 ```go
-func Start(args ...string) {
-	base := args[0]
-	if err := os.Chdir(filepath.Dir(base)); err != nil {
-		log.Fatalf("Failed to change directory: %v", err)
-	}
+// ask asks the user a question and gets a response
+func ask(question, deflt string, others ...string) (response string, err error) {
+    defer Return(&err)
+    reader := bufio.NewReader(os.Stdin)
+    candidates := append([]string{strings.ToUpper(deflt)}, others...)
 
-	dir := filepath.Join(filepath.Dir(base), ".aidda")
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		log.Fatalf("Failed to create aidda directory: %v", err)
-	}
+    for {
+        fmt.Printf("%s [%s]: ", question, strings.Join(candidates, "/"))
+        response, err = reader.ReadString('\n')
+        if err != nil {
+            return "", fmt.Errorf("failed to read input: %w", err)
+        }
+        response = strings.TrimSpace(response)
+        if response == "" {
+            return deflt, nil
+        }
+        if len(others) == 0 || containsStringIgnoreCase(candidates, response) {
+            return response, nil
+        }
+    }
+}
 
-	g, lock, err := core.LoadOrInit(base, "gpt-4o")
-	if err != nil {
-		log.Fatalf("Failed to load or initialize core: %v", err)
-	}
-	defer lock.Unlock()
-
-	if err := commit(g); err != nil {
-		log.Fatalf("Failed to commit: %v", err)
-	}
-	
-	stop := make(chan struct{})
-	for {
-		select {
-		case <-stop:
-			return
-		default:
-			done, err := loop(g, dir)
-			if err != nil {
-				log.Printf("Error in loop: %v", err)
-			}
-			if done {
-				close(stop)
-			}
-			time.Sleep(3 * time.Second)
-		}
-	}
+// containsStringIgnoreCase checks if a slice contains a string, case-insensitively
+func containsStringIgnoreCase(slice []string, item string) bool {
+    item = strings.ToLower(item)
+    for _, str := range slice {
+        if strings.ToLower(str) == item {
+            return true
+        }
+    }
+    return false
 }
 ```
 
-#### Enhanced Prompt Struct Initialization
-```go
-func NewPrompt(path string) (*Prompt, error) {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		if err := createPromptFile(path); err != nil {
-			return nil, fmt.Errorf("failed to create prompt file: %v", err)
-		}
-	}
+Similarly, in the `getFiles` function, you can introduce concurrency to improve performance when traversing the file system:
 
-	p, err := readPrompt(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read prompt: %v", err)
-	}
-	return p, nil
-}
-```
-
-#### Modernized getFiles
 ```go
+// getFiles returns a list of files to be processed
 func getFiles() ([]string, error) {
-	ignoreFn := ".aidda/ignore"
-	ig, err := gitignore.CompileIgnoreFile(ignoreFn)
-	if err != nil {
-		return nil, fmt.Errorf("failed to compile ignore file: %v", err)
-	}
+    ignoreFn := ".aidda/ignore"
+    ig, err := gitignore.CompileIgnoreFile(ignoreFn)
+    if err != nil {
+        return nil, fmt.Errorf("failed to compile ignore file: %w", err)
+    }
 
-	var files []string
-	err = filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() || strings.Contains(path, ".git") || strings.Contains(path, ".aidda") || ig.MatchesPath(path) {
-			return nil
-		}
-		files = append(files, path)
-		return nil
-	})
+    var files []string
+    var mu sync.Mutex
+    err = filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+        if err != nil {
+            return err
+        }
+        // ignore .git and .aidda directories
+        if strings.Contains(path, ".git") || strings.Contains(path, ".aidda") {
+            return nil
+        }
+        // check if the file is in the ignore list
+        if ig.MatchesPath(path) {
+            return nil
+        }
+        // skip non-files
+        if info.IsDir() || !info.Mode().IsRegular() {
+            return nil
+        }
 
-	if err != nil {
-		return nil, fmt.Errorf("failed to walk filepath: %v", err)
-	}
-	return files, nil
+        mu.Lock()
+        files = append(files, path)
+        mu.Unlock()
+        return nil
+    })
+    if err != nil {
+        return nil, fmt.Errorf("failed to walk the path: %w", err)
+    }
+    return files, nil
 }
 ```
+
+These are just a few examples. Applying similar principles throughout the code will significantly improve its quality.
