@@ -4,12 +4,12 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/emersion/go-message/mail"
 	"github.com/fsnotify/fsnotify"
 	gitignore "github.com/sabhiram/go-gitignore"
@@ -86,7 +86,7 @@ func Do(args ...string) (err error) {
 		case "prompt":
 			p, err := getPrompt(promptFn)
 			Ck(err)
-			spew.Dump(p)
+			// spew.Dump(p)
 			err = getChanges(g, p)
 			Ck(err)
 		case "diff":
@@ -287,6 +287,24 @@ func getChanges(g *core.Grokker, p *Prompt) (err error) {
 		core.ChatMsg{Role: "USER", Txt: prompt},
 	}
 
+	// count tokens
+	Pf("Counting tokens to be sent...\n")
+	tcs := newTokenCounts(g)
+	tcs.add("sysmsg", sysmsg)
+	txt := ""
+	for _, m := range msgs {
+		txt += m.Txt
+	}
+	tcs.add("msgs", txt)
+	for _, f := range inFns {
+		var buf []byte
+		buf, err = ioutil.ReadFile(f)
+		Ck(err)
+		txt = string(buf)
+		tcs.add(f, txt)
+	}
+	tcs.showTokenCounts()
+
 	resp, err := g.SendWithFiles(sysmsg, msgs, inFns, outFls)
 	Ck(err)
 
@@ -295,6 +313,51 @@ func getChanges(g *core.Grokker, p *Prompt) (err error) {
 	Ck(err)
 
 	return
+}
+
+type tokenCount struct {
+	name  string
+	text  string
+	count int
+}
+
+type tokenCounts struct {
+	g      *core.Grokker
+	counts []tokenCount
+}
+
+// newTokenCounts creates a new tokenCounts object
+func newTokenCounts(g *core.Grokker) *tokenCounts {
+	return &tokenCounts{g: g}
+}
+
+// add adds a token count to a tokenCounts object
+func (tcs *tokenCounts) add(name, text string) {
+	count, err := tcs.g.TokenCount(text)
+	Ck(err)
+	tc := tokenCount{name: name, text: text, count: count}
+	tcs.counts = append(tcs.counts, tc)
+	return
+}
+
+// showTokenCounts shows the token counts for a slice of tokenCount
+func (tcs *tokenCounts) showTokenCounts() {
+	// first find max width of name
+	maxNameLen := 0
+	for _, tc := range tcs.counts {
+		if len(tc.name) > maxNameLen {
+			maxNameLen = len(tc.name)
+		}
+	}
+	// then print the counts
+	total := 0
+	format := fmt.Sprintf("    %%-%ds: %%7d\n", maxNameLen)
+	for _, tc := range tcs.counts {
+		Pf(format, tc.name, tc.count)
+		total += tc.count
+	}
+	// then print the total
+	Pf(format, "total", total)
 }
 
 func getPrompt(promptFn string) (p *Prompt, err error) {
