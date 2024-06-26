@@ -101,6 +101,10 @@ type cmdAdd struct {
 	Paths []string `arg:"" type:"string" help:"Path to file to add to knowledge base."`
 }
 
+type cmdAidda struct {
+	Paths []string `arg:"" type:"string" help:"Path to file to add to knowledge base."`
+}
+
 type cmdBackup struct{}
 
 // cmdChat is the struct for the chat subcommand.  The chat subcommand

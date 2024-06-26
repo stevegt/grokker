@@ -3,14 +3,14 @@ package main
 import (
 	"os"
 
-	"github.com/stevegt/aidda/x/x3"
 	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/v3/aidda"
 )
 
 // usage: go run main.go {subcommand}
 
 func main() {
 	args := os.Args[1:]
-	err := x3.Do(args...)
+	err := aidda.Do(args...)
 	Ck(err)
 }

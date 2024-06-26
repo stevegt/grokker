@@ -36,8 +36,6 @@ func Split(path, txt string) (chunks []string, err error) {
 		return nil, err // Return error if parsing fails
 	}
 
-	var chunks []string // Slice to hold chunks
-
 	// Loop over the declarations in the file
 	// 1. Convert each declaration to a string
 	// 2. Append the string to the chunks slice
@@ -47,6 +45,16 @@ func Split(path, txt string) (chunks []string, err error) {
 
 	// Return chunks and nil as error
 	return chunks, nil
+}
+
+// FileSplitter is a struct that holds the path to a Go source file.
+type FileSplitter struct {
+	FilePath string // Path to the Go source file
+}
+
+// NewFileSplitter creates a new FileSplitter with the given path.
+func NewFileSplitter(path string) *FileSplitter {
+	return &FileSplitter{FilePath: path}
 }
 
 // FindChunk finds a chunk in a Go source file by global name.
@@ -90,4 +98,10 @@ func (fs *FileSplitter) FindChunk(globalName string) (string, error) {
 	}
 	// Return empty string and nil error if no matching globalName is found
 	return "", nil
+}
+
+// SplitFile splits a Go source file into chunks by top-level declarations.
+// It uses Go's parser and AST packages to parse the source file.
+func (fs *FileSplitter) SplitFile() (chunks []string, err error) {
+	return Split(fs.FilePath, "")
 }
