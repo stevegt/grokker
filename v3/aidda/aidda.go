@@ -267,7 +267,6 @@ func runDiff() (err error) {
 
 func getChanges(g *core.Grokker, p *Prompt) (err error) {
 	defer Return(&err)
-	Pf("getting changes from GPT\n")
 
 	prompt := p.Txt
 	inFns := p.In
@@ -288,7 +287,7 @@ func getChanges(g *core.Grokker, p *Prompt) (err error) {
 	}
 
 	// count tokens
-	Pf("Counting tokens to be sent...\n")
+	Pf("Token counts:\n")
 	tcs := newTokenCounts(g)
 	tcs.add("sysmsg", sysmsg)
 	txt := ""
@@ -305,8 +304,27 @@ func getChanges(g *core.Grokker, p *Prompt) (err error) {
 	}
 	tcs.showTokenCounts()
 
+	Pf("Querying GPT...")
+	// start a goroutine to print dots while waiting for the response
+	var stopDots = make(chan bool)
+	go func() {
+		for {
+			select {
+			case <-stopDots:
+				return
+			default:
+				time.Sleep(1 * time.Second)
+				fmt.Print(".")
+			}
+		}
+	}()
+	start := time.Now()
 	resp, err := g.SendWithFiles(sysmsg, msgs, inFns, outFls)
 	Ck(err)
+	elapsed := time.Since(start)
+	stopDots <- true
+	close(stopDots)
+	Pf(" got response in %s\n", elapsed)
 
 	// ExtractFiles(outFls, promptFrag, dryrun, extractToStdout)
 	err = core.ExtractFiles(outFls, resp, false, false)
