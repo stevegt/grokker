@@ -690,11 +690,12 @@ func msg(g *Grokker, sysmsg string, input string) (res string, err error) {
 func EditFile(fn string) (err error) {
 	defer Return(&err)
 
-	// first append a ### USER heading to the file if it doesn't exist
+	// first append a USER heading to the file if it doesn't exist
 	_, err = os.Stat(fn)
 	if err != nil {
 		// file does not exist
-		err = ioutil.WriteFile(fn, []byte("### USER\n"), 0644)
+		// err = ioutil.WriteFile(fn, []byte("### USER\n"), 0644)
+		err = ioutil.WriteFile(fn, []byte("USER:\n"), 0644)
 		Ck(err)
 	} else {
 		// file exists -- check for the heading at the end of the file
@@ -702,7 +703,8 @@ func EditFile(fn string) (err error) {
 		Ck(err)
 		lines := strings.Split(string(buf), "\n")
 		for i := len(lines) - 1; i >= 0; i-- {
-			if lines[i] == "### USER" {
+			// if lines[i] == "### USER" {
+			if lines[i] == "USER:" {
 				// heading exists
 				break
 			}
@@ -714,7 +716,8 @@ func EditFile(fn string) (err error) {
 			fh, err := os.OpenFile(fn, os.O_APPEND|os.O_WRONLY, 0644)
 			Ck(err)
 			defer fh.Close()
-			_, err = fh.WriteString("\n\n### USER\n\n")
+			// _, err = fh.WriteString("\n\n### USER\n\n")
+			_, err = fh.WriteString("\n\nUSER:\n\n")
 			Ck(err)
 			break
 		}

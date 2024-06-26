@@ -227,7 +227,7 @@ func (g *Grokker) SendWithFiles(sysmsg string, msgs []ChatMsg, infiles []string,
 		}
 		sysmsg += Spf("\nYour response must include the following files: '%s'", strings.Join(fns, "', '"))
 		sysmsg += Spf("\nYour response must match this regular expression: '%s'", OutfilesRegex(outfiles))
-		sysmsg += Spf("\n...where each file is in the format:\n\n<blank line>\nFile: <filename>\n```<language>\n<text>\n```EOF_<filename>")
+		sysmsg += Spf("\n...where each file is in the format:\n\n<blank line>\nFile: <filename>\n```<language>\n<text>\n```\nEOF_<filename>")
 	}
 	Debug("sysmsg %s", sysmsg)
 
@@ -687,6 +687,7 @@ func ExtractFiles(outfiles []FileLang, resp string, dryrun, extractToStdout bool
 		match := re.FindStringSubmatch(resp)
 		if len(match) == 0 {
 			Fpf(os.Stderr, "Warning: file not found in the response: '%s'\nregex was: '%s'\n", fn, pat)
+			Fpf(os.Stderr, "Response was:\n%s\n", resp)
 			continue
 		}
 		// match[1] is file name
