@@ -21,3 +21,8 @@ local/
 go.work
 go.work.sum
 grok
+
+# goland
+v3/.idea/
+
+
