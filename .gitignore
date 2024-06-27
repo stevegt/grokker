@@ -23,6 +23,6 @@ go.work.sum
 grok
 
 # goland
-v3/.idea/
+.idea/
 
 

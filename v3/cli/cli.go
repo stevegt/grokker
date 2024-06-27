@@ -14,6 +14,7 @@ import (
 	"github.com/anmitsu/go-shlex"
 	"github.com/gofrs/flock"
 	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/v3/aidda"
 	"github.com/stevegt/grokker/v3/util"
 )
 
@@ -104,7 +105,7 @@ type cmdAdd struct {
 }
 
 type cmdAidda struct {
-	Paths []string `arg:"" type:"string" help:"Path to file to add to knowledge base."`
+	Subcommands []string `arg:"" type:"string" help:"AIDDA operation(s): init, commit, prompt"`
 }
 
 type cmdBackup struct{}
@@ -185,6 +186,7 @@ type cmdVersion struct{}
 
 var cli struct {
 	Add        cmdAdd        `cmd:"" help:"Add a file to the knowledge base."`
+	Aidda      cmdAidda      `cmd:"" help:"Perform AIDDA operations."`
 	Backup     cmdBackup     `cmd:"" help:"Backup the knowledge base."`
 	Chat       cmdChat       `cmd:"" help:"Have a conversation with the knowledge base; accepts prompt on stdin."`
 	Commit     cmdCommit     `cmd:"" help:"Generate a git commit message on stdout."`
@@ -362,6 +364,15 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		}
 		// save the grok file
 		save = true
+	case "aidda <subcommands>":
+		if len(cli.Aidda.Subcommands) < 1 {
+			Fpf(config.Stderr, "Error: aidda command requires a subcommand argument\n")
+			rc = 1
+			return
+		}
+		// perform the AIDDA operations
+		err := aidda.Do(cli.Aidda.Subcommands...)
+		Ck(err)
 	case "chat <chat-file>":
 		if cli.Chat.OutputFilesRegex {
 			// if chatfile exists, check the regex against it
