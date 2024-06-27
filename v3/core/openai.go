@@ -187,8 +187,8 @@ func (g *Grokker) msg(sysmsg, input string) (resp oai.ChatCompletionResponse, er
 	Ck(err)
 	inputTc, err := g.TokenCount(input)
 	Ck(err)
-	if sysmsgTc+inputTc > g.tokenLimit {
-		err = fmt.Errorf("token count %d exceeds token limit %d", sysmsgTc+inputTc, g.tokenLimit)
+	if sysmsgTc+inputTc > g.TokenLimit {
+		err = fmt.Errorf("token count %d exceeds token limit %d", sysmsgTc+inputTc, g.TokenLimit)
 		return
 	}
 

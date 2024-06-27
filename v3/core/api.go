@@ -108,7 +108,7 @@ func (g *Grokker) Chat(sysmsg, prompt, fileName string, level util.ContextLevel,
 		return
 	}
 	// get response
-	resp, _, err = history.continueChat(prompt, level, infiles, outfiles, promptTokenLimit, edit)
+	resp, _, err = history.ContinueChat(prompt, level, infiles, outfiles, promptTokenLimit, edit)
 	Ck(err)
 	return
 }
@@ -133,7 +133,7 @@ func (g *Grokker) Continue(in string, global bool) (out, sysmsg string, err erro
 	_, inTokens, err := Tokenizer.Encode(in)
 	Ck(err)
 	// get chunks, sorted by similarity to the txt.
-	tokenLimit := int(float64(g.tokenLimit)*0.4) - len(sysmsgTokens) - len(inTokens)
+	tokenLimit := int(float64(g.TokenLimit)*0.4) - len(sysmsgTokens) - len(inTokens)
 	context, err := g.getContext(in, tokenLimit, false, false, nil)
 	Ck(err)
 	// generate the answer.
@@ -150,7 +150,7 @@ func (g *Grokker) Answer(question string, withHeaders, withLineNumbers, global b
 	// tokenize the question
 	qtokens, err := g.tokens(question)
 	Ck(err)
-	maxTokens := int(float64(g.tokenLimit)*0.5) - len(qtokens)
+	maxTokens := int(float64(g.TokenLimit)*0.5) - len(qtokens)
 	context, err := g.getContext(question, maxTokens, withHeaders, withLineNumbers, nil)
 	Ck(err)
 	// generate the answer.
@@ -180,7 +180,7 @@ func (g *Grokker) Revise(in string, global, sysmsgin bool) (out, sysmsg string, 
 	}
 
 	// get context
-	maxTokens := int(float64(g.tokenLimit)*0.5) - len(inTokens)
+	maxTokens := int(float64(g.TokenLimit)*0.5) - len(inTokens)
 	context, err := g.getContext(in, maxTokens, false, false, nil)
 	Ck(err)
 
@@ -274,7 +274,7 @@ func (g *Grokker) UpdateEmbeddings() (update bool, err error) {
 
 // CodeVersion returns the version of the grokker code.
 func CodeVersion() string {
-	return version
+	return Version
 }
 
 // DBVersion returns the version of the grokker database.
@@ -432,7 +432,7 @@ func InitNamed(rootdir, name, model string) (g *Grokker, err error) {
 	// create the db
 	g = &Grokker{
 		Root:    rootdir,
-		Version: version,
+		Version: Version,
 	}
 	// initialize other bits
 	err = g.Setup(model)

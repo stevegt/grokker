@@ -5,6 +5,7 @@ interpretation and generation, and AI-based research and development.
 Uses OpenAI API services for backend.
 
 - Interactive conversation with one or more documents and/or code
+- Human-in-the-loop AI-driven development (AIDDA)
 - Design, research, and rapid learning 
 - Local vector database with several useful interfaces
 - Easy VIM integration
@@ -15,35 +16,35 @@ Uses OpenAI API services for backend.
   embedding subcommands
 
 Grokker helped create and maintain this document in a VIM session by
-reading its own source code along with iterations of this document.
+reading its own source code.
 
-## Roadmap
+## Installation
 
-Here's where it appears this project is going as we migrate grokker to
-[PromiseGrid](https://github.com/promisegrid/promisegrid):
+``` 
+go install github.com/stevegt/grokker/v3/cmd/grok@latest
+``` 
 
-- Multi-agent collaboration (with human, AI, and algorithmic agents)
-   - working on this right now
-- Decentralized consensus tool
-   - a useful side-effect of multi-agent collaboration
-- Web Assembly (WASM/WASI) execution
-   - enables easy use and distribution
-- Web UI (while keeping CLI)
-   - enabled by WASM/WASI
-- Plugin architecture
-   - enabled by WASM/WASI
-- Decentralized storage
-   - enabled by WASM/WASI
-- Decentralized virtual machine
-   - enabled by WASM/WASI
-- Decentralized vector database 
-   - enabled by decentralized storage/VM
-- Decentralized neural nets
-   - enabled by decentralized computing/storage/VM
-- Decentralized LLM/AI
-   - enabled by all of the above
-- Decentralized community consensus and governance
-   - enabled by all of the above
+See the "Semantic Versioning" section below for important information
+about versioning, particularly if you're using grokker as a library or
+in a shell script.
+
+If you're installing a particular version instead of `@latest` it's
+important to know that the even-numbered major versions, e.g. v2.X.X,
+v4.X.X, etc., are stable releases, while odd-numbered major
+versions, e.g. v3.X.X, v5.X.X, etc., are development releases that may
+have breaking changes 
+
+You'll need an account with OpenAI and an API key. You can create and
+manage your API keys in your OpenAI dashboard.
+
+Before using Grokker, you'll need to set your API key as an
+environment variable in your terminal session or .bashrc with the
+following command:
+
+``` 
+export OPENAI_API_KEY=<your_api_key> 
+```
+
 
 ## Example Usage
 
@@ -116,34 +117,6 @@ and `grok chat` in VIM while working on code or docs, with the current
 paragraph or visual selection as the input to the query and stdout
 directed to the current buffer.  There are some examples of this
 below.
-
-
-## Installation
-
-``` 
-go install github.com/stevegt/grokker/cmd/grok@latest
-``` 
-
-See the "Semantic Versioning" section below for important information
-about versioning, particularly if you're using grokker as a library or
-in a shell script.
-
-If you're installing a particular version instead of `@latest` it's
-important to know that the even-numbered major versions, e.g. v2.X.X,
-v4.X.X, etc., are stable releases, while odd-numbered major
-versions, e.g. v3.X.X, v5.X.X, etc., are development releases that may
-have breaking changes 
-
-You'll need an account with OpenAI and an API key. You can create and
-manage your API keys in your OpenAI dashboard.
-
-Before using Grokker, you'll need to set your API key as an
-environment variable in your terminal session or .bashrc with the
-following command:
-
-``` 
-export OPENAI_API_KEY=<your_api_key> 
-```
 
 
 ## Tell me more about the `chat` subcommand
@@ -337,6 +310,34 @@ context in future model queries, this provides feedback to the model,
 causing future answers to converge toward my intent.  (See
 [RLHF](https://en.wikipedia.org/wiki/Reinforcement_learning_from_human_feedback)
 for one possible way of formalizing this.)
+
+## Roadmap
+
+Here's where it appears this project is going as we migrate grokker to
+[PromiseGrid](https://github.com/promisegrid/promisegrid):
+
+- Multi-agent collaboration (with human, AI, and algorithmic agents)
+   - working on this right now
+- Decentralized consensus tool
+   - a useful side-effect of multi-agent collaboration
+- Web Assembly (WASM/WASI) execution
+   - enables easy use and distribution
+- Web UI (while keeping CLI)
+   - enabled by WASM/WASI
+- Plugin architecture
+   - enabled by WASM/WASI
+- Decentralized storage
+   - enabled by WASM/WASI
+- Decentralized virtual machine
+   - enabled by WASM/WASI
+- Decentralized vector database 
+   - enabled by decentralized storage/VM
+- Decentralized neural nets
+   - enabled by decentralized computing/storage/VM
+- Decentralized LLM/AI
+   - enabled by all of the above
+- Decentralized community consensus and governance
+   - enabled by all of the above
 
 ## Semantic Versioning
 

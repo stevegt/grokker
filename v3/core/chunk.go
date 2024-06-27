@@ -262,7 +262,7 @@ func (g *Grokker) similarChunks(embedding []float64, tokenLimit int, files []str
 func (g *Grokker) findChunks(query string, tokenLimit int, files []string) (chunks []*Chunk, err error) {
 	defer Return(&err)
 	// break the query into chunks.
-	queryChunks, err := g.chunksFromString(nil, query, g.embeddingTokenLimit)
+	queryChunks, err := g.chunksFromString(nil, query, g.EmbeddingTokenLimit)
 	Ck(err)
 	// get the embeddings for the chunks.
 	var queryStrings []string
@@ -338,7 +338,7 @@ func (g *Grokker) chunksFromDoc(doc *Document) (chunks []*Chunk, err error) {
 	buf, err := ioutil.ReadFile(g.absPath(doc))
 	Ck(err)
 	// break the document up into chunks.
-	chunks, err = g.chunksFromString(doc, string(buf), g.embeddingTokenLimit)
+	chunks, err = g.chunksFromString(doc, string(buf), g.EmbeddingTokenLimit)
 	Ck(err)
 	// add the document to each chunk.
 	for _, chunk := range chunks {

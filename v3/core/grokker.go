@@ -1,6 +1,7 @@
 package core
 
 import (
+	"io/ioutil"
 	"os"
 	"time"
 
@@ -50,7 +51,7 @@ import (
 const (
 	// See the "Semantic Versioning" section of the README for
 	// information on API and db stability and versioning.
-	version = "3.0.14"
+	Version = "3.0.15"
 )
 
 type Grokker struct {
@@ -70,8 +71,8 @@ type Grokker struct {
 	models              *Models
 	Model               string
 	oaiModel            string
-	tokenLimit          int
-	embeddingTokenLimit int
+	TokenLimit          int
+	EmbeddingTokenLimit int
 	// pathname of the grokker database file
 	grokpath string
 	// lock                *flock.Flock
@@ -101,7 +102,7 @@ func (g *Grokker) tokens(text string) (tokens []string, err error) {
 func (g *Grokker) meanVectorFromLongString(text string) (vector []float64, err error) {
 	defer Return(&err)
 	// break up the text into strings smaller than the token limit
-	texts, err := g.stringsFromString(text, g.tokenLimit)
+	texts, err := g.stringsFromString(text, g.TokenLimit)
 	Ck(err)
 	// get the embeddings for each string
 	embeddings, err := g.createEmbeddings(texts)
@@ -109,4 +110,11 @@ func (g *Grokker) meanVectorFromLongString(text string) (vector []float64, err e
 	// get the mean vector of the embeddings
 	vector = util.MeanVector(embeddings)
 	return
+}
+
+// TmpTestDir returns a temporary directory for testing
+func TmpTestDir() string {
+	dir, err := ioutil.TempDir("/tmp", "grokker-test")
+	Ck(err)
+	return dir
 }

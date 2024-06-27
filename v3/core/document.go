@@ -49,7 +49,7 @@ func (g *Grokker) updateDocument(doc *Document) (updated bool, err error) {
 			_, tokens, err := Tokenizer.Encode(txt)
 			Ck(err)
 			tc := len(tokens)
-			Assert(tc < g.embeddingTokenLimit, "chunk tokens %d exceeds limit %d: %v", tc, g.embeddingTokenLimit, chunk)
+			Assert(tc < g.EmbeddingTokenLimit, "chunk tokens %d exceeds limit %d: %v", tc, g.EmbeddingTokenLimit, chunk)
 		}
 		// setChunk unsets the stale bit if the chunk is already in the
 		// database.
@@ -71,7 +71,7 @@ func (g *Grokker) updateDocument(doc *Document) (updated bool, err error) {
 			_, tokens, err := Tokenizer.Encode(txt)
 			Ck(err)
 			tc := len(tokens)
-			Assert(tc < g.embeddingTokenLimit, "chunk tokens %d exceeds limit %d: %v", tc, g.embeddingTokenLimit, chunk)
+			Assert(tc < g.EmbeddingTokenLimit, "chunk tokens %d exceeds limit %d: %v", tc, g.EmbeddingTokenLimit, chunk)
 		}
 	}
 

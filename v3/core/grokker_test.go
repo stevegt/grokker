@@ -24,16 +24,9 @@ func TestMain(m *testing.M) {
 }
 */
 
-// tmpDir returns a temporary directory for testing
-func tmpDir() string {
-	dir, err := ioutil.TempDir("/tmp", "grokker-test")
-	Ck(err)
-	return dir
-}
-
 func TestSplitChunk(t *testing.T) {
 	// create a new Grokker database
-	grok, err := Init(tmpDir(), "gpt-3.5-turbo")
+	grok, err := Init(TmpTestDir(), "gpt-3.5-turbo")
 	Tassert(t, err == nil, "error creating grokker: %v", err)
 
 	// create a new Chunk
@@ -42,11 +35,11 @@ func TestSplitChunk(t *testing.T) {
 	text := string(buf)
 	length := len(text)
 	Tassert(t, length > 0, "expected text to be non-empty")
-	Tassert(t, length > grok.tokenLimit, "expected text to be longer than %d tokens", grok.tokenLimit)
+	Tassert(t, length > grok.TokenLimit, "expected text to be longer than %d tokens", grok.TokenLimit)
 	chunk := newChunk(nil, 0, length, text)
 	tc, err := chunk.tokenCount(grok)
 	Tassert(t, err == nil, "error getting token count for chunk: %v", err)
-	Tassert(t, tc > grok.tokenLimit, "expected chunk to have more than %d tokens, got %d tokens", grok.tokenLimit, tc)
+	Tassert(t, tc > grok.TokenLimit, "expected chunk to have more than %d tokens, got %d tokens", grok.TokenLimit, tc)
 
 	// call the splitChunk method
 	newChunks, err := chunk.splitChunk(grok, 2000)
@@ -65,13 +58,13 @@ func TestSplitChunk(t *testing.T) {
 	for i, ch := range newChunks {
 		tc, err := ch.tokenCount(grok)
 		Tassert(t, err == nil, "error getting token count for chunk %d: %v", i, err)
-		Tassert(t, tc <= grok.tokenLimit, "expected chunk %d to have %d tokens or less, got %d tokens", i, grok.tokenLimit, tc)
+		Tassert(t, tc <= grok.TokenLimit, "expected chunk %d to have %d tokens or less, got %d tokens", i, grok.TokenLimit, tc)
 	}
 }
 func TestEmbeddings(t *testing.T) {
 	//
 	// create a new Grokker database
-	grok, err := Init(tmpDir(), "gpt-3.5-turbo")
+	grok, err := Init(TmpTestDir(), "gpt-3.5-turbo")
 	Tassert(t, err == nil, "error creating grokker: %v", err)
 	// add some embeddings
 	embs, err := grok.createEmbeddings([]string{"hello", "world"})
@@ -85,7 +78,7 @@ func TestEmbeddings(t *testing.T) {
 // test adding a document
 func TestAddDoc(t *testing.T) {
 	// create a new Grokker database
-	grok, err := Init(tmpDir(), "gpt-3.5-turbo")
+	grok, err := Init(TmpTestDir(), "gpt-3.5-turbo")
 	Tassert(t, err == nil, "error creating grokker: %v", err)
 	// add the document
 	err = grok.AddDocument("testdata/te-abstract.txt")
@@ -94,7 +87,7 @@ func TestAddDoc(t *testing.T) {
 
 func TestChunkTextAfterRemovingFile(t *testing.T) {
 	// create a new Grokker database
-	grok, err := Init(tmpDir(), "gpt-3.5-turbo")
+	grok, err := Init(TmpTestDir(), "gpt-3.5-turbo")
 	Tassert(t, err == nil, "error creating grokker: %v", err)
 
 	// copy a document to a temporary file
@@ -131,7 +124,7 @@ func TestChunkTextAfterRemovingFile(t *testing.T) {
 // test finding chunks that are similar to a query
 func TestFindSimilar(t *testing.T) {
 	// create a new Grokker database
-	grok, err := Init(tmpDir(), "gpt-3.5-turbo")
+	grok, err := Init(TmpTestDir(), "gpt-3.5-turbo")
 	Tassert(t, err == nil, "error creating grokker: %v", err)
 	// add the document
 	err = grok.AddDocument("testdata/te-abstract.txt")
@@ -150,7 +143,7 @@ func TestFindSimilar(t *testing.T) {
 // test a chat query
 func TestChatQuery(t *testing.T) {
 	// create a new Grokker database
-	grok, err := Init(tmpDir(), "gpt-3.5-turbo")
+	grok, err := Init(TmpTestDir(), "gpt-3.5-turbo")
 	Tassert(t, err == nil, "error creating grokker: %v", err)
 	// add the document
 	err = grok.AddDocument("testdata/te-abstract.txt")
@@ -170,7 +163,7 @@ func TestChatQuery(t *testing.T) {
 // test splitting chunks when chunk size is greater than token limit
 func TestSplitChunks(t *testing.T) {
 	// create a new Grokker database
-	grok, err := Init(tmpDir(), "gpt-3.5-turbo")
+	grok, err := Init(TmpTestDir(), "gpt-3.5-turbo")
 	Tassert(t, err == nil, "error creating grokker: %v", err)
 	// add the document
 	err = grok.AddDocument("testdata/te-full.txt")
@@ -184,7 +177,7 @@ func TestSplitChunks(t *testing.T) {
 		// tokenize the text
 		tokens, err := grok.tokens(text)
 		Tassert(t, err == nil, "error tokenizing text: %v", err)
-		Tassert(t, len(tokens) <= grok.tokenLimit, "expected %d tokens or less, got %d", grok.tokenLimit, len(tokens))
+		Tassert(t, len(tokens) <= grok.TokenLimit, "expected %d tokens or less, got %d", grok.TokenLimit, len(tokens))
 		Tassert(t, len(tokens) > 20, "expected more than 20 tokens, got %d", len(tokens))
 	}
 }
@@ -192,7 +185,7 @@ func TestSplitChunks(t *testing.T) {
 // test Revise()
 func XXXTestRevise(t *testing.T) {
 	// create a new Grokker database
-	grok, err := Init(tmpDir(), "gpt-4")
+	grok, err := Init(TmpTestDir(), "gpt-4")
 	Tassert(t, err == nil, "error creating grokker: %v", err)
 	// add documents
 	err = grok.AddDocument("testdata/te-full.txt")

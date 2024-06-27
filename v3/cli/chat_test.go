@@ -1,9 +1,11 @@
-package core
+package cli
 
 import (
 	"flag"
 	"os"
 	"testing"
+
+	"github.com/stevegt/grokker/v3/core"
 
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker/v3/util"
@@ -55,16 +57,16 @@ func TestChatSummarization(t *testing.T) {
 	largeChatBuf, err := os.ReadFile("testdata/large-chat")
 	Tassert(t, err == nil, "error reading file: %v", err)
 
-	dir := tmpDir()
+	dir := core.TmpTestDir()
 	// cd to the tmp dir
 	err = os.Chdir(dir)
 	Tassert(t, err == nil, "error changing directory: %v", err)
 
 	// create a new Grokker database
-	grok, err := Init(dir, "gpt-4")
+	grok, err := core.Init(dir, "gpt-4")
 	Tassert(t, err == nil, "error creating grokker: %v", err)
 	// initialize Tokenizer
-	err = InitTokenizer()
+	err = core.InitTokenizer()
 	Ck(err)
 	defer grok.Save()
 
@@ -87,19 +89,19 @@ func TestChatSummarization(t *testing.T) {
 	Pl("testing large context")
 	history, err := grok.OpenChatHistory("", "chat1")
 	Tassert(t, err == nil, "error opening chat history: %v", err)
-	res, debug, err := history.continueChat("Talk about complex systems.", util.ContextAll, nil, nil, 0, false)
+	res, debug, err := history.ContinueChat("Talk about complex systems.", util.ContextAll, nil, nil, 0, false)
 	Tassert(t, err == nil, "error continuing chat: %v", err)
 	err = history.Save(true)
 	Tassert(t, err == nil, "error saving chat history: %v", err)
 	// should take no more than a few iterations to reach half the token limit
-	tokenLimit := grok.tokenLimit
+	tokenLimit := grok.TokenLimit
 	ok := false
 	for i := 0; i < 3; i++ {
 		Pf("iteration %d\n", i)
 		ctx, err := grok.Context("system", 3000, false, false)
 		Tassert(t, err == nil, "error getting context: %v", err)
 		prompt := Spf("%s\n\nDiscuss complex systems more.", ctx)
-		res, debug, err = history.continueChat(prompt, util.ContextAll, nil, nil, 0, false)
+		res, debug, err = history.ContinueChat(prompt, util.ContextAll, nil, nil, 0, false)
 		Tassert(t, err == nil, "error continuing chat: %v", err)
 		err = history.Save(true)
 		Ck(err)
@@ -140,7 +142,7 @@ func TestChatSummarization(t *testing.T) {
 			ctx, err := grok.Context("system", 3000, false, false)
 			Tassert(t, err == nil, "error getting context: %v", err)
 			prompt := Spf("Discuss this topic more:\n%s\n\n", ctx)
-			res, _, err = history.continueChat(prompt, util.ContextAll, nil, nil, 0, false)
+			res, _, err = history.ContinueChat(prompt, util.ContextAll, nil, nil, 0, false)
 			Tassert(t, err == nil, "error continuing chat: %v", err)
 			err = history.Save(true)
 			Ck(err)

@@ -55,7 +55,7 @@ func (g *Grokker) OpenChatHistory(sysmsg, relPath string) (history *ChatHistory,
 		history = &ChatHistory{relPath: relPath,
 			Sysmsg:  sysmsg,
 			msgs:    make([]ChatMsg, 0),
-			Version: version}
+			Version: Version}
 		err = nil
 	} else {
 		// file exists
@@ -94,10 +94,10 @@ func (g *Grokker) OpenChatHistory(sysmsg, relPath string) (history *ChatHistory,
 	return
 }
 
-// continueChat continues a chat history.  The debug map contains
+// ContinueChat continues a chat history.  The debug map contains
 // interesting statistics about the process, for testing and debugging
 // purposes.
-func (history *ChatHistory) continueChat(prompt string, contextLevel util.ContextLevel, infiles []string, outfiles []FileLang, promptTokenLimit int, edit bool) (resp string, debug map[string]int, err error) {
+func (history *ChatHistory) ContinueChat(prompt string, contextLevel util.ContextLevel, infiles []string, outfiles []FileLang, promptTokenLimit int, edit bool) (resp string, debug map[string]int, err error) {
 	defer Return(&err)
 	g := history.g
 
@@ -133,7 +133,7 @@ func (history *ChatHistory) continueChat(prompt string, contextLevel util.Contex
 	}
 
 	if getContext {
-		maxTokens := int(float64(g.tokenLimit) * 0.5)
+		maxTokens := int(float64(g.TokenLimit) * 0.5)
 		if promptTokenLimit > 0 {
 			maxTokens = promptTokenLimit
 		}
@@ -171,7 +171,7 @@ func (history *ChatHistory) continueChat(prompt string, contextLevel util.Contex
 	promptTc, err := g.TokenCount(prompt)
 	Debug("continueChat: promptTc=%d", promptTc)
 	Ck(err)
-	maxTokens := g.tokenLimit / 2
+	maxTokens := g.TokenLimit / 2
 	if promptTokenLimit > 0 {
 		maxTokens = promptTokenLimit
 	}
@@ -249,7 +249,7 @@ func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens i
 	Debug("summarize: msgsCount=%d, maxTokens=%d", msgsCount, maxTokens)
 	// Debug("summarize: msgsBefore=%v", Spprint(msgs))
 
-	minTokens := g.tokenLimit / 10
+	minTokens := g.TokenLimit / 10
 	Assert(maxTokens > minTokens, "maxTokens must be greater than %d", minTokens)
 
 	// if we are already within the limit, return

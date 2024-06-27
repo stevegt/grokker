@@ -45,7 +45,7 @@ func (g *Grokker) migrate() (migrated bool, was, now string, err error) {
 		var dbver, codever *semver.Version
 		dbver, err = semver.Parse([]byte(g.Version))
 		Ck(err)
-		codever, err = semver.Parse([]byte(version))
+		codever, err = semver.Parse([]byte(Version))
 		Ck(err)
 		var cmp int
 		cmp, err = semver.Cmp(dbver, codever)
@@ -58,11 +58,11 @@ func (g *Grokker) migrate() (migrated bool, was, now string, err error) {
 		// see if db is newer version than code
 		if cmp > 0 {
 			// db is newer than code
-			err = fmt.Errorf("grokker db is version %s, but you're running version %s -- upgrade grokker", g.Version, version)
+			err = fmt.Errorf("grokker db is version %s, but you're running version %s -- upgrade grokker", g.Version, Version)
 			return
 		}
 
-		Fpf(os.Stderr, "migrating from %s to %s\n", g.Version, version)
+		Fpf(os.Stderr, "migrating from %s to %s\n", g.Version, Version)
 
 		// if we get here, then dbver < codever
 		var minor, patch bool
@@ -78,7 +78,7 @@ func (g *Grokker) migrate() (migrated bool, was, now string, err error) {
 			// only patch version changed; a patch version change is
 			// just a code change, so just update the version number
 			// in the db
-			g.Version = version
+			g.Version = Version
 		}
 
 		migrated = true

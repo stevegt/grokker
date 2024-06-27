@@ -1,4 +1,4 @@
-package core
+package cli
 
 import (
 	"io"
@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+
+	"github.com/stevegt/grokker/v3/core"
 
 	"github.com/alecthomas/kong"
 	"github.com/anmitsu/go-shlex"
@@ -226,7 +228,7 @@ func NewCliConfig() *CliConfig {
 	return &CliConfig{
 		Name:        "grokker",
 		Description: "A command-line tool for having a conversation with a set of local documents and the OpenAI API.",
-		Version:     CodeVersion(),
+		Version:     core.CodeVersion(),
 		Exit:        func(i int) { os.Exit(i) },
 		Stdin:       os.Stdin,
 		Stdout:      os.Stdout,
@@ -301,17 +303,17 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		readonly = true
 	}
 
-	var grok *Grokker
+	var grok *core.Grokker
 	var save bool
 	// initialize Tokenizer
-	err = InitTokenizer()
+	err = core.InitTokenizer()
 	Ck(err)
 	// initialize Grokker object if needed
 	if needsDb {
 		var migrated bool
 		var was, now string
 		var lock *flock.Flock
-		grok, migrated, was, now, lock, err = Load(readonly)
+		grok, migrated, was, now, lock, err = core.Load(readonly)
 		Ck(err)
 		defer func() {
 			// unlock the db
@@ -338,7 +340,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		// specify rootdir on command line
 		// XXX use the default model for now, but we should accept an
 		// optional model name as an init argument
-		_, err = Init(".", "")
+		_, err = core.Init(".", "")
 		Ck(err)
 		Pl("Initialized a new .grok file in the current directory.")
 		// Init calls Save() for us
@@ -366,7 +368,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 			_, err = os.Stat(cli.Chat.ChatFile)
 			if err == nil {
 				// chatfile exists
-				re := regexp.MustCompile(OutfilesRegex(nil))
+				re := regexp.MustCompile(core.OutfilesRegex(nil))
 				buf, err := ioutil.ReadFile(cli.Chat.ChatFile)
 				Ck(err)
 				txt := string(buf)
@@ -377,7 +379,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 			} else {
 				// chatfile does not exist, so just show the regex
 				err = nil
-				Pl(OutfilesRegex(nil))
+				Pl(core.OutfilesRegex(nil))
 			}
 			return
 		}
@@ -413,11 +415,14 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		infiles := cli.Chat.InputFiles
 		// split each outfile on equal sign to get the filename and language
 		// XXX maybe move this, and much of the rest of this case, into API
-		var outfiles []FileLang
+		var outfiles []core.FileLang
 		for _, outfile := range cli.Chat.OutputFiles {
 			parts := strings.Split(outfile, "=")
 			if len(parts) == 2 {
-				outfiles = append(outfiles, FileLang{parts[0], parts[1]})
+				outfiles = append(outfiles, core.FileLang{
+					File:     parts[0],
+					Language: parts[1],
+				})
 			} else {
 				var lang string
 				var known bool
@@ -430,7 +435,10 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 				if !known {
 					Fpf(config.Stderr, "Assuming language %s for output file %s\n", lang, outfile)
 				}
-				outfiles = append(outfiles, FileLang{outfile, lang})
+				outfiles = append(outfiles, core.FileLang{
+					File:     outfile,
+					Language: lang,
+				})
 			}
 		}
 		// get the response
@@ -610,7 +618,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		save = true
 	case "version":
 		// print the version of grokker
-		Pf("grokker version %s\n", CodeVersion())
+		Pf("grokker version %s\n", core.CodeVersion())
 		// print the version of the grok db
 		Pf("grok db version %s\n", grok.DBVersion())
 	case "backup":
@@ -637,7 +645,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 }
 
 // answer a question
-func answer(grok *Grokker, question string, global bool) (resp, query string, updated bool, err error) {
+func answer(grok *core.Grokker, question string, global bool) (resp, query string, updated bool, err error) {
 	defer Return(&err)
 
 	// update the knowledge base
@@ -652,7 +660,7 @@ func answer(grok *Grokker, question string, global bool) (resp, query string, up
 }
 
 // continue text
-func cont(grok *Grokker, in string, global bool) (resp, query string, updated bool, err error) {
+func cont(grok *core.Grokker, in string, global bool) (resp, query string, updated bool, err error) {
 	defer Return(&err)
 
 	// update the knowledge base
@@ -668,7 +676,7 @@ func cont(grok *Grokker, in string, global bool) (resp, query string, updated bo
 }
 
 // revise text
-func revise(grok *Grokker, in string, global, sysmsgin bool) (out string, updated bool, err error) {
+func revise(grok *core.Grokker, in string, global, sysmsgin bool) (out string, updated bool, err error) {
 	defer Return(&err)
 
 	// update the knowledge base
@@ -683,7 +691,7 @@ func revise(grok *Grokker, in string, global, sysmsgin bool) (out string, update
 }
 
 // send a message to openAI's API
-func msg(g *Grokker, sysmsg string, input string) (res string, err error) {
+func msg(g *core.Grokker, sysmsg string, input string) (res string, err error) {
 	defer Return(&err)
 	res, err = g.Msg(sysmsg, input)
 	Ck(err)

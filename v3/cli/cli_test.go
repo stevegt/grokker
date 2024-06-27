@@ -1,4 +1,4 @@
-package core
+package cli
 
 import (
 	"bytes"
@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/stevegt/grokker/v3/core"
 
 	"github.com/sergi/go-diff/diffmatchpatch"
 
@@ -371,7 +373,7 @@ func TestCli(t *testing.T) {
 	stdout, stderr, err = grok(emptyStdin, "version")
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
 	// check that the stdout buffer contains the expected output
-	match = strings.Contains(stdout.String(), Spf("db version %s", version))
+	match = strings.Contains(stdout.String(), Spf("db version %s", core.Version))
 
 	// test refresh
 	// get list of files in the db
@@ -422,7 +424,7 @@ func TestCli(t *testing.T) {
 	go func() {
 		seq <- 0
 		// lock the db by calling LoadFrom directly
-		_, _, _, _, lock, err := LoadFrom(".grok", false)
+		_, _, _, _, lock, err := core.LoadFrom(".grok", false)
 		Tassert(t, err == nil, "error locking db: %v", err)
 		seq <- 1
 		// sleep for a bit; this should block the other goroutine
@@ -438,7 +440,7 @@ func TestCli(t *testing.T) {
 		time.Sleep(1 * time.Second)
 		seq <- 2
 		// try to lock the db; this should block until the other goroutine unlocks it
-		_, _, _, _, lock, err := LoadFrom(".grok", false)
+		_, _, _, _, lock, err := core.LoadFrom(".grok", false)
 		Tassert(t, err == nil, "error locking db: %v", err)
 		seq <- 4
 		// unlock the db
@@ -462,7 +464,7 @@ func TestCli(t *testing.T) {
 	go func() {
 		seq <- 0
 		// lock the db by calling LoadFrom directly
-		_, _, _, _, lock, err := LoadFrom(".grok", true)
+		_, _, _, _, lock, err := core.LoadFrom(".grok", true)
 		Tassert(t, err == nil, "error locking db: %v", err)
 		seq <- 1
 		// sleep for a bit; this should not block msg
