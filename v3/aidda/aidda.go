@@ -32,34 +32,21 @@ import (
 	- include test results in the prompt file
 */
 
-func Do(args ...string) (err error) {
+func Do(g *core.Grokker, args ...string) (err error) {
 	defer Return(&err)
-	if len(args) < 1 {
-		PrintUsageAndExit()
-	}
 
-	base, err := os.Getwd()
+	base := g.Root
+
+	// ensure we're in a git repository
+	// XXX location might want to be more flexible
+	_, err = os.Stat(Spf("%s/.git", base))
 	Ck(err)
 
-	/*
-		// ensure there is a .git directory
-		_, err = os.Stat(".git")
-		Ck(err)
-
-		// ensure there is a .grok file
-		_, err = os.Stat(".grok")
-		Ck(err)
-	*/
-
 	// create a directory for aidda files
+	// XXX location might want to be more flexible
 	dir := Spf("%s/.aidda", base)
 	err = os.MkdirAll(dir, 0755)
 	Ck(err)
-
-	// open or create a grokker db
-	g, lock, err := core.LoadOrInit(base, "gpt-4o")
-	Ck(err)
-	defer lock.Unlock()
 
 	// generate filenames
 	promptFn := Spf("%s/prompt", dir)

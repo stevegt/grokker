@@ -547,15 +547,18 @@ func InitTokenizer() (err error) {
 
 // LoadOrInit loads a Grokker database from the given path, or creates
 // a new one if there is no database at the given path.
-func LoadOrInit(dir, model string) (g *Grokker, lock *flock.Flock, err error) {
+func XXXLoadOrInit(dir, model string) (g *Grokker, lock *flock.Flock, err error) {
 	defer Return(&err)
 	grokpath := filepath.Join(dir, ".grok")
 	_, err = os.Stat(grokpath)
 	if os.IsNotExist(err) {
-		g, err = Init(dir, model)
-	} else {
-		g, _, _, _, lock, err = LoadFrom(grokpath, false)
+		Pf("creating new database at %s\n", grokpath)
+		_, err = Init(dir, model)
+		Ck(err)
 	}
+	Pf("loading database from %s\n", grokpath)
+	g, _, _, _, lock, err = LoadFrom(grokpath, false)
 	Ck(err)
+	Pf("loaded database from %s\n", grokpath)
 	return
 }

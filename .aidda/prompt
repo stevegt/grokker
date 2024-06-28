@@ -1,0 +1,21 @@
+Mime-Version: 1.0
+Content-Transfer-Encoding: quoted-printable
+In: aidda/aidda.go, aidda/aidda_test.go, aidda/cmd/aidda3/main.go,
+ aidda/run.go, cli/chat_test.go, cli/cli.go, cli/cli_test.go,
+ cli/migration_test.go, cli/testdata/sim1.md, cli/testdata/sim2.md,
+ cmd/grok/main.go, core/api.go, core/chat.go, core/chunk.go,
+ core/document.go, core/git.go, core/grokker.go, core/grokker_test.go,
+ core/migrate.go, core/model.go, core/openai.go, core/testdata/large-chat,
+ core/testdata/revise.txt, core/testdata/te-abstract.txt,
+ core/testdata/te-full.txt, lang/go/split.go, lang/go/split_test.go,
+ util/util.go
+Out: aidda/aidda.go, aidda/aidda_test.go, aidda/cmd/aidda3/main.go,
+ aidda/run.go, cli/chat_test.go, cli/cli.go, cli/cli_test.go,
+ cli/migration_test.go, cli/testdata/sim1.md, cli/testdata/sim2.md,
+ cmd/grok/main.go, core/api.go, core/chat.go, core/chunk.go,
+ core/document.go, core/git.go, core/grokker.go, core/grokker_test.go,
+ core/migrate.go, core/model.go, core/openai.go, core/testdata/large-chat,
+ core/testdata/revise.txt, core/testdata/te-abstract.txt,
+ core/testdata/te-full.txt, lang/go/split.go, lang/go/split_test.go,
+ util/util.go
+

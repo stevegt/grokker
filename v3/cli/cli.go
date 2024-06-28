@@ -371,7 +371,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 			return
 		}
 		// perform the AIDDA operations
-		err := aidda.Do(cli.Aidda.Subcommands...)
+		err := aidda.Do(grok, cli.Aidda.Subcommands...)
 		Ck(err)
 	case "chat <chat-file>":
 		if cli.Chat.OutputFilesRegex {
