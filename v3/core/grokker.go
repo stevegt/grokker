@@ -51,7 +51,7 @@ import (
 const (
 	// See the "Semantic Versioning" section of the README for
 	// information on API and db stability and versioning.
-	Version = "3.0.16"
+	Version = "3.0.17"
 )
 
 type Grokker struct {

@@ -118,6 +118,19 @@ paragraph or visual selection as the input to the query and stdout
 directed to the current buffer.  There are some examples of this
 below.
 
+## Human-in-the-loop AI-driven Development (AIDDA)
+
+- `grok aidda init`: create the .aidda subdirectory and initialize an .aidda/prompt file.
+- `grok aidda commit`: do a `git add -A; git commit` with a generated commit message.
+- `grok aidda prompt`: read the .aidda/prompt file and follow the instructions,
+  sending a query to the OpenAI API and overwriting the files listed
+  in the prompt file's Out: header.  
+
+I use this with
+[diffview.nvim](https://github.com/sindrets/diffview.nvim) so I can
+review, edit, or revert the changes the LLM has made before committing
+them.  Hotkeys in my .vimrc to run the above commands allow for quick
+iteration.
 
 ## Tell me more about the `chat` subcommand
 

@@ -1,5 +1,7 @@
 package main
 
+/*
+
 import (
 	"os"
 
@@ -14,3 +16,4 @@ func main() {
 	err := aidda.Do(args...)
 	Ck(err)
 }
+*/
