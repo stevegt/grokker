@@ -10,7 +10,7 @@ In Visual Studio Code (VS Code), you can achieve similar functionality by creati
        "version": "2.0.0",
        "tasks": [
          {
-           "label": "Run Grok Command",
+           "label": "Run Grok AIDDA commit and prompt",
            "type": "shell",
            "command": "grok aidda commit prompt",
            "group": {
