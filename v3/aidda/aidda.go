@@ -29,7 +29,7 @@ import (
 	- run 'git difftool' with vscode as in https://www.roboleary.net/vscode/2020/09/15/vscode-git.html
 	- open diff tool in editor so user can selectively choose and edit changes
 	- run go test -v
-	- include test results in the prompt file
+	- include test results in the .aidda/test file
 */
 
 func Do(g *core.Grokker, args ...string) (err error) {
@@ -51,6 +51,7 @@ func Do(g *core.Grokker, args ...string) (err error) {
 	// generate filenames
 	promptFn := Spf("%s/prompt", dir)
 	ignoreFn := Spf("%s/ignore", dir)
+	testFn := Spf("%s/test", dir)
 
 	// ensure there is an ignore file
 	err = ensureIgnoreFile(ignoreFn)
@@ -59,6 +60,38 @@ func Do(g *core.Grokker, args ...string) (err error) {
 	// create the prompt file if it doesn't exist
 	_, err = NewPrompt(promptFn)
 	Ck(err)
+
+	// if the test file is newer than any input files, then include
+	// the test results in the prompt, otherwise clear the test file
+	testResults := ""
+	testStat, err := os.Stat(testFn)
+	if os.IsNotExist(err) {
+		err = nil
+	} else {
+		Ck(err)
+		// get the list of input files
+		p, err := getPrompt(promptFn)
+		Ck(err)
+		inFns := p.In
+		// check if the test file is newer than any input files
+		for _, fn := range inFns {
+			inStat, err := os.Stat(fn)
+			Ck(err)
+			if testStat.ModTime().After(inStat.ModTime()) {
+				// include the test results in the prompt
+				buf, err := ioutil.ReadFile(testFn)
+				Ck(err)
+				testResults = string(buf)
+				break
+			}
+		}
+	}
+	if len(testResults) == 0 {
+		// clear the test file
+		Pl("Clearing test file")
+		err = ioutil.WriteFile(testFn, []byte{}, 0644)
+		Ck(err)
+	}
 
 	for i := 0; i < len(args); i++ {
 		cmd := args[i]
@@ -74,13 +107,13 @@ func Do(g *core.Grokker, args ...string) (err error) {
 			p, err := getPrompt(promptFn)
 			Ck(err)
 			// spew.Dump(p)
-			err = getChanges(g, p)
+			err = getChanges(g, p, testResults)
 			Ck(err)
 		case "diff":
 			err = runDiff()
 			Ck(err)
 		case "test":
-			err = runTest(promptFn)
+			err = runTest(testFn)
 			Ck(err)
 		default:
 			PrintUsageAndExit()
@@ -224,15 +257,15 @@ func ask(question, deflt string, others ...string) (response string, err error) 
 	}
 }
 
-func runTest(promptFn string) (err error) {
+func runTest(fn string) (err error) {
 	defer Return(&err)
 	Pf("Running tests\n")
 
 	// run go test -v
 	stdout, stderr, _, _ := RunTee("go test -v")
 
-	// append test results to the prompt file
-	fh, err := os.OpenFile(promptFn, os.O_APPEND|os.O_WRONLY, 0644)
+	// write test results to the file
+	fh, err := os.Create(fn)
 	Ck(err)
 	_, err = fh.WriteString(Spf("\n\nstdout:\n%s\n\nstderr:%s\n\n", stdout, stderr))
 	Ck(err)
@@ -252,10 +285,13 @@ func runDiff() (err error) {
 	return err
 }
 
-func getChanges(g *core.Grokker, p *Prompt) (err error) {
+func getChanges(g *core.Grokker, p *Prompt, testResults string) (err error) {
 	defer Return(&err)
 
-	prompt := p.Txt
+	if len(testResults) > 0 {
+		Pl("Including test results in prompt")
+	}
+	prompt := Spf("%s\n\n%s", p.Txt, testResults)
 	inFns := p.In
 	outFns := p.Out
 	var outFls []core.FileLang
