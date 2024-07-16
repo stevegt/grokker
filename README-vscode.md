@@ -33,14 +33,14 @@ In Visual Studio Code (VS Code), you can achieve similar functionality by creati
        {
          "key": "ctrl+alt+v",
          "command": "workbench.action.tasks.runTask",
-         "args": "Run Grok Command"
+         "args": "Run Grok AIDDA commit and prompt",
        }
      ]
      ```
 
 In this example:
 - `"ctrl+alt+v"` is the key combination that triggers the command. You can change it to any key combination you prefer.
-- `"Run Grok Command"` is the label of the task defined in `tasks.json`.
+- `"Run Grok AIDDA commit and prompt"` is the label of the task defined in `tasks.json`.
 
 After completing these steps, pressing the specified key combination will execute the external command defined in the task.
 
