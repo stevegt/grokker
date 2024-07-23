@@ -33,26 +33,29 @@ nmap <buffer> <leader>t :!grok aidda test<CR>
 
 What the above does:
 
-- <leader>dv opens the diffview plugin
-- <leader>dc closes the diffview plugin
-- <leader>dl opens the git log using the diffview plugin
-- <leader>dh opens the git file history using the diffview plugin
-- <leader>o runs the grok aidda commit command
-- <leader>v runs the grok aidda commit prompt command
+- `<leader>dv` opens the diffview plugin
+- `<leader>dc` closes the diffview plugin
+- `<leader>dl` opens the git log using the diffview plugin
+- `<leader>dh` opens the git file history using the diffview plugin
+- `<leader>o` runs the grok aidda commit command
+- `<leader>v` runs the grok aidda commit prompt command
 
 Typical workflow: 
 
+`<leader>` is by default `\` in neovim, but you can change it to
+something else if you like -- see `:help mapleader` for more info.
+
 - edit .aidda/prompt, providing input and output filenames and a
   GPT prompt
-- press <leader>v to run the grok aidda commit prompt command, which
+- press `<leader>v` to run the grok aidda commit prompt command, which
   does a `git add -A` and a `git commit` with an auto-generated commit
   message, then reads the prompt and input files, sends it all to
   OpenAI's API, and writes the output to the output file(s)
-- press <leader>dv to see/edit the diff of the changes made by aidda
-- press <leader>dc to close the diff 
-- optionally press <leader>dl to see the git log
-- optionally press <leader>dh to see the git file history
-- optionally press <leader>t to run the grok aidda test command --
+- press `<leader>dv` to see/edit the diff of the changes made by aidda
+- press `<leader>dc` to close the diff 
+- optionally press `<leader>dl` to see the git log
+- optionally press `<leader>dh` to see the git file history
+- optionally press `<leader>t` to run the grok aidda test command --
   this will run `go test -v` and put the test results in .aidda/test,
   which wil then be sent to OpenAI's API as part of the next prompt
   message

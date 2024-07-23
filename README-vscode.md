@@ -1,4 +1,7 @@
-In Visual Studio Code (VS Code), you can achieve similar functionality by creating a custom keybinding and defining a task to run the external command. Here's how you can do it:
+See the end of README-neovim.md for example usage.  This file is for
+setting up similar keybindings in Visual Studio Code.
+
+In Visual Studio Code (VS Code), create a custom keybinding and defining a task to run the external command. Here's how you can do it:
 
 1. **Create a Task**: Define a task that runs your external command.
    
