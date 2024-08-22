@@ -225,7 +225,8 @@ func (g *Grokker) SendWithFiles(sysmsg string, msgs []ChatMsg, infiles []string,
 		for _, fn := range outfiles {
 			fns = append(fns, fn.File)
 		}
-		sysmsg += Spf("\nYour response must include the following files: '%s'", strings.Join(fns, "', '"))
+		sysmsg += Spf("\nYour response must include the following complete files: '%s'", strings.Join(fns, "', '"))
+		sysmsg += Spf("\nReturn complete files only.  Do not return file fragments.")
 		sysmsg += Spf("\nYour response must match this regular expression: '%s'", OutfilesRegex(outfiles))
 		sysmsg += Spf("\n...where each file is in the format:\n\n<blank line>\nFile: <filename>\n```<language>\n<text>\n```\nEOF_<filename>")
 	}

@@ -32,25 +32,33 @@ import (
 	- include test results in the .aidda/test file
 */
 
+var (
+	baseDir  string
+	ignoreFn string
+)
+
+var DefaultSysmsg = "You are an expert Go programmer. Please make the requested changes to the given code or documentation."
+
 func Do(g *core.Grokker, args ...string) (err error) {
 	defer Return(&err)
 
-	base := g.Root
+	baseDir = g.Root
 
 	// ensure we're in a git repository
 	// XXX location might want to be more flexible
-	_, err = os.Stat(Spf("%s/.git", base))
+	_, err = os.Stat(Spf("%s/.git", baseDir))
 	Ck(err)
 
 	// create a directory for aidda files
 	// XXX location might want to be more flexible
-	dir := Spf("%s/.aidda", base)
+	dir := Spf("%s/.aidda", baseDir)
 	err = os.MkdirAll(dir, 0755)
 	Ck(err)
 
 	// generate filenames
+	// XXX these should all be in a struct
 	promptFn := Spf("%s/prompt", dir)
-	ignoreFn := Spf("%s/ignore", dir)
+	ignoreFn = Spf("%s/ignore", dir)
 	testFn := Spf("%s/test", dir)
 
 	// ensure there is an ignore file
@@ -135,9 +143,10 @@ func PrintUsageAndExit() {
 
 // Prompt is a struct that represents a prompt
 type Prompt struct {
-	In  []string
-	Out []string
-	Txt string
+	Sysmsg string
+	In     []string
+	Out    []string
+	Txt    string
 }
 
 // NewPrompt opens or creates a prompt object
@@ -159,6 +168,7 @@ func NewPrompt(path string) (p *Prompt, err error) {
 // readPrompt reads a prompt file
 func readPrompt(path string) (p *Prompt, err error) {
 	p = &Prompt{}
+	// XXX move directive parsing to here
 	// parse the file as a mail message
 	file, err := os.Open(path)
 	Ck(err)
@@ -169,8 +179,51 @@ func readPrompt(path string) (p *Prompt, err error) {
 	header := mr.Header
 	inStr := header.Get("In")
 	outStr := header.Get("Out")
-	p.In = strings.Split(inStr, ", ")
-	p.Out = strings.Split(outStr, ", ")
+	p.Sysmsg = header.Get("Sysmsg")
+	// filenames are comma-separated
+	// p.In = strings.Split(inStr, ", ")
+	// p.Out = strings.Split(outStr, ", ")
+	// filenames are space-separated
+	p.In = strings.Fields(inStr)
+	p.Out = strings.Fields(outStr)
+	// files are relative to the parent of the .aidda directory
+	// unless they are absolute paths
+	aiddaDir := filepath.Dir(path)
+	parentDir := filepath.Dir(aiddaDir)
+	// convert to absolute paths, skip empty strings
+	newIn := []string{}
+	for _, f := range p.In {
+		if filepath.IsAbs(f) {
+			continue
+		}
+		if f == "" {
+			continue
+		}
+		newIn = append(newIn, Spf("%s/%s", parentDir, f))
+	}
+	p.In = newIn
+	newOut := []string{}
+	for _, f := range p.Out {
+		if filepath.IsAbs(f) {
+			continue
+		}
+		if f == "" {
+			continue
+		}
+		newOut = append(newOut, Spf("%s/%s", parentDir, f))
+	}
+	p.Out = newOut
+	// if any input path is a directory, then replace it with the
+	// list of files in that directory
+	for i, f := range p.In {
+		fi, err := os.Stat(f)
+		Assert(err == nil, "error reading %s: %v", f, err)
+		if fi.IsDir() {
+			files, err := getFilesInDir(f)
+			Ck(err)
+			p.In = append(p.In[:i], append(files, p.In[i+1:]...)...)
+		}
+	}
 	// read the message body
 	for {
 		part, err := mr.NextPart()
@@ -184,8 +237,19 @@ func readPrompt(path string) (p *Prompt, err error) {
 			buf, err := io.ReadAll(part.Body)
 			Ck(err)
 			// trim leading and trailing whitespace
-			txt := strings.TrimSpace(string(buf))
-			p.Txt = string(txt)
+			txt1 := strings.TrimSpace(string(buf))
+			// body text lines that start with . are directives
+			// XXX move directive parsing to happen before parsing the headers
+			lines := strings.Split(txt1, "\n")
+			txt2 := ""
+			for _, line := range lines {
+				// .stop directive stops reading the prompt file
+				if strings.HasPrefix(line, ".stop") {
+					break
+				}
+				txt2 += line + "\n"
+			}
+			p.Txt = txt2
 		case *mail.AttachmentHeader:
 			// XXX keep this here because we might perhaps use
 			// attachments in the future for e.g. test results
@@ -195,6 +259,34 @@ func readPrompt(path string) (p *Prompt, err error) {
 		}
 	}
 	return
+}
+
+// getFilesInDir returns a list of files in a directory
+func getFilesInDir(dir string) (files []string, err error) {
+	defer Return(&err)
+
+	// get ignore list
+	ig, err := gitignore.CompileIgnoreFile(ignoreFn)
+	Ck(err)
+
+	files = []string{}
+	err = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		// if path is a directory, skip it
+		if info.IsDir() {
+			return nil
+		}
+		// check if the file is in the ignore list
+		if ig.MatchesPath(path) {
+			return nil
+		}
+		// only include regular files
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		files = append(files, path)
+		return nil
+	})
+	return files, err
 }
 
 // createPromptFile creates a new prompt file
@@ -207,13 +299,18 @@ func createPromptFile(path string) (err error) {
 	// get the list of files to process
 	inFns, err := getFiles()
 	outFns := inFns[:]
-	inStr := strings.Join(inFns, ", ")
-	outStr := strings.Join(outFns, ", ")
+	// filenames are comma-separated
+	// inStr := strings.Join(inFns, ", ")
+	// outStr := strings.Join(outFns, ", ")
+	// filenames are space-separated
+	inStr := strings.Join(inFns, " ")
+	outStr := strings.Join(outFns, " ")
 
 	// create headers
 	hmap := map[string][]string{
-		"In":  []string{inStr},
-		"Out": []string{outStr},
+		"Sysmsg": []string{DefaultSysmsg},
+		"In":     []string{inStr},
+		"Out":    []string{outStr},
 	}
 	h := mail.HeaderFromMap(hmap)
 
@@ -304,7 +401,13 @@ func getChanges(g *core.Grokker, p *Prompt, testResults string) (err error) {
 		outFls = append(outFls, core.FileLang{File: fn, Language: lang})
 	}
 
-	sysmsg := "You are an expert Go programmer. Please make the requested changes to the given code."
+	sysmsg := p.Sysmsg
+	if sysmsg == "" {
+		Pf("Sysmsg header missing, using default.")
+		sysmsg = DefaultSysmsg
+	}
+	Pf("Sysmsg: %s\n", sysmsg)
+
 	msgs := []core.ChatMsg{
 		core.ChatMsg{Role: "USER", Txt: prompt},
 	}
@@ -326,6 +429,11 @@ func getChanges(g *core.Grokker, p *Prompt, testResults string) (err error) {
 		tcs.add(f, txt)
 	}
 	tcs.showTokenCounts()
+
+	Pl("Output files:")
+	for _, f := range outFns {
+		Pl(f)
+	}
 
 	Pf("Querying GPT...")
 	// start a goroutine to print dots while waiting for the response
@@ -351,6 +459,12 @@ func getChanges(g *core.Grokker, p *Prompt, testResults string) (err error) {
 
 	// ExtractFiles(outFls, promptFrag, dryrun, extractToStdout)
 	err = core.ExtractFiles(outFls, resp, false, false)
+	Ck(err)
+
+	// write entire response to .addda/response
+	Assert(len(baseDir) > 0, "baseDir not set")
+	respFn := Spf("%s/.aidda/response", baseDir)
+	err = ioutil.WriteFile(respFn, []byte(resp), 0644)
 	Ck(err)
 
 	return
