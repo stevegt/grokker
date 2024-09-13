@@ -75,12 +75,7 @@ func (g *Grokker) CompleteChat(sysmsg string, msgs []ChatMsg) (response string, 
 
 	Debug("msgs: %s", Spprint(msgs))
 
-	omsgs := []oai.ChatCompletionMessage{
-		{
-			Role:    oai.ChatMessageRoleSystem,
-			Content: sysmsg,
-		},
-	}
+	omsgs := initMessages(g, sysmsg)
 
 	// convert the ChatMsg slice to an oai.ChatCompletionMessage slice
 	for _, msg := range msgs {
@@ -126,12 +121,8 @@ func (g *Grokker) generate(sysmsg, question, ctxt string, global bool) (resp oai
 	defer Return(&err)
 
 	// XXX don't exceed max tokens
-	messages := []oai.ChatCompletionMessage{
-		{
-			Role:    oai.ChatMessageRoleSystem,
-			Content: sysmsg,
-		},
-	}
+
+	messages := initMessages(g, sysmsg)
 
 	// first get global knowledge
 	if global {
@@ -192,21 +183,56 @@ func (g *Grokker) msg(sysmsg, input string) (resp oai.ChatCompletionResponse, er
 		return
 	}
 
-	messages := []oai.ChatCompletionMessage{
-		{
-			Role:    oai.ChatMessageRoleSystem,
-			Content: sysmsg,
-		},
-		{
-			Role:    oai.ChatMessageRoleUser,
-			Content: input,
-		},
+	messages := initMessages(g, sysmsg)
+
+	// add the user message
+	userMsg := oai.ChatCompletionMessage{
+		Role:    oai.ChatMessageRoleUser,
+		Content: input,
 	}
+	messages = append(messages, userMsg)
+
 	// get the answer
 	resp, err = g.chat(messages)
 	Ck(err)
 
 	return
+}
+
+// initMessages creates and returns the initial messages slice.  It includes
+// the system message if the model supports it, otherwise it includes the
+// system message in the first user message.
+func initMessages(g *Grokker, sysmsg string) []oai.ChatCompletionMessage {
+	// models that do not support system messages
+	models := []string{
+		"o1-preview",
+	}
+	sysmsgOk := true
+	for _, model := range models {
+		if g.oaiModel == model {
+			sysmsgOk = false
+			break
+		}
+	}
+	sysmsgRole := oai.ChatMessageRoleSystem
+	if !sysmsgOk {
+		sysmsgRole = oai.ChatMessageRoleUser
+	}
+	messages := []oai.ChatCompletionMessage{
+		{
+			Role:    sysmsgRole,
+			Content: sysmsg,
+		},
+	}
+	if !sysmsgOk {
+		sysmsgResponse := oai.ChatCompletionMessage{
+			Role:    oai.ChatMessageRoleAssistant,
+			Content: "Got it!  I will use those instructions as my system message and will follow them faithfully in each of my responses.",
+		}
+		messages = append(messages, sysmsgResponse)
+	}
+
+	return messages
 }
 
 // chat uses the openai API to continue a conversation given a

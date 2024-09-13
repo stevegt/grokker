@@ -40,12 +40,12 @@ github.com/rogpeppe/go-internal v1.12.0 h1:exVL4IDcn6na9z1rAb56Vxr+CgyK3nn3O+epU
 github.com/rogpeppe/go-internal v1.12.0/go.mod h1:E+RYuTGaKKdloAfM02xzb0FW3Paa99yedzYV+kq4uf4=
 github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06 h1:OkMGxebDjyw0ULyrTYWeN0UNCCkmCWfjPnIA2W6oviI=
 github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06/go.mod h1:+ePHsJ1keEjQtpvf9HHw0f4ZeJ0TLRsxhunSI2hYJSs=
-github.com/sashabaranov/go-openai v1.24.1 h1:DWK95XViNb+agQtuzsn+FyHhn3HQJ7Va8z04DQDJ1MI=
-github.com/sashabaranov/go-openai v1.24.1/go.mod h1:lj5b/K+zjTSFxVLijLSTDZuP7adOgerWeFyZLUhAKRg=
 github.com/sergi/go-diff v1.3.1 h1:xkr+Oxo4BOQKmkn/B9eMK0g5Kg/983T9DqqPHwYqD+8=
 github.com/sergi/go-diff v1.3.1/go.mod h1:aMJSSKb2lpPvRNec0+w3fl7LP9IOFzdc9Pa4NFbPK1I=
 github.com/stevegt/envi v0.2.0 h1:QIaNQz///ueqH/57ldwGQy0yRgaYr/d7JLBQfjg+RXs=
 github.com/stevegt/envi v0.2.0/go.mod h1:Z8w7bE5V9Ce3H02CWNTEYkW3zWE8ulgfROtEt6ydDoY=
+github.com/stevegt/go-openai v0.0.0-20240913165527-e333fbe6374f h1:ihl4nmVBF4Rb7I3am7xOzcEH+xo84O4ArWUc9gqU1/U=
+github.com/stevegt/go-openai v0.0.0-20240913165527-e333fbe6374f/go.mod h1:lj5b/K+zjTSFxVLijLSTDZuP7adOgerWeFyZLUhAKRg=
 github.com/stevegt/goadapt v0.0.13/go.mod h1:BWNnTsXdIxaseRo0W/MoVgDeLNf+6L4S4fPhyAsBTi0=
 github.com/stevegt/goadapt v0.7.0 h1:brUmaaA4mr3hqQfglDAQh7/MVSWak52mEAOzfbSoMDg=
 github.com/stevegt/goadapt v0.7.0/go.mod h1:vquRbAl0Ek4iJHCvFUEDxziTsETR2HOT7r64NolhDKs=

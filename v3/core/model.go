@@ -48,6 +48,7 @@ func NewModels() (m *Models) {
 		"gpt-4-32k":           {"", 32768, oai.GPT432K, false},
 		"gpt-4-turbo-preview": {"", 128000, oai.GPT4TurboPreview, false},
 		"gpt-4o":              {"", 128000, oai.GPT4o, false},
+		"o1-preview":          {"", 128000, oai.O1Preview, false},
 	}
 	// fill in the model names
 	for k, v := range m.Available {

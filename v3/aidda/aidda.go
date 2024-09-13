@@ -170,10 +170,53 @@ func readPrompt(path string) (p *Prompt, err error) {
 	p = &Prompt{}
 	// XXX move directive parsing to here
 	// parse the file as a mail message
-	file, err := os.Open(path)
+	rawFile, err := os.Open(path)
 	Ck(err)
-	defer file.Close()
-	mr, err := mail.CreateReader(file)
+	defer rawFile.Close()
+	// read rawFile into a buffer
+	rawBuf, err := io.ReadAll(rawFile)
+	Ck(err)
+	// process directives
+	// lines that start with . are directives
+	cookedBuf := []byte{}
+	lines := strings.Split(string(rawBuf), "\n")
+	for _, line := range lines {
+
+		// .stop directive stops reading the prompt file
+		if strings.HasPrefix(line, ".stop") {
+			break
+		}
+
+		/*
+			.revise directive sets Out: equal to the first argument and
+			prepends "Revise {outfile} to the prompt, e.g.:
+
+			.revise foo.md
+
+			...is replaced with this:
+
+			```
+			Out: foo.md
+
+			Revise foo.md
+			```
+		*/
+		if strings.HasPrefix(line, ".revise ") {
+			path := strings.Fields(line)[1]
+			outline := Spf("Out:\r\n    %s", path)
+			reviseLine := Spf("Revise %s", path)
+			txt := Spf("%s\r\n\r\n%s\r\n", outline, reviseLine)
+			cookedBuf = append(cookedBuf, []byte(txt)...)
+			continue
+		}
+
+		cookedBuf = append(cookedBuf, []byte(line+"\n")...)
+	}
+	Pl(string(cookedBuf))
+	// create an io.Reader from the cooked buffer
+	cookedFile := strings.NewReader(string(cookedBuf))
+	// parse the file as a mail message
+	mr, err := mail.CreateReader(cookedFile)
 	Ck(err)
 	// read the message header
 	header := mr.Header
