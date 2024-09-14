@@ -18,8 +18,6 @@ import (
 	"github.com/stevegt/grokker/v3/util"
 )
 
-// XXX move to cli/cli.go
-
 /*
 
 XXX Migrate all of this to grokker.go, including kong; just call

@@ -2,6 +2,6 @@ Mime-Version: 1.0
 Content-Transfer-Encoding: quoted-printable
 In: v3/
 
-describe the changes needed to be able to override the model on the
-command line for all subcommands without changing the model name
-stored in .grok
+- describe the changes needed to be able to override the model on the command line for all subcommands without changing the model name stored in .grok.  
+- I am using kong -- see cli.go.
+- Also List the files to be changed, one per line.
