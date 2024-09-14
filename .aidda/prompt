@@ -1,6 +1,7 @@
 Mime-Version: 1.0
 Content-Transfer-Encoding: quoted-printable
-In: cli/cli.go, ../README.md
-Out: ../README.md
+In: v3/
 
-add the aidda subcommand to the README
+describe the changes needed to be able to override the model on the
+command line for all subcommands without changing the model name
+stored in .grok
