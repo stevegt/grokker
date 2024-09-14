@@ -1,59 +1,59 @@
-To modify the given Go code to allow the overriding of the model on the command line for all subcommands without changing the model name stored in `.grok`, you can implement a global flag in the command-line interface that sets a temporary model override. This will affect how the application behaves during the execution of any subcommand but won't alter the persistent model configuration stored in `.grok`.
+Based on the provided code and documentation, to allow overriding the model on the command line for all subcommands without changing the model name stored in `.grok`, you will need to implement command line parsing that can identify and prioritize a model override flag or argument across subcommands. For this, you can use the Kong CLI library, which provides a flexible way to define and parse command line flags and arguments.
 
-Here's how you can apply these changes in the context of your application architecture:
+Here are the changes required to implement this feature:
 
-### 1. Define a Global Flag for Model Override
+1. **Add a Global Model Flag**: Introduce a global flag that specifies the model override. This flag should be accessible by all subcommands and should have higher precedence than the model specified in `.grok`.
 
-You should have a global flag that can be parsed before any subcommand execution. This flag will specify the model override. Assuming your application uses a command-line framework like `cobra` (which is quite popular in Go projects), you can define a global flag in your main or root command.
+2. **Update Subcommand Execution**: Modify the execution flow of subcommands to check if the global model override flag is set and use the specified model instead of the default model from `.grok`.
 
-For the purpose of demonstration, let's assume `cobra` is being used; modifications will take place in the `main.go` or wherever your root command is defined.
+3. **Ensure Compatibility**: Make sure that the addition of the global model override flag does not interfere with existing flags and arguments of subcommands.
 
-#### Modifications in `cmd/aidda3/main.go` (or similar file):
+### Modifications
 
-First, import the relevant packages:
+1. **Define Global Flag**: Add a global `--model-override` flag to the CLI struct.
 
-```go
-import (
-    "flag"
-    "os"
-
-    "github.com/spf13/cobra"
-)
-```
-
-Then, define a global variable and flag:
-```go
-var modelOverride string
-
-func init() {
-    rootCmd.PersistentFlags().StringVar(&modelOverride, "model", "", "Override the model name for the execution")
-}
-
-// assume rootCmd is your root *cobra.Command
-```
-
-### 2. Use the Model Override in Subcommands
-
-Wherever you're handling the execution of subcommands (where the model is relevant), you would access `modelOverride` to decide whether to use the overridden model or the default one from `.grok`.
-
-```go
-func getModel() string {
-    if modelOverride != "" {
-        return modelOverride // Override model if flag is set
+    ```go
+    type CLI struct {
+        ModelOverride string `name:"model-override" help:"Override the model for all operations"`
+        // Existing fields...
     }
-    // Otherwise, read the default model from .grok and return it
-    defaultModel, _ := readModelFromGrok()
-    return defaultModel
-}
+    ```
+
+2. **Utilize Model Override**: Adjust each subcommand implementation to use `ModelOverride` if it's non-empty, prior to executing the command logic that depends on the model.
+
+    ```go
+    func (g *Grokker) DoSomething(args ...string) (err error) {
+        modelToUse := g.Model  // g.Model is the default model from .grok
+        if cli.ModelOverride != "" {
+            modelToUse = cli.ModelOverride
+        }
+        // Use modelToUse for operation...
+    }
+    ```
+
+3. **Integrate with Kong CLI Parsing**: Ensure the Kong CLI parsing logic initializes and considers the global flag correctly across all invocations.
+
+    ```go
+    config := NewCliConfig()
+    kong.Parse(&cli,
+        kong.Name("yourapp"),
+        kong.Description("Your Application Description"),
+        kong.Configuration(kong.JSON, "/path/to/.grok"),  // Example path
+        kong.Vars{"model": "defaultModel"},  // Set default model value if needed
+    )
+    ```
+
+4. **Validate and Test**: Thoroughly test the implementation to ensure the model override works as expected across all subcommands.
+
+### Files to be Changed
+Given the provided code structure, at minimum, the following files will need modifications:
+
+```
+/cli/cli.go
 ```
 
-You would replace `readModelFromGrok()` with the actual function that reads the model setting from your `.grok` file.
+This is where the main CLI parsing and subcommands are defined. You'll be integrating the global model override flag here and ensuring all subcommand handlers respect this override.
 
-### 3. Applying Model Override in Subcommand Execution
+Ensure to carefully review the integration of the global flag with Kong CLI to maintain compatibility with existing flags and arguments, and adjust command execution flows accordingly.
 
-In every place where the model is used within subcommand execution, replace the direct access of the model from `.grok` with a call to `getModel()` function. This ensures that the override, if specified, takes precedence over the stored configuration.
-
-### Note:
-- This example abstractly demonstrates how to implement model override functionality and assumes the use of the `cobra` library for CLI development. If your application doesn't use `cobra`, the implementation details for flag handling would differ.
-- The `getModel()` function is a simplified representation. Depending on your application's architecture, you may need to adjust the way the model is retrieved or overridden.
-- Ensure to document this feature clearly, so users understand that the override is temporary and only affects the current execution context of the application.
+By following this approach, you should be able to introduce a seamless model override mechanism into the CLI tool, improving its flexibility in handling different models across multiple subcommands without altering the stored default model.
