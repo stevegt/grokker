@@ -49,6 +49,7 @@ func NewModels() (m *Models) {
 		"gpt-4-turbo-preview": {"", 128000, oai.GPT4TurboPreview, false},
 		"gpt-4o":              {"", 128000, oai.GPT4o, false},
 		"o1-preview":          {"", 128000, oai.O1Preview, false},
+		"o1-mini":             {"", 128000, oai.O1Mini, false},
 	}
 	// fill in the model names
 	for k, v := range m.Available {
@@ -58,7 +59,7 @@ func NewModels() (m *Models) {
 	return
 }
 
-// FindModel returns the model name and model_t given a model name.
+// FindModel returns the model name and object given a model name.
 // if the given model name is empty, then use DefaultModel.
 func (models *Models) FindModel(model string) (name string, m *Model, err error) {
 	if model == "" {
@@ -97,7 +98,7 @@ func (g *Grokker) initModel(model string) (err error) {
 	Ck(err)
 	m.active = true
 	g.Model = model
-	g.oaiModel = m.oaiModel
+	g.modelObj = m
 	// XXX replace with a real tokenizer.
 	// charsPerToken := 3.1
 	// g.maxChunkLen = int(math.Floor(float64(m.TokenLimit) * charsPerToken))

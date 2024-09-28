@@ -1,162 +1,1631 @@
-To enable overriding the model using a `-model` flag on the command line for all subcommands without changing the model name stored in `.grok`, you'll need to make several changes across your Go codebase. Below, I'll describe the required changes and list the files that need to be modified.
+File: /home/stevegt/lab/grokker/v3/cli/cli.go
+```go
+package cli
 
-### Overview of Changes
+import (
+	"io"
+	"io/ioutil"
+	"os"
+	"os/exec"
+	"regexp"
+	"strings"
 
-1. **Add a Global `-model` Flag**: Introduce a global `-model` flag that applies to all subcommands in your CLI application using the Kong library.
+	"github.com/stevegt/grokker/v3/core"
 
-2. **Modify `cli.go`**: Update the command-line parsing logic to handle the global `-model` flag. Ensure it can override the model during runtime without persisting the change to `.grok`.
+	"github.com/alecthomas/kong"
+	"github.com/anmitsu/go-shlex"
+	"github.com/gofrs/flock"
+	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/v3/aidda"
+	"github.com/stevegt/grokker/v3/util"
+)
 
-3. **Adjust Grokker Initialization**: In the core package, modify how the `Grokker` instance is initialized to accept the overridden model from the command line if provided.
+/*
 
-4. **Ensure Non-Persistence of Model Change**: Prevent the overridden model from being saved back to the `.grok` configuration file.
+XXX Migrate all of this to grokker.go, including kong; just call
+grokker.Cli(os.Args, os.Stdin, os.Stdout, os.Stderr) from main().
+argv to cli.go Cli() in the grokker package.  That will give us the most
+flexibility later when importing into PUP, WASM, CC, etc. That will
+also shift the API surface to be the same as the cli subcommands,
+and will also make it easier to test the cli subcommands.
 
-### Detailed Changes
+is there a kong function that can parse a non-default args array?
 
-#### 1. Add a Global `-model` Flag in `cli.go`
+Yes, Kong provides a function called `Parse(args []string)` that can
+parse a non-default args array. This function takes an array of
+strings (args) and parses the command line arguments from that array
+instead of the default `os.Args`.
 
-The Kong library allows you to define global flags that are accessible across all subcommands. Modify the CLI struct to include the `Model` field at the global level.
+show me
+
+I'm sorry for the confusion, but the Kong library in Go does not directly provide a function to parse a non-default args array. The Kong library's `Parse()` function does not take any argument as an input for an arguments array. It directly uses the `os.Args` slice which is populated with command-line arguments.
+
+However, Go's `os.Args` slice could be directly manipulated before calling `kong.Parse()` to achieve similar functionality. Such as:
+
+```go
+os.Args = append(os.Args[:1], args...)
+ctx := kong.Parse(&cli)
+```
+
+In the above code, `args` is your custom arguments array slice. Here, the slice `os.Args[1:]` (i.e., the original command-line arguments excluding the program name itself) is replaced with your custom arguments array, `args`.
+
+*/
+
+/*
+
+
+
+how do i make kong parse this:  `grok chat -s sysmsg  chatfile`
+...in other words, the sysmsg is optional and denoted by the -s flag, while the chatfile is required and not denoted by a flag.
+
+To make Kong parse the `grok chat -s sysmsg chatfile` command where `sysmsg` is an optional flag and `chatfile` is a required argument, you can structure your Kong CLI arguments as follows:
 
 ```go
 type CLI struct {
-    Model   string   `name:"model" help:"Override the model to use during execution."`
-    Verbose bool     `short:"v" help:"Show debug and progress information on stderr."`
-    // ... existing subcommands ...
+    Chat struct {
+        Sysmsg    string `name:"s" help:"Optional sysmsg argument"`
+        Chatfile  string `arg:"" required:"" help:"Required chatfile argument"`
+    } `cmd help:"Your command description"`
 }
 ```
 
-By adding the `Model` field at the root of the `CLI` struct, Kong will recognize `-model` as a global flag.
+- `Chat` is the command (like `chat` in `grok chat`).
+- `Sysmsg` is the optional argument denoted by `-s`.
+- `Chatfile` is the mandatory argument.
 
-#### 2. Modify Command-Line Parsing in `cli.go`
+You can provide help messages through `help` tags, which Kong will use during error reporting and for generating help screens. The flags `required` and `arg` are used to declare `Chatfile` as a required argument.
 
-In your `Cli` function, after parsing the arguments, check if the `Model` flag has been provided and, if so, pass it to the `Grokker` initialization. Adjust the initialization logic to accept an optional model parameter.
+$ grok chat -s "You are a python programmer."  test
+grokker: error: unexpected argument test
+
+To modify the Kong interface to correctly parse the command `grok chat -s sysmsg chatfile`, you might need to adjust the placement of the `name` and `arg` tags in the struct, like so:
 
 ```go
-// After parsing with Kong
-ctx, err := parser.Parse(args)
-parser.FatalIfErrorf(err)
-
-// ... existing code ...
-
-var grok *core.Grokker
-var save bool
-var overrideModel string
-
-// Check if the global model flag is set
-if cli.Model != "" {
-    overrideModel = cli.Model
-}
-
-if needsDb {
-    var migrated bool
-    var was, now string
-    var lock *flock.Flock
-
-    // Pass the overrideModel to Load function
-    grok, migrated, was, now, lock, err = core.LoadWithModel(overrideModel, readonly)
-    // ... existing error handling and migration logic ...
+type CLI struct {
+    Chat struct {
+        Sysmsg    string `help:"Optional sysmsg argument" name:"s" optional:""`
+        Chatfile  string `name:"" help:"Required chatfile argument" arg:""`
+    } `cmd help:"Your command description"`
 }
 ```
 
-#### 3. Update `core.Load` and Related Functions in `core/api.go`
+Here, the `name` tag in the `Sysmsg` line has been moved to define `sysmsg` as optional and under the `-s` flag, while the `Chatfile` line now includes `arg` to declare it as a positional argument, which Kong recognizes as a required argument even without the `required` flag.
 
-Modify the `Load` function (and any functions it calls) to accept an optional model parameter. If the model is provided via the command line, use it during the initialization of the `Grokker` instance without updating the stored model in `.grok`.
+Remember, the `arg` string should be empty to denote that `Chatfile` doesn't have a preceding flag.
 
-```go
-// In core/api.go
+Now if you try: `grok chat -s "You are a python programmer." test`
+It should correctly interpret `test` as a required `Chatfile`, rather than an unexpected argument.
 
-func LoadWithModel(overrideModel string, readonly bool) (g *Grokker, migrated bool, oldver, newver string, lock *flock.Flock, err error) {
-    // ... existing code to find the .grok file ...
 
-    g, migrated, oldver, newver, lock, err = LoadFromWithModel(grokpath, overrideModel, readonly)
-    return
+
+
+*/
+
+type cmdAdd struct {
+	Paths []string `arg:"" type:"string" help:"Path to file to add to knowledge base."`
 }
 
-func LoadFromWithModel(grokpath string, overrideModel string, readonly bool) (g *Grokker, migrated bool, oldver, newver string, lock *flock.Flock, err error) {
-    // ... existing loading logic ...
+type cmdAidda struct {
+	Subcommands []string `arg:"" type:"string" help:"AIDDA operation(s): init, commit, prompt"`
+}
 
-    // Setup the grokker with the model, giving precedence to overrideModel
-    modelToUse := overrideModel
-    if modelToUse == "" {
-        modelToUse = g.Model // Use model from .grok if no override
-    }
+type cmdBackup struct{}
 
-    err = g.Setup(modelToUse)
-    Ck(err)
+// cmdChat is the struct for the chat subcommand.  The chat subcommand
+// is used to have a conversation with the knowledge base using
+// a chat history stored in a local file.
+type cmdChat struct {
+	// grok chat -s sysmsg memoryfile < prompt
+	Sysmsg           string   `name:"sysmsg" short:"s" default:"" help:"System message to send to control behavior of openAI's API."`
+	ContextRepo      bool     `short:"C" help:"Add context from the entire grokker repository (includes chat file)."`
+	ContextChat      bool     `short:"c" help:"Add context from the entire chat file."`
+	ContextNone      bool     `short:"N" help:"Do not add any context."`
+	Edit             bool     `short:"e" help:"Open the chat file in GROKKER_EDITOR for editing."`
+	Prompt           string   `short:"m" help:"Prompt message to use instead of stdin."`
+	InputFiles       []string `short:"i" type:"string" help:"Input files to be provided in the prompt."`
+	OutputFiles      []string `short:"o" type:"string" help:"Output files to be created or overwritten."`
+	OutputFilesRegex bool     `short:"X" help:"Show the regular expression used to find output files in the GPT response."`
+	Extract          int      `short:"x" help:"Extract the Nth most recent version of the output files from the GPT response.  The most recent version is 1."`
+	ExtractToStdout  bool     `short:"O" help:"When extracting with -x, send the extracted text to stdout instead of to the output file(s)."`
+	ChatFile         string   `arg:"" required:"" help:"File to store the chat history -- by default the tail is used for context."`
+	PromptTokenLimit int      `short:"P" help:"Override the default prompt token limit."`
+	NoAddToDb        bool     `short:"D" help:"Do not add the chat history file to the knowledge base."`
+}
 
-    return
+type cmdCommit struct {
+	Diffargs []string `arg:"" optional:"" type:"string" help:"Arguments to pass to git diff.  If not provided, defaults to '--staged'."`
+}
+
+type cmdCtx struct {
+	Tokenlimit      int  `arg:"" type:"int" help:"Maximum number of tokens to include in the context."`
+	WithHeaders     bool `short:"h" help:"Include filename headers in the context."`
+	WithLineNumbers bool `short:"n" help:"Include line numbers in the context."`
+}
+
+type cmdEmbed struct{}
+
+type cmdForget struct {
+	Paths []string `arg:"" type:"string" help:"Path to file to remove from knowledge base."`
+}
+
+type cmdInit struct{}
+
+type cmdLs struct{}
+
+type cmdModels struct{}
+
+type cmdModel struct {
+	Model string `arg:"" help:"Model to switch to."`
+}
+
+type cmdMsg struct {
+	Sysmsg string `arg:"" help:"System message to send to control behavior of openAI's API."`
+}
+
+type cmdQ struct {
+	Question string `arg:"" help:"Question to ask the knowledge base."`
+}
+
+type cmdQc struct{}
+
+type cmdQi struct{}
+
+type cmdQr struct {
+	SysMsg bool `short:"s" help:"expect sysmsg in first paragraph of stdin, return same on stdout."`
+}
+
+type cmdRefresh struct{}
+
+type cmdSimilarity struct {
+	Refpath string   `arg:"" help:"Reference file path."`
+	Paths   []string `arg:"" help:"Files to compare to reference file."`
+}
+
+type cmdTc struct{}
+
+type cmdVersion struct{}
+
+var cli struct {
+	Model      string        `name:"model" help:"Override the model to use during execution."`
+	Verbose    bool          `short:"v" help:"Show debug and progress information on stderr."`
+	Add        cmdAdd        `cmd:"" help:"Add a file to the knowledge base."`
+	Aidda      cmdAidda      `cmd:"" help:"Perform AIDDA operations."`
+	Backup     cmdBackup     `cmd:"" help:"Backup the knowledge base."`
+	Chat       cmdChat       `cmd:"" help:"Have a conversation with the knowledge base; accepts prompt on stdin."`
+	Commit     cmdCommit     `cmd:"" help:"Generate a git commit message on stdout."`
+	Ctx        cmdCtx        `cmd:"" help:"Extract the context from the knowledge base most closely related to stdin."`
+	Embed      cmdEmbed      `cmd:"" help:"print the embedding vector for the given stdin text."`
+	Forget     cmdForget     `cmd:"" help:"Forget about a file, removing it from the knowledge base."`
+	Global     bool          `short:"g" help:"Include results from OpenAI's global knowledge base as well as from local documents."`
+	Init       cmdInit       `cmd:"" help:"Initialize a new .grok file in the current directory."`
+	Ls         cmdLs         `cmd:"" help:"List all documents in the knowledge base."`
+	Models     cmdModels     `cmd:"" help:"List all available models."`
+	ModelCmd   cmdModel      `cmd:"" help:"Upgrade the model used by the knowledge base."`
+	Msg        cmdMsg        `cmd:"" help:"Send message to openAI's API from stdin and print response on stdout."`
+	Q          cmdQ          `cmd:"" help:"Ask the knowledge base a question."`
+	Qc         cmdQc         `cmd:"" help:"Continue text from stdin based on the context in the knowledge base."`
+	Qi         cmdQi         `cmd:"" help:"Ask the knowledge base a question on stdin."`
+	Qr         cmdQr         `cmd:"" help:"Revise stdin based on the context in the knowledge base."`
+	Refresh    cmdRefresh    `cmd:"" help:"Refresh the embeddings for all documents in the knowledge base."`
+	Similarity cmdSimilarity `cmd:"" help:"Calculate the similarity between two or more files in the knowledge base."`
+	Tc         cmdTc         `cmd:"" help:"Calculate the token count of stdin."`
+	Version    cmdVersion    `cmd:"" help:"Show version of grok and its database."`
+}
+
+// CliConfig contains the configuration for grokker's cli
+type CliConfig struct {
+	// Name is the name of the program
+	Name string
+	// Description is a short description of the program
+	Description string
+	// Version is the version of the program
+	Version string
+	// Exit is the function to call to exit the program
+	Exit   func(int)
+	Stdin  io.Reader
+	Stdout io.Writer
+	Stderr io.Writer
+}
+
+// NewCliConfig returns a new Config struct with default values populated
+func NewCliConfig() *CliConfig {
+	return &CliConfig{
+		Name:        "grokker",
+		Description: "A command-line tool for having a conversation with a set of local documents and the OpenAI API.",
+		Version:     core.CodeVersion(),
+		Exit:        func(i int) { os.Exit(i) },
+		Stdin:       os.Stdin,
+		Stdout:      os.Stdout,
+		Stderr:      os.Stderr,
+	}
+}
+
+// cmdInSlice returns true if cmd is in cmds. This function only looks
+// at the first word in cmd.
+func cmdInSlice(cmd string, cmds []string) bool {
+	first := strings.Split(cmd, " ")[0]
+	return util.StringInSlice(first, cmds)
+}
+
+// Cli parses the given arguments and then executes the appropriate
+// subcommand.
+//
+// We use this function instead of kong.Parse() so that we can pass in
+// the arguments to parse.  This allows us to more easily test the
+// cli subcommands, and could later ease e.g. WASM usage.
+//
+// XXX note how gitea/tea does this, also uses urfave instead of kong
+func Cli(args []string, config *CliConfig) (rc int, err error) {
+	defer Return(&err)
+
+	// capture goadapt stdio
+	SetStdio(
+		config.Stdin,
+		config.Stdout,
+		config.Stderr,
+	)
+	defer SetStdio(nil, nil, nil)
+
+	options := []kong.Option{
+		kong.Name(config.Name),
+		kong.Description(config.Description),
+		kong.Exit(config.Exit),
+		kong.Writers(config.Stdout, config.Stderr),
+		kong.Vars{
+			"version": config.Version,
+		},
+	}
+
+	var parser *kong.Kong
+	parser, err = kong.New(&cli, options...)
+	Ck(err)
+	ctx, err := parser.Parse(args)
+	parser.FatalIfErrorf(err)
+
+	Debug("ctx: %+v", ctx)
+
+	if cli.Verbose {
+		os.Setenv("DEBUG", "1")
+	}
+
+	cmd := ctx.Command()
+	Debug("cmd: %s", cmd)
+
+	// list of commands that don't require an existing database
+	noDbCmds := []string{"init", "tc"}
+	needsDb := true
+	if cmdInSlice(cmd, noDbCmds) {
+		Debug("command %s does not require a grok db", cmd)
+		needsDb = false
+	}
+
+	// list of commands that can use a read-only db
+	roCmds := []string{"ls", "models", "version", "backup", "msg", "ctx"}
+	readonly := false
+	if cmdInSlice(cmd, roCmds) {
+		Debug("command %s can use a read-only grok db", cmd)
+		readonly = true
+	}
+
+	var grok *core.Grokker
+	var save bool
+	var modelOverride string
+	// Check if the global model flag is set
+	if cli.Model != "" {
+		modelOverride = cli.Model
+	}
+	// initialize Tokenizer
+	err = core.InitTokenizer()
+	Ck(err)
+	// initialize Grokker object if needed
+	if needsDb {
+		var migrated bool
+		var was, now string
+		var lock *flock.Flock
+		grok, migrated, was, now, lock, err = core.Load(modelOverride, readonly)
+		Ck(err)
+		defer func() {
+			// unlock the db
+			Debug("unlocking db")
+			lock.Unlock()
+		}()
+		if migrated {
+			// backup the old db
+			var fn string
+			fn, err = grok.Backup()
+			Ck(err)
+			Fpf(config.Stderr, "migrated grokker db from version %s to %s\n", was, now)
+			Fpf(config.Stderr, "backup of old db saved to %s\n", fn)
+			save = true
+		}
+	}
+
+	// XXX replace this with "command pattern" or "command object"
+	switch cmd {
+	case "init":
+		// initialize a new .grok file in the current directory
+		// create a new Grokker object
+		// XXX assume current directory for now, but should be able to
+		// specify rootdir on command line
+		// XXX use the default model for now, but we should accept an
+		// optional model name as an init argument
+		_, err = core.Init(".", "")
+		Ck(err)
+		Pl("Initialized a new .grok file in the current directory.")
+		// Init calls Save() for us
+		return
+	case "add <paths>":
+		if len(cli.Add.Paths) < 1 {
+			Fpf(config.Stderr, "Error: add command requires a filename argument\n")
+			rc = 1
+			return
+		}
+		// add the documents
+		for _, docfn := range cli.Add.Paths {
+			// add the document
+			Fpf(os.Stderr, " adding %s ...\n", docfn)
+			err = grok.AddDocument(docfn)
+			if err != nil {
+				return
+			}
+		}
+		// save the grok file
+		save = true
+	case "aidda <subcommands>":
+		if len(cli.Aidda.Subcommands) < 1 {
+			Fpf(config.Stderr, "Error: aidda command requires a subcommand argument\n")
+			rc = 1
+			return
+		}
+		// perform the AIDDA operations
+		err := aidda.Do(grok, cli.Aidda.Subcommands...)
+		Ck(err)
+	case "chat <chat-file>":
+		if cli.Chat.OutputFilesRegex {
+			// if chatfile exists, check the regex against it
+			_, err = os.Stat(cli.Chat.ChatFile)
+			if err == nil {
+				// chatfile exists
+				re := regexp.MustCompile(core.OutfilesRegex(nil))
+				buf, err := ioutil.ReadFile(cli.Chat.ChatFile)
+				Ck(err)
+				txt := string(buf)
+				matches := re.FindAllStringSubmatch(txt, -1)
+				for _, match := range matches {
+					Pl(match[1])
+				}
+			} else {
+				// chatfile does not exist, so just show the regex
+				err = nil
+				Pl(core.OutfilesRegex(nil))
+			}
+			return
+		}
+		var prompt string
+		extract := cli.Chat.Extract
+		edit := cli.Chat.Edit
+		if extract < 1 {
+			if cli.Chat.Prompt != "" {
+				prompt = cli.Chat.Prompt
+			} else if edit {
+				// open the chat file in the editor
+				err = EditFile(cli.Chat.ChatFile)
+				Ck(err)
+			} else {
+				// get text from stdin and print the response
+				buf, err := ioutil.ReadAll(config.Stdin)
+				Ck(err)
+				prompt = string(buf)
+			}
+			// trim whitespace
+			prompt = strings.TrimSpace(prompt)
+		}
+		var level util.ContextLevel
+		if cli.Chat.ContextNone {
+			level = util.ContextNone
+		} else if cli.Chat.ContextRepo {
+			level = util.ContextAll
+		} else if cli.Chat.ContextChat {
+			level = util.ContextChat
+		} else {
+			level = util.ContextRecent
+		}
+		infiles := cli.Chat.InputFiles
+		// split each outfile on equal sign to get the filename and language
+		// XXX maybe move this, and much of the rest of this case, into API
+		var outfiles []core.FileLang
+		for _, outfile := range cli.Chat.OutputFiles {
+			parts := strings.Split(outfile, "=")
+			if len(parts) == 2 {
+				outfiles = append(outfiles, core.FileLang{
+					File:     parts[0],
+					Language: parts[1],
+				})
+			} else {
+				var lang string
+				var known bool
+				lang, known, err = util.Ext2Lang(outfile)
+				if err != nil {
+					Fpf(config.Stderr, err.Error())
+					rc = 1
+					return
+				}
+				if !known {
+					Fpf(config.Stderr, "Assuming language %s for output file %s\n", lang, outfile)
+				}
+				outfiles = append(outfiles, core.FileLang{
+					File:     outfile,
+					Language: lang,
+				})
+			}
+		}
+		// get the response
+		outtxt, err := grok.Chat(cli.Chat.Sysmsg, prompt, cli.Chat.ChatFile, level, infiles, outfiles, extract, cli.Chat.PromptTokenLimit, cli.Chat.ExtractToStdout, !cli.Chat.NoAddToDb, edit)
+		Ck(err)
+		Pl(outtxt)
+		// save the grok file
+		save = true
+	case "ctx <tokenlimit>":
+		// get text from stdin and print the context
+		buf, err := ioutil.ReadAll(config.Stdin)
+		Ck(err)
+		intxt := string(buf)
+		// trim whitespace
+		intxt = strings.TrimSpace(intxt)
+		// get the context
+		outtxt, err := grok.Context(intxt, cli.Ctx.Tokenlimit, cli.Ctx.WithHeaders, cli.Ctx.WithLineNumbers)
+		Ck(err)
+		Pl(outtxt)
+	case "embed":
+		// get text from stdin and print the embedding vector
+		buf, err := ioutil.ReadAll(config.Stdin)
+		Ck(err)
+		intxt := string(buf)
+		// get the embedding vector
+		outtxt, err := grok.Embed(intxt)
+		Ck(err)
+		Pl(outtxt)
+	case "forget <paths>":
+		if len(cli.Forget.Paths) < 1 {
+			Fpf(config.Stderr, "Error: forget command requires a filename argument\n")
+			rc = 1
+			return
+		}
+		// forget the documents
+		for _, docfn := range cli.Forget.Paths {
+			// forget the document
+			Fpf(os.Stderr, " forgetting %s...\n", docfn)
+			err = grok.ForgetDocument(docfn)
+			Ck(err)
+		}
+		// save the grok file
+		save = true
+	case "refresh":
+		// refresh the embeddings for all documents
+		err = grok.RefreshEmbeddings()
+		Ck(err)
+		// save the db
+		save = true
+	case "ls":
+		// list the documents in the knowledge base
+		paths := grok.ListDocuments()
+		for _, path := range paths {
+			Pl(path)
+		}
+	case "q <question>":
+		// get question from args and print the answer
+		if cli.Q.Question == "" {
+			Fpf(config.Stderr, "Error: q command requires a question argument\n")
+			rc = 1
+			return
+		}
+		question := cli.Q.Question
+		resp, _, updated, err := answer(grok, question, cli.Global)
+		Ck(err)
+		Pl(resp)
+		if updated {
+			save = true
+		}
+	case "qc":
+		// get text from stdin and print both text and continuation
+		buf, err := ioutil.ReadAll(config.Stdin)
+		Ck(err)
+		txt := string(buf)
+		// trim whitespace
+		// txt = strings.TrimSpace(txt)
+		resp, _, updated, err := cont(grok, txt, cli.Global)
+		Ck(err)
+		Pf("%s\n%s\n", txt, resp)
+		if updated {
+			save = true
+		}
+	case "qi":
+		// get question from stdin and print both question and answer
+		buf, err := ioutil.ReadAll(config.Stdin)
+		Ck(err)
+		question := string(buf)
+		// trim whitespace
+		question = strings.TrimSpace(question)
+		resp, query, updated, err := answer(grok, question, cli.Global)
+		Ck(err)
+		_ = query
+		Pf("\n%s\n\n%s\n\n", question, resp)
+		if updated {
+			save = true
+		}
+	case "qr":
+		// get content from stdin and emit revised version on stdout
+		buf, err := ioutil.ReadAll(config.Stdin)
+		Ck(err)
+		in := string(buf)
+		// in = strings.TrimSpace(in)
+		out, updated, err := revise(grok, in, cli.Global, cli.Qr.SysMsg)
+		Ck(err)
+		// Pf("%s\n\n%s\n", sysmsg, out)
+		// Pf("%s\n\n%s\n\n", in, out)
+		Pf("%s", out)
+		if updated {
+			save = true
+		}
+	case "similarity <refpath> <paths>":
+		// get paths from args and print the similarity
+		if cli.Similarity.Refpath == "" || len(cli.Similarity.Paths) < 1 {
+			Fpf(config.Stderr, "Error: similarity command requires at least two filename arguments\n")
+			rc = 1
+			return
+		}
+		refpath := cli.Similarity.Refpath
+		paths := cli.Similarity.Paths
+		// read the text from the files
+		reftext, err := ioutil.ReadFile(refpath)
+		Ck(err)
+		texts := []string{}
+		for _, path := range paths {
+			text, err := ioutil.ReadFile(path)
+			Ck(err)
+			texts = append(texts, string(text))
+		}
+		sims, err := grok.Similarity(string(reftext), texts...)
+		Ck(err)
+		for i, sim := range sims {
+			Pf("%f %s\n", sim, paths[i])
+		}
+	case "tc":
+		// get content from stdin and emit token count on stdout
+		buf, err := ioutil.ReadAll(config.Stdin)
+		Ck(err)
+		in := string(buf)
+		in = strings.TrimSpace(in)
+		count, err := grok.TokenCount(in)
+		Ck(err)
+		Pf("%d\n", count)
+	case "msg <sysmsg>":
+		// get message from stdin and print response
+		buf, err := ioutil.ReadAll(config.Stdin)
+		Ck(err)
+		input := string(buf)
+		// trim whitespace
+		input = strings.TrimSpace(input)
+		sysmsg := cli.Msg.Sysmsg
+		res, err := msg(grok, sysmsg, input)
+		Ck(err)
+		Pl(res)
+	case "commit":
+		fallthrough
+	case "commit <diffargs>":
+		// generate a git commit message
+		if len(cli.Commit.Diffargs) < 1 {
+			cli.Commit.Diffargs = []string{"--staged"}
+		}
+		// call grokker
+		summary, err := grok.GitCommitMessage(cli.Commit.Diffargs...)
+		Ck(err)
+		Pl(summary)
+	case "models":
+		// list all available models
+		models, err := grok.ListModels()
+		Ck(err)
+		for _, model := range models {
+			Pl(model)
+		}
+	case "model <model>":
+		// upgrade the model used by the knowledge base
+		oldModel, err := grok.SetModel(cli.ModelCmd.Model)
+		Ck(err)
+		Pf("Switched model from %s to %s\n", oldModel, cli.ModelCmd.Model)
+		save = true
+	case "version":
+		// print the version of grokker
+		Pf("grokker version %s\n", core.CodeVersion())
+		// print the version of the grok db
+		Pf("grok db version %s\n", grok.DBVersion())
+	case "backup":
+		// backup the grok db
+		fn, err := grok.Backup()
+		Ck(err)
+		Pf("backup of grok db saved to %s\n", fn)
+	default:
+		Fpf(config.Stderr, "Error: unrecognized command: %s\n", ctx.Command())
+		rc = 1
+		return
+	}
+
+	if save && !readonly {
+		// save the grok file
+		// XXX saving when !readonly means we might refresh embeddings
+		// or migrate the db in ram over and over until we run a rw
+		// command
+		err = grok.Save()
+		Ck(err)
+	}
+
+	return
+}
+
+// answer a question
+func answer(grok *core.Grokker, question string, global bool) (resp, query string, updated bool, err error) {
+	defer Return(&err)
+
+	// update the knowledge base
+	updated, err = grok.UpdateEmbeddings()
+	Ck(err)
+
+	// answer the question
+	resp, err = grok.Answer(question, false, false, global)
+	Ck(err)
+
+	return
+}
+
+// continue text
+func cont(grok *core.Grokker, in string, global bool) (resp, query string, updated bool, err error) {
+	defer Return(&err)
+
+	// update the knowledge base
+	updated, err = grok.UpdateEmbeddings()
+	Ck(err)
+
+	// continue the text
+	Debug("cont: in: %s", in)
+	resp, query, err = grok.Continue(in, global)
+	Ck(err)
+
+	return
+}
+
+// revise text
+func revise(grok *core.Grokker, in string, global, sysmsgin bool) (out string, updated bool, err error) {
+	defer Return(&err)
+
+	// update the knowledge base
+	updated, err = grok.UpdateEmbeddings()
+	Ck(err)
+
+	// return revised text
+	out, _, err = grok.Revise(in, global, sysmsgin)
+	Ck(err)
+
+	return
+}
+
+// send a message to openAI's API
+func msg(g *core.Grokker, sysmsg string, input string) (res string, err error) {
+	defer Return(&err)
+	res, err = g.Msg(sysmsg, input)
+	Ck(err)
+	return
+}
+
+// EditFile opens the chat file in the editor
+func EditFile(fn string) (err error) {
+	defer Return(&err)
+
+	// first append a USER heading to the file if it doesn't exist
+	_, err = os.Stat(fn)
+	if err != nil {
+		// file does not exist
+		// err = ioutil.WriteFile(fn, []byte("### USER\n"), 0644)
+		err = ioutil.WriteFile(fn, []byte("USER:\n"), 0644)
+		Ck(err)
+	} else {
+		// file exists -- check for the heading at the end of the file
+		buf, err := ioutil.ReadFile(fn)
+		Ck(err)
+		lines := strings.Split(string(buf), "\n")
+		for i := len(lines) - 1; i >= 0; i-- {
+			// if lines[i] == "### USER" {
+			if lines[i] == "USER:" {
+				// heading exists
+				break
+			}
+			if lines[i] == "" {
+				// empty line
+				continue
+			}
+			// heading does not exist -- append it
+			fh, err := os.OpenFile(fn, os.O_APPEND|os.O_WRONLY, 0644)
+			Ck(err)
+			defer fh.Close()
+			// _, err = fh.WriteString("\n\n### USER\n\n")
+			_, err = fh.WriteString("\n\nUSER:\n\n")
+			Ck(err)
+			break
+		}
+	}
+
+	// open the file in the editor
+	editor := os.Getenv("GROKKER_EDITOR")
+	if editor == "" {
+		editor = "vi +"
+	}
+	// use shlex to split the editor command
+	cmdline, err := shlex.Split(editor, true)
+	Ck(err)
+	editor = cmdline[0]
+	var args []string
+	if len(cmdline) == 1 {
+		args = []string{fn}
+	} else {
+		args = append(cmdline[1:], fn)
+	}
+	cmd := exec.Command(editor, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	Ck(err)
+
+	return
 }
 ```
+EOF_/home/stevegt/lab/grokker/v3/cli/cli.go
 
-#### 4. Prevent Overridden Model from Being Saved in `.grok`
-
-Ensure that when `g.Save()` is called, it doesn't overwrite the model in `.grok` if the model was overridden via the command line.
-
-In the `Grokker` struct, you can add a flag to indicate that the model has been overridden temporarily.
-
+File: /home/stevegt/lab/grokker/v3/core/api.go
 ```go
-// In core/grokker.go
+package core
+
+import (
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/gofrs/flock"
+	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/v3/util"
+	"github.com/stevegt/semver"
+	"github.com/tiktoken-go/tokenizer"
+)
+
+// import "github.com/stevegt/grokker/v3/util"
+
+// XXX move to api/api.go
+
+// AddDocument adds a document to the Grokker database. It creates the
+// embeddings for the document and adds them to the database.
+func (g *Grokker) AddDocument(path string) (err error) {
+	defer Return(&err)
+	// assume we're in an arbitrary directory, so we need to
+	// convert the path to an absolute path.
+	absPath, err := filepath.Abs(path)
+	Ck(err)
+	// always convert path to a relative path for consistency
+	relpath, err := filepath.Rel(g.Root, absPath)
+	doc := &Document{
+		RelPath: relpath,
+	}
+	// ensure the document exists
+	_, err = os.Stat(g.absPath(doc))
+	if os.IsNotExist(err) {
+		return
+	}
+	Ck(err)
+	// find out if the document is already in the database.
+	found := false
+	for _, d := range g.Documents {
+		if d.RelPath == doc.RelPath {
+			found = true
+			break
+		}
+	}
+	if !found {
+		// add the document to the database.
+		g.Documents = append(g.Documents, doc)
+	}
+	// update the embeddings for the document.
+	_, err = g.updateDocument(doc)
+	Ck(err)
+	return
+}
+
+// ForgetDocument removes a document from the Grokker database.
+func (g *Grokker) ForgetDocument(path string) (err error) {
+	defer Return(&err)
+	// remove the document from the database.
+	for i, d := range g.Documents {
+		match := false
+		for {
+			// try comparing the paths directly first.
+			if d.RelPath == path {
+				match = true
+				break
+			}
+			// if that doesn't work, try comparing the absolute paths.
+			relpath, err := filepath.Abs(path)
+			Ck(err)
+			if g.absPath(d) == relpath {
+				match = true
+				break
+			}
+			break
+		}
+		if match {
+			Debug("forgetting document %s ...", path)
+			g.Documents = append(g.Documents[:i], g.Documents[i+1:]...)
+			break
+		}
+	}
+	// the document chunks are still in the database, but they will be
+	// removed during garbage collection.
+	return
+}
+
+// Chat uses the given sysmsg and prompt along with context from the
+// knowledge base and message history file to generate a response.
+func (g *Grokker) Chat(sysmsg, prompt, fileName string, level util.ContextLevel, infiles []string, outfiles []FileLang, extract, promptTokenLimit int, extractToStdout, addToDb, edit bool) (resp string, err error) {
+	defer Return(&err)
+	// open the message history file
+	history, err := g.OpenChatHistory(sysmsg, fileName)
+	Ck(err)
+	defer func() {
+		err := history.Save(addToDb)
+		Ck(err)
+	}()
+	if extract > 0 {
+		// extract the Nth most recent files from the history
+		err = history.extractFromChat(outfiles, extract, extractToStdout)
+		Ck(err)
+		return
+	}
+	// get response
+	resp, _, err = history.ContinueChat(prompt, level, infiles, outfiles, promptTokenLimit, edit)
+	Ck(err)
+	return
+}
+
+// Context returns the context for a given text, limited by the
+// tokenLimit.
+func (g *Grokker) Context(text string, tokenLimit int, withHeaders, withLineNumbers bool) (context string, err error) {
+	defer Return(&err)
+	// call getContext() with the tokenLimit
+	context, err = g.getContext(text, tokenLimit, withHeaders, withLineNumbers, nil)
+	return
+}
+
+// Continue returns a continuation of the input text.
+func (g *Grokker) Continue(in string, global bool) (out, sysmsg string, err error) {
+	defer Return(&err)
+	sysmsg = SysMsgContinue
+	// tokenize sysmsg
+	_, sysmsgTokens, err := Tokenizer.Encode(sysmsg)
+	Ck(err)
+	// tokenize input
+	_, inTokens, err := Tokenizer.Encode(in)
+	Ck(err)
+	// get chunks, sorted by similarity to the txt.
+	tokenLimit := int(float64(g.TokenLimit)*0.4) - len(sysmsgTokens) - len(inTokens)
+	context, err := g.getContext(in, tokenLimit, false, false, nil)
+	Ck(err)
+	// generate the answer.
+	resp, err := g.generate(sysmsg, in, context, global)
+	Ck(err)
+	out = resp.Choices[0].Message.Content
+	Debug("Continue() in: %s\ncontext: %s\nout: %s\n", in, context, out)
+	return
+}
+
+// Answer returns the answer to a question.
+func (g *Grokker) Answer(question string, withHeaders, withLineNumbers, global bool) (resp string, err error) {
+	defer Return(&err)
+	// tokenize the question
+	qtokens, err := g.tokens(question)
+	Ck(err)
+	maxTokens := int(float64(g.TokenLimit)*0.5) - len(qtokens)
+	context, err := g.getContext(question, maxTokens, withHeaders, withLineNumbers, nil)
+	Ck(err)
+	// generate the answer.
+	respmsg, err := g.generate(SysMsgChat, question, context, global)
+	resp = respmsg.Choices[0].Message.Content
+	return
+}
+
+// Revise returns revised text based on input text.
+func (g *Grokker) Revise(in string, global, sysmsgin bool) (out, sysmsg string, err error) {
+	defer Return(&err)
+
+	// tokenize the entire input
+	inTokens, err := g.tokens(in)
+
+	if sysmsgin {
+		// split input into sysmsg and txt
+		paragraphs := strings.Split(in, "\n\n")
+		if len(paragraphs) < 2 {
+			err = fmt.Errorf("input must contain at least two paragraphs")
+			return
+		}
+		sysmsg = paragraphs[0]
+		in = strings.Join(paragraphs[1:], "\n\n")
+	} else {
+		sysmsg = SysMsgRevise
+	}
+
+	// get context
+	maxTokens := int(float64(g.TokenLimit)*0.5) - len(inTokens)
+	context, err := g.getContext(in, maxTokens, false, false, nil)
+	Ck(err)
+
+	// generate the answer.
+	resp, err := g.generate(sysmsg, in, context, global)
+	Ck(err)
+	if sysmsgin {
+		out = Spf("%s\n\n%s", sysmsg, resp.Choices[0].Message.Content)
+	} else {
+		out = resp.Choices[0].Message.Content
+	}
+
+	Debug("Revise() in: %s\ncontext: %s\nout: %s\n", in, context, out)
+	return
+}
+
+// Backup backs up the Grokker database to a time-stamped backup and
+// returns the path.
+func (g *Grokker) Backup() (backpath string, err error) {
+	defer Return(&err)
+	Assert(g.grokpath != "", "g.grokpath is empty")
+	tmpdir := os.TempDir()
+	deslashed := strings.Replace(g.grokpath, "/", "-", -1)
+	backpath = fmt.Sprintf("%s/grokker-backup-%s%s", tmpdir, time.Now().Format("20060102-150405"), deslashed)
+	err = util.CopyFile(g.grokpath, backpath)
+	Ck(err, "failed to backup %q to %q", g.grokpath, backpath)
+	return
+}
+
+// Save saves the Grokker database to the stored path.
+func (g *Grokker) Save() (err error) {
+	defer Return(&err)
+
+	if g.ModelOverride {
+		// Temporarily store the original model
+		originalModel := g.Model
+		// Revert to the stored model from .grok file
+		g.Model = g.modelFromGrokFile
+		// Proceed with saving
+		err = g.saveToFile()
+		// Restore the overridden model
+		g.Model = originalModel
+		Ck(err)
+		return
+	}
+
+	// Proceed with saving
+	err = g.saveToFile()
+	Ck(err)
+	return
+}
+
+// saveToFile handles the actual saving process
+func (g *Grokker) saveToFile() (err error) {
+	defer Return(&err)
+	// open
+	Debug("saving grok file")
+	tmpfn := g.grokpath + ".tmp"
+	fh, err := os.Create(tmpfn)
+	Ck(err)
+	// write
+	data, err := json.Marshal(g)
+	Ck(err)
+	_, err = fh.Write(data)
+	Ck(err)
+	// close
+	err = fh.Close()
+	Ck(err)
+	// move
+	err = os.Rename(tmpfn, g.grokpath)
+	Ck(err)
+	Debug(" done!")
+	return
+}
+
+// UpdateEmbeddings updates the embeddings for any documents that have
+// changed since the last time the embeddings were updated.  It returns
+// true if any embeddings were updated.
+func (g *Grokker) UpdateEmbeddings() (update bool, err error) {
+	defer Return(&err)
+	// we use the timestamp of the grokfn as the last embedding update time.
+	lastUpdate, err := g.mtime()
+	Ck(err)
+	for _, doc := range g.Documents {
+		// check if the document has changed.
+		fi, err := os.Stat(g.absPath(doc))
+		if os.IsNotExist(err) {
+			// document has been removed; don't remove it from the
+			// database, but don't update it either.  We don't want
+			// to remove it from the database because it might be
+			// on a different branch in e.g. git.
+			// g.ForgetDocument(g.AbsPath(doc))
+			// update = true
+			err = nil
+			continue
+		}
+		Ck(err)
+		if fi.ModTime().After(lastUpdate) {
+			// update the embeddings.
+			Debug("updating embeddings for %s ...", doc.RelPath)
+			updated, err := g.updateDocument(doc)
+			Ck(err)
+			Debug("done\n")
+			update = update || updated
+		}
+	}
+	// garbage collect any chunks that are no longer referenced.
+	g.gc()
+	return
+}
+
+// CodeVersion returns the version of the grokker code.
+func CodeVersion() string {
+	return Version
+}
+
+// DBVersion returns the version of the grokker database.
+func (g *Grokker) DBVersion() string {
+	return g.Version
+}
+
+// Embed returns the embedding for a given text as a JSON string.
+func (g *Grokker) Embed(text string) (jsonEmbedding string, err error) {
+	defer Return(&err)
+	// call createEmbeddings() to get the embedding.
+	embedding, err := g.createEmbeddings([]string{text})
+	Ck(err)
+	// convert the embedding to an indented JSON string.
+	buf, err := json.MarshalIndent(embedding, "", "  ")
+	Ck(err)
+	jsonEmbedding = string(buf)
+	return
+}
+
+// Similarity returns the similarity between two or more texts.  Each text
+// is compared to the reference text, and the similarities are returned as
+// a float64 slice.
+func (g *Grokker) Similarity(reftext string, texts ...string) (sims []float64, err error) {
+	defer Return(&err)
+	// get the mean vector of the reference text
+	refVec, err := g.meanVectorFromLongString(reftext)
+	Ck(err)
+	// compare each text to the reference text
+	for _, text := range texts {
+		// get the mean vector of the text
+		vec, err := g.meanVectorFromLongString(text)
+		Ck(err)
+		// calculate the similarity
+		sim := util.Similarity(refVec, vec)
+		sims = append(sims, sim)
+	}
+	return
+}
+
+// TokenCount returns the number of tokens in a string.
+func (g *Grokker) TokenCount(text string) (count int, err error) {
+	defer Return(&err)
+	tokens, err := g.tokens(text)
+	Ck(err)
+	count = len(tokens)
+	return
+}
+
+// RefreshEmbeddings refreshes the embeddings for all documents in the
+// database.
+func (g *Grokker) RefreshEmbeddings() (err error) {
+	defer Return(&err)
+	// regenerate the embeddings for each document.
+	for _, doc := range g.Documents {
+		Fpf(os.Stderr, "refreshing embeddings for %s\n", doc.RelPath)
+		// remove file from list if it doesn't exist.
+		absPath := g.absPath(doc)
+		Debug("absPath: %s", absPath)
+		_, err := os.Stat(absPath)
+		Debug("stat err: %v", err)
+		if os.IsNotExist(err) {
+			// remove the document from the database.
+			g.ForgetDocument(doc.RelPath)
+			continue
+		}
+		_, err = g.updateDocument(doc)
+		Ck(err)
+	}
+	g.gc()
+	return
+}
+
+// ListDocuments returns a list of all documents in the knowledge base.
+// XXX this is a bit of a hack, since we're using the document name as
+// the document ID.
+// XXX this is also a bit of a hack since we're trying to make this
+// work for multiple versions -- we should be able to simplify this
+// after migration is automatic during Load().
+func (g *Grokker) ListDocuments() (paths []string) {
+	for _, doc := range g.Documents {
+		path := doc.Path
+		v100, err := semver.Parse([]byte("1.0.0"))
+		current, err := semver.Parse([]byte(g.Version))
+		Ck(err)
+		cmp, err := semver.Cmp(current, v100)
+		Ck(err)
+		if cmp > 0 {
+			path = doc.RelPath
+		}
+		paths = append(paths, path)
+	}
+	return
+}
+
+// Load loads a Grokker database from the current or any parent directory.
+func Load(modelOverride string, readonly bool) (g *Grokker, migrated bool, oldver, newver string, lock *flock.Flock, err error) {
+	defer Return(&err)
+
+	// find the .grok file in the current or any parent directory
+	grokfnbase := ".grok"
+	grokpath := ""
+	for level := 0; level < 99; level++ {
+		path := strings.Repeat("../", level) + grokfnbase
+		if _, err := os.Stat(path); err == nil {
+			grokpath = path
+			break
+		}
+	}
+	g, migrated, oldver, newver, lock, err = LoadFrom(grokpath, modelOverride, readonly)
+	Ck(err)
+	return
+}
+
+// LoadFrom loads a Grokker database from a given path.
+func LoadFrom(grokpath string, modelOverride string, readonly bool) (g *Grokker, migrated bool, oldver, newver string, lock *flock.Flock, err error) {
+	g = &Grokker{}
+	g.grokpath = grokpath
+	lockpath := grokpath + ".lock"
+	// ensure the lock file exists
+	lockfh, err := os.OpenFile(lockpath, os.O_CREATE, 0644)
+	Ck(err)
+	err = lockfh.Close()
+	Ck(err)
+	lock = flock.New(lockpath)
+	if readonly {
+		// get a shared lock
+		Debug("locking %s ro...", lockpath)
+		err = lock.RLock()
+		Ck(err)
+	} else {
+		// get an exclusive lock
+		lock = flock.New(lockpath)
+		Debug("locking %s rw...", lockpath)
+		err = lock.Lock()
+		Ck(err)
+	}
+	// load the db
+	fh, err := os.Open(g.grokpath)
+	Ck(err)
+	buf, err := ioutil.ReadAll(fh)
+	Ck(err)
+	err = json.Unmarshal(buf, g)
+	Ck(err)
+	// set the root directory, overriding whatever was in the db
+	// - this is necessary because the db might have been moved
+	g.Root, err = filepath.Abs(filepath.Dir(g.grokpath))
+	Ck(err)
+
+	migrated, oldver, newver, err = g.migrate()
+	Ck(err)
+
+	// store the original model from the .grok file
+	g.modelFromGrokFile = g.Model
+
+	// Setup grokker with the model, giving precedence to modelOverride
+	modelChoice := modelOverride
+	if modelChoice == "" {
+		modelChoice = g.Model // Use model from .grok if no override
+	}
+
+	err = g.Setup(modelChoice)
+	Ck(err)
+	return
+}
+
+// Init creates a Grokker database in the given root directory.
+func Init(rootdir, model string) (g *Grokker, err error) {
+	defer Return(&err)
+	g, err = InitNamed(rootdir, ".grok", model)
+	return
+}
+
+// InitNamed creates a named Grokker database in the given root directory.
+func InitNamed(rootdir, name, model string) (g *Grokker, err error) {
+	// ensure rootdir is absolute and exists
+	rootdir, err = filepath.Abs(rootdir)
+	Ck(err)
+	_, err = os.Stat(rootdir)
+	Ck(err)
+	// create the db
+	g = &Grokker{
+		Root:    rootdir,
+		Version: Version,
+	}
+	// initialize other bits
+	err = g.Setup(model)
+	Ck(err)
+	// ensure there is no existing db
+	g.grokpath = filepath.Join(rootdir, name)
+	_, err = os.Stat(g.grokpath)
+	if err == nil {
+		err = fmt.Errorf("db already exists at %q", g.grokpath)
+		return
+	}
+	// save the db
+	// XXX why are we creating an empty file here?
+	fh, err := os.Create(g.grokpath)
+	Ck(err)
+	// XXX let caller save the db instead of doing it here
+	err = g.Save()
+	Ck(err)
+	fh.Close()
+	return
+}
+
+// ListModels lists the available models.
+func (g *Grokker) ListModels() (models []*Model, err error) {
+	defer Return(&err)
+	for _, model := range g.models.Available {
+		models = append(models, model)
+	}
+	return
+}
+
+// SetModel sets the default chat completion model for queries.
+func (g *Grokker) SetModel(model string) (oldModel string, err error) {
+	defer Return(&err)
+	model, _, err = g.models.FindModel(model)
+	Ck(err)
+	oldModel, _, err = g.GetModel()
+	Ck(err)
+	err = g.Setup(model)
+	Ck(err)
+	return
+}
+
+// GitCommitMessage generates a git commit message given a diff. It
+// appends a reasonable prompt, and then uses the result as a grokker
+// query.
+func (g *Grokker) GitCommitMessage(args ...string) (msg string, err error) {
+	defer Return(&err)
+
+	// run `git diff @args
+	args = append([]string{"diff"}, args...)
+	cmd := exec.Command("git", args...)
+	cmd.Stderr = os.Stderr
+	out, err := cmd.Output()
+	Ck(err)
+	diff := string(out)
+
+	// summarize the diff
+	sumLines, msg, err := g.summarizeDiff(diff)
+	Ck(err)
+
+	// summarize the sumLines to create the first line of the commit
+	// message
+	// resp, err := g.generate(SysMsgChat, GitSummaryPrompt, sumLines, false)
+	// Ck(err)
+	_ = sumLines
+	//
+	// summarize the entire commit message to create the first line
+	resp, err := g.generate(SysMsgChat, GitSummaryPrompt, msg, false)
+	Ck(err)
+	summary := resp.Choices[0].Message.Content
+
+	// glue it all together
+	msg = Spf("%s\n\n%s", summary, msg)
+
+	return
+}
+
+// Msg sends sysmsg and txt to openai and returns the response.
+func (g *Grokker) Msg(sysmsg, txt string) (resp string, err error) {
+	defer Return(&err)
+	respmsg, err := g.msg(sysmsg, txt)
+	Ck(err)
+	resp = respmsg.Choices[0].Message.Content
+	return
+}
+
+// InitTokenizer initializes the tokenizer.
+func InitTokenizer() (err error) {
+	Tokenizer, err = tokenizer.Get(tokenizer.Cl100kBase)
+	Ck(err)
+	return
+}
+
+// LoadOrInit loads a Grokker database from the given path, or creates
+// a new one if there is no database at the given path.
+func XXXLoadOrInit(dir, model string) (g *Grokker, lock *flock.Flock, err error) {
+	defer Return(&err)
+	grokpath := filepath.Join(dir, ".grok")
+	_, err = os.Stat(grokpath)
+	if os.IsNotExist(err) {
+		Pf("creating new database at %s\n", grokpath)
+		_, err = Init(dir, model)
+		Ck(err)
+	}
+	Pf("loading database from %s\n", grokpath)
+	g, _, _, _, lock, err = LoadFrom(grokpath, "", false)
+	Ck(err)
+	Pf("loaded database from %s\n", grokpath)
+	return
+}
+```
+EOF_/home/stevegt/lab/grokker/v3/core/api.go
+
+File: /home/stevegt/lab/grokker/v3/core/grokker.go
+```go
+package core
+
+import (
+	"io/ioutil"
+	"os"
+	"time"
+
+	"github.com/fabiustech/openai"
+	oai "github.com/sashabaranov/go-openai"
+	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/v3/util"
+	"github.com/tiktoken-go/tokenizer"
+)
+
+// Grokker is a library for analyzing a set of documents and asking
+// questions about them using the OpenAI chat and embeddings APIs.
+//
+// It uses this algorithm (generated by ChatGPT):
+//
+// To use embeddings in conjunction with the OpenAI Chat API to
+// analyze a document, you can follow these general steps:
+//
+// (1) Break up the document into smaller text chunks or passages,
+// each with a length of up to 8192 tokens (the maximum input size for
+// the text-embedding-ada-002 model used by the Embeddings API).
+//
+// (2) For each text chunk, generate an embedding using the
+// openai.Embedding.create() function. Store the embeddings for each
+// chunk in a data structure such as a list or dictionary.
+//
+// (3) Use the Chat API to ask questions about the document. To do
+// this, you can use the openai.Completion.create() function,
+// providing the text of the previous conversation as the prompt
+// parameter.
+//
+// (4) When a question is asked, use the embeddings of the document
+// chunks to find the most relevant passages for the question. You can
+// use a similarity measure such as cosine similarity to compare the
+// embeddings of the question and each document chunk, and return the
+// chunks with the highest similarity scores.
+//
+// (5) Provide the most relevant document chunks to the
+// openai.Completion.create() function as additional context for
+// generating a response. This will allow the model to better
+// understand the context of the question and generate a more relevant
+// response.
+//
+// Repeat steps 3-5 for each question asked, updating the conversation
+// prompt as needed.
+
+const (
+	// See the "Semantic Versioning" section of the README for
+	// information on API and db stability and versioning.
+	Version = "3.0.19"
+)
 
 type Grokker struct {
-    // ... existing fields ...
-    ModelOverridden bool `json:"-"`
+	embeddingClient *openai.Client
+	chatClient      *oai.Client
+	// The grokker version number this db was last updated with.
+	Version string
+	// The absolute path of the root directory of the document
+	// repository.  This is passed in from cli based on where we
+	// found the db.
+	Root string
+	// The list of documents in the database.
+	Documents []*Document
+	// The list of chunks in the database.
+	Chunks []*Chunk
+	// model specs
+	models              *Models
+	Model               string
+	oaiModel            string
+	TokenLimit          int
+	EmbeddingTokenLimit int
+	// pathname of the grokker database file
+	grokpath           string
+	ModelOverride      bool   `json:"-"`
+	modelFromGrokFile  string `json:"-"`
+	// lock                *flock.Flock
 }
-```
 
-Modify the `SetModel` method to accept an additional parameter or set the `ModelOverridden` flag.
+// XXX get rid of this global
+var Tokenizer tokenizer.Codec
 
-```go
+// mtime returns the last modified time of the Grokker database.
+func (g *Grokker) mtime() (timestamp time.Time, err error) {
+	defer Return(&err)
+	fi, err := os.Stat(g.grokpath)
+	Ck(err)
+	timestamp = fi.ModTime()
+	return
+}
+
+// tokens returns the tokens for a text segment.
+func (g *Grokker) tokens(text string) (tokens []string, err error) {
+	defer Return(&err)
+	_, tokens, err = Tokenizer.Encode(text)
+	Ck(err)
+	return
+}
+
+// meanVectorFromLongString returns the mean vector of a long string.
+func (g *Grokker) meanVectorFromLongString(text string) (vector []float64, err error) {
+	defer Return(&err)
+	// break up the text into strings smaller than the token limit
+	texts, err := g.stringsFromString(text, g.TokenLimit)
+	Ck(err)
+	// get the embeddings for each string
+	embeddings, err := g.createEmbeddings(texts)
+	Ck(err)
+	// get the mean vector of the embeddings
+	vector = util.MeanVector(embeddings)
+	return
+}
+
+// SetModel sets the model and updates related parameters.
 func (g *Grokker) SetModel(model string, overridden bool) (oldModel string, err error) {
-    // ... existing code ...
+	defer Return(&err)
+	oldModel = g.Model
+	err = g.initModel(model)
+	Ck(err)
+	g.initClients()
+	g.ModelOverride = overridden
+	return
+}
 
-    g.ModelOverridden = overridden
-    return
+// TmpTestDir returns a temporary directory for testing
+func TmpTestDir() string {
+	dir, err := ioutil.TempDir("/tmp", "grokker-test")
+	Ck(err)
+	return dir
 }
 ```
+EOF_/home/stevegt/lab/grokker/v3/core/grokker.go
 
-Then, in the `Save` method, check this flag before writing the model to the file.
-
+File: /home/stevegt/lab/grokker/v3/core/model.go
 ```go
-func (g *Grokker) Save() (err error) {
-    defer Return(&err)
+package core
 
-    if g.ModelOverridden {
-        // Temporarily store the model
-        originalModel := g.Model
+import (
+	"fmt"
 
-        // Revert to the stored model
-        g.Model = g.modelFromGrokFile
+	oai "github.com/sashabaranov/go-openai"
+	. "github.com/stevegt/goadapt"
+)
 
-        // Proceed with saving
-        // ... existing save logic ...
+var DefaultModel = "gpt-4o"
 
-        // Restore the overridden model
-        g.Model = originalModel
+// Model is a type for model name and characteristics
+type Model struct {
+	Name       string
+	TokenLimit int
+	oaiModel   string
+	active     bool
+}
 
-        return
-    }
+func (m *Model) String() string {
+	status := ""
+	if m.active {
+		status = "*"
+	}
+	return fmt.Sprintf("%1s %-20s tokens: %d)", status, m.Name, m.TokenLimit)
+}
 
-    // ... existing save logic ...
+// GetModel returns the current model name and model_t from the db
+func (g *Grokker) GetModel() (model string, m *Model, err error) {
+	defer Return(&err)
+	model, m, err = g.models.FindModel(g.Model)
+	Ck(err)
+	return
+}
+
+// Models is a type that manages the set of available models.
+type Models struct {
+	// The list of available models.
+	Available map[string]*Model
+}
+
+// NewModels creates a new Models object.
+func NewModels() (m *Models) {
+	m = &Models{}
+	m.Available = map[string]*Model{
+		"gpt-3.5-turbo":       {"", 4096, oai.GPT3Dot5Turbo, false},
+		"gpt-4":               {"", 8192, oai.GPT4, false},
+		"gpt-4-32k":           {"", 32768, oai.GPT432K, false},
+		"gpt-4-turbo-preview": {"", 128000, oai.GPT4TurboPreview, false},
+		"gpt-4o":              {"", 128000, oai.GPT4o, false},
+		"o1-preview":          {"", 128000, oai.O1Preview, false},
+	}
+	// fill in the model names
+	for k, v := range m.Available {
+		v.Name = k
+		m.Available[k] = v
+	}
+	return
+}
+
+// FindModel returns the model name and model_t given a model name.
+// if the given model name is empty, then use DefaultModel.
+func (models *Models) FindModel(model string) (name string, m *Model, err error) {
+	if model == "" {
+		model = DefaultModel
+	}
+	m, ok := models.Available[model]
+	if !ok {
+		err = fmt.Errorf("model %q not found", model)
+		return
+	}
+	name = model
+	return
+}
+
+// Setup the model and oai clients.
+// This function needs to be idempotent because it might be called multiple
+// times during the lifetime of a Grokker object.
+func (g *Grokker) Setup(model string) (err error) {
+	defer Return(&err)
+	err = g.initModel(model)
+	Ck(err)
+	g.initClients()
+	err = InitTokenizer()
+	Ck(err)
+	return
+}
+
+// initModel initializes the model for a new or reloaded Grokker database.
+// This function needs to be idempotent because it might be called multiple
+// times during the lifetime of a Grokker object.
+func (g *Grokker) initModel(model string) (err error) {
+	defer Return(&err)
+	Assert(g.Root != "", "root directory not set")
+	g.models = NewModels()
+	model, m, err := g.models.FindModel(model)
+	Ck(err)
+	m.active = true
+	g.Model = model
+	g.oaiModel = m.oaiModel
+	// XXX replace with a real tokenizer.
+	// charsPerToken := 3.1
+	// g.maxChunkLen = int(math.Floor(float64(m.TokenLimit) * charsPerToken))
+	// XXX replace with a real tokenizer.
+	// g.maxEmbeddingChunkLen = int(math.Floor(float64(8192) * charsPerToken))
+	g.TokenLimit = m.TokenLimit
+	//TokenLimithardcoded for the text-embedding-ada-002 model
+	g.EmbeddingTokenLimit = 8192
+	return
 }
 ```
-
-You'll need to adjust the initialization to store the original model from `.grok` into `g.modelFromGrokFile` during loading.
-
-```go
-// In LoadFrom function
-g.modelFromGrokFile = g.Model
-```
-
-#### 5. Ensure All Subcommands Use the Overridden Model
-
-Since the `Grokker` instance is initialized with the correct model, all subcommands that use `g` will automatically use the overridden model without any further changes.
-
-### List of Files to be Changed
-
-1. `cli.go` (located in `/home/stevegt/lab/grokker/v3/cli/cli.go`)
-2. `core/api.go` (located in `/home/stevegt/lab/grokker/v3/core/api.go`)
-3. `core/grokker.go` (located in `/home/stevegt/lab/grokker/v3/core/grokker.go`)
-4. `core/model.go` (located in `/home/stevegt/lab/grokker/v3/core/model.go`)
-
-### Summary
-
-By making these changes, you enable the `-model` flag to override the model used during execution for all subcommands without altering the model stored in `.grok`. This approach ensures that the overridden model is used only for the current execution and doesn't persist between runs, aligning with your requirements.
+EOF_/home/stevegt/lab/grokker/v3/core/model.go

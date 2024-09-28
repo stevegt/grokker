@@ -96,6 +96,7 @@ It should correctly interpret `test` as a required `Chatfile`, rather than an un
 
 
 
+
 */
 
 type cmdAdd struct {
@@ -183,29 +184,30 @@ type cmdTc struct{}
 type cmdVersion struct{}
 
 var cli struct {
-	Add        cmdAdd        `cmd:"" help:"Add a file to the knowledge base."`
-	Aidda      cmdAidda      `cmd:"" help:"Perform AIDDA operations."`
-	Backup     cmdBackup     `cmd:"" help:"Backup the knowledge base."`
-	Chat       cmdChat       `cmd:"" help:"Have a conversation with the knowledge base; accepts prompt on stdin."`
-	Commit     cmdCommit     `cmd:"" help:"Generate a git commit message on stdout."`
-	Ctx        cmdCtx        `cmd:"" help:"Extract the context from the knowledge base most closely related to stdin."`
-	Embed      cmdEmbed      `cmd:"" help:"print the embedding vector for the given stdin text."`
-	Forget     cmdForget     `cmd:"" help:"Forget about a file, removing it from the knowledge base."`
-	Global     bool          `short:"g" help:"Include results from OpenAI's global knowledge base as well as from local documents."`
-	Init       cmdInit       `cmd:"" help:"Initialize a new .grok file in the current directory."`
-	Ls         cmdLs         `cmd:"" help:"List all documents in the knowledge base."`
-	Models     cmdModels     `cmd:"" help:"List all available models."`
-	Model      cmdModel      `cmd:"" help:"Upgrade the model used by the knowledge base."`
-	Msg        cmdMsg        `cmd:"" help:"Send message to openAI's API from stdin and print response on stdout."`
-	Q          cmdQ          `cmd:"" help:"Ask the knowledge base a question."`
-	Qc         cmdQc         `cmd:"" help:"Continue text from stdin based on the context in the knowledge base."`
-	Qi         cmdQi         `cmd:"" help:"Ask the knowledge base a question on stdin."`
-	Qr         cmdQr         `cmd:"" help:"Revise stdin based on the context in the knowledge base."`
-	Refresh    cmdRefresh    `cmd:"" help:"Refresh the embeddings for all documents in the knowledge base."`
-	Similarity cmdSimilarity `cmd:"" help:"Calculate the similarity between two or more files in the knowledge base."`
-	Tc         cmdTc         `cmd:"" help:"Calculate the token count of stdin."`
-	Verbose    bool          `short:"v" help:"Show debug and progress information on stderr."`
-	Version    cmdVersion    `cmd:"" help:"Show version of grok and its database."`
+	Add           cmdAdd        `cmd:"" help:"Add a file to the knowledge base."`
+	Aidda         cmdAidda      `cmd:"" help:"Perform AIDDA operations."`
+	Backup        cmdBackup     `cmd:"" help:"Backup the knowledge base."`
+	Chat          cmdChat       `cmd:"" help:"Have a conversation with the knowledge base; accepts prompt on stdin."`
+	Commit        cmdCommit     `cmd:"" help:"Generate a git commit message on stdout."`
+	Ctx           cmdCtx        `cmd:"" help:"Extract the context from the knowledge base most closely related to stdin."`
+	Embed         cmdEmbed      `cmd:"" help:"print the embedding vector for the given stdin text."`
+	Forget        cmdForget     `cmd:"" help:"Forget about a file, removing it from the knowledge base."`
+	Global        bool          `short:"g" help:"Include results from OpenAI's global knowledge base as well as from local documents."`
+	Init          cmdInit       `cmd:"" help:"Initialize a new .grok file in the current directory."`
+	Ls            cmdLs         `cmd:"" help:"List all documents in the knowledge base."`
+	ModelOverride string        `name:"model" help:"Model to use during this execution (not persistent)."`
+	Model         cmdModel      `cmd:"" help:"Upgrade the model used by the knowledge base (persistent)."`
+	Models        cmdModels     `cmd:"" help:"List all available models."`
+	Msg           cmdMsg        `cmd:"" help:"Send message to openAI's API from stdin and print response on stdout."`
+	Q             cmdQ          `cmd:"" help:"Ask the knowledge base a question."`
+	Qc            cmdQc         `cmd:"" help:"Continue text from stdin based on the context in the knowledge base."`
+	Qi            cmdQi         `cmd:"" help:"Ask the knowledge base a question on stdin."`
+	Qr            cmdQr         `cmd:"" help:"Revise stdin based on the context in the knowledge base."`
+	Refresh       cmdRefresh    `cmd:"" help:"Refresh the embeddings for all documents in the knowledge base."`
+	Similarity    cmdSimilarity `cmd:"" help:"Calculate the similarity between two or more files in the knowledge base."`
+	Tc            cmdTc         `cmd:"" help:"Calculate the token count of stdin."`
+	Verbose       bool          `short:"v" help:"Show debug and progress information on stderr."`
+	Version       cmdVersion    `cmd:"" help:"Show version of grok and its database."`
 }
 
 // CliConfig contains the configuration for grokker's cli
@@ -305,6 +307,11 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 
 	var grok *core.Grokker
 	var save bool
+	var modelOverride string
+	// Check if the global model flag is set
+	if cli.ModelOverride != "" {
+		modelOverride = cli.ModelOverride
+	}
 	// initialize Tokenizer
 	err = core.InitTokenizer()
 	Ck(err)
@@ -313,7 +320,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		var migrated bool
 		var was, now string
 		var lock *flock.Flock
-		grok, migrated, was, now, lock, err = core.Load(readonly)
+		grok, migrated, was, now, lock, err = core.Load(modelOverride, readonly)
 		Ck(err)
 		defer func() {
 			// unlock the db

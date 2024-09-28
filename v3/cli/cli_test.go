@@ -424,7 +424,7 @@ func TestCli(t *testing.T) {
 	go func() {
 		seq <- 0
 		// lock the db by calling LoadFrom directly
-		_, _, _, _, lock, err := core.LoadFrom(".grok", false)
+		_, _, _, _, lock, err := core.LoadFrom(".grok", "", false)
 		Tassert(t, err == nil, "error locking db: %v", err)
 		seq <- 1
 		// sleep for a bit; this should block the other goroutine
@@ -440,7 +440,7 @@ func TestCli(t *testing.T) {
 		time.Sleep(1 * time.Second)
 		seq <- 2
 		// try to lock the db; this should block until the other goroutine unlocks it
-		_, _, _, _, lock, err := core.LoadFrom(".grok", false)
+		_, _, _, _, lock, err := core.LoadFrom(".grok", "", false)
 		Tassert(t, err == nil, "error locking db: %v", err)
 		seq <- 4
 		// unlock the db
@@ -464,7 +464,7 @@ func TestCli(t *testing.T) {
 	go func() {
 		seq <- 0
 		// lock the db by calling LoadFrom directly
-		_, _, _, _, lock, err := core.LoadFrom(".grok", true)
+		_, _, _, _, lock, err := core.LoadFrom(".grok", "", true)
 		Tassert(t, err == nil, "error locking db: %v", err)
 		seq <- 1
 		// sleep for a bit; this should not block msg

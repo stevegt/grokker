@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fabiustech/openai"
-	fabius_models "github.com/fabiustech/openai/models"
-	oai "github.com/sashabaranov/go-openai"
+	embedLib "github.com/fabiustech/openai"
+	embedModelLib "github.com/fabiustech/openai/models"
+	gptLib "github.com/sashabaranov/go-openai"
 	. "github.com/stevegt/goadapt"
 )
 
@@ -40,14 +40,14 @@ func (g *Grokker) createEmbeddings(texts []string) (embeddings [][]float64, err 
 			continue
 		}
 		inputs := []string{text}
-		req := &openai.EmbeddingRequest{
+		req := &embedLib.EmbeddingRequest{
 			Input: inputs,
-			Model: fabius_models.AdaEmbeddingV2,
+			Model: embedModelLib.AdaEmbeddingV2,
 		}
 		Debug("creating embedding for chunk %d of %d ...", i+1, len(texts))
 		// Debug("text: %q", text)
 		// loop with backoff until we get a response
-		var res *openai.EmbeddingResponse
+		var res *embedLib.EmbeddingResponse
 		for backoff := 1; backoff < 10; backoff++ {
 			res, err = c.CreateEmbeddings(context.Background(), req)
 			if err == nil {
@@ -86,13 +86,13 @@ func (g *Grokker) CompleteChat(sysmsg string, msgs []ChatMsg) (response string, 
 		var role string
 		switch msg.Role {
 		case "USER":
-			role = oai.ChatMessageRoleUser
+			role = gptLib.ChatMessageRoleUser
 		case "AI":
-			role = oai.ChatMessageRoleAssistant
+			role = gptLib.ChatMessageRoleAssistant
 		default:
 			Assert(false, "unknown role: %q", msg)
 		}
-		omsgs = append(omsgs, oai.ChatCompletionMessage{
+		omsgs = append(omsgs, gptLib.ChatCompletionMessage{
 			Role:    role,
 			Content: msg.Txt,
 		})
@@ -100,14 +100,8 @@ func (g *Grokker) CompleteChat(sysmsg string, msgs []ChatMsg) (response string, 
 
 	Debug("sending to OpenAI: %s", Spprint(omsgs))
 
-	client := g.chatClient
-	resp, err := client.CreateChatCompletion(
-		context.Background(),
-		oai.ChatCompletionRequest{
-			Model:    g.oaiModel,
-			Messages: omsgs,
-		},
-	)
+	var resp gptLib.ChatCompletionResponse
+	resp, err = g.complete(omsgs)
 	Ck(err)
 	response = resp.Choices[0].Message.Content
 
@@ -117,7 +111,7 @@ func (g *Grokker) CompleteChat(sysmsg string, msgs []ChatMsg) (response string, 
 }
 
 // generate returns the answer to a question.
-func (g *Grokker) generate(sysmsg, question, ctxt string, global bool) (resp oai.ChatCompletionResponse, err error) {
+func (g *Grokker) generate(sysmsg, question, ctxt string, global bool) (resp gptLib.ChatCompletionResponse, err error) {
 	defer Return(&err)
 
 	// XXX don't exceed max tokens
@@ -126,36 +120,36 @@ func (g *Grokker) generate(sysmsg, question, ctxt string, global bool) (resp oai
 
 	// first get global knowledge
 	if global {
-		messages = append(messages, oai.ChatCompletionMessage{
-			Role:    oai.ChatMessageRoleUser,
+		messages = append(messages, gptLib.ChatCompletionMessage{
+			Role:    gptLib.ChatMessageRoleUser,
 			Content: question,
 		})
 		resp, err = g.chat(messages)
 		Ck(err)
 		// add the response to the messages.
-		messages = append(messages, oai.ChatCompletionMessage{
-			Role:    oai.ChatMessageRoleAssistant,
+		messages = append(messages, gptLib.ChatCompletionMessage{
+			Role:    gptLib.ChatMessageRoleAssistant,
 			Content: resp.Choices[0].Message.Content,
 		})
 	}
 
 	// add context from local sources
 	if len(ctxt) > 0 {
-		messages = append(messages, []oai.ChatCompletionMessage{
+		messages = append(messages, []gptLib.ChatCompletionMessage{
 			{
-				Role:    oai.ChatMessageRoleUser,
+				Role:    gptLib.ChatMessageRoleUser,
 				Content: Spf("Context:\n\n%s", ctxt),
 			},
 			{
-				Role:    oai.ChatMessageRoleAssistant,
+				Role:    gptLib.ChatMessageRoleAssistant,
 				Content: "Great! I've read the context.",
 			},
 		}...)
 	}
 
 	// now ask the question
-	messages = append(messages, oai.ChatCompletionMessage{
-		Role:    oai.ChatMessageRoleUser,
+	messages = append(messages, gptLib.ChatCompletionMessage{
+		Role:    gptLib.ChatMessageRoleUser,
 		Content: question,
 	})
 
@@ -170,7 +164,7 @@ func (g *Grokker) generate(sysmsg, question, ctxt string, global bool) (resp oai
 }
 
 // msg uses the openai API to generate a response to a message.
-func (g *Grokker) msg(sysmsg, input string) (resp oai.ChatCompletionResponse, err error) {
+func (g *Grokker) msg(sysmsg, input string) (resp gptLib.ChatCompletionResponse, err error) {
 	defer Return(&err)
 
 	// don't exceed max tokens
@@ -186,8 +180,8 @@ func (g *Grokker) msg(sysmsg, input string) (resp oai.ChatCompletionResponse, er
 	messages := initMessages(g, sysmsg)
 
 	// add the user message
-	userMsg := oai.ChatCompletionMessage{
-		Role:    oai.ChatMessageRoleUser,
+	userMsg := gptLib.ChatCompletionMessage{
+		Role:    gptLib.ChatMessageRoleUser,
 		Content: input,
 	}
 	messages = append(messages, userMsg)
@@ -202,31 +196,32 @@ func (g *Grokker) msg(sysmsg, input string) (resp oai.ChatCompletionResponse, er
 // initMessages creates and returns the initial messages slice.  It includes
 // the system message if the model supports it, otherwise it includes the
 // system message in the first user message.
-func initMessages(g *Grokker, sysmsg string) []oai.ChatCompletionMessage {
+func initMessages(g *Grokker, sysmsg string) []gptLib.ChatCompletionMessage {
 	// models that do not support system messages
 	models := []string{
 		"o1-preview",
+		"o1-mini",
 	}
 	sysmsgOk := true
 	for _, model := range models {
-		if g.oaiModel == model {
+		if g.Model == model {
 			sysmsgOk = false
 			break
 		}
 	}
-	sysmsgRole := oai.ChatMessageRoleSystem
+	sysmsgRole := gptLib.ChatMessageRoleSystem
 	if !sysmsgOk {
-		sysmsgRole = oai.ChatMessageRoleUser
+		sysmsgRole = gptLib.ChatMessageRoleUser
 	}
-	messages := []oai.ChatCompletionMessage{
+	messages := []gptLib.ChatCompletionMessage{
 		{
 			Role:    sysmsgRole,
 			Content: sysmsg,
 		},
 	}
 	if !sysmsgOk {
-		sysmsgResponse := oai.ChatCompletionMessage{
-			Role:    oai.ChatMessageRoleAssistant,
+		sysmsgResponse := gptLib.ChatCompletionMessage{
+			Role:    gptLib.ChatMessageRoleAssistant,
 			Content: "Got it!  I will use those instructions as my system message and will follow them faithfully in each of my responses.",
 		}
 		messages = append(messages, sysmsgResponse)
@@ -237,22 +232,10 @@ func initMessages(g *Grokker, sysmsg string) []oai.ChatCompletionMessage {
 
 // chat uses the openai API to continue a conversation given a
 // (possibly synthesized) message history.
-func (g *Grokker) chat(messages []oai.ChatCompletionMessage) (resp oai.ChatCompletionResponse, err error) {
+func (g *Grokker) chat(messages []gptLib.ChatCompletionMessage) (resp gptLib.ChatCompletionResponse, err error) {
 	defer Return(&err)
 
-	model := g.oaiModel
-	Debug("chat model: %s", model)
-	// Debug("chat: messages: %v", messages)
-
-	// use 	"github.com/sashabaranov/go-openai"
-	client := g.chatClient
-	resp, err = client.CreateChatCompletion(
-		context.Background(),
-		oai.ChatCompletionRequest{
-			Model:    model,
-			Messages: messages,
-		},
-	)
+	resp, err = g.complete(messages)
 	Ck(err, "%#v", messages)
 	totalBytes := 0
 	for _, msg := range messages {
@@ -265,12 +248,24 @@ func (g *Grokker) chat(messages []oai.ChatCompletionMessage) (resp oai.ChatCompl
 	return
 }
 
+func (g *Grokker) complete(messages []gptLib.ChatCompletionMessage) (res gptLib.ChatCompletionResponse, err error) {
+	client := g.chatClient
+	res, err = client.CreateChatCompletion(
+		context.Background(),
+		gptLib.ChatCompletionRequest{
+			Model:    g.modelObj.oaiModel,
+			Messages: messages,
+		},
+	)
+	return res, err
+}
+
 // initClients initializes the OpenAI clients.
 // This function needs to be idempotent because it might be called multiple
 // times during the lifetime of a Grokker object.
 func (g *Grokker) initClients() {
 	authtoken := os.Getenv("OPENAI_API_KEY")
-	g.embeddingClient = openai.NewClient(authtoken)
-	g.chatClient = oai.NewClient(authtoken)
+	g.embeddingClient = embedLib.NewClient(authtoken)
+	g.chatClient = gptLib.NewClient(authtoken)
 	return
 }

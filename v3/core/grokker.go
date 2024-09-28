@@ -51,7 +51,7 @@ import (
 const (
 	// See the "Semantic Versioning" section of the README for
 	// information on API and db stability and versioning.
-	Version = "3.0.19"
+	Version = "3.0.20"
 )
 
 type Grokker struct {
@@ -70,11 +70,13 @@ type Grokker struct {
 	// model specs
 	models              *Models
 	Model               string
-	oaiModel            string
+	modelObj            *Model
 	TokenLimit          int
 	EmbeddingTokenLimit int
 	// pathname of the grokker database file
-	grokpath string
+	grokpath      string
+	modelOverride bool
+	modelFromDb   string
 	// lock                *flock.Flock
 }
 

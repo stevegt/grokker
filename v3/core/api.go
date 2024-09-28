@@ -214,25 +214,45 @@ func (g *Grokker) Backup() (backpath string, err error) {
 func (g *Grokker) Save() (err error) {
 	defer Return(&err)
 
+	if g.modelOverride {
+		// Temporarily store the original model
+		tmpModel := g.Model
+		// Revert to the stored model from .grok file
+		g.Model = g.modelFromDb
+		// Proceed with saving
+		err = g.saveToFile()
+		// Restore the overridden model
+		g.Model = tmpModel
+		Ck(err)
+		return
+	}
+
+	// Proceed with saving
+	err = g.saveToFile()
+	Ck(err)
+	return
+}
+
+// saveToFile handles the actual saving process
+func (g *Grokker) saveToFile() (err error) {
+	defer Return(&err)
 	// open
 	Debug("saving grok file")
 	tmpfn := g.grokpath + ".tmp"
 	fh, err := os.Create(tmpfn)
-
+	Ck(err)
 	// write
 	data, err := json.Marshal(g)
 	Ck(err)
 	_, err = fh.Write(data)
-
+	Ck(err)
 	// close
 	err = fh.Close()
 	Ck(err)
-
 	// move
 	err = os.Rename(tmpfn, g.grokpath)
 	Ck(err)
 	Debug(" done!")
-
 	return
 }
 
@@ -373,7 +393,7 @@ func (g *Grokker) ListDocuments() (paths []string) {
 // LoadFrom loads a Grokker database from a given path.
 // XXX replace the json db with a kv store, store vectors as binary
 // floating point values.
-func LoadFrom(grokpath string, readonly bool) (g *Grokker, migrated bool, oldver, newver string, lock *flock.Flock, err error) {
+func LoadFrom(grokpath string, modelOverride string, readonly bool) (g *Grokker, migrated bool, oldver, newver string, lock *flock.Flock, err error) {
 	g = &Grokker{}
 	g.grokpath = grokpath
 	lockpath := grokpath + ".lock"
@@ -410,7 +430,19 @@ func LoadFrom(grokpath string, readonly bool) (g *Grokker, migrated bool, oldver
 	migrated, oldver, newver, err = g.migrate()
 	Ck(err)
 
-	err = g.Setup(g.Model)
+	// store the original model from the .grok file
+	g.modelFromDb = g.Model
+
+	// Setup grokker with the model, giving precedence to modelOverride
+	modelChoice := modelOverride
+	if modelChoice == "" {
+		modelChoice = g.Model // Use model from .grok if no override
+	} else {
+		// Set modelOverride flag
+		g.modelOverride = true
+	}
+
+	err = g.Setup(modelChoice)
 	Ck(err)
 	return
 }
@@ -456,7 +488,7 @@ func InitNamed(rootdir, name, model string) (g *Grokker, err error) {
 }
 
 // Load loads a Grokker database from the current or any parent directory.
-func Load(readonly bool) (g *Grokker, migrated bool, oldver, newver string, lock *flock.Flock, err error) {
+func Load(modelOverride string, readonly bool) (g *Grokker, migrated bool, oldver, newver string, lock *flock.Flock, err error) {
 	defer Return(&err)
 
 	// find the .grok file in the current or any parent directory
@@ -469,7 +501,7 @@ func Load(readonly bool) (g *Grokker, migrated bool, oldver, newver string, lock
 			break
 		}
 	}
-	g, migrated, oldver, newver, lock, err = LoadFrom(grokpath, readonly)
+	g, migrated, oldver, newver, lock, err = LoadFrom(grokpath, modelOverride, readonly)
 	Ck(err)
 	return
 }
@@ -521,6 +553,7 @@ func (g *Grokker) GitCommitMessage(args ...string) (msg string, err error) {
 	//
 	// summarize the entire commit message to create the first line
 	resp, err := g.generate(SysMsgChat, GitSummaryPrompt, msg, false)
+	Ck(err)
 	summary := resp.Choices[0].Message.Content
 
 	// glue it all together
@@ -557,7 +590,7 @@ func XXXLoadOrInit(dir, model string) (g *Grokker, lock *flock.Flock, err error)
 		Ck(err)
 	}
 	Pf("loading database from %s\n", grokpath)
-	g, _, _, _, lock, err = LoadFrom(grokpath, false)
+	g, _, _, _, lock, err = LoadFrom(grokpath, "", false)
 	Ck(err)
 	Pf("loaded database from %s\n", grokpath)
 	return
