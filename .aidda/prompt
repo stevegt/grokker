@@ -12,9 +12,7 @@ use .aidda/prompt as commit message instead of generating a commit message
 The goal is to do "commit message driven development", using the
 commit message to provide instructions to the LLM. To achieve this, we
 will use the content of the `.aidda/prompt` file as the commit message
-instead of generating a commit message based on the changes.  As a
-corollary, aidda will refuse to commit staged or unstaged changes if
-the prompt file has not been edited since the last commit.
+instead of generating a commit message based on the changes.  
 
 - move the headers to the end of the prompt file and write a parser to
   extract them instead of using rfc822 parser
@@ -25,6 +23,28 @@ the prompt file has not been edited since the last commit.
   file is newer than the prompt file, we will refuse to commit
 - update the tests to reflect the new format of the prompt file and
   the new workflow
+
+.stop
+
+- move the header extraction logic to a separate function
+
+.stop
+
+The user's workflow will be as follows:
+- edit `.aidda/prompt` to describe the changes to be created
+- run `aidda prompt` to ask the LLM to generate the changes
+- optionally repeat the previous step until the prompt file and
+  changes are satisfactory
+- run `aidda commit` to commit the changes with the prompt file as the
+  commit message
+
+Alternative workflow:
+- edit `.aidda/prompt` to describe the changes to be created
+- run `aidda auto`.  If the prompt file has been edited since the last
+  commit, AIDDA will not commit and will generate the changes.  If
+  the prompt file has not been edited since the last commit, AIDDA
+  will commit the changes with the prompt file as the commit message
+  and will not generate any changes.
 
 .stop
 

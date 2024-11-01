@@ -10,8 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/emersion/go-message/mail"
-	"github.com/fsnotify/fsnotify"
 	gitignore "github.com/sabhiram/go-gitignore"
 	"github.com/stevegt/envi"
 	. "github.com/stevegt/goadapt"
@@ -167,141 +165,144 @@ func NewPrompt(path string) (p *Prompt, err error) {
 
 // readPrompt reads a prompt file
 func readPrompt(path string) (p *Prompt, err error) {
+	defer Return(&err)
 	p = &Prompt{}
-	// XXX move directive parsing to here
-	// parse the file as a mail message
-	rawFile, err := os.Open(path)
-	Ck(err)
-	defer rawFile.Close()
-	// read rawFile into a buffer
-	rawBuf, err := io.ReadAll(rawFile)
+
+	// Read entire content of the file
+	rawBuf, err := ioutil.ReadFile(path)
 	Ck(err)
 	// process directives
 	// lines that start with . are directives
 	cookedBuf := []byte{}
-	lines := strings.Split(string(rawBuf), "\n")
-	for _, line := range lines {
+	rawLines := strings.Split(string(rawBuf), "\n")
+	for i, line := range rawLines {
+		// ensure the first line doesn't start with a #  (the default
+		// prompt file starts with a comment; we want to make sure
+		// the user edits it)
+		if i == 0 && strings.HasPrefix(line, "#") {
+			return nil, fmt.Errorf("prompt file must not start with a comment")
+		}
+
+		// Ensure there is a blank line after the first line
+		if i == 1 && line != "" {
+			return nil, fmt.Errorf("prompt file must have a blank line after the first line, just like a commit message")
+		}
 
 		// .stop directive stops reading the prompt file
 		if strings.HasPrefix(line, ".stop") {
 			break
 		}
 
-		/*
-			.revise directive sets Out: equal to the first argument and
-			prepends "Revise {outfile} to the prompt, e.g.:
-
-			.revise foo.md
-
-			...is replaced with this:
-
-			```
-			Out: foo.md
-
-			Revise foo.md
-			```
-		*/
-		if strings.HasPrefix(line, ".revise ") {
-			path := strings.Fields(line)[1]
-			outline := Spf("Out:\r\n    %s", path)
-			reviseLine := Spf("Revise %s", path)
-			txt := Spf("%s\r\n\r\n%s\r\n", outline, reviseLine)
-			cookedBuf = append(cookedBuf, []byte(txt)...)
-			continue
-		}
-
 		cookedBuf = append(cookedBuf, []byte(line+"\n")...)
 	}
 	Pl(string(cookedBuf))
-	// create an io.Reader from the cooked buffer
-	cookedFile := strings.NewReader(string(cookedBuf))
-	// parse the file as a mail message
-	mr, err := mail.CreateReader(cookedFile)
-	Ck(err)
-	// read the message header
-	header := mr.Header
-	inStr := header.Get("In")
-	outStr := header.Get("Out")
-	p.Sysmsg = header.Get("Sysmsg")
-	// filenames are comma-separated
-	// p.In = strings.Split(inStr, ", ")
-	// p.Out = strings.Split(outStr, ", ")
+	content := string(cookedBuf)
+
+	// Find the index where headers start
+	lines := strings.Split(content, "\n")
+	hdrStart := len(lines)
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := lines[i]
+		if strings.TrimSpace(line) == "" {
+			// Skip empty lines at the end
+			continue
+		}
+		if strings.Contains(line, ":") {
+			// Found a header
+			hdrStart = i
+		} else {
+			// Not a header line, headers start from hdrStart
+			hdrStart = i + 1
+			break
+		}
+	}
+
+	if hdrStart >= len(lines) {
+		return nil, fmt.Errorf("no headers found at the end of the prompt file")
+	}
+
+	// Extract headers
+	headers := lines[hdrStart:]
+	headerMap := make(map[string]string)
+	for _, h := range headers {
+		if h == "" {
+			continue
+		}
+		parts := strings.SplitN(h, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		headerMap[key] = value
+	}
+
+	// Extract prompt text (lines from after the blank line to hdrStart)
+	// promptLines := lines[2:hdrStart]
+	// p.Txt = strings.Join(promptLines, "\n")
+
+	// use the entire cookedBuf as the prompt text
+	p.Txt = content
+
+	// Process headers
+	p.Sysmsg = headerMap["Sysmsg"]
+	inStr := headerMap["In"]
+	outStr := headerMap["Out"]
+
 	// filenames are space-separated
 	p.In = strings.Fields(inStr)
 	p.Out = strings.Fields(outStr)
-	// files are relative to the parent of the .aidda directory
+
+	// Files are relative to the parent of the .aidda directory
 	// unless they are absolute paths
 	aiddaDir := filepath.Dir(path)
 	parentDir := filepath.Dir(aiddaDir)
-	// convert to absolute paths, skip empty strings
+
+	// Convert p.In to absolute paths
 	newIn := []string{}
 	for _, f := range p.In {
-		if filepath.IsAbs(f) {
-			continue
-		}
 		if f == "" {
 			continue
 		}
-		newIn = append(newIn, Spf("%s/%s", parentDir, f))
+		if filepath.IsAbs(f) {
+			newIn = append(newIn, f)
+		} else {
+			newIn = append(newIn, filepath.Join(parentDir, f))
+		}
 	}
 	p.In = newIn
+
+	// Similarly for p.Out
 	newOut := []string{}
 	for _, f := range p.Out {
-		if filepath.IsAbs(f) {
-			continue
-		}
 		if f == "" {
 			continue
 		}
-		newOut = append(newOut, Spf("%s/%s", parentDir, f))
+		if filepath.IsAbs(f) {
+			newOut = append(newOut, f)
+		} else {
+			newOut = append(newOut, filepath.Join(parentDir, f))
+		}
 	}
 	p.Out = newOut
+
 	// if any input path is a directory, then replace it with the
 	// list of files in that directory
-	for i, f := range p.In {
+	for i := 0; i < len(p.In); i++ {
+		f := p.In[i]
 		fi, err := os.Stat(f)
-		Assert(err == nil, "error reading %s: %v", f, err)
+		if err != nil {
+			return nil, fmt.Errorf("error reading %s: %v", f, err)
+		}
 		if fi.IsDir() {
 			files, err := getFilesInDir(f)
 			Ck(err)
 			p.In = append(p.In[:i], append(files, p.In[i+1:]...)...)
+			i += len(files) - 1
 		}
 	}
-	// read the message body
-	for {
-		part, err := mr.NextPart()
-		if err == io.EOF {
-			break
-		}
-		Ck(err)
-		switch h := part.Header.(type) {
-		case *mail.InlineHeader:
-			// prompt text is in the body
-			buf, err := io.ReadAll(part.Body)
-			Ck(err)
-			// trim leading and trailing whitespace
-			txt1 := strings.TrimSpace(string(buf))
-			// body text lines that start with . are directives
-			// XXX move directive parsing to happen before parsing the headers
-			lines := strings.Split(txt1, "\n")
-			txt2 := ""
-			for _, line := range lines {
-				// .stop directive stops reading the prompt file
-				if strings.HasPrefix(line, ".stop") {
-					break
-				}
-				txt2 += line + "\n"
-			}
-			p.Txt = txt2
-		case *mail.AttachmentHeader:
-			// XXX keep this here because we might perhaps use
-			// attachments in the future for e.g. test results
-			filename, err := h.Filename()
-			Ck(err)
-			fmt.Printf("Got attachment: %v\n", filename)
-		}
-	}
-	return
+
+	return p, nil
 }
 
 // getFilesInDir returns a list of files in a directory
@@ -341,27 +342,25 @@ func createPromptFile(path string) (err error) {
 
 	// get the list of files to process
 	inFns, err := getFiles()
-	outFns := inFns[:]
-	// filenames are comma-separated
-	// inStr := strings.Join(inFns, ", ")
-	// outStr := strings.Join(outFns, ", ")
+	Ck(err)
+	outFns := make([]string, len(inFns))
+	copy(outFns, inFns)
+
 	// filenames are space-separated
 	inStr := strings.Join(inFns, " ")
 	outStr := strings.Join(outFns, " ")
 
-	// create headers
-	hmap := map[string][]string{
-		"Sysmsg": []string{DefaultSysmsg},
-		"In":     []string{inStr},
-		"Out":    []string{outStr},
-	}
-	h := mail.HeaderFromMap(hmap)
-
-	// create mail writer
-	mw, err := mail.CreateSingleInlineWriter(file, h)
+	// write the initial prompt line and a blank line
+	_, err = io.WriteString(file, "# write commit message here -- it will be used as the LLM prompt\n\n")
 	Ck(err)
-	// Write the body
-	io.WriteString(mw, "# enter prompt here")
+
+	// write the headers at the end
+	_, err = io.WriteString(file, fmt.Sprintf("Sysmsg: %s\n", DefaultSysmsg))
+	Ck(err)
+	_, err = io.WriteString(file, fmt.Sprintf("In: %s\n", inStr))
+	Ck(err)
+	_, err = io.WriteString(file, fmt.Sprintf("Out: %s\n", outStr))
+	Ck(err)
 
 	return
 }
@@ -504,7 +503,7 @@ func getChanges(g *core.Grokker, p *Prompt, testResults string) (err error) {
 	err = core.ExtractFiles(outFls, resp, false, false)
 	Ck(err)
 
-	// write entire response to .addda/response
+	// write entire response to .aidda/response
 	Assert(len(baseDir) > 0, "baseDir not set")
 	respFn := Spf("%s/.aidda/response", baseDir)
 	err = ioutil.WriteFile(respFn, []byte(resp), 0644)
@@ -560,30 +559,23 @@ func (tcs *tokenCounts) showTokenCounts() {
 
 func getPrompt(promptFn string) (p *Prompt, err error) {
 	defer Return(&err)
-	var rc int
 
 	// create fsnotify watcher
-	watcher, err := fsnotify.NewWatcher()
-	Ck(err)
-	defer watcher.Close()
+	// watcher, err := fsnotify.NewWatcher()
+	// Ck(err)
+	// defer watcher.Close()
 	// watch the prompt file
-	err = watcher.Add(promptFn)
-	Ck(err)
+	// err = watcher.Add(promptFn)
+	// Ck(err)
 
 	// if AIDDA_EDITOR is set, open the editor where the users can
 	// type a natural language instruction
 	editor := envi.String("AIDDA_EDITOR", "")
 	if editor != "" {
 		Pf("Opening editor %s\n", editor)
-		rc, err = RunInteractive(Spf("%s %s", editor, promptFn))
+		rc, err := RunInteractive(Spf("%s %s", editor, promptFn))
 		Ck(err)
 		Assert(rc == 0, "editor failed")
-	}
-	if false {
-		// wait for the file to be saved
-		Pf("Waiting for file %s to be saved\n", promptFn)
-		err = waitForFile(watcher, promptFn)
-		Ck(err)
 	}
 
 	// re-read the prompt file
@@ -596,31 +588,50 @@ func getPrompt(promptFn string) (p *Prompt, err error) {
 func commit(g *core.Grokker) (err error) {
 	defer Return(&err)
 	var rc int
+
+	// XXX pass these filenames as arguments
+	promptFn := filepath.Join(g.Root, ".aidda", "prompt")
+	stampFn := filepath.Join(g.Root, ".aidda", "prompt.stamp")
+
+	// Get modification times
+	promptStat, err := os.Stat(promptFn)
+	Ck(err)
+	stampStat, err := os.Stat(stampFn)
+	if os.IsNotExist(err) {
+		// Stamp file doesn't exist; proceed
+		err = nil
+	} else if !promptStat.ModTime().After(stampStat.ModTime()) {
+		// Prompt file has not been edited since last commit
+		return fmt.Errorf("prompt file has not been edited since last commit. Refusing to commit.")
+	}
+
 	// check git status for uncommitted changes
 	stdout, stderr, rc, err := Run("git status --porcelain", nil)
 	Ck(err)
 	if len(stdout) > 0 {
 		Pl(string(stdout))
 		Pl(string(stderr))
-		// res, err := ask("There are uncommitted changes. Commit?", "y", "n")
-		// Ck(err)
-		// if res == "y" {
-		if true {
-			// git add
-			rc, err = RunInteractive("git add -A")
-			Assert(rc == 0, "git add failed")
-			Ck(err)
-			// generate a commit message
-			summary, err := g.GitCommitMessage("--staged")
-			Ck(err)
-			Pl(summary)
-			// git commit
-			stdout, stderr, rc, err := Run("git commit -F-", []byte(summary))
-			Assert(rc == 0, "git commit failed")
-			Ck(err)
-			Pl(string(stdout))
-			Pl(string(stderr))
-		}
+		// git add
+		rc, err = RunInteractive("git add -A")
+		Assert(rc == 0, "git add failed")
+		Ck(err)
+		// Use .aidda/prompt as commit message
+		commitMsg, err := ioutil.ReadFile(promptFn)
+		Ck(err)
+		// git commit
+		stdout, stderr, rc, err := Run("git commit -F-", commitMsg)
+		Pl(string(stdout))
+		Pl(string(stderr))
+		Assert(rc == 0, "git commit failed")
+		Ck(err)
+		// Update stamp file
+		now := time.Now()
+		err = ioutil.WriteFile(stampFn, []byte{}, 0644)
+		Ck(err)
+		err = os.Chtimes(stampFn, now, now)
+		Ck(err)
+	} else {
+		Pl("Nothing to commit")
 	}
 	return err
 }
@@ -658,36 +669,6 @@ func getFiles() (files []string, err error) {
 	})
 	Ck(err)
 	return files, nil
-}
-
-// waitForFile waits for a file to be saved
-func waitForFile(watcher *fsnotify.Watcher, fn string) (err error) {
-	defer Return(&err)
-	// wait for the file to be saved
-	for {
-		select {
-		case event, ok := <-watcher.Events:
-			Assert(ok, "watcher.Events closed")
-			Pf("event: %v\n", event)
-			write := event.Op&fsnotify.Write == fsnotify.Write
-			create := event.Op&fsnotify.Create == fsnotify.Create
-			rename := event.Op&fsnotify.Rename == fsnotify.Rename
-			if write || create || rename {
-				Pf("modified file: %s\n", event.Name)
-				// check if absolute path of the file is the same as the
-				// file we are waiting for
-				if filepath.Clean(event.Name) == filepath.Clean(fn) {
-					Pf("file %s written to\n", fn)
-					// wait for writes to finish
-					time.Sleep(1 * time.Second)
-					return
-				}
-			}
-		case err, ok := <-watcher.Errors:
-			Assert(ok, "watcher.Errors closed")
-			return err
-		}
-	}
 }
 
 // ensureIgnoreFile creates an ignore file if it doesn't exist

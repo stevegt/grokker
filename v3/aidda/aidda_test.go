@@ -2,6 +2,7 @@ package aidda
 
 import (
 	"bytes"
+	// "io/ioutil"
 	"os"
 	"os/exec"
 	"testing"
@@ -60,5 +61,51 @@ func TestRunInteractive(t *testing.T) {
 	}
 	if !bytes.Contains(stdout, []byte("Hello, Interactive!")) {
 		t.Errorf("Expected 'Hello, Interactive!' in output, got: %s", stdout)
+	}
+}
+
+func TestReadPrompt(t *testing.T) {
+	// Create a temporary file
+	promptContent := `This is a test prompt
+
+Please make changes to the code.
+
+Sysmsg: Test system message
+In: input1.go input2.go
+Out: output1.go output2.go
+`
+	tmpFile, err := os.CreateTemp("", "prompt")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.WriteString(promptContent); err != nil {
+		t.Fatalf("Failed to write to temp file: %v", err)
+	}
+	tmpFile.Close()
+
+	p, err := readPrompt(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("readPrompt failed: %v", err)
+	}
+
+	expectedTxt := "Please make changes to the code.\n"
+	if p.Txt != expectedTxt {
+		t.Errorf("Expected Txt to be %q, got %q", expectedTxt, p.Txt)
+	}
+
+	if p.Sysmsg != "Test system message" {
+		t.Errorf("Expected Sysmsg to be %q, got %q", "Test system message", p.Sysmsg)
+	}
+
+	expectedIn := []string{"input1.go", "input2.go"}
+	if len(p.In) != len(expectedIn) {
+		t.Errorf("Expected In to have %d items, got %d", len(expectedIn), len(p.In))
+	}
+
+	expectedOut := []string{"output1.go", "output2.go"}
+	if len(p.Out) != len(expectedOut) {
+		t.Errorf("Expected Out to have %d items, got %d", len(expectedOut), len(p.Out))
 	}
 }
