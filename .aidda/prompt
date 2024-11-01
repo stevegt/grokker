@@ -1,5 +1,15 @@
 Mime-Version: 1.0
 Content-Transfer-Encoding: quoted-printable
+In:
+    v3/aidda/aidda.go
+Out:
+    /tmp/flow.dot
+
+make a graphviz flowchart for the Do() function in aidda.go, including
+any functions it calls.
+
+.stop
+
 In: v3/
 Out:
     v3/cli/cli.go
