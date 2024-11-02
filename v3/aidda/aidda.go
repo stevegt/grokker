@@ -32,8 +32,9 @@ XXX update this
 */
 
 var (
-	baseDir  string
-	ignoreFn string
+	baseDir     string
+	ignoreFn    string
+	commitMsgFn string
 )
 
 var DefaultSysmsg = "You are an expert Go programmer. Please make the requested changes to the given code or documentation."
@@ -59,6 +60,7 @@ func Do(g *core.Grokker, args ...string) (err error) {
 	promptFn := Spf("%s/prompt", dir)
 	ignoreFn = Spf("%s/ignore", dir)
 	testFn := Spf("%s/test", dir)
+	commitMsgFn = Spf("%s/commitmsg", dir)
 
 	// Ensure there is an ignore file
 	err = ensureIgnoreFile(ignoreFn)
@@ -111,7 +113,7 @@ func Do(g *core.Grokker, args ...string) (err error) {
 		case "init":
 			// Already done by this point, so this is a no-op
 		case "commit":
-			err = commit(g, p)
+			err = commit(g)
 			Ck(err)
 		case "generate":
 			err = getChanges(g, p, testResults)
@@ -286,7 +288,7 @@ func readPrompt(path string) (p *Prompt, err error) {
 		}
 	}
 
-	// Use the prompt text excluding headers as the prompt
+	// Use the prompt text excluding headers as the prompt and commit message
 	p.Txt = strings.Join(lines[:hdrStart], "\n")
 	Pl(p.Txt)
 
@@ -555,6 +557,10 @@ func getChanges(g *core.Grokker, p *Prompt, testResults string) (err error) {
 	err = ioutil.WriteFile(respFn, []byte(resp), 0644)
 	Ck(err)
 
+	// Write commit message to .aidda/commitmsg
+	err = ioutil.WriteFile(commitMsgFn, []byte(p.Txt), 0644)
+	Ck(err)
+
 	return
 }
 
@@ -623,7 +629,7 @@ func getPrompt(promptFn string) (p *Prompt, err error) {
 	return p, err
 }
 
-func commit(g *core.Grokker, p *Prompt) (err error) {
+func commit(g *core.Grokker) (err error) {
 	defer Return(&err)
 	var rc int
 
@@ -637,14 +643,15 @@ func commit(g *core.Grokker, p *Prompt) (err error) {
 		rc, err = RunInteractive("git add -A")
 		Assert(rc == 0, "git add failed")
 		Ck(err)
-		// Use .aidda/prompt body as commit message
-		commitMsg := p.Txt
+		// Read commit message from .aidda/commitmsg
+		commitMsgBytes, err := ioutil.ReadFile(commitMsgFn)
+		Ck(err)
+		commitMsg := string(commitMsgBytes)
 		// git commit
 		stdout, stderr, rc, err = Run("git commit -F-", []byte(commitMsg))
 		Pl(string(stdout))
 		Pl(string(stderr))
 		Assert(rc == 0, "git commit failed")
-		Ck(err)
 		Ck(err)
 	} else {
 		Pl("Nothing to commit")

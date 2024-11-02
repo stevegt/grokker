@@ -34,8 +34,9 @@ XXX update this
 */
 
 var (
-	baseDir  string
-	ignoreFn string
+	baseDir     string
+	ignoreFn    string
+	commitMsgFn string
 )
 
 var DefaultSysmsg = "You are an expert Go programmer. Please make the requested changes to the given code or documentation."
@@ -61,6 +62,7 @@ func Do(g *core.Grokker, args ...string) (err error) {
 	promptFn := Spf("%s/prompt", dir)
 	ignoreFn = Spf("%s/ignore", dir)
 	testFn := Spf("%s/test", dir)
+	commitMsgFn = Spf("%s/commitmsg", dir)
 
 	// Ensure there is an ignore file
 	err = ensureIgnoreFile(ignoreFn)
@@ -113,13 +115,10 @@ func Do(g *core.Grokker, args ...string) (err error) {
 		case "init":
 			// Already done by this point, so this is a no-op
 		case "commit":
-			err = commit(g, p)
+			err = commit(g)
 			Ck(err)
 		case "generate":
 			err = getChanges(g, p, testResults)
-			Ck(err)
-		case "diff":
-			err = runDiff()
 			Ck(err)
 		case "test":
 			err = runTest(testFn)
@@ -168,7 +167,6 @@ func PrintUsageAndExit() {
 	fmt.Println("Subcommands:")
 	fmt.Println("  commit    - Commit the current state")
 	fmt.Println("  generate  - Generate changes from GPT based on the prompt")
-	fmt.Println("  diff      - Run 'git difftool' to review changes")
 	fmt.Println("  test      - Run tests and include the results in the prompt file")
 	fmt.Println("  auto      - Automatically run generate or commit based on file timestamps")
 	os.Exit(1)
@@ -288,7 +286,7 @@ func readPrompt(path string) (p *Prompt, err error) {
 		}
 	}
 
-	// Use the prompt text excluding headers as the prompt
+	// Use the prompt text excluding headers as the prompt and commit message
 	p.Txt = strings.Join(lines[:hdrStart], "\n")
 	Pl(p.Txt)
 
@@ -460,18 +458,6 @@ func runTest(fn string) (err error) {
 	return err
 }
 
-func runDiff() (err error) {
-	defer Return(&err)
-	// Run difftool
-	difftool := envi.String("AIDDA_DIFFTOOL", "git difftool")
-	Pf("Running difftool %s\n", difftool)
-	var rc int
-	rc, err = RunInteractive(difftool)
-	Ck(err)
-	Assert(rc == 0, "difftool failed")
-	return err
-}
-
 func getChanges(g *core.Grokker, p *Prompt, testResults string) (err error) {
 	defer Return(&err)
 
@@ -557,6 +543,10 @@ func getChanges(g *core.Grokker, p *Prompt, testResults string) (err error) {
 	err = ioutil.WriteFile(respFn, []byte(resp), 0644)
 	Ck(err)
 
+	// Write commit message to .aidda/commitmsg
+	err = ioutil.WriteFile(commitMsgFn, []byte(p.Txt), 0644)
+	Ck(err)
+
 	return
 }
 
@@ -625,7 +615,7 @@ func getPrompt(promptFn string) (p *Prompt, err error) {
 	return p, err
 }
 
-func commit(g *core.Grokker, p *Prompt) (err error) {
+func commit(g *core.Grokker) (err error) {
 	defer Return(&err)
 	var rc int
 
@@ -639,14 +629,15 @@ func commit(g *core.Grokker, p *Prompt) (err error) {
 		rc, err = RunInteractive("git add -A")
 		Assert(rc == 0, "git add failed")
 		Ck(err)
-		// Use .aidda/prompt body as commit message
-		commitMsg := p.Txt
+		// Read commit message from .aidda/commitmsg
+		commitMsgBytes, err := ioutil.ReadFile(commitMsgFn)
+		Ck(err)
+		commitMsg := string(commitMsgBytes)
 		// git commit
 		stdout, stderr, rc, err = Run("git commit -F-", []byte(commitMsg))
 		Pl(string(stdout))
 		Pl(string(stderr))
 		Assert(rc == 0, "git commit failed")
-		Ck(err)
 		Ck(err)
 	} else {
 		Pl("Nothing to commit")
@@ -709,7 +700,6 @@ func ensureIgnoreFile(fn string) (err error) {
 }
 ```
 EOF_/home/stevegt/lab/grokker/v3/aidda/aidda.go
-
 
 File: /home/stevegt/lab/grokker/v3/aidda/aidda_test.go
 ```go
@@ -814,6 +804,11 @@ Out: output1.go output2.go
 	input2, err := os.Create(tmpDir + "/input2.go")
 	Ck(err)
 	defer input2.Close()
+	// Create commit message file
+	commitMsgContent := "Initial commit message."
+	commitMsgFile := aiddaDir + "/commitmsg"
+	err = os.WriteFile(commitMsgFile, []byte(commitMsgContent), 0644)
+	Ck(err)
 
 	p, err := readPrompt(tmpFile.Name())
 	if err != nil {
@@ -851,6 +846,7 @@ Please make changes to the code.
 			t.Errorf("Expected Out[%d] to be %q, got %q", i, expectedOut[i], out)
 		}
 	}
+
 }
 
 func TestReadPrompt_MultiLineHeaders(t *testing.T) {
@@ -860,11 +856,11 @@ func TestReadPrompt_MultiLineHeaders(t *testing.T) {
 Please make changes to the code.
 
 Sysmsg: This is a test system message that
- continues on the next line
+	 continues on the next line
 In: 
 	input1.go input2.go
 Out: output1.go
- output2.go
+	 output2.go
 `
 
 	// Create a temporary directory
@@ -889,6 +885,11 @@ Out: output1.go
 	input2, err := os.Create(tmpDir + "/input2.go")
 	Ck(err)
 	defer input2.Close()
+	// Create commit message file
+	commitMsgContent := "Multi-line commit message."
+	commitMsgFile := aiddaDir + "/commitmsg"
+	err = os.WriteFile(commitMsgFile, []byte(commitMsgContent), 0644)
+	Ck(err)
 
 	p, err := readPrompt(tmpFile.Name())
 	if err != nil {
@@ -927,6 +928,7 @@ Please make changes to the code.
 			t.Errorf("Expected Out[%d] to be %q, got %q", i, expectedOut[i], out)
 		}
 	}
+
 }
 
 func TestReadPrompt_NoBlankLine(t *testing.T) {
@@ -948,6 +950,17 @@ Out: output1.go output2.go
 		t.Fatalf("Failed to write to temp file: %v", err)
 	}
 	tmpFile.Close()
+
+	// Create a temporary directory with .aidda and commitmsg
+	tmpDir, err := os.MkdirTemp("", "aidda-test-noblank")
+	Ck(err)
+	defer os.RemoveAll(tmpDir)
+	aiddaDir := filepath.Join(tmpDir, ".aidda")
+	err = os.Mkdir(aiddaDir, 0755)
+	Ck(err)
+	commitMsgFile := filepath.Join(aiddaDir, "commitmsg")
+	err = os.WriteFile(commitMsgFile, []byte("Commit message"), 0644)
+	Ck(err)
 
 	_, err = readPrompt(tmpFile.Name())
 	if err == nil || err.Error() != "prompt file must have a blank line after the first line, just like a commit message" {

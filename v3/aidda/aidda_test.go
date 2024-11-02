@@ -99,6 +99,11 @@ Out: output1.go output2.go
 	input2, err := os.Create(tmpDir + "/input2.go")
 	Ck(err)
 	defer input2.Close()
+	// Create commit message file
+	commitMsgContent := "Initial commit message."
+	commitMsgFile := aiddaDir + "/commitmsg"
+	err = os.WriteFile(commitMsgFile, []byte(commitMsgContent), 0644)
+	Ck(err)
 
 	p, err := readPrompt(tmpFile.Name())
 	if err != nil {
@@ -136,6 +141,7 @@ Please make changes to the code.
 			t.Errorf("Expected Out[%d] to be %q, got %q", i, expectedOut[i], out)
 		}
 	}
+
 }
 
 func TestReadPrompt_MultiLineHeaders(t *testing.T) {
@@ -145,11 +151,11 @@ func TestReadPrompt_MultiLineHeaders(t *testing.T) {
 Please make changes to the code.
 
 Sysmsg: This is a test system message that
- continues on the next line
+	 continues on the next line
 In: 
 	input1.go input2.go
 Out: output1.go
- output2.go
+	 output2.go
 `
 
 	// Create a temporary directory
@@ -174,6 +180,11 @@ Out: output1.go
 	input2, err := os.Create(tmpDir + "/input2.go")
 	Ck(err)
 	defer input2.Close()
+	// Create commit message file
+	commitMsgContent := "Multi-line commit message."
+	commitMsgFile := aiddaDir + "/commitmsg"
+	err = os.WriteFile(commitMsgFile, []byte(commitMsgContent), 0644)
+	Ck(err)
 
 	p, err := readPrompt(tmpFile.Name())
 	if err != nil {
@@ -212,6 +223,7 @@ Please make changes to the code.
 			t.Errorf("Expected Out[%d] to be %q, got %q", i, expectedOut[i], out)
 		}
 	}
+
 }
 
 func TestReadPrompt_NoBlankLine(t *testing.T) {
@@ -233,6 +245,17 @@ Out: output1.go output2.go
 		t.Fatalf("Failed to write to temp file: %v", err)
 	}
 	tmpFile.Close()
+
+	// Create a temporary directory with .aidda and commitmsg
+	tmpDir, err := os.MkdirTemp("", "aidda-test-noblank")
+	Ck(err)
+	defer os.RemoveAll(tmpDir)
+	aiddaDir := filepath.Join(tmpDir, ".aidda")
+	err = os.Mkdir(aiddaDir, 0755)
+	Ck(err)
+	commitMsgFile := filepath.Join(aiddaDir, "commitmsg")
+	err = os.WriteFile(commitMsgFile, []byte("Commit message"), 0644)
+	Ck(err)
 
 	_, err = readPrompt(tmpFile.Name())
 	if err == nil || err.Error() != "prompt file must have a blank line after the first line, just like a commit message" {
