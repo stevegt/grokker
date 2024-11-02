@@ -104,7 +104,10 @@ Out: output1.go output2.go
 		t.Fatalf("readPrompt failed: %v", err)
 	}
 
-	expectedTxt := promptContent
+	expectedTxt := `This is a test prompt
+
+Please make changes to the code.
+`
 	if p.Txt != expectedTxt {
 		t.Errorf("Expected Txt to be %q, got %q", expectedTxt, p.Txt)
 	}

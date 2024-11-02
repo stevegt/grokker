@@ -44,7 +44,6 @@ const (
 	StateCommit   = "commit"
 	StatePrompt   = "prompt"
 	StateGenerate = "generate"
-	StateAuto     = "auto"
 )
 
 func Do(g *core.Grokker, args ...string) (err error) {
@@ -186,7 +185,7 @@ func PrintUsageAndExit() {
 	fmt.Println("  generate  - Generate changes from GPT based on the prompt")
 	fmt.Println("  diff      - Run 'git difftool' to review changes")
 	fmt.Println("  test      - Run tests and include the results in the prompt file")
-	fmt.Println("  auto      - Automatically cycle through generate, commit, and prompt states")
+	fmt.Println("  auto      - Automatically cycle through generate -> prompt -> commit based on current state")
 	os.Exit(1)
 }
 
@@ -289,8 +288,8 @@ func readPrompt(path string) (p *Prompt, err error) {
 		headerMap[key] = value
 	}
 
-	// Use the entire prompt text (including headers) as the prompt
-	p.Txt = strings.Join(lines, "\n") + "\n"
+	// Use the prompt text excluding headers as the prompt
+	p.Txt = strings.Join(lines[:hdrStart], "\n") + "\n"
 	Pl(p.Txt)
 
 	// Process headers
@@ -641,10 +640,11 @@ func commit(g *core.Grokker, stateFn, promptFn string) (err error) {
 		Assert(rc == 0, "git add failed")
 		Ck(err)
 		// Use .aidda/prompt as commit message
-		commitMsg, err := ioutil.ReadFile(promptFn)
+		p, err := getPrompt(promptFn)
 		Ck(err)
+		commitMsg := p.Txt
 		// git commit
-		stdout, stderr, rc, err := Run("git commit -F-", commitMsg)
+		stdout, stderr, rc, err = Run("git commit -F-", commitMsg)
 		Pl(string(stdout))
 		Pl(string(stderr))
 		Assert(rc == 0, "git commit failed")
@@ -732,51 +732,53 @@ func writeState(stateFn string, state string) error {
 // runAuto automatically cycles through generate, commit, and prompt states
 func runAuto(g *core.Grokker, stateFn, promptFn, testResults string) (err error) {
 	defer Return(&err)
-	Pf("Starting automatic cycle of generate -> commit -> prompt\n")
-	for {
-		currentState, err := readState(stateFn)
-		if err != nil {
-			return fmt.Errorf("cannot read state: %v", err)
-		}
 
-		switch currentState {
-		case StateGenerate:
-			Pf("Current state: generate. Proceeding to commit.")
-			err = commit(g, stateFn, promptFn)
-			if err != nil {
-				return fmt.Errorf("commit failed: %v", err)
-			}
-		case StateCommit:
-			Pf("Current state: commit. Proceeding to prompt.")
-			p, err := getPrompt(promptFn)
-			if err != nil {
-				return fmt.Errorf("getPrompt failed: %v", err)
-			}
-			// After editing the prompt, set state to 'prompt'
-			err = writeState(stateFn, StatePrompt)
-			if err != nil {
-				return fmt.Errorf("writeState failed: %v", err)
-			}
-		case StatePrompt:
-			Pf("Current state: prompt. Proceeding to generate.")
-			p, err := getPrompt(promptFn)
-			if err != nil {
-				return fmt.Errorf("getPrompt failed: %v", err)
-			}
-			err = getChanges(g, p, testResults)
-			if err != nil {
-				return fmt.Errorf("getChanges failed: %v", err)
-			}
-		default:
-			return fmt.Errorf("invalid state: %s", currentState)
-		}
-
-		// Sleep for a short duration to prevent tight looping
-		time.Sleep(2 * time.Second)
+	currentState, err := readState(stateFn)
+	if err != nil {
+		return fmt.Errorf("cannot read state: %v", err)
 	}
+
+	switch currentState {
+	case StateGenerate:
+		Pf("Current state: generate. Proceeding to commit.")
+		err = commit(g, stateFn, promptFn)
+		if err != nil {
+			return fmt.Errorf("commit failed: %v", err)
+		}
+		// After committing, set state to 'commit'
+		err = writeState(stateFn, StateCommit)
+		if err != nil {
+			return fmt.Errorf("writeState failed: %v", err)
+		}
+	case StateCommit:
+		Pf("Current state: commit. Proceeding to prompt.")
+		p, err := getPrompt(promptFn)
+		if err != nil {
+			return fmt.Errorf("getPrompt failed: %v", err)
+		}
+		// After editing the prompt, set state to 'prompt'
+		err = writeState(stateFn, StatePrompt)
+		if err != nil {
+			return fmt.Errorf("writeState failed: %v", err)
+		}
+	case StatePrompt:
+		Pf("Current state: prompt. Proceeding to generate.")
+		p, err := getPrompt(promptFn)
+		if err != nil {
+			return fmt.Errorf("getPrompt failed: %v", err)
+		}
+		err = getChanges(g, p, testResults)
+		if err != nil {
+			return fmt.Errorf("getChanges failed: %v", err)
+		}
+	default:
+		return fmt.Errorf("invalid state: %s", currentState)
+	}
+
 }
 ```
 EOF_/home/stevegt/lab/grokker/v3/aidda/aidda.go
+
 
 File: /home/stevegt/lab/grokker/v3/aidda/aidda_test.go
 ```go
@@ -886,7 +888,10 @@ Out: output1.go output2.go
 		t.Fatalf("readPrompt failed: %v", err)
 	}
 
-	expectedTxt := promptContent
+	expectedTxt := `This is a test prompt
+
+Please make changes to the code.
+`
 	if p.Txt != expectedTxt {
 		t.Errorf("Expected Txt to be %q, got %q", expectedTxt, p.Txt)
 	}
@@ -929,127 +934,6 @@ Out: output1.go output2.go
 	_, err = readPrompt(tmpFile.Name())
 	if err == nil || err.Error() != "prompt file must have a blank line after the first line, just like a commit message" {
 		t.Errorf("Expected error about missing blank line, got: %v", err)
-	}
-}
-
-func TestRunAuto(t *testing.T) {
-	// This test will run the auto subcommand for a limited number of cycles
-	// to prevent an infinite loop. It mocks the necessary functions and state.
-
-	// Create a temporary directory
-	tmpDir, err := os.MkdirTemp("", "aidda-auto-test")
-	Ck(err)
-	defer os.RemoveAll(tmpDir)
-
-	// Initialize aidda files
-	stateFn := filepath.Join(tmpDir, ".aidda", "state")
-	promptFn := filepath.Join(tmpDir, ".aidda", "prompt")
-	testFn := filepath.Join(tmpDir, ".aidda", "test")
-	err = os.MkdirAll(filepath.Dir(stateFn), 0755)
-	Ck(err)
-
-	// Set initial state to 'generate'
-	err = writeState(stateFn, StateGenerate)
-	Ck(err)
-
-	// Create a dummy prompt file
-	err = ioutil.WriteFile(promptFn, []byte(`Initial prompt
-
-Sysmsg: Test Sysmsg
-In: file1.go
-Out: file1.go
-`), 0644)
-	Ck(err)
-
-	// Mock getChanges to prevent actual GPT calls
-	originalGetChanges := getChanges
-	getChanges = func(g *core.Grokker, p *Prompt, testResults string) error {
-		Pl("Mock getChanges called")
-		return nil
-	}
-	defer func() { getChanges = originalGetChanges }()
-
-	// Mock commit to prevent actual git operations
-	originalCommit := commit
-	commit = func(g *core.Grokker, stateFn, promptFn string) error {
-		Pl("Mock commit called")
-		return writeState(stateFn, StateCommit)
-	}
-	defer func() { commit = originalCommit }()
-
-	// Mock getPrompt to prevent editor interaction
-	originalGetPrompt := getPrompt
-	getPrompt = func(promptFn string) (*Prompt, error) {
-		Pl("Mock getPrompt called")
-		return &Prompt{
-			Sysmsg: "Mock Sysmsg",
-			In:     []string{filepath.Join(tmpDir, "file1.go")},
-			Out:    []string{filepath.Join(tmpDir, "file1.go")},
-			Txt:    "Mock prompt text\n",
-		}, nil
-	}
-	defer func() { getPrompt = originalGetPrompt }()
-
-	// Run auto in a separate goroutine and stop after a few iterations
-	done := make(chan bool)
-	go func() {
-		// Modify runAuto to stop after 3 iterations for testing
-		iterations := 0
-		originalRunAuto := runAuto
-		runAuto = func(g *core.Grokker, stateFn, promptFn, testResults string) error {
-			defer Return(&err)
-			for {
-				if iterations >= 3 {
-					done <- true
-					return nil
-				}
-				currentState, err := readState(stateFn)
-				if err != nil {
-					return fmt.Errorf("cannot read state: %v", err)
-				}
-
-				switch currentState {
-				case StateGenerate:
-					Pl("Mock generate called")
-					err = writeState(stateFn, StateCommit)
-					if err != nil {
-						return fmt.Errorf("writeState failed: %v", err)
-					}
-				case StateCommit:
-					Pl("Mock commit called")
-					err = writeState(stateFn, StatePrompt)
-					if err != nil {
-						return fmt.Errorf("writeState failed: %v", err)
-					}
-				case StatePrompt:
-					Pl("Mock prompt called")
-					err = writeState(stateFn, StateGenerate)
-					if err != nil {
-						return fmt.Errorf("writeState failed: %v", err)
-					}
-				default:
-					return fmt.Errorf("invalid state: %s", currentState)
-				}
-				iterations++
-				time.Sleep(100 * time.Millisecond) // Short sleep for testing
-			}
-		}
-		err := runAuto(g, stateFn, promptFn, testFn)
-		Ck(err)
-	}()
-
-	select {
-	case <-done:
-		// Test completed
-	case <-time.After(2 * time.Second):
-		t.Fatal("TestRunAuto timed out")
-	}
-
-	// Verify final state
-	finalState, err := readState(stateFn)
-	Ck(err)
-	if finalState != StateGenerate {
-		t.Errorf("Expected final state to be '%s', got '%s'", StateGenerate, finalState)
 	}
 }
 ```

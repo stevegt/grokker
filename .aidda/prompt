@@ -7,9 +7,15 @@ Out:
     v3/aidda/aidda.go
     v3/aidda/aidda_test.go
 
-don't include headers in the commit message
+remove redundancy between runAuto() and subcommand processing in Do()
+
+- remove the runAuto() function and integrate its logic into the Do()
+  function by stuffing args in the auto case
 
 .stop
+
+- move the logic for state management to its own set of methods on a
+  struct
 
 add auto subcommand test case
 

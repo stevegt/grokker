@@ -286,8 +286,8 @@ func readPrompt(path string) (p *Prompt, err error) {
 		headerMap[key] = value
 	}
 
-	// Use the entire prompt text (including headers) as the prompt
-	p.Txt = strings.Join(lines, "\n") + "\n"
+	// Use the prompt text excluding headers as the prompt
+	p.Txt = strings.Join(lines[:hdrStart], "\n") + "\n"
 	Pl(p.Txt)
 
 	// Process headers
@@ -638,10 +638,12 @@ func commit(g *core.Grokker, stateFn, promptFn string) (err error) {
 		Assert(rc == 0, "git add failed")
 		Ck(err)
 		// Use .aidda/prompt as commit message
-		commitMsg, err := ioutil.ReadFile(promptFn)
+		// XXX pass in p instead of promptFN
+		p, err := getPrompt(promptFn)
 		Ck(err)
+		commitMsg := p.Txt
 		// git commit
-		stdout, stderr, rc, err := Run("git commit -F-", commitMsg)
+		stdout, stderr, rc, err = Run("git commit -F-", commitMsg)
 		Pl(string(stdout))
 		Pl(string(stderr))
 		Assert(rc == 0, "git commit failed")
