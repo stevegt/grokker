@@ -1,4 +1,11 @@
-create the commit message file if it does not exist
+add a "menu" subcommand that prompts the user for action
+
+Actions are:
+- [g]enerate code from current prompt file contents
+- [d]one generating and editing, commit msg = the same prompt used to generate
+- [p]rompt file modified, commit msg = current prompt file contents
+
+A single keystroke, without the need to press enter, is enough to trigger the action.
 
 In: 
     v3/aidda/aidda.go 
