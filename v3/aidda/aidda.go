@@ -38,6 +38,12 @@ var (
 
 var DefaultSysmsg = "You are an expert Go programmer. Please make the requested changes to the given code or documentation."
 
+const (
+	StateCommit   = "commit"
+	StatePrompt   = "prompt"
+	StateGenerate = "generate"
+)
+
 func Do(g *core.Grokker, args ...string) (err error) {
 	defer Return(&err)
 
@@ -59,33 +65,41 @@ func Do(g *core.Grokker, args ...string) (err error) {
 	promptFn := Spf("%s/prompt", dir)
 	ignoreFn = Spf("%s/ignore", dir)
 	testFn := Spf("%s/test", dir)
+	stateFn := Spf("%s/state", dir)
 
-	// ensure there is an ignore file
+	// Initialize the state to 'generate' if the state file doesn't exist
+	_, err = os.Stat(stateFn)
+	if os.IsNotExist(err) {
+		err = writeState(stateFn, StateGenerate)
+		Ck(err)
+	}
+
+	// Ensure there is an ignore file
 	err = ensureIgnoreFile(ignoreFn)
 	Ck(err)
 
-	// create the prompt file if it doesn't exist
+	// Create the prompt file if it doesn't exist
 	_, err = NewPrompt(promptFn)
 	Ck(err)
 
-	// if the test file is newer than any input files, then include
-	// the test results in the prompt, otherwise clear the test file
+	// If the test file is newer than any input files, then include
+	// the test results in the prompt; otherwise, clear the test file
 	testResults := ""
 	testStat, err := os.Stat(testFn)
 	if os.IsNotExist(err) {
 		err = nil
 	} else {
 		Ck(err)
-		// get the list of input files
+		// Get the list of input files
 		p, err := getPrompt(promptFn)
 		Ck(err)
 		inFns := p.In
-		// check if the test file is newer than any input files
+		// Check if the test file is newer than any input files
 		for _, fn := range inFns {
 			inStat, err := os.Stat(fn)
 			Ck(err)
 			if testStat.ModTime().After(inStat.ModTime()) {
-				// include the test results in the prompt
+				// Include the test results in the prompt
 				buf, err := ioutil.ReadFile(testFn)
 				Ck(err)
 				testResults = string(buf)
@@ -94,7 +108,7 @@ func Do(g *core.Grokker, args ...string) (err error) {
 		}
 	}
 	if len(testResults) == 0 {
-		// clear the test file
+		// Clear the test file
 		Pl("Clearing test file")
 		err = ioutil.WriteFile(testFn, []byte{}, 0644)
 		Ck(err)
@@ -105,15 +119,44 @@ func Do(g *core.Grokker, args ...string) (err error) {
 		Pl("aidda: running subcommand", cmd)
 		switch cmd {
 		case "init":
-			// already done by this point, so this is a no-op
+			// Already done by this point, so this is a no-op
 		case "commit":
-			// commit the current state
-			err = commit(g)
+			// check that current state is 'generate'
+			currentState, err := readState(stateFn)
+			Ck(err)
+			if currentState != StateGenerate {
+				return fmt.Errorf("Cannot commit in current state '%s'. Expected state '%s'.", currentState, StateGenerate)
+			}
+			err = commit(g, stateFn, promptFn)
+			Ck(err)
+			// After committing, set state to 'commit'
+			err = writeState(stateFn, StateCommit)
 			Ck(err)
 		case "prompt":
+			// Check that current state is 'commit'
+			currentState, err := readState(stateFn)
+			Ck(err)
+			if currentState != StateCommit {
+				return fmt.Errorf("Cannot prompt in current state '%s'. Expected state '%s'.", currentState, StateCommit)
+			}
+			p, err := getPrompt(promptFn)
+			Ck(err)
+			// After editing the prompt, set state to 'prompt'
+			err = writeState(stateFn, StatePrompt)
+			Ck(err)
+		case "generate":
+			// Check that current state is 'prompt'
+			currentState, err := readState(stateFn)
+			Ck(err)
+			if currentState != StatePrompt {
+				return fmt.Errorf("Cannot generate in current state '%s'. Expected state '%s'.", currentState, StatePrompt)
+			}
 			p, err := getPrompt(promptFn)
 			Ck(err)
 			err = getChanges(g, p, testResults)
+			Ck(err)
+			// After generating changes, set state to 'generate'
+			err = writeState(stateFn, StateGenerate)
 			Ck(err)
 		case "diff":
 			err = runDiff()
@@ -132,10 +175,11 @@ func Do(g *core.Grokker, args ...string) (err error) {
 func PrintUsageAndExit() {
 	fmt.Println("Usage: go run main.go {subcommand ...}")
 	fmt.Println("Subcommands:")
-	fmt.Println("  commit  - Commit the current state")
-	fmt.Println("  prompt  - Present the user with an editor to type a prompt and get changes from GPT")
-	fmt.Println("  diff    - Run 'git difftool' to review changes")
-	fmt.Println("  test    - Run tests and include the results in the prompt file")
+	fmt.Println("  commit   - Commit the current state")
+	fmt.Println("  prompt   - Present the user with an editor to type a prompt")
+	fmt.Println("  generate - Generate changes from GPT based on the prompt")
+	fmt.Println("  diff     - Run 'git difftool' to review changes")
+	fmt.Println("  test     - Run tests and include the results in the prompt file")
 	os.Exit(1)
 }
 
@@ -150,7 +194,7 @@ type Prompt struct {
 // NewPrompt opens or creates a prompt object
 func NewPrompt(path string) (p *Prompt, err error) {
 	defer Return(&err)
-	// check if the file exists
+	// Check if the file exists
 	_, err = os.Stat(path)
 	if os.IsNotExist(err) {
 		err = createPromptFile(path)
@@ -171,12 +215,12 @@ func readPrompt(path string) (p *Prompt, err error) {
 	// Read entire content of the file
 	rawBuf, err := ioutil.ReadFile(path)
 	Ck(err)
-	// process directives
-	// lines that start with . are directives
+	// Process directives
+	// Lines that start with . are directives
 	lines := []string{}
 	rawLines := strings.Split(string(rawBuf), "\n")
 	for i, line := range rawLines {
-		// ensure the first line doesn't start with a # (the default
+		// Ensure the first line doesn't start with a # (the default
 		// prompt file starts with a comment; we want to make sure
 		// the user edits it)
 		if i == 0 && strings.HasPrefix(line, "#") {
@@ -195,7 +239,7 @@ func readPrompt(path string) (p *Prompt, err error) {
 
 		lines = append(lines, line)
 	}
-	// remove empty lines at the end
+	// Remove empty lines at the end
 	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
 		lines = lines[:len(lines)-1]
 	}
@@ -238,7 +282,7 @@ func readPrompt(path string) (p *Prompt, err error) {
 		headerMap[key] = value
 	}
 
-	// use the entire prompt text (including headers) as the prompt
+	// Use the entire prompt text (including headers) as the prompt
 	p.Txt = strings.Join(lines, "\n") + "\n"
 	Pl(p.Txt)
 
@@ -247,7 +291,7 @@ func readPrompt(path string) (p *Prompt, err error) {
 	inStr := headerMap["In"]
 	outStr := headerMap["Out"]
 
-	// filenames are space-separated
+	// Filenames are space-separated
 	p.In = strings.Fields(inStr)
 	p.Out = strings.Fields(outStr)
 
@@ -284,7 +328,7 @@ func readPrompt(path string) (p *Prompt, err error) {
 	}
 	p.Out = newOut
 
-	// if any input path is a directory, then replace it with the
+	// If any input path is a directory, then replace it with the
 	// list of files in that directory
 	for i := 0; i < len(p.In); i++ {
 		f := p.In[i]
@@ -307,21 +351,21 @@ func readPrompt(path string) (p *Prompt, err error) {
 func getFilesInDir(dir string) (files []string, err error) {
 	defer Return(&err)
 
-	// get ignore list
+	// Get ignore list
 	ig, err := gitignore.CompileIgnoreFile(ignoreFn)
 	Ck(err)
 
 	files = []string{}
 	err = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		// if path is a directory, skip it
+		// If path is a directory, skip it
 		if info.IsDir() {
 			return nil
 		}
-		// check if the file is in the ignore list
+		// Check if the file is in the ignore list
 		if ig.MatchesPath(path) {
 			return nil
 		}
-		// only include regular files
+		// Only include regular files
 		if !info.Mode().IsRegular() {
 			return nil
 		}
@@ -338,21 +382,21 @@ func createPromptFile(path string) (err error) {
 	Ck(err)
 	defer file.Close()
 
-	// get the list of files to process
+	// Get the list of files to process
 	inFns, err := getFiles()
 	Ck(err)
 	outFns := make([]string, len(inFns))
 	copy(outFns, inFns)
 
-	// filenames are space-separated
+	// Filenames are space-separated
 	inStr := strings.Join(inFns, " ")
 	outStr := strings.Join(outFns, " ")
 
-	// write the initial prompt line and a blank line
+	// Write the initial prompt line and a blank line
 	_, err = io.WriteString(file, "# write commit message here -- it will be used as the LLM prompt\n\n")
 	Ck(err)
 
-	// write the headers at the end
+	// Write the headers at the end
 	_, err = io.WriteString(file, fmt.Sprintf("Sysmsg: %s\n", DefaultSysmsg))
 	Ck(err)
 	_, err = io.WriteString(file, fmt.Sprintf("In: %s\n", inStr))
@@ -381,11 +425,11 @@ func ask(question, deflt string, others ...string) (response string, err error) 
 			response = deflt
 		}
 		if len(others) == 0 {
-			// if others is empty, return the response without
+			// If others is empty, return the response without
 			// checking candidates
 			return
 		}
-		// check if the response is in the list of candidates
+		// Check if the response is in the list of candidates
 		for _, c := range candidates {
 			if strings.ToLower(response) == strings.ToLower(c) {
 				return
@@ -398,10 +442,10 @@ func runTest(fn string) (err error) {
 	defer Return(&err)
 	Pf("Running tests\n")
 
-	// run go test -v
+	// Run go test -v
 	stdout, stderr, _, _ := RunTee("go test -v")
 
-	// write test results to the file
+	// Write test results to the file
 	fh, err := os.Create(fn)
 	Ck(err)
 	_, err = fh.WriteString(Spf("\n\nstdout:\n%s\n\nstderr:%s\n\n", stdout, stderr))
@@ -412,7 +456,7 @@ func runTest(fn string) (err error) {
 
 func runDiff() (err error) {
 	defer Return(&err)
-	// run difftool
+	// Run difftool
 	difftool := envi.String("AIDDA_DIFFTOOL", "git difftool")
 	Pf("Running difftool %s\n", difftool)
 	var rc int
@@ -452,7 +496,7 @@ func getChanges(g *core.Grokker, p *Prompt, testResults string) (err error) {
 		core.ChatMsg{Role: "USER", Txt: prompt},
 	}
 
-	// count tokens
+	// Count tokens
 	Pf("Token counts:\n")
 	tcs := newTokenCounts(g)
 	tcs.add("sysmsg", sysmsg)
@@ -476,7 +520,7 @@ func getChanges(g *core.Grokker, p *Prompt, testResults string) (err error) {
 	}
 
 	Pf("Querying GPT...")
-	// start a goroutine to print dots while waiting for the response
+	// Start a goroutine to print dots while waiting for the response
 	var stopDots = make(chan bool)
 	go func() {
 		for {
@@ -501,7 +545,7 @@ func getChanges(g *core.Grokker, p *Prompt, testResults string) (err error) {
 	err = core.ExtractFiles(outFls, resp, false, false)
 	Ck(err)
 
-	// write entire response to .aidda/response
+	// Write entire response to .aidda/response
 	Assert(len(baseDir) > 0, "baseDir not set")
 	respFn := Spf("%s/.aidda/response", baseDir)
 	err = ioutil.WriteFile(respFn, []byte(resp), 0644)
@@ -537,28 +581,28 @@ func (tcs *tokenCounts) add(name, text string) {
 
 // showTokenCounts shows the token counts for a slice of tokenCount
 func (tcs *tokenCounts) showTokenCounts() {
-	// first find max width of name
+	// First find max width of name
 	maxNameLen := 0
 	for _, tc := range tcs.counts {
 		if len(tc.name) > maxNameLen {
 			maxNameLen = len(tc.name)
 		}
 	}
-	// then print the counts
+	// Then print the counts
 	total := 0
 	format := fmt.Sprintf("    %%-%ds: %%7d\n", maxNameLen)
 	for _, tc := range tcs.counts {
 		Pf(format, tc.name, tc.count)
 		total += tc.count
 	}
-	// then print the total
+	// Then print the total
 	Pf(format, "total", total)
 }
 
 func getPrompt(promptFn string) (p *Prompt, err error) {
 	defer Return(&err)
 
-	// if AIDDA_EDITOR is set, open the editor where the users can
+	// If AIDDA_EDITOR is set, open the editor where the users can
 	// type a natural language instruction
 	editor := envi.String("AIDDA_EDITOR", "")
 	if editor != "" {
@@ -568,37 +612,18 @@ func getPrompt(promptFn string) (p *Prompt, err error) {
 		Assert(rc == 0, "editor failed")
 	}
 
-	// re-read the prompt file
+	// Re-read the prompt file
 	p, err = NewPrompt(promptFn)
 	Ck(err)
 
 	return p, err
 }
 
-func commit(g *core.Grokker) (err error) {
+func commit(g *core.Grokker, stateFn, promptFn string) (err error) {
 	defer Return(&err)
 	var rc int
 
-	// XXX pass these filenames as arguments
-	promptFn := filepath.Join(g.Root, ".aidda", "prompt")
-	stampFn := filepath.Join(g.Root, ".aidda", "prompt.stamp")
-
-	// Get modification times
-	promptStat, err := os.Stat(promptFn)
-	Ck(err)
-	stampStat, err := os.Stat(stampFn)
-	if os.IsNotExist(err) {
-		// Stamp file doesn't exist; proceed
-		err = nil
-	} else {
-		Ck(err)
-		if stampStat.ModTime().After(promptStat.ModTime()) {
-			// Prompt file has not been edited since last commit
-			return fmt.Errorf("prompt file has not been edited since last commit. Refusing to commit.")
-		}
-	}
-
-	// check git status for uncommitted changes
+	// Check git status for uncommitted changes
 	stdout, stderr, rc, err := Run("git status --porcelain", nil)
 	Ck(err)
 	if len(stdout) > 0 {
@@ -617,15 +642,13 @@ func commit(g *core.Grokker) (err error) {
 		Pl(string(stderr))
 		Assert(rc == 0, "git commit failed")
 		Ck(err)
-		// Update stamp file
-		now := time.Now()
-		err = ioutil.WriteFile(stampFn, []byte{}, 0644)
-		Ck(err)
-		err = os.Chtimes(stampFn, now, now)
 		Ck(err)
 	} else {
 		Pl("Nothing to commit")
 	}
+
+	// Update state to 'commit'
+	err = writeState(stateFn, StateCommit)
 	return err
 }
 
@@ -633,30 +656,30 @@ func commit(g *core.Grokker) (err error) {
 func getFiles() (files []string, err error) {
 	defer Return(&err)
 
-	// get ignore list
+	// Get ignore list
 	ignoreFn := ".aidda/ignore"
 	ig, err := gitignore.CompileIgnoreFile(ignoreFn)
 	Ck(err)
 
-	// get list of files recursively
+	// Get list of files recursively
 	files = []string{}
 	err = filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
-		// ignore .git and .aidda directories
+		// Ignore .git and .aidda directories
 		if strings.Contains(path, ".git") || strings.Contains(path, ".aidda") {
 			return nil
 		}
-		// check if the file is in the ignore list
+		// Check if the file is in the ignore list
 		if ig.MatchesPath(path) {
 			return nil
 		}
-		// skip non-files
+		// Skip non-files
 		if info.IsDir() {
 			return nil
 		}
 		if !info.Mode().IsRegular() {
 			return nil
 		}
-		// add the file to the list
+		// Add the file to the list
 		files = append(files, path)
 		return nil
 	})
@@ -667,17 +690,34 @@ func getFiles() (files []string, err error) {
 // ensureIgnoreFile creates an ignore file if it doesn't exist
 func ensureIgnoreFile(fn string) (err error) {
 	defer Return(&err)
-	// check if the ignore file exists
+	// Check if the ignore file exists
 	_, err = os.Stat(fn)
 	if os.IsNotExist(err) {
 		err = nil
-		// create the ignore file
+		// Create the ignore file
 		fh, err := os.Create(fn)
 		Ck(err)
 		defer fh.Close()
-		// write the default ignore patterns
+		// Write the default ignore patterns
 		_, err = fh.WriteString(".git\n.idea\n.grok*\ngo.*\nnv.shada\n")
 		Ck(err)
 	}
 	return err
+}
+
+// readState reads the current state from the state file
+func readState(stateFn string) (string, error) {
+	content, err := ioutil.ReadFile(stateFn)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	return strings.TrimSpace(string(content)), nil
+}
+
+// writeState writes the current state to the state file
+func writeState(stateFn string, state string) error {
+	return ioutil.WriteFile(stateFn, []byte(state), 0644)
 }

@@ -76,22 +76,22 @@ In: input1.go input2.go
 Out: output1.go output2.go
 `
 
-	// create a temporary directory
+	// Create a temporary directory
 	tmpDir, err := os.MkdirTemp("", "aidda-test")
 	Ck(err)
 	defer os.RemoveAll(tmpDir)
-	// create a .aidda directory in the temporary directory
+	// Create a .aidda directory in the temporary directory
 	aiddaDir := tmpDir + "/.aidda"
 	err = os.Mkdir(aiddaDir, 0755)
 	Ck(err)
-	// create a prompt file in the .aidda directory
+	// Create a prompt file in the .aidda directory
 	tmpFile, err := os.Create(aiddaDir + "/prompt")
 	Ck(err)
 	defer tmpFile.Close()
-	// write the prompt content to the prompt file
+	// Write the prompt content to the prompt file
 	_, err = tmpFile.WriteString(promptContent)
 	Ck(err)
-	// create input files in the temporary directory
+	// Create input files in the temporary directory
 	input1, err := os.Create(tmpDir + "/input1.go")
 	Ck(err)
 	defer input1.Close()
@@ -113,12 +113,12 @@ Out: output1.go output2.go
 		t.Errorf("Expected Sysmsg to be %q, got %q", "Test system message", p.Sysmsg)
 	}
 
-	expectedIn := []string{"input1.go", "input2.go"}
+	expectedIn := []string{tmpDir + "/input1.go", tmpDir + "/input2.go"}
 	if len(p.In) != len(expectedIn) {
 		t.Errorf("Expected In to have %d items, got %d", len(expectedIn), len(p.In))
 	}
 
-	expectedOut := []string{"output1.go", "output2.go"}
+	expectedOut := []string{tmpDir + "/output1.go", tmpDir + "/output2.go"}
 	if len(p.Out) != len(expectedOut) {
 		t.Errorf("Expected Out to have %d items, got %d", len(expectedOut), len(p.Out))
 	}

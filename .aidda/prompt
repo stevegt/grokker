@@ -7,20 +7,19 @@ Out:
     v3/aidda/aidda.go
     v3/aidda/aidda_test.go
 
-replace the stamp file with an .aidda/state file
+add auto subcommand
 
-The state file contains a named state: 
-- commit: commit has completed
-- prompt: prompt has been edited 
-- generate: generate has completed
+The goal is to have AIDDA automatically decide the
+next action based on the state:
 
-State machine transitions:
-
-    commit -> prompt -> generate -> commit -> ...
+    generate -> commit -> prompt -> generate -> commit -> ...
 
 .stop
 
 don't include headers in the commit message
+
+
+remove diff subcommand
 
 - update the tests 
 
