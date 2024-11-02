@@ -120,6 +120,9 @@ func Do(g *core.Grokker, args ...string) (err error) {
 		case "generate":
 			err = getChanges(g, p, testResults)
 			Ck(err)
+		case "diff":
+			err = runDiff()
+			Ck(err)
 		case "test":
 			err = runTest(testFn)
 			Ck(err)
@@ -167,6 +170,7 @@ func PrintUsageAndExit() {
 	fmt.Println("Subcommands:")
 	fmt.Println("  commit    - Commit the current state")
 	fmt.Println("  generate  - Generate changes from GPT based on the prompt")
+	fmt.Println("  diff      - Run 'git difftool' to review changes")
 	fmt.Println("  test      - Run tests and include the results in the prompt file")
 	fmt.Println("  auto      - Automatically run generate or commit based on file timestamps")
 	os.Exit(1)
@@ -455,6 +459,18 @@ func runTest(fn string) (err error) {
 	_, err = fh.WriteString(Spf("\n\nstdout:\n%s\n\nstderr:%s\n\n", stdout, stderr))
 	Ck(err)
 	fh.Close()
+	return err
+}
+
+func runDiff() (err error) {
+	defer Return(&err)
+	// Run difftool
+	difftool := envi.String("AIDDA_DIFFTOOL", "git difftool")
+	Pf("Running difftool %s\n", difftool)
+	var rc int
+	rc, err = RunInteractive(difftool)
+	Ck(err)
+	Assert(rc == 0, "difftool failed")
 	return err
 }
 

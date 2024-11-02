@@ -1,2 +1,5 @@
-remove diff subcommand
+write the commit message to .aidda/commitmsg and use that in the commit function
+
+- write the commit message to .aidda/commitmsg in the getChanges function
+- read the commit message from .aidda/commitmsg in the commit function
 
