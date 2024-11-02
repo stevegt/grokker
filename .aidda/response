@@ -709,6 +709,7 @@ func ensureIgnoreFile(fn string) (err error) {
 }
 ```
 EOF_/home/stevegt/lab/grokker/v3/aidda/aidda.go
+
 File: /home/stevegt/lab/grokker/v3/aidda/aidda_test.go
 ```go
 package aidda
