@@ -70,6 +70,16 @@ func Do(g *core.Grokker, args ...string) (err error) {
 	_, err = NewPrompt(promptFn)
 	Ck(err)
 
+	// Create the commit message file if it doesn't exist
+	_, err = os.Stat(commitMsgFn)
+	if os.IsNotExist(err) {
+		// copy the prompt file to the commit message file
+		buf, err := ioutil.ReadFile(promptFn)
+		Ck(err)
+		err = ioutil.WriteFile(commitMsgFn, buf, 0644)
+		Ck(err)
+	}
+
 	// If the test file is newer than any input files, then include
 	// the test results in the prompt; otherwise, clear the test file
 	testResults := ""
@@ -266,7 +276,7 @@ func readPrompt(path string) (p *Prompt, err error) {
 
 	// Use the prompt text excluding headers as the prompt and commit message
 	p.Txt = strings.Join(lines[:hdrStart], "\n")
-	Pl(p.Txt)
+	// Pl(p.Txt)
 
 	// Process headers
 	err = processHeaders(headerMap, path, p)
@@ -480,10 +490,12 @@ func runTest(fn string) (err error) {
 func getChanges(g *core.Grokker, p *Prompt, testResults string) (err error) {
 	defer Return(&err)
 
+	prompt := p.Txt
+	Pl(prompt)
 	if len(testResults) > 0 {
 		Pl("Including test results in prompt")
+		prompt = Spf("%s\n\n%s", p.Txt, testResults)
 	}
-	prompt := Spf("%s\n\n%s", p.Txt, testResults)
 	inFns := p.In
 	outFns := p.Out
 	var outFls []core.FileLang

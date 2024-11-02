@@ -1,11 +1,11 @@
-rename the 'C' commit hash to 'S' for "stash"
+create the commit message file if it does not exist
 
 In: 
     v3/aidda/aidda.go 
     v3/aidda/aidda_test.go
-    v3/aidda/BRAINSTORM.md
 Out: 
-    v3/aidda/BRAINSTORM.md
+    v3/aidda/aidda.go 
+    v3/aidda/aidda_test.go
 .stop
 
 
