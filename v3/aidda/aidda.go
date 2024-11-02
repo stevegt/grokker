@@ -18,6 +18,7 @@ import (
 )
 
 /*
+XXX update this
 - while true
 	- git commit
 	- present user with an editor buffer where they can type a natural language instruction
@@ -112,7 +113,6 @@ func Do(g *core.Grokker, args ...string) (err error) {
 		case "prompt":
 			p, err := getPrompt(promptFn)
 			Ck(err)
-			// spew.Dump(p)
 			err = getChanges(g, p, testResults)
 			Ck(err)
 		case "diff":
@@ -173,10 +173,10 @@ func readPrompt(path string) (p *Prompt, err error) {
 	Ck(err)
 	// process directives
 	// lines that start with . are directives
-	cookedBuf := []byte{}
+	lines := []string{}
 	rawLines := strings.Split(string(rawBuf), "\n")
 	for i, line := range rawLines {
-		// ensure the first line doesn't start with a #  (the default
+		// ensure the first line doesn't start with a # (the default
 		// prompt file starts with a comment; we want to make sure
 		// the user edits it)
 		if i == 0 && strings.HasPrefix(line, "#") {
@@ -193,13 +193,14 @@ func readPrompt(path string) (p *Prompt, err error) {
 			break
 		}
 
-		cookedBuf = append(cookedBuf, []byte(line+"\n")...)
+		lines = append(lines, line)
 	}
-	Pl(string(cookedBuf))
-	content := string(cookedBuf)
+	// remove empty lines at the end
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
 
 	// Find the index where headers start
-	lines := strings.Split(content, "\n")
 	hdrStart := len(lines)
 	for i := len(lines) - 1; i >= 0; i-- {
 		line := lines[i]
@@ -237,12 +238,9 @@ func readPrompt(path string) (p *Prompt, err error) {
 		headerMap[key] = value
 	}
 
-	// Extract prompt text (lines from after the blank line to hdrStart)
-	// promptLines := lines[2:hdrStart]
-	// p.Txt = strings.Join(promptLines, "\n")
-
-	// use the entire cookedBuf as the prompt text
-	p.Txt = content
+	// use the entire prompt text (including headers) as the prompt
+	p.Txt = strings.Join(lines, "\n") + "\n"
+	Pl(p.Txt)
 
 	// Process headers
 	p.Sysmsg = headerMap["Sysmsg"]
@@ -560,14 +558,6 @@ func (tcs *tokenCounts) showTokenCounts() {
 func getPrompt(promptFn string) (p *Prompt, err error) {
 	defer Return(&err)
 
-	// create fsnotify watcher
-	// watcher, err := fsnotify.NewWatcher()
-	// Ck(err)
-	// defer watcher.Close()
-	// watch the prompt file
-	// err = watcher.Add(promptFn)
-	// Ck(err)
-
 	// if AIDDA_EDITOR is set, open the editor where the users can
 	// type a natural language instruction
 	editor := envi.String("AIDDA_EDITOR", "")
@@ -600,9 +590,12 @@ func commit(g *core.Grokker) (err error) {
 	if os.IsNotExist(err) {
 		// Stamp file doesn't exist; proceed
 		err = nil
-	} else if !promptStat.ModTime().After(stampStat.ModTime()) {
-		// Prompt file has not been edited since last commit
-		return fmt.Errorf("prompt file has not been edited since last commit. Refusing to commit.")
+	} else {
+		Ck(err)
+		if stampStat.ModTime().After(promptStat.ModTime()) {
+			// Prompt file has not been edited since last commit
+			return fmt.Errorf("prompt file has not been edited since last commit. Refusing to commit.")
+		}
 	}
 
 	// check git status for uncommitted changes

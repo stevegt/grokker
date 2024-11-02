@@ -2,10 +2,11 @@ package aidda
 
 import (
 	"bytes"
-	// "io/ioutil"
 	"os"
 	"os/exec"
 	"testing"
+
+	. "github.com/stevegt/goadapt"
 )
 
 func TestRunTee(t *testing.T) {
@@ -74,23 +75,36 @@ Sysmsg: Test system message
 In: input1.go input2.go
 Out: output1.go output2.go
 `
-	tmpFile, err := os.CreateTemp("", "prompt")
-	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-	defer os.Remove(tmpFile.Name())
 
-	if _, err := tmpFile.WriteString(promptContent); err != nil {
-		t.Fatalf("Failed to write to temp file: %v", err)
-	}
-	tmpFile.Close()
+	// create a temporary directory
+	tmpDir, err := os.MkdirTemp("", "aidda-test")
+	Ck(err)
+	defer os.RemoveAll(tmpDir)
+	// create a .aidda directory in the temporary directory
+	aiddaDir := tmpDir + "/.aidda"
+	err = os.Mkdir(aiddaDir, 0755)
+	Ck(err)
+	// create a prompt file in the .aidda directory
+	tmpFile, err := os.Create(aiddaDir + "/prompt")
+	Ck(err)
+	defer tmpFile.Close()
+	// write the prompt content to the prompt file
+	_, err = tmpFile.WriteString(promptContent)
+	Ck(err)
+	// create input files in the temporary directory
+	input1, err := os.Create(tmpDir + "/input1.go")
+	Ck(err)
+	defer input1.Close()
+	input2, err := os.Create(tmpDir + "/input2.go")
+	Ck(err)
+	defer input2.Close()
 
 	p, err := readPrompt(tmpFile.Name())
 	if err != nil {
 		t.Fatalf("readPrompt failed: %v", err)
 	}
 
-	expectedTxt := "Please make changes to the code.\n"
+	expectedTxt := promptContent
 	if p.Txt != expectedTxt {
 		t.Errorf("Expected Txt to be %q, got %q", expectedTxt, p.Txt)
 	}
@@ -107,5 +121,31 @@ Out: output1.go output2.go
 	expectedOut := []string{"output1.go", "output2.go"}
 	if len(p.Out) != len(expectedOut) {
 		t.Errorf("Expected Out to have %d items, got %d", len(expectedOut), len(p.Out))
+	}
+}
+
+func TestReadPrompt_NoBlankLine(t *testing.T) {
+	// Create a temporary file without a blank line after the first line
+	promptContent := `This is a test prompt
+Please make changes to the code.
+
+Sysmsg: Test system message
+In: input1.go input2.go
+Out: output1.go output2.go
+`
+	tmpFile, err := os.CreateTemp("", "prompt_no_blank")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.WriteString(promptContent); err != nil {
+		t.Fatalf("Failed to write to temp file: %v", err)
+	}
+	tmpFile.Close()
+
+	_, err = readPrompt(tmpFile.Name())
+	if err == nil || err.Error() != "prompt file must have a blank line after the first line, just like a commit message" {
+		t.Errorf("Expected error about missing blank line, got: %v", err)
 	}
 }
