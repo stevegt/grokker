@@ -167,8 +167,49 @@ func Do(g *core.Grokker, args ...string) (err error) {
 			err = runTest(testFn)
 			Ck(err)
 		case "auto":
-			err = runAuto(g, stateFn, promptFn, testResults)
-			Ck(err)
+			// Integrated runAuto logic starts here
+			currentState, err := readState(stateFn)
+			if err != nil {
+				return fmt.Errorf("cannot read state: %v", err)
+			}
+
+			switch currentState {
+			case StateGenerate:
+				Pf("Current state: generate. Proceeding to commit.")
+				err = commit(g, stateFn, promptFn)
+				if err != nil {
+					return fmt.Errorf("commit failed: %v", err)
+				}
+				// After committing, set state to 'commit'
+				err = writeState(stateFn, StateCommit)
+				if err != nil {
+					return fmt.Errorf("writeState failed: %v", err)
+				}
+			case StateCommit:
+				Pf("Current state: commit. Proceeding to prompt.")
+				p, err := getPrompt(promptFn)
+				if err != nil {
+					return fmt.Errorf("getPrompt failed: %v", err)
+				}
+				// After editing the prompt, set state to 'prompt'
+				err = writeState(stateFn, StatePrompt)
+				if err != nil {
+					return fmt.Errorf("writeState failed: %v", err)
+				}
+			case StatePrompt:
+				Pf("Current state: prompt. Proceeding to generate.")
+				p, err := getPrompt(promptFn)
+				if err != nil {
+					return fmt.Errorf("getPrompt failed: %v", err)
+				}
+				err = getChanges(g, p, testResults)
+				if err != nil {
+					return fmt.Errorf("getChanges failed: %v", err)
+				}
+			default:
+				return fmt.Errorf("invalid state: %s", currentState)
+			}
+			// Integrated runAuto logic ends here
 		default:
 			PrintUsageAndExit()
 		}
@@ -640,6 +681,7 @@ func commit(g *core.Grokker, stateFn, promptFn string) (err error) {
 		Assert(rc == 0, "git add failed")
 		Ck(err)
 		// Use .aidda/prompt as commit message
+		// XXX pass in p instead of promptFN
 		p, err := getPrompt(promptFn)
 		Ck(err)
 		commitMsg := p.Txt
@@ -728,57 +770,8 @@ func readState(stateFn string) (string, error) {
 func writeState(stateFn string, state string) error {
 	return ioutil.WriteFile(stateFn, []byte(state), 0644)
 }
-
-// runAuto automatically cycles through generate, commit, and prompt states
-func runAuto(g *core.Grokker, stateFn, promptFn, testResults string) (err error) {
-	defer Return(&err)
-
-	currentState, err := readState(stateFn)
-	if err != nil {
-		return fmt.Errorf("cannot read state: %v", err)
-	}
-
-	switch currentState {
-	case StateGenerate:
-		Pf("Current state: generate. Proceeding to commit.")
-		err = commit(g, stateFn, promptFn)
-		if err != nil {
-			return fmt.Errorf("commit failed: %v", err)
-		}
-		// After committing, set state to 'commit'
-		err = writeState(stateFn, StateCommit)
-		if err != nil {
-			return fmt.Errorf("writeState failed: %v", err)
-		}
-	case StateCommit:
-		Pf("Current state: commit. Proceeding to prompt.")
-		p, err := getPrompt(promptFn)
-		if err != nil {
-			return fmt.Errorf("getPrompt failed: %v", err)
-		}
-		// After editing the prompt, set state to 'prompt'
-		err = writeState(stateFn, StatePrompt)
-		if err != nil {
-			return fmt.Errorf("writeState failed: %v", err)
-		}
-	case StatePrompt:
-		Pf("Current state: prompt. Proceeding to generate.")
-		p, err := getPrompt(promptFn)
-		if err != nil {
-			return fmt.Errorf("getPrompt failed: %v", err)
-		}
-		err = getChanges(g, p, testResults)
-		if err != nil {
-			return fmt.Errorf("getChanges failed: %v", err)
-		}
-	default:
-		return fmt.Errorf("invalid state: %s", currentState)
-	}
-
-}
 ```
 EOF_/home/stevegt/lab/grokker/v3/aidda/aidda.go
-
 
 File: /home/stevegt/lab/grokker/v3/aidda/aidda_test.go
 ```go

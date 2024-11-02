@@ -1,21 +1,20 @@
-Mime-Version: 1.0
-Content-Transfer-Encoding: quoted-printable
-In:
-    v3/aidda/aidda.go
-    v3/aidda/aidda_test.go
-Out:
-    v3/aidda/aidda.go
-    v3/aidda/aidda_test.go
+enable continuation lines in headers
 
-remove redundancy between runAuto() and subcommand processing in Do()
+A header might be too long to fit on a single line.  To handle this,
+the header can be split across multiple lines.  The continuation lines
+must start with a space or a tab followed by the header text.  The
+header is considered complete when a line is encountered that does not
+start with a space or tab.  The header text is the concatenation of
+all the lines with leading spaces or tabs removed.  The header text is
+then trimmed of leading and trailing whitespace.  
 
-- remove the runAuto() function and integrate its logic into the Do()
-  function by stuffing args in the auto case
-
+In: v3/aidda/aidda.go v3/aidda/aidda_test.go
+Out: v3/aidda/aidda.go v3/aidda/aidda_test.go
 .stop
 
-- move the logic for state management to its own set of methods on a
-  struct
+move the logic for state management to its own set of methods on a struct
+
+.stop
 
 add auto subcommand test case
 
