@@ -282,17 +282,28 @@ func readPrompt(path string) (p *Prompt, err error) {
 	// Extract headers
 	headers := lines[hdrStart:]
 	headerMap := make(map[string]string)
+	var currentKey string
 	for _, h := range headers {
 		if h == "" {
 			continue
 		}
-		parts := strings.SplitN(h, ":", 2)
-		if len(parts) != 2 {
-			continue
+		if strings.HasPrefix(h, " ") || strings.HasPrefix(h, "\t") {
+			// Continuation line
+			if currentKey == "" {
+				return nil, fmt.Errorf("continuation line found without a preceding header")
+			}
+			continuation := strings.TrimSpace(h)
+			headerMap[currentKey] += " " + continuation
+		} else {
+			parts := strings.SplitN(h, ":", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+			currentKey = key
+			headerMap[key] = value
 		}
-		key := strings.TrimSpace(parts[0])
-		value := strings.TrimSpace(parts[1])
-		headerMap[key] = value
 	}
 
 	// Use the prompt text excluding headers as the prompt
@@ -300,9 +311,9 @@ func readPrompt(path string) (p *Prompt, err error) {
 	Pl(p.Txt)
 
 	// Process headers
-	p.Sysmsg = headerMap["Sysmsg"]
-	inStr := headerMap["In"]
-	outStr := headerMap["Out"]
+	p.Sysmsg = strings.TrimSpace(headerMap["Sysmsg"])
+	inStr := strings.TrimSpace(headerMap["In"])
+	outStr := strings.TrimSpace(headerMap["Out"])
 
 	// Filenames are space-separated
 	p.In = strings.Fields(inStr)

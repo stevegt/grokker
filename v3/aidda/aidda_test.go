@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 
 	. "github.com/stevegt/goadapt"
@@ -72,8 +73,8 @@ func TestReadPrompt(t *testing.T) {
 Please make changes to the code.
 
 Sysmsg: Test system message
-In: input1.go input2.go
-Out: output1.go output2.go
+ In: input1.go input2.go
+ Out: output1.go output2.go
 `
 
 	// Create a temporary directory
@@ -116,14 +117,24 @@ Please make changes to the code.
 		t.Errorf("Expected Sysmsg to be %q, got %q", "Test system message", p.Sysmsg)
 	}
 
-	expectedIn := []string{tmpDir + "/input1.go", tmpDir + "/input2.go"}
+	expectedIn := []string{filepath.Join(tmpDir, "input1.go"), filepath.Join(tmpDir, "input2.go")}
 	if len(p.In) != len(expectedIn) {
 		t.Errorf("Expected In to have %d items, got %d", len(expectedIn), len(p.In))
 	}
+	for i, in := range p.In {
+		if in != expectedIn[i] {
+			t.Errorf("Expected In[%d] to be %q, got %q", i, expectedIn[i], in)
+		}
+	}
 
-	expectedOut := []string{tmpDir + "/output1.go", tmpDir + "/output2.go"}
+	expectedOut := []string{filepath.Join(tmpDir, "output1.go"), filepath.Join(tmpDir, "output2.go")}
 	if len(p.Out) != len(expectedOut) {
 		t.Errorf("Expected Out to have %d items, got %d", len(expectedOut), len(p.Out))
+	}
+	for i, out := range p.Out {
+		if out != expectedOut[i] {
+			t.Errorf("Expected Out[%d] to be %q, got %q", i, expectedOut[i], out)
+		}
 	}
 }
 
