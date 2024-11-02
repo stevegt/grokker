@@ -73,8 +73,8 @@ func TestReadPrompt(t *testing.T) {
 Please make changes to the code.
 
 Sysmsg: Test system message
- In: input1.go input2.go
- Out: output1.go output2.go
+In: input1.go input2.go
+Out: output1.go output2.go
 `
 
 	// Create a temporary directory
@@ -146,8 +146,9 @@ Please make changes to the code.
 
 Sysmsg: This is a test system message that
  continues on the next line
- In: input1.go input2.go
- Out: output1.go
+In: 
+	input1.go input2.go
+Out: output1.go
  output2.go
 `
 

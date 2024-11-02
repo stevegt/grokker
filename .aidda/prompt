@@ -1,10 +1,4 @@
-fix "no headers found at the end of the prompt file" error 
-
-When headers are wrapped across multiple lines, the last line of the
-prompt file may not be recognized as a header. This issue occurs
-because the code expects a header line to contain a colon character,
-which is missing in continuation lines. To resolve this, adjust the
-header extraction logic to handle multi-line headers correctly.
+add a test case for continuation lines in headers
 
 In: v3/aidda/aidda.go v3/aidda/aidda_test.go
 Out: v3/aidda/aidda.go v3/aidda/aidda_test.go

@@ -259,63 +259,52 @@ func readPrompt(path string) (p *Prompt, err error) {
 		lines = lines[:len(lines)-1]
 	}
 
-	// Initialize header processing
-	headerMap := make(map[string]string)
-	var currentKey string
-
-	// Iterate through lines to extract headers
-	for idx, line := range lines {
-		if strings.TrimSpace(line) == "" && idx+1 < len(lines) {
-			// Assume headers start after the first blank line
-			headers := lines[idx+1:]
-			for _, h := range headers {
-				if h == "" {
-					continue
-				}
-				if strings.HasPrefix(h, " ") || strings.HasPrefix(h, "\t") {
-					// Continuation line
-					if currentKey == "" {
-						return nil, fmt.Errorf("continuation line found without a preceding header")
-					}
-					continuation := strings.TrimSpace(h)
-					headerMap[currentKey] += " " + continuation
-				} else {
-					parts := strings.SplitN(h, ":", 2)
-					if len(parts) != 2 {
-						continue
-					}
-					key := strings.TrimSpace(parts[0])
-					value := strings.TrimSpace(parts[1])
-					currentKey = key
-					headerMap[key] = value
-				}
-			}
-			break
-		}
-	}
-
-	// Check if any headers were found
-	if len(headerMap) == 0 {
-		return nil, fmt.Errorf("no headers found at the end of the prompt file")
-	}
-
-	// Find the index where headers start to extract the prompt text
+	// Find the index where headers start
 	hdrStart := len(lines)
 	for i := len(lines) - 1; i >= 0; i-- {
 		line := lines[i]
 		if strings.TrimSpace(line) == "" {
-			continue
+			// empty line means headers start after this line
+			break
 		}
 		if strings.Contains(line, ":") {
+			// Found a header
 			hdrStart = i
 		} else {
-			hdrStart = i + 1
-			break
+			// continuation line
+			continue
 		}
 	}
 
 	if hdrStart >= len(lines) {
 		return nil, fmt.Errorf("no headers found at the end of the prompt file")
+	}
+
+	// Extract headers
+	headers := lines[hdrStart:]
+	headerMap := make(map[string]string)
+	var currentKey string
+	for _, h := range headers {
+		if h == "" {
+			continue
+		}
+		if strings.HasPrefix(h, " ") || strings.HasPrefix(h, "\t") {
+			// Continuation line
+			if currentKey == "" {
+				return nil, fmt.Errorf("continuation line found without a preceding header")
+			}
+			continuation := strings.TrimSpace(h)
+			headerMap[currentKey] += " " + continuation
+		} else {
+			parts := strings.SplitN(h, ":", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+			currentKey = key
+			headerMap[key] = value
+		}
 	}
 
 	// Use the prompt text excluding headers as the prompt
@@ -756,6 +745,7 @@ func writeState(stateFn string, state string) error {
 }
 ```
 EOF_/home/stevegt/lab/grokker/v3/aidda/aidda.go
+
 
 File: /home/stevegt/lab/grokker/v3/aidda/aidda_test.go
 ```go

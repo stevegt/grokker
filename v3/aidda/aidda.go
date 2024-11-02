@@ -306,7 +306,7 @@ func readPrompt(path string) (p *Prompt, err error) {
 	}
 
 	// Use the prompt text excluding headers as the prompt
-	p.Txt = strings.Join(lines[:hdrStart], "\n") + "\n"
+	p.Txt = strings.Join(lines[:hdrStart], "\n")
 	Pl(p.Txt)
 
 	// Process headers
