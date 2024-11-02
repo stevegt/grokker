@@ -240,8 +240,8 @@ func readPrompt(path string) (p *Prompt, err error) {
 		// Ensure there is a blank line after the first line
 		if i == 1 {
 			// trim leading and trailing whitespace
-			line = strings.TrimSpace(line)
-			if line != "" {
+			trimmedLine := strings.TrimSpace(line)
+			if trimmedLine != "" {
 				// spew.Dump(line)
 				return nil, fmt.Errorf("prompt file must have a blank line after the first line, just like a commit message")
 			}
@@ -259,19 +259,56 @@ func readPrompt(path string) (p *Prompt, err error) {
 		lines = lines[:len(lines)-1]
 	}
 
-	// Find the index where headers start
+	// Initialize header processing
+	headerMap := make(map[string]string)
+	var currentKey string
+
+	// Iterate through lines to extract headers
+	for idx, line := range lines {
+		if strings.TrimSpace(line) == "" && idx+1 < len(lines) {
+			// Assume headers start after the first blank line
+			headers := lines[idx+1:]
+			for _, h := range headers {
+				if h == "" {
+					continue
+				}
+				if strings.HasPrefix(h, " ") || strings.HasPrefix(h, "\t") {
+					// Continuation line
+					if currentKey == "" {
+						return nil, fmt.Errorf("continuation line found without a preceding header")
+					}
+					continuation := strings.TrimSpace(h)
+					headerMap[currentKey] += " " + continuation
+				} else {
+					parts := strings.SplitN(h, ":", 2)
+					if len(parts) != 2 {
+						continue
+					}
+					key := strings.TrimSpace(parts[0])
+					value := strings.TrimSpace(parts[1])
+					currentKey = key
+					headerMap[key] = value
+				}
+			}
+			break
+		}
+	}
+
+	// Check if any headers were found
+	if len(headerMap) == 0 {
+		return nil, fmt.Errorf("no headers found at the end of the prompt file")
+	}
+
+	// Find the index where headers start to extract the prompt text
 	hdrStart := len(lines)
 	for i := len(lines) - 1; i >= 0; i-- {
 		line := lines[i]
 		if strings.TrimSpace(line) == "" {
-			// Skip empty lines at the end
 			continue
 		}
 		if strings.Contains(line, ":") {
-			// Found a header
 			hdrStart = i
 		} else {
-			// Not a header line, headers start from hdrStart
 			hdrStart = i + 1
 			break
 		}
@@ -279,33 +316,6 @@ func readPrompt(path string) (p *Prompt, err error) {
 
 	if hdrStart >= len(lines) {
 		return nil, fmt.Errorf("no headers found at the end of the prompt file")
-	}
-
-	// Extract headers
-	headers := lines[hdrStart:]
-	headerMap := make(map[string]string)
-	var currentKey string
-	for _, h := range headers {
-		if h == "" {
-			continue
-		}
-		if strings.HasPrefix(h, " ") || strings.HasPrefix(h, "\t") {
-			// Continuation line
-			if currentKey == "" {
-				return nil, fmt.Errorf("continuation line found without a preceding header")
-			}
-			continuation := strings.TrimSpace(h)
-			headerMap[currentKey] += " " + continuation
-		} else {
-			parts := strings.SplitN(h, ":", 2)
-			if len(parts) != 2 {
-				continue
-			}
-			key := strings.TrimSpace(parts[0])
-			value := strings.TrimSpace(parts[1])
-			currentKey = key
-			headerMap[key] = value
-		}
 	}
 
 	// Use the prompt text excluding headers as the prompt
@@ -755,6 +765,7 @@ import (
 	"bytes"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 
 	. "github.com/stevegt/goadapt"
@@ -823,8 +834,8 @@ func TestReadPrompt(t *testing.T) {
 Please make changes to the code.
 
 Sysmsg: Test system message
-In: input1.go input2.go
-Out: output1.go output2.go
+ In: input1.go input2.go
+ Out: output1.go output2.go
 `
 
 	// Create a temporary directory
@@ -865,6 +876,81 @@ Please make changes to the code.
 
 	if p.Sysmsg != "Test system message" {
 		t.Errorf("Expected Sysmsg to be %q, got %q", "Test system message", p.Sysmsg)
+	}
+
+	expectedIn := []string{filepath.Join(tmpDir, "input1.go"), filepath.Join(tmpDir, "input2.go")}
+	if len(p.In) != len(expectedIn) {
+		t.Errorf("Expected In to have %d items, got %d", len(expectedIn), len(p.In))
+	}
+	for i, in := range p.In {
+		if in != expectedIn[i] {
+			t.Errorf("Expected In[%d] to be %q, got %q", i, expectedIn[i], in)
+		}
+	}
+
+	expectedOut := []string{filepath.Join(tmpDir, "output1.go"), filepath.Join(tmpDir, "output2.go")}
+	if len(p.Out) != len(expectedOut) {
+		t.Errorf("Expected Out to have %d items, got %d", len(expectedOut), len(p.Out))
+	}
+	for i, out := range p.Out {
+		if out != expectedOut[i] {
+			t.Errorf("Expected Out[%d] to be %q, got %q", i, expectedOut[i], out)
+		}
+	}
+}
+
+func TestReadPrompt_MultiLineHeaders(t *testing.T) {
+	// Create a temporary file with multi-line headers
+	promptContent := `This is a test prompt
+
+Please make changes to the code.
+
+Sysmsg: This is a test system message that
+ continues on the next line
+ In: input1.go input2.go
+ Out: output1.go
+ output2.go
+`
+
+	// Create a temporary directory
+	tmpDir, err := os.MkdirTemp("", "aidda-test-multiline")
+	Ck(err)
+	defer os.RemoveAll(tmpDir)
+	// Create a .aidda directory in the temporary directory
+	aiddaDir := tmpDir + "/.aidda"
+	err = os.Mkdir(aiddaDir, 0755)
+	Ck(err)
+	// Create a prompt file in the .aidda directory
+	tmpFile, err := os.Create(aiddaDir + "/prompt")
+	Ck(err)
+	defer tmpFile.Close()
+	// Write the prompt content to the prompt file
+	_, err = tmpFile.WriteString(promptContent)
+	Ck(err)
+	// Create input files in the temporary directory
+	input1, err := os.Create(tmpDir + "/input1.go")
+	Ck(err)
+	defer input1.Close()
+	input2, err := os.Create(tmpDir + "/input2.go")
+	Ck(err)
+	defer input2.Close()
+
+	p, err := readPrompt(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("readPrompt with multi-line headers failed: %v", err)
+	}
+
+	expectedTxt := `This is a test prompt
+
+Please make changes to the code.
+`
+	if p.Txt != expectedTxt {
+		t.Errorf("Expected Txt to be %q, got %q", expectedTxt, p.Txt)
+	}
+
+	expectedSysmsg := "This is a test system message that continues on the next line"
+	if p.Sysmsg != expectedSysmsg {
+		t.Errorf("Expected Sysmsg to be %q, got %q", expectedSysmsg, p.Sysmsg)
 	}
 
 	expectedIn := []string{filepath.Join(tmpDir, "input1.go"), filepath.Join(tmpDir, "input2.go")}

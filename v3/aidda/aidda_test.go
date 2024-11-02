@@ -138,6 +138,81 @@ Please make changes to the code.
 	}
 }
 
+func TestReadPrompt_MultiLineHeaders(t *testing.T) {
+	// Create a temporary file with multi-line headers
+	promptContent := `This is a test prompt
+
+Please make changes to the code.
+
+Sysmsg: This is a test system message that
+ continues on the next line
+ In: input1.go input2.go
+ Out: output1.go
+ output2.go
+`
+
+	// Create a temporary directory
+	tmpDir, err := os.MkdirTemp("", "aidda-test-multiline")
+	Ck(err)
+	defer os.RemoveAll(tmpDir)
+	// Create a .aidda directory in the temporary directory
+	aiddaDir := tmpDir + "/.aidda"
+	err = os.Mkdir(aiddaDir, 0755)
+	Ck(err)
+	// Create a prompt file in the .aidda directory
+	tmpFile, err := os.Create(aiddaDir + "/prompt")
+	Ck(err)
+	defer tmpFile.Close()
+	// Write the prompt content to the prompt file
+	_, err = tmpFile.WriteString(promptContent)
+	Ck(err)
+	// Create input files in the temporary directory
+	input1, err := os.Create(tmpDir + "/input1.go")
+	Ck(err)
+	defer input1.Close()
+	input2, err := os.Create(tmpDir + "/input2.go")
+	Ck(err)
+	defer input2.Close()
+
+	p, err := readPrompt(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("readPrompt with multi-line headers failed: %v", err)
+	}
+
+	expectedTxt := `This is a test prompt
+
+Please make changes to the code.
+`
+	if p.Txt != expectedTxt {
+		t.Errorf("Expected Txt to be %q, got %q", expectedTxt, p.Txt)
+	}
+
+	expectedSysmsg := "This is a test system message that continues on the next line"
+	if p.Sysmsg != expectedSysmsg {
+		t.Errorf("Expected Sysmsg to be %q, got %q", expectedSysmsg, p.Sysmsg)
+	}
+
+	expectedIn := []string{filepath.Join(tmpDir, "input1.go"), filepath.Join(tmpDir, "input2.go")}
+	if len(p.In) != len(expectedIn) {
+		t.Errorf("Expected In to have %d items, got %d", len(expectedIn), len(p.In))
+	}
+	for i, in := range p.In {
+		if in != expectedIn[i] {
+			t.Errorf("Expected In[%d] to be %q, got %q", i, expectedIn[i], in)
+		}
+	}
+
+	expectedOut := []string{filepath.Join(tmpDir, "output1.go"), filepath.Join(tmpDir, "output2.go")}
+	if len(p.Out) != len(expectedOut) {
+		t.Errorf("Expected Out to have %d items, got %d", len(expectedOut), len(p.Out))
+	}
+	for i, out := range p.Out {
+		if out != expectedOut[i] {
+			t.Errorf("Expected Out[%d] to be %q, got %q", i, expectedOut[i], out)
+		}
+	}
+}
+
 func TestReadPrompt_NoBlankLine(t *testing.T) {
 	// Create a temporary file without a blank line after the first line
 	promptContent := `This is a test prompt

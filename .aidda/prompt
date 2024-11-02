@@ -1,12 +1,10 @@
-enable continuation lines in headers
+fix "no headers found at the end of the prompt file" error 
 
-A header might be too long to fit on a single line.  To handle this,
-the header can be split across multiple lines.  The continuation lines
-must start with a space or a tab followed by the header text.  The
-header is considered complete when a line is encountered that does not
-start with a space or tab.  The header text is the concatenation of
-all the lines with leading spaces or tabs removed.  The header text is
-then trimmed of leading and trailing whitespace.  
+When headers are wrapped across multiple lines, the last line of the
+prompt file may not be recognized as a header. This issue occurs
+because the code expects a header line to contain a colon character,
+which is missing in continuation lines. To resolve this, adjust the
+header extraction logic to handle multi-line headers correctly.
 
 In: v3/aidda/aidda.go v3/aidda/aidda_test.go
 Out: v3/aidda/aidda.go v3/aidda/aidda_test.go

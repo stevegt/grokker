@@ -238,8 +238,8 @@ func readPrompt(path string) (p *Prompt, err error) {
 		// Ensure there is a blank line after the first line
 		if i == 1 {
 			// trim leading and trailing whitespace
-			line = strings.TrimSpace(line)
-			if line != "" {
+			trimmedLine := strings.TrimSpace(line)
+			if trimmedLine != "" {
 				// spew.Dump(line)
 				return nil, fmt.Errorf("prompt file must have a blank line after the first line, just like a commit message")
 			}
@@ -262,16 +262,15 @@ func readPrompt(path string) (p *Prompt, err error) {
 	for i := len(lines) - 1; i >= 0; i-- {
 		line := lines[i]
 		if strings.TrimSpace(line) == "" {
-			// Skip empty lines at the end
-			continue
+			// empty line means headers start after this line
+			break
 		}
 		if strings.Contains(line, ":") {
 			// Found a header
 			hdrStart = i
 		} else {
-			// Not a header line, headers start from hdrStart
-			hdrStart = i + 1
-			break
+			// continuation line
+			continue
 		}
 	}
 
