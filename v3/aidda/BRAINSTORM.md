@@ -27,8 +27,8 @@ Introduce a `watch` subcommand responsible for orchestrating parallel operations
     - Watches the `A` prompt file for any changes.
     - On detecting a change:
         - **Stashes Uncommitted Changes** in `A`.
-        - Creates a CBOR message with the prompt file contents and the stash commit hash (`C`).
-        - Sends this message to `R`, promising to respond to any follow-up queries for `C` and its prerequisites.
+        - Creates a CBOR message with the prompt file contents and the stash commit hash (`S`).
+        - Sends this message to `R`, promising to respond to any follow-up queries for `S` and its prerequisites.
 
 - **Message Handling**:
     - Listens for messages from `R`.
@@ -44,17 +44,17 @@ Introduce a `watch` subcommand responsible for orchestrating parallel operations
 - **Merging Changes**:
     - The daemon performs the following steps:
         1. **Stash Uncommitted Changes** in `A`.
-        - apply the changes from the B CBOR message to the working directory, without committing
-        - resolve any merge conflicts.
-        3. **Run the `test` Subcommand** in `A`.
-        4. **Display Test Results** to the user.
-        5. **Await User Review**:
+        2. Apply the changes from the B CBOR message to the working directory, without committing.
+        3. Resolve any merge conflicts.
+        4. **Run the `test` Subcommand** in `A`.
+        5. **Display Test Results** to the user.
+        6. **Await User Review**:
             - Waits for the user to review changes.
             - Upon completion, the user notifies the daemon to either:
                 - **Commit the Changes** in `A`, or
                 - **Reject the Changes** with an updated prompt file.
 
-3. **Finalizing Commit**:
+- **Finalizing Commit**:
     - When `W` receives the notification to commit:
         1. Commits the changes in `A`.
         2. Unstashes any stashed changes.
@@ -70,14 +70,14 @@ Introduce a `watch` subcommand responsible for orchestrating parallel operations
 
 - **Prompt Processing**:
     - On receiving a **prompt message**:
-        1. **Check for Commit Hash (`C`) in `T`**:
-            - **If `C` is not found**:
+        1. **Check for Commit Hash (`S`) in `T`**:
+            - **If `S` is not found**:
                 - Sends a message to `W` with the latest commit hash in `T`, promising to generate code from the prompt.
-                - Requests the contents of the objects that make up `C` and its prerequisites.
+                - Requests the contents of the objects that make up `S` and its prerequisites.
                 - Re-adds the message to the tail of the queue.
                 - Sleeps for a short duration before re-checking the queue.
-            - **If `C` is found**:
-                1. Checks out `C` into a new branch (`B`).
+            - **If `S` is found**:
+                1. Checks out `S` into a new branch (`B`).
                 2. Runs the `generate` subcommand in `T` based on the queued prompt file contents.
                 3. Runs the `test` subcommand in `T`.
                 4. **Test Outcomes**:
