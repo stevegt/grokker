@@ -9,10 +9,6 @@ Out:
 .stop
 
 
-move the logic for state management to its own set of methods on a struct
-
-.stop
-
 add auto subcommand test case
 
 

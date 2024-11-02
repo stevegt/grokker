@@ -113,9 +113,6 @@ func Do(g *core.Grokker, args ...string) (err error) {
 		case "commit":
 			err = commit(g, p)
 			Ck(err)
-		case "prompt":
-			p, err = getPrompt(promptFn)
-			Ck(err)
 		case "generate":
 			err = getChanges(g, p, testResults)
 			Ck(err)
@@ -168,7 +165,6 @@ func PrintUsageAndExit() {
 	fmt.Println("Usage: go run main.go {subcommand ...}")
 	fmt.Println("Subcommands:")
 	fmt.Println("  commit    - Commit the current state")
-	fmt.Println("  prompt    - Present the user with an editor to type a prompt")
 	fmt.Println("  generate  - Generate changes from GPT based on the prompt")
 	fmt.Println("  diff      - Run 'git difftool' to review changes")
 	fmt.Println("  test      - Run tests and include the results in the prompt file")
