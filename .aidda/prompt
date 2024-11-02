@@ -1,4 +1,4 @@
-remove diff subcommand
+move the header extraction logic to a separate function
 
 In: 
     v3/aidda/aidda.go 
@@ -17,7 +17,6 @@ add auto subcommand test case
 
 .stop
 
-- move the header extraction logic to a separate function
 
 .stop
 
