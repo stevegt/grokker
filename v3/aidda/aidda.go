@@ -164,6 +164,9 @@ func Do(g *core.Grokker, args ...string) (err error) {
 		case "test":
 			err = runTest(testFn)
 			Ck(err)
+		case "auto":
+			err = runAuto(g, stateFn, promptFn, testResults)
+			Ck(err)
 		default:
 			PrintUsageAndExit()
 		}
@@ -175,11 +178,12 @@ func Do(g *core.Grokker, args ...string) (err error) {
 func PrintUsageAndExit() {
 	fmt.Println("Usage: go run main.go {subcommand ...}")
 	fmt.Println("Subcommands:")
-	fmt.Println("  commit   - Commit the current state")
-	fmt.Println("  prompt   - Present the user with an editor to type a prompt")
-	fmt.Println("  generate - Generate changes from GPT based on the prompt")
-	fmt.Println("  diff     - Run 'git difftool' to review changes")
-	fmt.Println("  test     - Run tests and include the results in the prompt file")
+	fmt.Println("  commit    - Commit the current state")
+	fmt.Println("  prompt    - Present the user with an editor to type a prompt")
+	fmt.Println("  generate  - Generate changes from GPT based on the prompt")
+	fmt.Println("  diff      - Run 'git difftool' to review changes")
+	fmt.Println("  test      - Run tests and include the results in the prompt file")
+	fmt.Println("  auto      - Automatically cycle through generate -> prompt -> commit based on current state")
 	os.Exit(1)
 }
 
@@ -720,4 +724,52 @@ func readState(stateFn string) (string, error) {
 // writeState writes the current state to the state file
 func writeState(stateFn string, state string) error {
 	return ioutil.WriteFile(stateFn, []byte(state), 0644)
+}
+
+// runAuto automatically cycles through generate, commit, and prompt states
+func runAuto(g *core.Grokker, stateFn, promptFn, testResults string) (err error) {
+	defer Return(&err)
+
+	currentState, err := readState(stateFn)
+	if err != nil {
+		return fmt.Errorf("cannot read state: %v", err)
+	}
+
+	switch currentState {
+	case StateGenerate:
+		Pf("Current state: generate. Proceeding to commit.")
+		err = commit(g, stateFn, promptFn)
+		if err != nil {
+			return fmt.Errorf("commit failed: %v", err)
+		}
+		// After committing, set state to 'commit'
+		err = writeState(stateFn, StateCommit)
+		if err != nil {
+			return fmt.Errorf("writeState failed: %v", err)
+		}
+	case StateCommit:
+		Pf("Current state: commit. Proceeding to prompt.")
+		p, err := getPrompt(promptFn)
+		if err != nil {
+			return fmt.Errorf("getPrompt failed: %v", err)
+		}
+		// After editing the prompt, set state to 'prompt'
+		err = writeState(stateFn, StatePrompt)
+		if err != nil {
+			return fmt.Errorf("writeState failed: %v", err)
+		}
+	case StatePrompt:
+		Pf("Current state: prompt. Proceeding to generate.")
+		p, err := getPrompt(promptFn)
+		if err != nil {
+			return fmt.Errorf("getPrompt failed: %v", err)
+		}
+		err = getChanges(g, p, testResults)
+		if err != nil {
+			return fmt.Errorf("getChanges failed: %v", err)
+		}
+	default:
+		return fmt.Errorf("invalid state: %s", currentState)
+	}
+
 }

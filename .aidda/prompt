@@ -7,16 +7,11 @@ Out:
     v3/aidda/aidda.go
     v3/aidda/aidda_test.go
 
-add auto subcommand
-
-The goal is to have AIDDA automatically decide the
-next action based on the state:
-
-    generate -> commit -> prompt -> generate -> commit -> ...
+don't include headers in the commit message
 
 .stop
 
-don't include headers in the commit message
+add auto subcommand test case
 
 
 remove diff subcommand
