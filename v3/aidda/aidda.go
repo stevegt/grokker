@@ -269,6 +269,16 @@ func readPrompt(path string) (p *Prompt, err error) {
 	Pl(p.Txt)
 
 	// Process headers
+	err = processHeaders(headerMap, path, p)
+	if err != nil {
+		return nil, err
+	}
+
+	return p, nil
+}
+
+// processHeaders processes the header map and sets the Prompt fields accordingly
+func processHeaders(headerMap map[string]string, path string, p *Prompt) error {
 	p.Sysmsg = strings.TrimSpace(headerMap["Sysmsg"])
 	inStr := strings.TrimSpace(headerMap["In"])
 	outStr := strings.TrimSpace(headerMap["Out"])
@@ -316,17 +326,19 @@ func readPrompt(path string) (p *Prompt, err error) {
 		f := p.In[i]
 		fi, err := os.Stat(f)
 		if err != nil {
-			return nil, fmt.Errorf("error reading %s: %v", f, err)
+			return fmt.Errorf("error reading %s: %v", f, err)
 		}
 		if fi.IsDir() {
 			files, err := getFilesInDir(f)
-			Ck(err)
+			if err != nil {
+				return err
+			}
 			p.In = append(p.In[:i], append(files, p.In[i+1:]...)...)
 			i += len(files) - 1
 		}
 	}
 
-	return p, nil
+	return nil
 }
 
 // extractHeaders extracts headers from a slice of lines and returns a map

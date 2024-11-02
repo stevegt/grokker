@@ -1,214 +1,74 @@
-move all of the header processing to a separate function
+brainstorm parallelizing the aidda workflow
+
+The goal is to do as much in parallel as possible, particularly API
+calls and test runs, so that the user doesn't have to wait for one
+step to finish before starting the next.
+
+A secondary goal is to avoid using git's networking or merge features,
+including pull, push, fetch, and merge, as much as possible, to encourage
+us to develop a better decentralized workflow.
+
+Imagine a scenario where there is a 'watch' subcommand which would:
+
+- start two daemons in the background:
+    - watch daemon (W)
+    - temporary repo daemon (R)
+- the watch daemon would:
+    - watch the A prompt file for changes
+        - when a prompt file change is detected, it would create a CBOR
+          message containing the prompt file contents and the A HEAD commit
+          hash (C), and send it to R, promising to respond to any follow-up
+          queries for C and its prerequisites
+    - listen for messages from R
+    - when receiving an object message from R, it would:
+        - add the object to A
+    - when receiving a commit message from R, it would somehow notify the user
+        that changes are ready to be merged
+    - when receving an object request from R, it would:
+        - send a message to R containing the requested objects
+- R would:
+    - listen for messages from W
+    - when receiving an object message from W, it would:
+        - add the object to T
+    - when receiving a prompt message, it would:
+        - check T for C
+            - if C is not found, it would:
+                - send a message to W containing the latest commit
+                  hash in T, asking for the contents of the objects
+                  that make up C and its prerequisites, promising to
+                  generate code from the prompt.
+                - re-add the message to the tail of the queue
+            - if C is found, it would:
+                - check out C into a new branch (B)
+                - run the generate subcommand in T based on the queued prompt file contents
+                - run the test subcommand in T
+                - if the tests pass, it would:
+                    - commit the changes in T to the B branch 
+                    - send a message to W containing the commit hash of B
+                - if the tests fail, it would:
+                    - append the test output to the prompt file and run the generate
+                      subcommand in T again, repeating the process
+- when the user receives the notification of changes ready to be
+  merged, they would somehow notify W to merge the changes.  The
+  daemon would:
+    - stash any uncommitted changes in A
+    - merge from Tx to A without committing, resolving any merge conflicts 
+    - run the test subcommand in A
+    - show the user the test results
+    - stop, waiting for the user to review the changes and commit them
+    - when the user is done reviewing, they would somehow notify the
+      daemon to either commit the changes in A or reject them with an
+      updated prompt file
+- when W receives the notification to commit, it would:
+    - commit the changes in A
+    - unstash any stashed changes
+
 
 In: 
     v3/aidda/aidda.go 
     v3/aidda/aidda_test.go
 Out: 
-    v3/aidda/aidda.go 
-    v3/aidda/aidda_test.go
+    v3/aidda/BRAINSTORM.md
 .stop
 
 
-add auto subcommand test case
-
-
-
-- update the tests 
-
-.stop
-
-
-.stop
-
-The user's workflow will be as follows:
-- edit `.aidda/prompt` to describe the changes to be created
-- run `aidda prompt` to ask the LLM to generate the changes
-- optionally repeat the previous step until the prompt file and
-  changes are satisfactory
-- run `aidda commit` to commit the changes with the prompt file as the
-  commit message
-
-Alternative workflow:
-- edit `.aidda/prompt` to describe the changes to be created
-- run `aidda auto`.  If the prompt file has been edited since the last
-  commit, AIDDA will not commit and will generate the changes.  If
-  the prompt file has not been edited since the last commit, AIDDA
-  will commit the changes with the prompt file as the commit message
-  and will not generate any changes.
-
-.stop
-
-In: v3/
-Out:
-    v3/cli/cli.go
-    v3/core/api.go
-    v3/core/grokker.go
-    v3/core/model.go
-
-
-
-To enable overriding the model using a `-model` flag on the command line for all subcommands without changing the model name stored in `.grok`, you'll need to make several changes across your Go codebase. Below, I'll describe the required changes and list the files that need to be modified.
-
-### Overview of Changes
-
-1. **Add a Global `-model` Flag**: Introduce a global `-model` flag that applies to all subcommands in your CLI application using the Kong library.
-
-2. **Modify `cli.go`**: Update the command-line parsing logic to handle the global `-model` flag. Ensure it can override the model during runtime without persisting the change to `.grok`.
-
-3. **Adjust Grokker Initialization**: In the core package, modify how the `Grokker` instance is initialized to accept the overridden model from the command line if provided.
-
-4. **Ensure Non-Persistence of Model Change**: Prevent the overridden model from being saved back to the `.grok` configuration file.
-
-### Detailed Changes
-
-#### 1. Add a Global `-model` Flag in `cli.go`
-
-The Kong library allows you to define global flags that are accessible across all subcommands. Modify the CLI struct to include the `Model` field at the global level.
-
-```go
-type CLI struct {
-    Model   string   `name:"model" help:"Override the model to use during execution."`
-    Verbose bool     `short:"v" help:"Show debug and progress information on stderr."`
-    // ... existing subcommands ...
-}
-```
-
-By adding the `Model` field at the root of the `CLI` struct, Kong will recognize `-model` as a global flag.
-
-#### 2. Modify Command-Line Parsing in `cli.go`
-
-In your `Cli` function, after parsing the arguments, check if the `Model` flag has been provided and, if so, pass it to the `Grokker` initialization. Adjust the initialization logic to accept an optional model parameter.
-
-```go
-// After parsing with Kong
-ctx, err := parser.Parse(args)
-parser.FatalIfErrorf(err)
-
-// ... existing code ...
-
-var grok *core.Grokker
-var save bool
-var modelOverride string
-
-// Check if the global model flag is set
-if cli.Model != "" {
-    modelOverride = cli.Model
-}
-
-if needsDb {
-    var migrated bool
-    var was, now string
-    var lock *flock.Flock
-
-    // Pass the modelOverride to Load function
-    grok, migrated, was, now, lock, err = core.Load(modelOverride, readonly)
-    // ... existing error handling and migration logic ...
-}
-```
-
-#### 3. Update `core.Load` and Related Functions in `core/api.go`
-
-Modify the `Load` function (and any functions it calls) to accept an optional model parameter. If the model is provided via the command line, use it during the initialization of the `Grokker` instance without updating the stored model in `.grok`.
-
-```go
-// In core/api.go
-
-func Load(modelOverride string, readonly bool) (g *Grokker, migrated bool, oldver, newver string, lock *flock.Flock, err error) {
-    // ... existing code to find the .grok file ...
-
-    g, migrated, oldver, newver, lock, err = LoadFrom(grokpath,
-    modelOverride, readonly)
-    return
-}
-
-func LoadFrom(grokpath string, modelOverride string, readonly bool) (g *Grokker, migrated bool, oldver, newver string, lock *flock.Flock, err error) {
-    // ... existing loading logic ...
-
-    // Setup grokker with the model, giving precedence to
-    // modelOverride
-    modelChoice := modelOverride
-    if modelChoice == "" {
-        modelChoice = g.Model // Use model from .grok if no override
-    }
-
-    err = g.Setup(modelChoice)
-    Ck(err)
-
-    return
-}
-```
-
-#### 4. Prevent Overridden Model from Being Saved in `.grok`
-
-Ensure that when `g.Save()` is called, it doesn't overwrite the model in `.grok` if the model was overridden via the command line.
-
-In the `Grokker` struct, you can add a flag to indicate that the model has been overridden temporarily.
-
-```go
-// In core/grokker.go
-
-type Grokker struct {
-    // ... existing fields ...
-    ModelOverride bool `json:"-"`
-}
-```
-
-Modify the `SetModel` method to accept an additional parameter or set
-the `ModelOverride` flag.
-
-```go
-func (g *Grokker) SetModel(model string, overridden bool) (oldModel string, err error) {
-    // ... existing code ...
-
-    g.ModelOverride = overridden
-    return
-}
-```
-
-Then, in the `Save` method, check this flag before writing the model to the file.
-
-```go
-func (g *Grokker) Save() (err error) {
-    defer Return(&err)
-
-    if g.ModelOverride {
-        // Temporarily store the model
-        originalModel := g.Model
-
-        // Revert to the stored model
-        g.Model = g.modelFromGrokFile
-
-        // Proceed with saving
-        // ... existing save logic ...
-
-        // Restore the overridden model
-        g.Model = originalModel
-
-        return
-    }
-
-    // ... existing save logic ...
-}
-```
-
-You'll need to adjust the initialization to store the original model from `.grok` into `g.modelFromGrokFile` during loading.
-
-```go
-// In LoadFrom function
-g.modelFromGrokFile = g.Model
-```
-
-#### 5. Ensure All Subcommands Use the Overridden Model
-
-Since the `Grokker` instance is initialized with the correct model, all subcommands that use `g` will automatically use the overridden model without any further changes.
-
-### List of Files to be Changed
-
-1. `cli.go` (located in `/home/stevegt/lab/grokker/v3/cli/cli.go`)
-2. `core/api.go` (located in `/home/stevegt/lab/grokker/v3/core/api.go`)
-3. `core/grokker.go` (located in `/home/stevegt/lab/grokker/v3/core/grokker.go`)
-4. `core/model.go` (located in `/home/stevegt/lab/grokker/v3/core/model.go`)
-
-### Summary
-
-By making these changes, you enable the `-model` flag to override the model used during execution for all subcommands without altering the model stored in `.grok`. This approach ensures that the overridden model is used only for the current execution and doesn't persist between runs, aligning with your requirements.
