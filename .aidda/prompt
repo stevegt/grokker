@@ -1,7 +1,4 @@
-write the commit message to .aidda/commitmsg and use that in the commit function
-
-- write the commit message to .aidda/commitmsg in the getChanges function
-- read the commit message from .aidda/commitmsg in the commit function
+remove diff subcommand
 
 In: 
     v3/aidda/aidda.go 
@@ -15,7 +12,6 @@ Out:
 add auto subcommand test case
 
 
-remove diff subcommand
 
 - update the tests 
 
