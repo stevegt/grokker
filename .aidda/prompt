@@ -7,22 +7,22 @@ Out:
     v3/aidda/aidda.go
     v3/aidda/aidda_test.go
 
-use .aidda/prompt as commit message instead of generating a commit message
+replace the stamp file with an .aidda/state file
 
-The goal is to do "commit message driven development", using the
-commit message to provide instructions to the LLM. To achieve this, we
-will use the content of the `.aidda/prompt` file as the commit message
-instead of generating a commit message based on the changes.  
+The state file contains a named state: 
+- commit: commit has completed
+- prompt: prompt has been edited 
+- generate: generate has completed
 
-- move the headers to the end of the prompt file and write a parser to
-  extract them instead of using rfc822 parser
-- in the parser, ensure there is a blank line after the first line of
-  the prompt file
-- when committing, make a stamp file. we will use this stamp file to
-  detect if prompt has been edited since last commit; if the stamp
-  file is newer than the prompt file, we will refuse to commit
-- update the tests to reflect the new format of the prompt file and
-  the new workflow
+State machine transitions:
+
+    commit -> prompt -> generate -> commit -> ...
+
+.stop
+
+don't include headers in the commit message
+
+- update the tests 
 
 .stop
 
