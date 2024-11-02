@@ -1,2 +1,2 @@
-remove diff subcommand
+move the header extraction logic to a separate function
 

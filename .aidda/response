@@ -261,29 +261,9 @@ func readPrompt(path string) (p *Prompt, err error) {
 
 	// Extract headers
 	headers := lines[hdrStart:]
-	headerMap := make(map[string]string)
-	var currentKey string
-	for _, h := range headers {
-		if h == "" {
-			continue
-		}
-		if strings.HasPrefix(h, " ") || strings.HasPrefix(h, "\t") {
-			// Continuation line
-			if currentKey == "" {
-				return nil, fmt.Errorf("continuation line found without a preceding header")
-			}
-			continuation := strings.TrimSpace(h)
-			headerMap[currentKey] += " " + continuation
-		} else {
-			parts := strings.SplitN(h, ":", 2)
-			if len(parts) != 2 {
-				continue
-			}
-			key := strings.TrimSpace(parts[0])
-			value := strings.TrimSpace(parts[1])
-			currentKey = key
-			headerMap[key] = value
-		}
+	headerMap, err := extractHeaders(headers)
+	if err != nil {
+		return nil, err
 	}
 
 	// Use the prompt text excluding headers as the prompt and commit message
@@ -349,6 +329,35 @@ func readPrompt(path string) (p *Prompt, err error) {
 	}
 
 	return p, nil
+}
+
+// extractHeaders extracts headers from a slice of lines and returns a map
+func extractHeaders(headers []string) (map[string]string, error) {
+	headerMap := make(map[string]string)
+	var currentKey string
+	for _, h := range headers {
+		if h == "" {
+			continue
+		}
+		if strings.HasPrefix(h, " ") || strings.HasPrefix(h, "\t") {
+			// Continuation line
+			if currentKey == "" {
+				return nil, fmt.Errorf("continuation line found without a preceding header")
+			}
+			continuation := strings.TrimSpace(h)
+			headerMap[currentKey] += " " + continuation
+		} else {
+			parts := strings.SplitN(h, ":", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+			currentKey = key
+			headerMap[key] = value
+		}
+	}
+	return headerMap, nil
 }
 
 // getFilesInDir returns a list of files in a directory
@@ -700,7 +709,6 @@ func ensureIgnoreFile(fn string) (err error) {
 }
 ```
 EOF_/home/stevegt/lab/grokker/v3/aidda/aidda.go
-
 File: /home/stevegt/lab/grokker/v3/aidda/aidda_test.go
 ```go
 package aidda
