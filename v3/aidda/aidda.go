@@ -38,12 +38,6 @@ var (
 
 var DefaultSysmsg = "You are an expert Go programmer. Please make the requested changes to the given code or documentation."
 
-const (
-	StateCommit   = "commit"
-	StatePrompt   = "prompt"
-	StateGenerate = "generate"
-)
-
 func Do(g *core.Grokker, args ...string) (err error) {
 	defer Return(&err)
 
@@ -65,14 +59,6 @@ func Do(g *core.Grokker, args ...string) (err error) {
 	promptFn := Spf("%s/prompt", dir)
 	ignoreFn = Spf("%s/ignore", dir)
 	testFn := Spf("%s/test", dir)
-	stateFn := Spf("%s/state", dir)
-
-	// Initialize the state to 'generate' if the state file doesn't exist
-	_, err = os.Stat(stateFn)
-	if os.IsNotExist(err) {
-		err = writeState(stateFn, StateGenerate)
-		Ck(err)
-	}
 
 	// Ensure there is an ignore file
 	err = ensureIgnoreFile(ignoreFn)
@@ -114,45 +100,24 @@ func Do(g *core.Grokker, args ...string) (err error) {
 		Ck(err)
 	}
 
+	var p *Prompt
+	p, err = getPrompt(promptFn)
+	Ck(err)
+
 	for i := 0; i < len(args); i++ {
 		cmd := args[i]
-		// get current state
-		currentState, err := readState(stateFn)
-		Ck(err)
-		// get prompt
-		p, err := getPrompt(promptFn)
-		Ck(err)
 		Pl("aidda: running subcommand", cmd)
 		switch cmd {
 		case "init":
 			// Already done by this point, so this is a no-op
 		case "commit":
-			// check that current state is 'generate'
-			if currentState != StateGenerate {
-				return fmt.Errorf("Cannot commit in current state '%s'. Expected state '%s'.", currentState, StateGenerate)
-			}
 			err = commit(g, p)
 			Ck(err)
-			// After committing, set state to 'commit'
-			err = writeState(stateFn, StateCommit)
-			Ck(err)
 		case "prompt":
-			// Check that current state is 'commit'
-			if currentState != StateCommit {
-				return fmt.Errorf("Cannot prompt in current state '%s'. Expected state '%s'.", currentState, StateCommit)
-			}
-			// After editing the prompt, set state to 'prompt'
-			err = writeState(stateFn, StatePrompt)
+			p, err = getPrompt(promptFn)
 			Ck(err)
 		case "generate":
-			// Check that current state is 'prompt'
-			if currentState != StatePrompt {
-				return fmt.Errorf("Cannot generate in current state '%s'. Expected state '%s'.", currentState, StatePrompt)
-			}
 			err = getChanges(g, p, testResults)
-			Ck(err)
-			// After generating changes, set state to 'generate'
-			err = writeState(stateFn, StateGenerate)
 			Ck(err)
 		case "diff":
 			err = runDiff()
@@ -161,15 +126,35 @@ func Do(g *core.Grokker, args ...string) (err error) {
 			err = runTest(testFn)
 			Ck(err)
 		case "auto":
-			switch currentState {
-			case StateGenerate:
-				args = append(args, "commit")
-			case StateCommit:
-				args = append(args, "prompt")
-			case StatePrompt:
-				args = append(args, "generate")
-			default:
-				return fmt.Errorf("invalid state: %s", currentState)
+			// Decide based on timestamps
+			promptInfo, err := os.Stat(promptFn)
+			Ck(err)
+			if !promptInfo.ModTime().IsZero() {
+				// Get the list of output files
+				p, err := getPrompt(promptFn)
+				Ck(err)
+				commitNeeded := false
+				for _, outFn := range p.Out {
+					outInfo, err := os.Stat(outFn)
+					if os.IsNotExist(err) {
+						// If any output file does not exist, treat as need to generate
+						commitNeeded = true
+						break
+					} else {
+						Ck(err)
+						if outInfo.ModTime().After(promptInfo.ModTime()) {
+							commitNeeded = true
+							break
+						}
+					}
+				}
+				if commitNeeded {
+					args = append(args, "commit")
+				} else {
+					args = append(args, "generate")
+				}
+			} else {
+				return fmt.Errorf("prompt file does not exist or has invalid modification time")
 			}
 		default:
 			PrintUsageAndExit()
@@ -187,7 +172,7 @@ func PrintUsageAndExit() {
 	fmt.Println("  generate  - Generate changes from GPT based on the prompt")
 	fmt.Println("  diff      - Run 'git difftool' to review changes")
 	fmt.Println("  test      - Run tests and include the results in the prompt file")
-	fmt.Println("  auto      - Automatically run generate, prompt, or commit based on current state")
+	fmt.Println("  auto      - Automatically run generate or commit based on file timestamps")
 	os.Exit(1)
 }
 
@@ -723,21 +708,4 @@ func ensureIgnoreFile(fn string) (err error) {
 		Ck(err)
 	}
 	return err
-}
-
-// readState reads the current state from the state file
-func readState(stateFn string) (string, error) {
-	content, err := ioutil.ReadFile(stateFn)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", nil
-		}
-		return "", err
-	}
-	return strings.TrimSpace(string(content)), nil
-}
-
-// writeState writes the current state to the state file
-func writeState(stateFn string, state string) error {
-	return ioutil.WriteFile(stateFn, []byte(state), 0644)
 }

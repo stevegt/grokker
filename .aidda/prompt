@@ -1,7 +1,16 @@
-add a test case for continuation lines in headers
+in the auto subcommand, decide what to do based on relative timestamps of the prompt file and the output files
 
-In: v3/aidda/aidda.go v3/aidda/aidda_test.go
-Out: v3/aidda/aidda.go v3/aidda/aidda_test.go
+- if the prompt file is newer than the output files, generate the changes
+- if the prompt file is older than the output files, commit the changes
+
+remove the state file and the state checks in the other subcommands
+
+In: 
+    v3/aidda/aidda.go 
+    v3/aidda/aidda_test.go
+Out: 
+    v3/aidda/aidda.go 
+    v3/aidda/aidda_test.go
 .stop
 
 move the logic for state management to its own set of methods on a struct
