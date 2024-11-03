@@ -15,8 +15,7 @@ require (
 
 require (
 	github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be
-	github.com/emersion/go-message v0.18.1
-	github.com/fsnotify/fsnotify v1.7.0
+	github.com/eiannone/keyboard v0.0.0-20220611211555-0d226195f203
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
 	github.com/sashabaranov/go-openai v1.29.2

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eiannone/keyboard"
 	gitignore "github.com/sabhiram/go-gitignore"
 	"github.com/stevegt/envi"
 	. "github.com/stevegt/goadapt"
@@ -122,11 +123,24 @@ func Do(g *core.Grokker, args ...string) (err error) {
 		switch cmd {
 		case "init":
 			// Already done by this point, so this is a no-op
+		case "menu":
+			action, err := menu(g)
+			Ck(err)
+			args = append(args, action)
 		case "commit":
-			err = commit(g)
+			// commit using current prompt as commit message
+			err = commit(g, p.Txt)
 			Ck(err)
 		case "generate":
+			// generate code from current prompt file contents
 			err = getChanges(g, p, testResults)
+			Ck(err)
+		case "done":
+			// Read commit message from .aidda/commitmsg
+			commitMsgBytes, err := ioutil.ReadFile(commitMsgFn)
+			Ck(err)
+			commitMsg := string(commitMsgBytes)
+			err = commit(g, commitMsg)
 			Ck(err)
 		case "test":
 			err = runTest(testFn)
@@ -162,6 +176,10 @@ func Do(g *core.Grokker, args ...string) (err error) {
 			} else {
 				return fmt.Errorf("prompt file does not exist or has invalid modification time")
 			}
+		case "abort":
+			// Abort the current operation
+			Pl("Operation aborted by user.")
+			return fmt.Errorf("operation aborted")
 		default:
 			PrintUsageAndExit()
 		}
@@ -173,10 +191,13 @@ func Do(g *core.Grokker, args ...string) (err error) {
 func PrintUsageAndExit() {
 	fmt.Println("Usage: go run main.go {subcommand ...}")
 	fmt.Println("Subcommands:")
-	fmt.Println("  commit    - Commit the current state")
+	fmt.Println("  menu      - Display the action menu")
+	fmt.Println("  commit    - Commit using the current prompt file contents as the commit message")
 	fmt.Println("  generate  - Generate changes from GPT based on the prompt")
+	fmt.Println("  done      - Done generating and commit changes with the current prompt as commit message")
 	fmt.Println("  test      - Run tests and include the results in the prompt file")
 	fmt.Println("  auto      - Automatically run generate or commit based on file timestamps")
+	fmt.Println("  abort     - Abort the current operation")
 	os.Exit(1)
 }
 
@@ -646,7 +667,7 @@ func getPrompt(promptFn string) (p *Prompt, err error) {
 	return p, err
 }
 
-func commit(g *core.Grokker) (err error) {
+func commit(g *core.Grokker, commitMsg string) (err error) {
 	defer Return(&err)
 	var rc int
 
@@ -660,12 +681,9 @@ func commit(g *core.Grokker) (err error) {
 		rc, err = RunInteractive("git add -A")
 		Assert(rc == 0, "git add failed")
 		Ck(err)
-		// Read commit message from .aidda/commitmsg
-		commitMsgBytes, err := ioutil.ReadFile(commitMsgFn)
-		Ck(err)
-		commitMsg := string(commitMsgBytes)
 		// git commit
-		stdout, stderr, rc, err = Run("git commit -F-", []byte(commitMsg))
+		stdin := []byte(commitMsg)
+		stdout, stderr, rc, err = Run("git commit -F -", stdin)
 		Pl(string(stdout))
 		Pl(string(stderr))
 		Assert(rc == 0, "git commit failed")
@@ -728,4 +746,45 @@ func ensureIgnoreFile(fn string) (err error) {
 		Ck(err)
 	}
 	return err
+}
+
+// menu displays the action menu and returns the selected action as a string
+func menu(g *core.Grokker) (action string, err error) {
+	defer Return(&err)
+
+	fmt.Println("Select an action:")
+	fmt.Println("  [g]enerate code from current prompt file contents")
+	fmt.Println("  [d]one generating and editing, commit msg = the same prompt used to generate code")
+	fmt.Println("  [c]ommit now, commit msg = current prompt file contents")
+	fmt.Println("  [a]bort")
+	fmt.Println("Press the corresponding key to select an action...")
+
+	// Initialize keyboard
+	if err := keyboard.Open(); err != nil {
+		return "", fmt.Errorf("failed to open keyboard: %v", err)
+	}
+	defer keyboard.Close()
+
+	// Wait for a single keypress
+	char, _, err := keyboard.GetSingleKey()
+	if err != nil {
+		return "", fmt.Errorf("failed to get key: %v", err)
+	}
+
+	// Handle the keypress
+	switch strings.ToLower(string(char)) {
+	case "g":
+		action = "generate"
+	case "d":
+		action = "done"
+	case "c":
+		action = "commit"
+	case "a":
+		action = "abort"
+	default:
+		fmt.Printf("\nUnknown option: %s\n", string(char))
+		return "", fmt.Errorf("unknown menu option: %s", string(char))
+	}
+
+	return action, nil
 }

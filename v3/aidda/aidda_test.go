@@ -262,3 +262,22 @@ Out: output1.go output2.go
 		t.Errorf("Expected error about missing blank line, got: %v", err)
 	}
 }
+
+func TestDoAbort(t *testing.T) {
+	// Setup a mock Grokker
+	mockGrokker := &core.Grokker{
+		Root: "/tmp/mockgrokker",
+	}
+
+	// Attempt to perform abort
+	err := Do(mockGrokker, "abort")
+
+	if err == nil {
+		t.Fatalf("Expected error on abort, got nil")
+	}
+
+	expectedError := "operation aborted"
+	if err.Error() != expectedError {
+		t.Errorf("Expected error message %q, got %q", expectedError, err.Error())
+	}
+}

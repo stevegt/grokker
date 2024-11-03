@@ -4,6 +4,7 @@ Actions are:
 - [g]enerate code from current prompt file contents
 - [d]one generating and editing, commit msg = the same prompt used to generate
 - [p]rompt file modified, commit msg = current prompt file contents
+- [a]bort the menu and do nothing
 
 A single keystroke, without the need to press enter, is enough to trigger the action.
 
@@ -15,4 +16,5 @@ Out:
     v3/aidda/aidda_test.go
 .stop
 
+add comments recommending refactoring of the NewPrompt, getPrompt, and readPrompt functions 
 
