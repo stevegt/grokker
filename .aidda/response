@@ -756,8 +756,8 @@ func menu(g *core.Grokker) (action string, err error) {
 
 	fmt.Println("Select an action:")
 	fmt.Println("  [g]enerate code from current prompt file contents")
-	fmt.Println("  [d]one generating and editing, commit msg = the same prompt used to generate code")
-	fmt.Println("  [c]ommit now, commit msg = current prompt file contents")
+	fmt.Println("  [d]one generating and editing, commit msg = the same prompt used to generate")
+	fmt.Println("  [p]rompt file modified, commit msg = current prompt file contents")
 	fmt.Println("  [a]bort")
 	fmt.Println("Press the corresponding key to select an action...")
 
@@ -779,7 +779,7 @@ func menu(g *core.Grokker) (action string, err error) {
 		action = "generate"
 	case "d":
 		action = "done"
-	case "c":
+	case "p":
 		action = "commit"
 	case "a":
 		action = "abort"
