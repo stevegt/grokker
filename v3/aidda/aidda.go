@@ -209,7 +209,10 @@ type Prompt struct {
 	Txt    string
 }
 
-// NewPrompt opens or creates a prompt object
+// TODO: The NewPrompt function is responsible for both creating and reading a prompt.
+// It would be beneficial to separate these responsibilities into distinct functions
+// to enhance readability and maintainability.
+
 func NewPrompt(path string) (p *Prompt, err error) {
 	defer Return(&err)
 	// Check if the file exists
@@ -224,6 +227,33 @@ func NewPrompt(path string) (p *Prompt, err error) {
 	Ck(err)
 	return
 }
+
+// TODO: The getPrompt function not only retrieves the prompt but also handles user interaction.
+// Refactoring this function to separate user interaction from prompt retrieval would improve its clarity
+// and make it easier to test.
+
+func getPrompt(promptFn string) (p *Prompt, err error) {
+	defer Return(&err)
+
+	// If AIDDA_EDITOR is set, open the editor where the users can
+	// type a natural language instruction
+	editor := envi.String("AIDDA_EDITOR", "")
+	if editor != "" {
+		Pf("Opening editor %s\n", editor)
+		rc, err := RunInteractive(Spf("%s %s", editor, promptFn))
+		Ck(err)
+		Assert(rc == 0, "editor failed")
+	}
+
+	// Re-read the prompt file
+	p, err = NewPrompt(promptFn)
+	Ck(err)
+
+	return p, err
+}
+
+// TODO: The readPrompt function handles both parsing the prompt file and expanding file paths.
+// Splitting these concerns into separate functions would make the code more modular and easier to maintain.
 
 // readPrompt reads a prompt file
 func readPrompt(path string) (p *Prompt, err error) {
@@ -647,25 +677,8 @@ func (tcs *tokenCounts) showTokenCounts() {
 	Pf(format, "total", total)
 }
 
-func getPrompt(promptFn string) (p *Prompt, err error) {
-	defer Return(&err)
-
-	// If AIDDA_EDITOR is set, open the editor where the users can
-	// type a natural language instruction
-	editor := envi.String("AIDDA_EDITOR", "")
-	if editor != "" {
-		Pf("Opening editor %s\n", editor)
-		rc, err := RunInteractive(Spf("%s %s", editor, promptFn))
-		Ck(err)
-		Assert(rc == 0, "editor failed")
-	}
-
-	// Re-read the prompt file
-	p, err = NewPrompt(promptFn)
-	Ck(err)
-
-	return p, err
-}
+// TODO: The commit function handles both checking the git status and performing commit operations.
+// Splitting these into separate functions would improve clarity and make each function more focused.
 
 func commit(g *core.Grokker, commitMsg string) (err error) {
 	defer Return(&err)
@@ -687,7 +700,6 @@ func commit(g *core.Grokker, commitMsg string) (err error) {
 		Pl(string(stdout))
 		Pl(string(stderr))
 		Assert(rc == 0, "git commit failed")
-		Ck(err)
 	} else {
 		Pl("Nothing to commit")
 	}
