@@ -677,9 +677,6 @@ func (tcs *tokenCounts) showTokenCounts() {
 	Pf(format, "total", total)
 }
 
-// TODO: The commit function handles both checking the git status and performing commit operations.
-// Splitting these into separate functions would improve clarity and make each function more focused.
-
 func commit(g *core.Grokker, commitMsg string) (err error) {
 	defer Return(&err)
 	var rc int
@@ -700,6 +697,7 @@ func commit(g *core.Grokker, commitMsg string) (err error) {
 		Pl(string(stdout))
 		Pl(string(stderr))
 		Assert(rc == 0, "git commit failed")
+		Ck(err)
 	} else {
 		Pl("Nothing to commit")
 	}
