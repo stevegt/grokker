@@ -1,2 +1,4 @@
-add comments recommending refactoring of the NewPrompt, getPrompt, and readPrompt functions 
+create a Graphviz dot file representing the message flow in BRAINSTORM.md
+
+- directed graph
 

@@ -1,11 +1,11 @@
-add comments recommending refactoring of the NewPrompt, getPrompt, and readPrompt functions 
+create a Graphviz dot file representing the message flow in BRAINSTORM.md
+
+- directed graph
 
 In: 
-    v3/aidda/aidda.go 
-    v3/aidda/aidda_test.go
+    v3/aidda/BRAINSTORM.md
 Out: 
-    v3/aidda/aidda.go 
-    v3/aidda/aidda_test.go
+    v3/aidda/BRAINSTORM.dot
 .stop
 
 
