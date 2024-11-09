@@ -1,12 +1,55 @@
-don't read new prompt file at init
+aidda: rm 'done' subcommand, add 'regenerate' and 'force-commit'
 
-During aidda init, we create a new, default prompt file but prefix the
-fire list with a # to prevent it from being used.  We don't want to
-read this file at init time.
+Instead of having separate 'done' and 'commit' subcommands, just use
+'commit'.  
 
-- refactor NewPrompt(), getPrompt(), and callers
-- rename NewPrompt() to mkPrompt()
-- don't have mkPrompt() read the prompt file
-- don't have getPrompt() call mkPrompt()
-- call mkPrompt() from init case, not earlier
+Add a 'regenerate' subcommand to regenerate code from the prompt
+without a commit.  This is useful if you want to improve the prompt to
+get the code you want, and don't want to commit changes until you're
+happy with the code.
+
+Add a 'force-commit' subcommand to commit changes without checking if
+the prompt has been updated since the last code generation.  This is
+useful if you've improved the prompt and know you don't need to
+regenerate the code before committing.
+
+We handle the case of a user forgetting to commit by doing this:
+
+- in .aidda/, keep zero-length timestamp files for:
+    - generate.stamp - the last time we generated code from a prompt
+    - commit.stamp - the last time we committed to git
+- when the user calls 'grok aidda generate':
+    - before generating, check if generate.stamp is newer than
+      commit.stamp
+        - if generate.stamp is newer, refuse to generate and suggest
+          that the user call 'grok aidda regenerate' or 'grok aidda commit'
+          instead
+    - after generating, update generate.stamp to the current time
+- when the user calls 'grok aidda commit':
+    - before committing, check if promptFn is newer than
+      generate.stamp
+        - if the prompt is newer, refuse to commit and suggest that
+          the user call either 'grok aidda regenerate' or 'grok aidda
+          force-commit'
+    - commit using the current promptFn, and update commit.stamp to
+      the current time
+- when the user calls 'grok aidda regenerate':
+    - regenerate code from the prompt without committing
+- when the user calls 'grok aidda force-commit':
+    - commit using the current promptFn
+- in generate():
+    - update generate.stamp to the current time
+- in commit():
+    - update commit.stamp to the current time
+
+
+Create a Stamp struct with:
+- a NewStamp(fn string) function to create a new Stamp object
+- a create(time time.Time) method to create a timestamp file
+- a newerThan(fn string) method to check if the timestamp is newer
+  than the given file
+- an update() method to update the timestamp file to the current time
+
+Note that all timestamp files are zero-length, and the timestamp is
+the POSIX 'last modified' time of the file.
 

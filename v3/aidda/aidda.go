@@ -3,8 +3,6 @@ package aidda
 import (
 	"bufio"
 	"fmt"
-	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,12 +31,77 @@ XXX update this
 */
 
 var (
-	baseDir     string
-	ignoreFn    string
-	commitMsgFn string
+	baseDir         string
+	ignoreFn        string
+	commitMsgFn     string
+	generateStampFn string
+	commitStampFn   string
+	DefaultSysmsg   = "You are an expert Go programmer. Please make the requested changes to the given code or documentation."
+	generateStamp   *Stamp
+	commitStamp     *Stamp
 )
 
-var DefaultSysmsg = "You are an expert Go programmer. Please make the requested changes to the given code or documentation."
+// Stamp struct for handling timestamp files
+type Stamp struct {
+	filename string
+}
+
+// NewStamp creates a new Stamp instance
+func NewStamp(filename string) *Stamp {
+	return &Stamp{filename: filename}
+}
+
+// Create creates the timestamp file with the specified time.
+// The file is zero-length, and its modification time is set to 't'.
+func (s *Stamp) Create(t time.Time) error {
+	file, err := os.OpenFile(s.filename, os.O_CREATE|os.O_EXCL, 0644)
+	if err != nil {
+		return err
+	}
+	file.Close()
+	return os.Chtimes(s.filename, t, t)
+}
+
+// Ensure ensures the timestamp file exists. If it does not, it
+// creates it with the given time.
+func (s *Stamp) Ensure(t time.Time) error {
+	if _, err := os.Stat(s.filename); os.IsNotExist(err) {
+		return s.Create(t)
+	}
+	return nil
+}
+
+// Update updates the timestamp file's modification time to the current time.
+func (s *Stamp) Update() error {
+	now := time.Now()
+	return os.Chtimes(s.filename, now, now)
+}
+
+// NewerThan returns true if our timestamp is newer than the modification time of the given file.
+func (s *Stamp) NewerThan(fn string) (bool, error) {
+	ourInfo, err := os.Stat(s.filename)
+	if err != nil {
+		return false, fmt.Errorf("failed to stat %s: %v", s.filename, err)
+	}
+	theirInfo, err := os.Stat(fn)
+	if err != nil {
+		return false, fmt.Errorf("failed to stat %s: %v", fn, err)
+	}
+	return ourInfo.ModTime().After(theirInfo.ModTime()), nil
+}
+
+// OlderThan returns true if our timestamp is older than the modification time of the given file.
+func (s *Stamp) OlderThan(fn string) (bool, error) {
+	ourInfo, err := os.Stat(s.filename)
+	if err != nil {
+		return false, fmt.Errorf("failed to stat %s: %v", s.filename, err)
+	}
+	theirInfo, err := os.Stat(fn)
+	if err != nil {
+		return false, fmt.Errorf("failed to stat %s: %v", fn, err)
+	}
+	return ourInfo.ModTime().Before(theirInfo.ModTime()), nil
+}
 
 func Do(g *core.Grokker, args ...string) (err error) {
 	defer Return(&err)
@@ -62,9 +125,22 @@ func Do(g *core.Grokker, args ...string) (err error) {
 	ignoreFn = Spf("%s/ignore", dir)
 	testFn := Spf("%s/test", dir)
 	commitMsgFn = Spf("%s/commitmsg", dir)
+	generateStampFn = Spf("%s/generate.stamp", dir)
+	commitStampFn = Spf("%s/commit.stamp", dir)
 
 	// Ensure there is an ignore file
 	err = ensureIgnoreFile(ignoreFn)
+	Ck(err)
+
+	// Initialize Stamp instances for generate and commit
+	generateStamp = NewStamp(generateStampFn)
+	commitStamp = NewStamp(commitStampFn)
+
+	// Ensure timestamp files exist
+	now := time.Now()
+	err = generateStamp.Ensure(now)
+	Ck(err)
+	err = commitStamp.Ensure(now)
 	Ck(err)
 
 	// If the test file is newer than any input files, then include
@@ -85,7 +161,7 @@ func Do(g *core.Grokker, args ...string) (err error) {
 			Ck(err)
 			if testStat.ModTime().After(inStat.ModTime()) {
 				// Include the test results in the prompt
-				buf, err := ioutil.ReadFile(testFn)
+				buf, err := os.ReadFile(testFn)
 				Ck(err)
 				testResults = string(buf)
 				break
@@ -95,7 +171,7 @@ func Do(g *core.Grokker, args ...string) (err error) {
 	if len(testResults) == 0 {
 		// Clear the test file
 		Pl("Clearing test file")
-		err = ioutil.WriteFile(testFn, []byte{}, 0644)
+		err = os.WriteFile(testFn, []byte{}, 0644)
 		Ck(err)
 	}
 
@@ -111,9 +187,9 @@ func Do(g *core.Grokker, args ...string) (err error) {
 			_, err = os.Stat(commitMsgFn)
 			if os.IsNotExist(err) {
 				// copy the prompt file to the commit message file
-				buf, err := ioutil.ReadFile(promptFn)
+				buf, err := os.ReadFile(promptFn)
 				Ck(err)
-				err = ioutil.WriteFile(commitMsgFn, buf, 0644)
+				err = os.WriteFile(commitMsgFn, buf, 0644)
 				Ck(err)
 			}
 		case "menu":
@@ -121,6 +197,14 @@ func Do(g *core.Grokker, args ...string) (err error) {
 			Ck(err)
 			args = append(args, action)
 		case "commit":
+			// Check if prompt is newer than generate.stamp
+			promptIsNewer, err := generateStamp.OlderThan(promptFn)
+			Ck(err)
+			if promptIsNewer {
+				Pl("Prompt has been updated since the last generation.")
+				Pl("Please run 'grok aidda regenerate' or 'grok aidda force-commit'")
+				return fmt.Errorf("prompt timestamp is newer than generate.stamp")
+			}
 			// commit using current prompt as commit message
 			var p *Prompt
 			p, err = getPrompt(promptFn)
@@ -128,18 +212,34 @@ func Do(g *core.Grokker, args ...string) (err error) {
 			err = commit(g, p.Txt)
 			Ck(err)
 		case "generate":
+			// Check if generate.stamp is newer than commit.stamp
+			genIsNewer, err := generateStamp.NewerThan(commitStampFn)
+			Ck(err)
+			if genIsNewer {
+				err := fmt.Errorf("generate.stamp is newer than commit.stamp")
+				Pl(err.Error())
+				Pl("Please run 'grok aidda regenerate'")
+				return err
+			}
 			// generate code from current prompt file contents
 			var p *Prompt
 			p, err = getPrompt(promptFn)
 			Ck(err)
-			err = getChanges(g, p, testResults)
+			err = generate(g, p, testResults)
 			Ck(err)
-		case "done":
-			// Read commit message from .aidda/commitmsg
-			commitMsgBytes, err := ioutil.ReadFile(commitMsgFn)
+		case "regenerate":
+			// Regenerate code from the prompt without committing
+			var p *Prompt
+			p, err = getPrompt(promptFn)
 			Ck(err)
-			commitMsg := string(commitMsgBytes)
-			err = commit(g, commitMsg)
+			err = generate(g, p, testResults)
+			Ck(err)
+		case "force-commit":
+			// Commit using the current promptFn without checking
+			var p *Prompt
+			p, err = getPrompt(promptFn)
+			Ck(err)
+			err = commit(g, p.Txt)
 			Ck(err)
 		case "test":
 			err = runTest(testFn)
@@ -152,8 +252,6 @@ func Do(g *core.Grokker, args ...string) (err error) {
 				// Get the list of output files
 				var p *Prompt
 				p, err = getPrompt(promptFn)
-				Ck(err)
-				p, err := getPrompt(promptFn)
 				Ck(err)
 				commitNeeded := false
 				for _, outFn := range p.Out {
@@ -193,13 +291,14 @@ func Do(g *core.Grokker, args ...string) (err error) {
 func PrintUsageAndExit() {
 	fmt.Println("Usage: go run main.go {subcommand ...}")
 	fmt.Println("Subcommands:")
-	fmt.Println("  menu      - Display the action menu")
-	fmt.Println("  commit    - Commit using the current prompt file contents as the commit message")
-	fmt.Println("  generate  - Generate changes from GPT based on the prompt")
-	fmt.Println("  done      - Done generating and commit changes with the current prompt as commit message")
-	fmt.Println("  test      - Run tests and include the results in the prompt file")
-	fmt.Println("  auto      - Automatically run generate or commit based on file timestamps")
-	fmt.Println("  abort     - Abort the current operation")
+	fmt.Println("  menu          - Display the action menu")
+	fmt.Println("  commit        - Commit using the current prompt file contents as the commit message")
+	fmt.Println("  generate      - Generate changes from GPT based on the prompt")
+	fmt.Println("  regenerate    - Regenerate code from the prompt without committing")
+	fmt.Println("  force-commit  - Commit changes without checking if the prompt has been updated")
+	fmt.Println("  test          - Run tests and include the results in the prompt file")
+	fmt.Println("  auto          - Automatically run generate or commit based on file timestamps")
+	fmt.Println("  abort         - Abort the current operation")
 	os.Exit(1)
 }
 
@@ -258,7 +357,7 @@ func readPrompt(path string) (p *Prompt, err error) {
 	p = &Prompt{}
 
 	// Read entire content of the file
-	rawBuf, err := ioutil.ReadFile(path)
+	rawBuf, err := os.ReadFile(path)
 	Ck(err)
 	// Process directives
 	// Lines that start with . are directives
@@ -474,15 +573,15 @@ func createPromptFile(path string) (err error) {
 	outStr := strings.Join(outFns, " ")
 
 	// Write the initial prompt line and a blank line
-	_, err = io.WriteString(file, "# write commit message here -- it will be used as the LLM prompt\n\n")
+	_, err = fmt.Fprintf(file, "# write commit message here -- it will be used as the LLM prompt\n\n")
 	Ck(err)
 
 	// Write the headers at the end
-	_, err = io.WriteString(file, fmt.Sprintf("Sysmsg: %s\n", DefaultSysmsg))
+	_, err = fmt.Fprintf(file, "Sysmsg: %s\n", DefaultSysmsg)
 	Ck(err)
-	_, err = io.WriteString(file, fmt.Sprintf("In: %s\n", inStr))
+	_, err = fmt.Fprintf(file, "In: %s\n", inStr)
 	Ck(err)
-	_, err = io.WriteString(file, fmt.Sprintf("Out: %s\n", outStr))
+	_, err = fmt.Fprintf(file, "Out: %s\n", outStr)
 	Ck(err)
 
 	return
@@ -535,7 +634,7 @@ func runTest(fn string) (err error) {
 	return err
 }
 
-func getChanges(g *core.Grokker, p *Prompt, testResults string) (err error) {
+func generate(g *core.Grokker, p *Prompt, testResults string) (err error) {
 	defer Return(&err)
 
 	prompt := p.Txt
@@ -578,7 +677,7 @@ func getChanges(g *core.Grokker, p *Prompt, testResults string) (err error) {
 	tcs.add("msgs", txt)
 	for _, f := range inFns {
 		var buf []byte
-		buf, err = ioutil.ReadFile(f)
+		buf, err = os.ReadFile(f)
 		Ck(err)
 		txt = string(buf)
 		tcs.add(f, txt)
@@ -619,11 +718,15 @@ func getChanges(g *core.Grokker, p *Prompt, testResults string) (err error) {
 	// Write entire response to .aidda/response
 	Assert(len(baseDir) > 0, "baseDir not set")
 	respFn := Spf("%s/.aidda/response", baseDir)
-	err = ioutil.WriteFile(respFn, []byte(resp), 0644)
+	err = os.WriteFile(respFn, []byte(resp), 0644)
 	Ck(err)
 
 	// Write commit message to .aidda/commitmsg
-	err = ioutil.WriteFile(commitMsgFn, []byte(p.Txt), 0644)
+	err = os.WriteFile(commitMsgFn, []byte(p.Txt), 0644)
+	Ck(err)
+
+	// Update generate.stamp
+	err = generateStamp.Update()
 	Ck(err)
 
 	return
@@ -699,6 +802,10 @@ func commit(g *core.Grokker, commitMsg string) (err error) {
 		Pl("Nothing to commit")
 	}
 
+	// Update commit.stamp
+	err = commitStamp.Update()
+	Ck(err)
+
 	return err
 }
 
@@ -760,10 +867,13 @@ func menu(g *core.Grokker) (action string, err error) {
 	defer Return(&err)
 
 	fmt.Println("Select an action:")
-	fmt.Println("  [g]enerate code from current prompt file contents")
-	fmt.Println("  [d]one generating and editing, commit msg = the same prompt used to generate code")
-	fmt.Println("  [c]ommit now, commit msg = current prompt file contents")
-	fmt.Println("  [a]bort")
+	fmt.Println("  [g]enerate      - Generate code from current prompt file contents")
+	fmt.Println("  [r]egenerate    - Regenerate code from the prompt without committing")
+	fmt.Println("  [c]ommit        - Commit using the current prompt file contents as the commit message")
+	fmt.Println("  [f]orce-commit  - Commit changes without checking if the prompt has been updated")
+	fmt.Println("  [t]est          - Run tests and include the results in the prompt file")
+	fmt.Println("  [a]uto          - Automatically run generate or commit based on file timestamps")
+	fmt.Println("  [x]abort        - Abort the current operation")
 	fmt.Println("Press the corresponding key to select an action...")
 
 	// Initialize keyboard
@@ -782,11 +892,17 @@ func menu(g *core.Grokker) (action string, err error) {
 	switch strings.ToLower(string(char)) {
 	case "g":
 		action = "generate"
-	case "d":
-		action = "done"
+	case "r":
+		action = "regenerate"
 	case "c":
 		action = "commit"
+	case "f":
+		action = "force-commit"
+	case "t":
+		action = "test"
 	case "a":
+		action = "auto"
+	case "x":
 		action = "abort"
 	default:
 		fmt.Printf("\nUnknown option: %s\n", string(char))
