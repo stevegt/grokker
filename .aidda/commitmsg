@@ -1,4 +1,12 @@
-create a Graphviz dot file representing the message flow in BRAINSTORM.md
+don't read new prompt file at init
 
-- directed graph
+During aidda init, we create a new, default prompt file but prefix the
+fire list with a # to prevent it from being used.  We don't want to
+read this file at init time.
+
+- refactor NewPrompt(), getPrompt(), and callers
+- rename NewPrompt() to mkPrompt()
+- don't have mkPrompt() read the prompt file
+- don't have getPrompt() call mkPrompt()
+- call mkPrompt() from init case, not earlier
 

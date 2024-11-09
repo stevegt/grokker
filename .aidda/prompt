@@ -1,11 +1,24 @@
-create a Graphviz dot file representing the message flow in BRAINSTORM.md
+don't read new prompt file at init
 
-- directed graph
+During aidda init, we create a new, default prompt file but prefix the
+first line with a # to prevent it from being used.  We don't want to
+read this file at init time.
+
+- refactor NewPrompt(), getPrompt(), and callers
+- rename NewPrompt() to mkPrompt()
+- don't have mkPrompt() read the prompt file
+- don't have getPrompt() call mkPrompt()
+- call mkPrompt() from init case, not earlier
 
 In: 
-    v3/aidda/BRAINSTORM.md
+    v3/aidda/aidda.go
 Out: 
-    v3/aidda/BRAINSTORM.dot
+    v3/aidda/aidda.go
 .stop
+
+get rid of "done" subcommand
+
+use language model or embedding to detect significant changes in the
+prompt and warn user of skipped commit
 
 

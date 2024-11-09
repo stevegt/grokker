@@ -67,20 +67,6 @@ func Do(g *core.Grokker, args ...string) (err error) {
 	err = ensureIgnoreFile(ignoreFn)
 	Ck(err)
 
-	// Create the prompt file if it doesn't exist
-	_, err = NewPrompt(promptFn)
-	Ck(err)
-
-	// Create the commit message file if it doesn't exist
-	_, err = os.Stat(commitMsgFn)
-	if os.IsNotExist(err) {
-		// copy the prompt file to the commit message file
-		buf, err := ioutil.ReadFile(promptFn)
-		Ck(err)
-		err = ioutil.WriteFile(commitMsgFn, buf, 0644)
-		Ck(err)
-	}
-
 	// If the test file is newer than any input files, then include
 	// the test results in the prompt; otherwise, clear the test file
 	testResults := ""
@@ -113,26 +99,39 @@ func Do(g *core.Grokker, args ...string) (err error) {
 		Ck(err)
 	}
 
-	var p *Prompt
-	p, err = getPrompt(promptFn)
-	Ck(err)
-
 	for i := 0; i < len(args); i++ {
 		cmd := args[i]
 		Pl("aidda: running subcommand", cmd)
 		switch cmd {
 		case "init":
-			// Already done by this point, so this is a no-op
+			err = mkPrompt(promptFn)
+			Ck(err)
+
+			// Create the commit message file if it doesn't exist
+			_, err = os.Stat(commitMsgFn)
+			if os.IsNotExist(err) {
+				// copy the prompt file to the commit message file
+				buf, err := ioutil.ReadFile(promptFn)
+				Ck(err)
+				err = ioutil.WriteFile(commitMsgFn, buf, 0644)
+				Ck(err)
+			}
 		case "menu":
 			action, err := menu(g)
 			Ck(err)
 			args = append(args, action)
 		case "commit":
 			// commit using current prompt as commit message
+			var p *Prompt
+			p, err = getPrompt(promptFn)
+			Ck(err)
 			err = commit(g, p.Txt)
 			Ck(err)
 		case "generate":
 			// generate code from current prompt file contents
+			var p *Prompt
+			p, err = getPrompt(promptFn)
+			Ck(err)
 			err = getChanges(g, p, testResults)
 			Ck(err)
 		case "done":
@@ -151,6 +150,9 @@ func Do(g *core.Grokker, args ...string) (err error) {
 			Ck(err)
 			if !promptInfo.ModTime().IsZero() {
 				// Get the list of output files
+				var p *Prompt
+				p, err = getPrompt(promptFn)
+				Ck(err)
 				p, err := getPrompt(promptFn)
 				Ck(err)
 				commitNeeded := false
@@ -209,11 +211,8 @@ type Prompt struct {
 	Txt    string
 }
 
-// TODO: The NewPrompt function is responsible for both creating and reading a prompt.
-// It would be beneficial to separate these responsibilities into distinct functions
-// to enhance readability and maintainability.
-
-func NewPrompt(path string) (p *Prompt, err error) {
+// mkPrompt function is responsible for creating a prompt file.
+func mkPrompt(path string) (err error) {
 	defer Return(&err)
 	// Check if the file exists
 	_, err = os.Stat(path)
@@ -223,8 +222,6 @@ func NewPrompt(path string) (p *Prompt, err error) {
 	} else {
 		Ck(err)
 	}
-	p, err = readPrompt(path)
-	Ck(err)
 	return
 }
 
@@ -232,6 +229,7 @@ func NewPrompt(path string) (p *Prompt, err error) {
 // Refactoring this function to separate user interaction from prompt retrieval would improve its clarity
 // and make it easier to test.
 
+// getPrompt retrieves the prompt without creating it.
 func getPrompt(promptFn string) (p *Prompt, err error) {
 	defer Return(&err)
 
@@ -245,8 +243,7 @@ func getPrompt(promptFn string) (p *Prompt, err error) {
 		Assert(rc == 0, "editor failed")
 	}
 
-	// Re-read the prompt file
-	p, err = NewPrompt(promptFn)
+	p, err = readPrompt(promptFn)
 	Ck(err)
 
 	return p, err

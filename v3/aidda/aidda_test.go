@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stevegt/grokker/v3/core"
+
 	. "github.com/stevegt/goadapt"
 )
 
