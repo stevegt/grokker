@@ -34,6 +34,7 @@ var (
 	baseDir         string
 	promptFn        string
 	ignoreFn        string
+	testFn          string
 	generateStampFn string
 	commitStampFn   string
 	DefaultSysmsg   = "You are an expert Go programmer. Please make the requested changes to the given code or documentation."
@@ -120,46 +121,13 @@ func Do(g *core.Grokker, args ...string) (err error) {
 	// XXX these should all be in a struct
 	promptFn = Spf("%s/prompt", dir)
 	ignoreFn = Spf("%s/ignore", dir)
-	testFn := Spf("%s/test", dir)
+	testFn = Spf("%s/test", dir)
 	generateStampFn = Spf("%s/generate.stamp", dir)
 	commitStampFn = Spf("%s/commit.stamp", dir)
 
 	// Initialize Stamp objects for generate and commit
 	generateStamp = NewStamp(generateStampFn)
 	commitStamp = NewStamp(commitStampFn)
-
-	// If the test file is newer than any input files, then include
-	// the test results in the prompt; otherwise, clear the test file
-	// XXX this doesn't belong here
-	testResults := ""
-	testStat, err := os.Stat(testFn)
-	if os.IsNotExist(err) {
-		err = nil
-	} else {
-		Ck(err)
-		// Get the list of input files
-		p, err := getPrompt(promptFn)
-		Ck(err)
-		inFns := p.In
-		// Check if the test file is newer than any input files
-		for _, fn := range inFns {
-			inStat, err := os.Stat(fn)
-			Ck(err)
-			if testStat.ModTime().After(inStat.ModTime()) {
-				// Include the test results in the prompt
-				buf, err := os.ReadFile(testFn)
-				Ck(err)
-				testResults = string(buf)
-				break
-			}
-		}
-	}
-	if len(testResults) == 0 {
-		// Clear the test file
-		Pl("Clearing test file")
-		err = os.WriteFile(testFn, []byte{}, 0644)
-		Ck(err)
-	}
 
 	// Determine if interactive mode is active
 	isInteractive := false
@@ -224,14 +192,14 @@ func Do(g *core.Grokker, args ...string) (err error) {
 			var p *Prompt
 			p, err = getPrompt(promptFn)
 			Ck(err)
-			err = generate(g, p, testResults)
+			err = generate(g, p)
 			Ck(err)
 		case "regenerate":
 			// Regenerate code from the prompt without committing
 			var p *Prompt
 			p, err = getPrompt(promptFn)
 			Ck(err)
-			err = generate(g, p, testResults)
+			err = generate(g, p)
 			Ck(err)
 		case "force-commit":
 			// Commit using the current promptFn without checking
@@ -650,15 +618,19 @@ func runTest(fn string) (err error) {
 	return err
 }
 
-func generate(g *core.Grokker, p *Prompt, testResults string) (err error) {
+func generate(g *core.Grokker, p *Prompt) (err error) {
 	defer Return(&err)
 
 	prompt := p.Txt
 	Pl(prompt)
+
+	testResults, err := getTestResults(testFn, p.In, p.Out)
+	Ck(err)
 	if len(testResults) > 0 {
 		Pl("Including test results in prompt")
 		prompt = Spf("%s\n\n%s", p.Txt, testResults)
 	}
+
 	inFns := p.In
 	outFns := p.Out
 	var outFls []core.FileLang
@@ -923,4 +895,39 @@ func menu(g *core.Grokker) (action string, err error) {
 			// Continue the loop to re-display the menu
 		}
 	}
+}
+
+// getTestResults reads the test file and returns its contents if it
+// exists and is newer than all input and output files.  If there are
+// no new test results, then the test file is cleared and an empty
+// string is returned.
+func getTestResults(testFn string, inFns []string, outFns []string) (testResults string, err error) {
+	// get the test file's modification time
+	testStat, err := os.Stat(testFn)
+	if os.IsNotExist(err) {
+		err = nil
+	} else {
+		Ck(err)
+		// Check if the test file is newer than any input or output files
+		fns := append(inFns, outFns...)
+		for _, fn := range fns {
+			inStat, err := os.Stat(fn)
+			Ck(err)
+			if testStat.ModTime().After(inStat.ModTime()) {
+				// return the test file contents
+				buf, err := os.ReadFile(testFn)
+				Ck(err)
+				testResults = string(buf)
+				break
+			}
+		}
+	}
+	if len(testResults) == 0 {
+		// Clear the test file
+		Pl("Clearing test file")
+		err = os.WriteFile(testFn, []byte{}, 0644)
+		Ck(err)
+	}
+
+	return testResults, err
 }

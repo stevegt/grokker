@@ -1,17 +1,4 @@
-aidda: cleaner messages when timestamps are out of order
-
-If a subcommand fails because timestamps are out of order, and if
-we're in interactive mode, redisplay the menu so the user can try
-again, instead of returning an err from Do().
-
-"Interactive mode" is when the user has provided a menu subcommand
-in args.
-
-- refactor the for{} loop in Do() such that it consumes (shifts)
-  subcommands from args, instead of iterating over them
-- only redisplay the menu if we are in interactive mode
-- when redisplaying the menu, make this happen by pushing the 'menu'
-  subcommand onto the front of the args slice rather than appending it
+aidda: comment out everything related to the test subcommand 
 
 In: 
     v3/aidda/aidda.go
