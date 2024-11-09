@@ -1,4 +1,4 @@
-aidda: comment out everything related to the test subcommand 
+aidda: skip timestamp check for new output files
 
 In: 
     v3/aidda/aidda.go

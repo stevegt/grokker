@@ -246,7 +246,7 @@ func Do(g *core.Grokker, args ...string) (err error) {
 		case "abort":
 			// Abort the current operation
 			Pl("Operation aborted by user.")
-			return fmt.Errorf("operation aborted")
+			return nil
 		default:
 			PrintUsageAndExit()
 		}
@@ -264,9 +264,9 @@ func PrintUsageAndExit() {
 	fmt.Println("  generate      - Generate changes from GPT based on the prompt")
 	fmt.Println("  regenerate    - Regenerate code from the prompt without committing")
 	fmt.Println("  force-commit  - Commit changes without checking if the prompt has been updated")
-	fmt.Println("  test          - Run tests and include the results in the prompt file")
+	fmt.Println("  test          - Run tests and include the results in the next LLM prompt")
 	fmt.Println("  auto          - Automatically run generate or commit based on file timestamps")
-	fmt.Println("  abort         - Abort the current operation")
+	fmt.Println("  abort         - Abort subcommand processing")
 	os.Exit(1)
 }
 
@@ -856,9 +856,9 @@ func menu(g *core.Grokker) (action string, err error) {
 		fmt.Println("  [r]egenerate    - Regenerate code from the prompt without committing")
 		fmt.Println("  [c]ommit        - Commit using the current prompt file contents as the commit message")
 		fmt.Println("  [f]orce-commit  - Commit changes without checking if the prompt has been updated")
-		fmt.Println("  [t]est          - Run tests and include the results in the prompt file")
+		fmt.Println("  [t]est          - Run tests and include the results in the next LLM prompt")
 		fmt.Println("  [a]uto          - Automatically run generate or commit based on file timestamps")
-		fmt.Println("  e[x]it        - Abort and exit the menu")
+		fmt.Println("  e[x]it          - Abort and exit the menu")
 		fmt.Println("Press the corresponding key to select an action...")
 
 		// Initialize keyboard
@@ -888,8 +888,7 @@ func menu(g *core.Grokker) (action string, err error) {
 		case "a":
 			return "auto", nil
 		case "x":
-			Pl("Operation aborted by user.")
-			return "", fmt.Errorf("operation aborted")
+			return "abort", nil
 		default:
 			fmt.Printf("\nUnknown option: %s\n\n", string(char))
 			// Continue the loop to re-display the menu
@@ -912,6 +911,10 @@ func getTestResults(testFn string, inFns []string, outFns []string) (testResults
 		fns := append(inFns, outFns...)
 		for _, fn := range fns {
 			inStat, err := os.Stat(fn)
+			// skip if the file does not exist
+			if os.IsNotExist(err) {
+				continue
+			}
 			Ck(err)
 			if testStat.ModTime().After(inStat.ModTime()) {
 				// return the test file contents
