@@ -1,7 +1,17 @@
-aidda: remove commitMsgFn
+aidda: cleaner messages when timestamps are out of order
 
-We no longer need the separate commit message file, because we now just
-pass the current prompt to the commit() function.  
+If a subcommand fails because timestamps are out of order, and if
+we're in interactive mode, redisplay the menu so the user can try
+again, instead of returning an err from Do().
+
+"Interactive mode" is when the user has provided a menu subcommand
+in args.
+
+- refactor the for{} loop in Do() such that it consumes (shifts)
+  subcommands from args, instead of iterating over them
+- only redisplay the menu if we are in interactive mode
+- when redisplaying the menu, make this happen by pushing the 'menu'
+  subcommand onto the front of the args slice rather than appending it
 
 In: 
     v3/aidda/aidda.go
@@ -9,3 +19,4 @@ Out:
     v3/aidda/aidda.go
 .stop
 
+Sysmsg header missing, using default.Sysmsg

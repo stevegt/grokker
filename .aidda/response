@@ -35,7 +35,6 @@ XXX update this
 var (
 	baseDir         string
 	ignoreFn        string
-	commitMsgFn     string
 	generateStampFn string
 	commitStampFn   string
 	DefaultSysmsg   = "You are an expert Go programmer. Please make the requested changes to the given code or documentation."
@@ -126,7 +125,6 @@ func Do(g *core.Grokker, args ...string) (err error) {
 	promptFn := Spf("%s/prompt", dir)
 	ignoreFn = Spf("%s/ignore", dir)
 	testFn := Spf("%s/test", dir)
-	commitMsgFn = Spf("%s/commitmsg", dir)
 	generateStampFn = Spf("%s/generate.stamp", dir)
 	commitStampFn = Spf("%s/commit.stamp", dir)
 
@@ -177,26 +175,28 @@ func Do(g *core.Grokker, args ...string) (err error) {
 		Ck(err)
 	}
 
-	for i := 0; i < len(args); i++ {
-		cmd := args[i]
+	// Determine if interactive mode is active
+	isInteractive := false
+	for _, cmd := range args {
+		if cmd == "menu" {
+			isInteractive = true
+			break
+		}
+	}
+
+	// Refactored loop: consume (shift) subcommands from args
+	for len(args) > 0 {
+		cmd := args[0]
+		args = args[1:]
 		Pl("aidda: running subcommand", cmd)
 		switch cmd {
 		case "init":
 			err = mkPrompt(promptFn)
 			Ck(err)
-
-			// Create the commit message file if it doesn't exist
-			_, err = os.Stat(commitMsgFn)
-			if os.IsNotExist(err) {
-				// copy the prompt file to the commit message file
-				buf, err := os.ReadFile(promptFn)
-				Ck(err)
-				err = os.WriteFile(commitMsgFn, buf, 0644)
-				Ck(err)
-			}
 		case "menu":
 			action, err := menu(g)
 			Ck(err)
+			// Push the selected action to the args slice
 			args = append(args, action)
 		case "commit":
 			// Check if prompt is newer than generate.stamp
@@ -205,7 +205,13 @@ func Do(g *core.Grokker, args ...string) (err error) {
 			if promptIsNewer {
 				Pl("Prompt has been updated since the last generation.")
 				Pl("Please run 'grok aidda regenerate' or 'grok aidda force-commit'")
-				return fmt.Errorf("prompt timestamp is newer than generate.stamp")
+				if isInteractive {
+					// Push 'menu' to the front of args to redisplay the menu
+					args = append([]string{"menu"}, args...)
+					continue
+				} else {
+					return fmt.Errorf("prompt has been updated since the last generation")
+				}
 			}
 			// commit using current prompt as commit message
 			var p *Prompt
@@ -218,10 +224,15 @@ func Do(g *core.Grokker, args ...string) (err error) {
 			genIsNewer, err := generateStamp.NewerThan(commitStampFn)
 			Ck(err)
 			if genIsNewer {
-				err := fmt.Errorf("generate.stamp is newer than commit.stamp")
-				Pl(err.Error())
+				Pl("generate.stamp is newer than commit.stamp")
 				Pl("Please run 'grok aidda regenerate'")
-				return err
+				if isInteractive {
+					// Push 'menu' to the front of args to redisplay the menu
+					args = append([]string{"menu"}, args...)
+					continue
+				} else {
+					return fmt.Errorf("generate.stamp is newer than commit.stamp")
+				}
 			}
 			// generate code from current prompt file contents
 			var p *Prompt
@@ -294,6 +305,7 @@ func PrintUsageAndExit() {
 	fmt.Println("Usage: go run main.go {subcommand ...}")
 	fmt.Println("Subcommands:")
 	fmt.Println("  menu          - Display the action menu")
+	fmt.Println("  init          - Initialize the prompt file")
 	fmt.Println("  commit        - Commit using the current prompt file contents as the commit message")
 	fmt.Println("  generate      - Generate changes from GPT based on the prompt")
 	fmt.Println("  regenerate    - Regenerate code from the prompt without committing")
@@ -723,10 +735,6 @@ func generate(g *core.Grokker, p *Prompt, testResults string) (err error) {
 	err = os.WriteFile(respFn, []byte(resp), 0644)
 	Ck(err)
 
-	// Write commit message to .aidda/commitmsg
-	err = os.WriteFile(commitMsgFn, []byte(p.Txt), 0644)
-	Ck(err)
-
 	// Update generate.stamp
 	err = generateStamp.Update()
 	Ck(err)
@@ -876,7 +884,7 @@ func menu(g *core.Grokker) (action string, err error) {
 		fmt.Println("  [f]orce-commit  - Commit changes without checking if the prompt has been updated")
 		fmt.Println("  [t]est          - Run tests and include the results in the prompt file")
 		fmt.Println("  [a]uto          - Automatically run generate or commit based on file timestamps")
-		fmt.Println("  [x]abort        - Abort the current operation")
+		fmt.Println("  e[x]it        - Abort and exit the menu")
 		fmt.Println("Press the corresponding key to select an action...")
 
 		// Initialize keyboard

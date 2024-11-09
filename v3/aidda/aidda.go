@@ -32,6 +32,7 @@ XXX update this
 
 var (
 	baseDir         string
+	promptFn        string
 	ignoreFn        string
 	generateStampFn string
 	commitStampFn   string
@@ -112,37 +113,24 @@ func Do(g *core.Grokker, args ...string) (err error) {
 	_, err = os.Stat(Spf("%s/.git", baseDir))
 	Ck(err)
 
-	// create a directory for aidda files
 	// XXX location might want to be more flexible
 	dir := Spf("%s/.aidda", baseDir)
-	err = os.MkdirAll(dir, 0755)
-	Ck(err)
 
 	// generate filenames
 	// XXX these should all be in a struct
-	promptFn := Spf("%s/prompt", dir)
+	promptFn = Spf("%s/prompt", dir)
 	ignoreFn = Spf("%s/ignore", dir)
 	testFn := Spf("%s/test", dir)
 	generateStampFn = Spf("%s/generate.stamp", dir)
 	commitStampFn = Spf("%s/commit.stamp", dir)
 
-	// Ensure there is an ignore file
-	err = ensureIgnoreFile(ignoreFn)
-	Ck(err)
-
-	// Initialize Stamp instances for generate and commit
+	// Initialize Stamp objects for generate and commit
 	generateStamp = NewStamp(generateStampFn)
 	commitStamp = NewStamp(commitStampFn)
 
-	// Ensure timestamp files exist
-	now := time.Now()
-	err = generateStamp.Ensure(now)
-	Ck(err)
-	err = commitStamp.Ensure(now)
-	Ck(err)
-
 	// If the test file is newer than any input files, then include
 	// the test results in the prompt; otherwise, clear the test file
+	// XXX this doesn't belong here
 	testResults := ""
 	testStat, err := os.Stat(testFn)
 	if os.IsNotExist(err) {
@@ -173,17 +161,29 @@ func Do(g *core.Grokker, args ...string) (err error) {
 		Ck(err)
 	}
 
-	for i := 0; i < len(args); i++ {
-		cmd := args[i]
+	// Determine if interactive mode is active
+	isInteractive := false
+	for _, cmd := range args {
+		if cmd == "menu" {
+			isInteractive = true
+			break
+		}
+	}
+
+	// consume subcommands from args
+	for len(args) > 0 {
+		cmd := args[0]
+		args = args[1:]
 		Pl("aidda: running subcommand", cmd)
 		switch cmd {
 		case "init":
-			err = mkPrompt(promptFn)
+			err = initAidda(dir)
 			Ck(err)
 		case "menu":
 			action, err := menu(g)
 			Ck(err)
-			args = append(args, action)
+			// Push the selected action to the front of args
+			args = append([]string{action}, args...)
 		case "commit":
 			// Check if prompt is newer than generate.stamp
 			promptIsNewer, err := generateStamp.OlderThan(promptFn)
@@ -191,7 +191,13 @@ func Do(g *core.Grokker, args ...string) (err error) {
 			if promptIsNewer {
 				Pl("Prompt has been updated since the last generation.")
 				Pl("Please run 'grok aidda regenerate' or 'grok aidda force-commit'")
-				return fmt.Errorf("prompt timestamp is newer than generate.stamp")
+				if isInteractive {
+					// Push 'menu' to the front of args to redisplay the menu
+					args = append([]string{"menu"}, args...)
+					continue
+				} else {
+					return fmt.Errorf("prompt has been updated since the last generation")
+				}
 			}
 			// commit using current prompt as commit message
 			var p *Prompt
@@ -204,10 +210,15 @@ func Do(g *core.Grokker, args ...string) (err error) {
 			genIsNewer, err := generateStamp.NewerThan(commitStampFn)
 			Ck(err)
 			if genIsNewer {
-				err := fmt.Errorf("generate.stamp is newer than commit.stamp")
-				Pl(err.Error())
+				Pl("generate.stamp is newer than commit.stamp")
 				Pl("Please run 'grok aidda regenerate'")
-				return err
+				if isInteractive {
+					// Push 'menu' to the front of args to redisplay the menu
+					args = append([]string{"menu"}, args...)
+					continue
+				} else {
+					return fmt.Errorf("generate.stamp is newer than commit.stamp")
+				}
 			}
 			// generate code from current prompt file contents
 			var p *Prompt
@@ -280,6 +291,7 @@ func PrintUsageAndExit() {
 	fmt.Println("Usage: go run main.go {subcommand ...}")
 	fmt.Println("Subcommands:")
 	fmt.Println("  menu          - Display the action menu")
+	fmt.Println("  init          - Initialize the .aidda directory")
 	fmt.Println("  commit        - Commit using the current prompt file contents as the commit message")
 	fmt.Println("  generate      - Generate changes from GPT based on the prompt")
 	fmt.Println("  regenerate    - Regenerate code from the prompt without committing")
@@ -298,13 +310,29 @@ type Prompt struct {
 	Txt    string
 }
 
-// mkPrompt function is responsible for creating a prompt file.
-func mkPrompt(path string) (err error) {
+// initAidda function is responsible for creating the .aidda directory and its contents
+func initAidda(dir string) (err error) {
 	defer Return(&err)
+
+	// create a directory for aidda files
+	err = os.MkdirAll(dir, 0755)
+	Ck(err)
+
+	// Ensure there is an ignore file
+	err = ensureIgnoreFile(ignoreFn)
+	Ck(err)
+
+	// Ensure timestamp files exist
+	now := time.Now()
+	err = generateStamp.Ensure(now)
+	Ck(err)
+	err = commitStamp.Ensure(now)
+	Ck(err)
+
 	// Check if the file exists
-	_, err = os.Stat(path)
+	_, err = os.Stat(promptFn)
 	if os.IsNotExist(err) {
-		err = createPromptFile(path)
+		err = createPromptFile(promptFn)
 		Ck(err)
 	} else {
 		Ck(err)
@@ -645,7 +673,7 @@ func generate(g *core.Grokker, p *Prompt, testResults string) (err error) {
 
 	sysmsg := p.Sysmsg
 	if sysmsg == "" {
-		Pf("Sysmsg header missing, using default.")
+		Pl("Sysmsg header missing, using default.")
 		sysmsg = DefaultSysmsg
 	}
 	Pf("Sysmsg: %s\n", sysmsg)
