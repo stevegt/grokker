@@ -39,6 +39,8 @@ var (
 	generateStampFn string
 	commitStampFn   string
 	DefaultSysmsg   = "You are an expert Go programmer. Please make the requested changes to the given code or documentation."
+	generateStamp   *Stamp
+	commitStamp     *Stamp
 )
 
 // Stamp struct for handling timestamp files
@@ -77,7 +79,7 @@ func (s *Stamp) Update() error {
 	return os.Chtimes(s.filename, now, now)
 }
 
-// NewerThan returns true if the timestamp is newer than the modification time of the given file.
+// NewerThan returns true if our timestamp is newer than the modification time of the given file.
 func (s *Stamp) NewerThan(fn string) (bool, error) {
 	ourInfo, err := os.Stat(s.filename)
 	if err != nil {
@@ -90,7 +92,7 @@ func (s *Stamp) NewerThan(fn string) (bool, error) {
 	return ourInfo.ModTime().After(theirInfo.ModTime()), nil
 }
 
-// OlderThan returns true if the timestamp is older than the modification time of the given file.
+// OlderThan returns true if our timestamp is older than the modification time of the given file.
 func (s *Stamp) OlderThan(fn string) (bool, error) {
 	ourInfo, err := os.Stat(s.filename)
 	if err != nil {
@@ -133,8 +135,8 @@ func Do(g *core.Grokker, args ...string) (err error) {
 	Ck(err)
 
 	// Initialize Stamp instances for generate and commit
-	generateStamp := NewStamp(generateStampFn)
-	commitStamp := NewStamp(commitStampFn)
+	generateStamp = NewStamp(generateStampFn)
+	commitStamp = NewStamp(commitStampFn)
 
 	// Ensure timestamp files exist
 	now := time.Now()
@@ -213,9 +215,9 @@ func Do(g *core.Grokker, args ...string) (err error) {
 			Ck(err)
 		case "generate":
 			// Check if generate.stamp is newer than commit.stamp
-			isNewer, err := generateStamp.NewerThan(commitStampFn)
+			genIsNewer, err := generateStamp.NewerThan(commitStampFn)
 			Ck(err)
-			if isNewer {
+			if genIsNewer {
 				err := fmt.Errorf("generate.stamp is newer than commit.stamp")
 				Pl(err.Error())
 				Pl("Please run 'grok aidda regenerate'")
@@ -573,9 +575,7 @@ func createPromptFile(path string) (err error) {
 	outStr := strings.Join(outFns, " ")
 
 	// Write the initial prompt line and a blank line
-	_, err = fmt.Fprintln(file, "# write commit message here -- it will be used as the LLM prompt")
-	Ck(err)
-	_, err = fmt.Fprintln(file)
+	_, err = fmt.Fprintf(file, "# write commit message here -- it will be used as the LLM prompt\n\n")
 	Ck(err)
 
 	// Write the headers at the end
@@ -868,50 +868,51 @@ func ensureIgnoreFile(fn string) (err error) {
 func menu(g *core.Grokker) (action string, err error) {
 	defer Return(&err)
 
-	fmt.Println("Select an action:")
-	fmt.Println("  [g]enerate      - Generate code from current prompt file contents")
-	fmt.Println("  [r]egenerate    - Regenerate code from the prompt without committing")
-	fmt.Println("  [c]ommit        - Commit using the current prompt file contents as the commit message")
-	fmt.Println("  [f]orce-commit  - Commit changes without checking if the prompt has been updated")
-	fmt.Println("  [t]est          - Run tests and include the results in the prompt file")
-	fmt.Println("  [a]uto          - Automatically run generate or commit based on file timestamps")
-	fmt.Println("  [x]abort        - Abort the current operation")
-	fmt.Println("Press the corresponding key to select an action...")
+	for {
+		fmt.Println("Select an action:")
+		fmt.Println("  [g]enerate      - Generate code from current prompt file contents")
+		fmt.Println("  [r]egenerate    - Regenerate code from the prompt without committing")
+		fmt.Println("  [c]ommit        - Commit using the current prompt file contents as the commit message")
+		fmt.Println("  [f]orce-commit  - Commit changes without checking if the prompt has been updated")
+		fmt.Println("  [t]est          - Run tests and include the results in the prompt file")
+		fmt.Println("  [a]uto          - Automatically run generate or commit based on file timestamps")
+		fmt.Println("  [x]abort        - Abort the current operation")
+		fmt.Println("Press the corresponding key to select an action...")
 
-	// Initialize keyboard
-	if err := keyboard.Open(); err != nil {
-		return "", fmt.Errorf("failed to open keyboard: %v", err)
+		// Initialize keyboard
+		if err := keyboard.Open(); err != nil {
+			return "", fmt.Errorf("failed to open keyboard: %v", err)
+		}
+		defer keyboard.Close()
+
+		// Wait for a single keypress
+		char, _, err := keyboard.GetSingleKey()
+		if err != nil {
+			return "", fmt.Errorf("failed to get key: %v", err)
+		}
+
+		// Handle the keypress
+		switch strings.ToLower(string(char)) {
+		case "g":
+			return "generate", nil
+		case "r":
+			return "regenerate", nil
+		case "c":
+			return "commit", nil
+		case "f":
+			return "force-commit", nil
+		case "t":
+			return "test", nil
+		case "a":
+			return "auto", nil
+		case "x":
+			Pl("Operation aborted by user.")
+			return "", fmt.Errorf("operation aborted")
+		default:
+			fmt.Printf("\nUnknown option: %s\n\n", string(char))
+			// Continue the loop to re-display the menu
+		}
 	}
-	defer keyboard.Close()
-
-	// Wait for a single keypress
-	char, _, err := keyboard.GetSingleKey()
-	if err != nil {
-		return "", fmt.Errorf("failed to get key: %v", err)
-	}
-
-	// Handle the keypress
-	switch strings.ToLower(string(char)) {
-	case "g":
-		action = "generate"
-	case "r":
-		action = "regenerate"
-	case "c":
-		action = "commit"
-	case "f":
-		action = "force-commit"
-	case "t":
-		action = "test"
-	case "a":
-		action = "auto"
-	case "x":
-		action = "abort"
-	default:
-		fmt.Printf("\nUnknown option: %s\n", string(char))
-		return "", fmt.Errorf("unknown menu option: %s", string(char))
-	}
-
-	return action, nil
 }
 ```
 EOF_/home/stevegt/lab/grokker/v3/aidda/aidda.go

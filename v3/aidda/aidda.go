@@ -866,48 +866,49 @@ func ensureIgnoreFile(fn string) (err error) {
 func menu(g *core.Grokker) (action string, err error) {
 	defer Return(&err)
 
-	fmt.Println("Select an action:")
-	fmt.Println("  [g]enerate      - Generate code from current prompt file contents")
-	fmt.Println("  [r]egenerate    - Regenerate code from the prompt without committing")
-	fmt.Println("  [c]ommit        - Commit using the current prompt file contents as the commit message")
-	fmt.Println("  [f]orce-commit  - Commit changes without checking if the prompt has been updated")
-	fmt.Println("  [t]est          - Run tests and include the results in the prompt file")
-	fmt.Println("  [a]uto          - Automatically run generate or commit based on file timestamps")
-	fmt.Println("  [x]abort        - Abort the current operation")
-	fmt.Println("Press the corresponding key to select an action...")
+	for {
+		fmt.Println("Select an action:")
+		fmt.Println("  [g]enerate      - Generate code from current prompt file contents")
+		fmt.Println("  [r]egenerate    - Regenerate code from the prompt without committing")
+		fmt.Println("  [c]ommit        - Commit using the current prompt file contents as the commit message")
+		fmt.Println("  [f]orce-commit  - Commit changes without checking if the prompt has been updated")
+		fmt.Println("  [t]est          - Run tests and include the results in the prompt file")
+		fmt.Println("  [a]uto          - Automatically run generate or commit based on file timestamps")
+		fmt.Println("  e[x]it        - Abort and exit the menu")
+		fmt.Println("Press the corresponding key to select an action...")
 
-	// Initialize keyboard
-	if err := keyboard.Open(); err != nil {
-		return "", fmt.Errorf("failed to open keyboard: %v", err)
+		// Initialize keyboard
+		if err := keyboard.Open(); err != nil {
+			return "", fmt.Errorf("failed to open keyboard: %v", err)
+		}
+		defer keyboard.Close()
+
+		// Wait for a single keypress
+		char, _, err := keyboard.GetSingleKey()
+		if err != nil {
+			return "", fmt.Errorf("failed to get key: %v", err)
+		}
+
+		// Handle the keypress
+		switch strings.ToLower(string(char)) {
+		case "g":
+			return "generate", nil
+		case "r":
+			return "regenerate", nil
+		case "c":
+			return "commit", nil
+		case "f":
+			return "force-commit", nil
+		case "t":
+			return "test", nil
+		case "a":
+			return "auto", nil
+		case "x":
+			Pl("Operation aborted by user.")
+			return "", fmt.Errorf("operation aborted")
+		default:
+			fmt.Printf("\nUnknown option: %s\n\n", string(char))
+			// Continue the loop to re-display the menu
+		}
 	}
-	defer keyboard.Close()
-
-	// Wait for a single keypress
-	char, _, err := keyboard.GetSingleKey()
-	if err != nil {
-		return "", fmt.Errorf("failed to get key: %v", err)
-	}
-
-	// Handle the keypress
-	switch strings.ToLower(string(char)) {
-	case "g":
-		action = "generate"
-	case "r":
-		action = "regenerate"
-	case "c":
-		action = "commit"
-	case "f":
-		action = "force-commit"
-	case "t":
-		action = "test"
-	case "a":
-		action = "auto"
-	case "x":
-		action = "abort"
-	default:
-		fmt.Printf("\nUnknown option: %s\n", string(char))
-		return "", fmt.Errorf("unknown menu option: %s", string(char))
-	}
-
-	return action, nil
 }
