@@ -33,7 +33,6 @@ XXX update this
 var (
 	baseDir         string
 	ignoreFn        string
-	commitMsgFn     string
 	generateStampFn string
 	commitStampFn   string
 	DefaultSysmsg   = "You are an expert Go programmer. Please make the requested changes to the given code or documentation."
@@ -124,7 +123,6 @@ func Do(g *core.Grokker, args ...string) (err error) {
 	promptFn := Spf("%s/prompt", dir)
 	ignoreFn = Spf("%s/ignore", dir)
 	testFn := Spf("%s/test", dir)
-	commitMsgFn = Spf("%s/commitmsg", dir)
 	generateStampFn = Spf("%s/generate.stamp", dir)
 	commitStampFn = Spf("%s/commit.stamp", dir)
 
@@ -182,16 +180,6 @@ func Do(g *core.Grokker, args ...string) (err error) {
 		case "init":
 			err = mkPrompt(promptFn)
 			Ck(err)
-
-			// Create the commit message file if it doesn't exist
-			_, err = os.Stat(commitMsgFn)
-			if os.IsNotExist(err) {
-				// copy the prompt file to the commit message file
-				buf, err := os.ReadFile(promptFn)
-				Ck(err)
-				err = os.WriteFile(commitMsgFn, buf, 0644)
-				Ck(err)
-			}
 		case "menu":
 			action, err := menu(g)
 			Ck(err)
@@ -719,10 +707,6 @@ func generate(g *core.Grokker, p *Prompt, testResults string) (err error) {
 	Assert(len(baseDir) > 0, "baseDir not set")
 	respFn := Spf("%s/.aidda/response", baseDir)
 	err = os.WriteFile(respFn, []byte(resp), 0644)
-	Ck(err)
-
-	// Write commit message to .aidda/commitmsg
-	err = os.WriteFile(commitMsgFn, []byte(p.Txt), 0644)
 	Ck(err)
 
 	// Update generate.stamp

@@ -1,7 +1,7 @@
-aidda: re-display menu on unknown key
+aidda: remove commitMsgFn
 
-Put the menu display in a loop, so that it is re-displayed when an
-unknown key is pressed.
+We no longer need the separate commit message file, because we now just
+pass the current prompt to the commit() function.  
 
 In: 
     v3/aidda/aidda.go
