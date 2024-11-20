@@ -1,4 +1,4 @@
-aidda: skip timestamp check for new output files
+aidda: create timestamp files if they don't exist 
 
 In: 
     v3/aidda/aidda.go

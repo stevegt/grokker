@@ -81,10 +81,23 @@ func (s *Stamp) Update() error {
 // NewerThan returns true if our timestamp is newer than the modification time of the given file.
 func (s *Stamp) NewerThan(fn string) (bool, error) {
 	ourInfo, err := os.Stat(s.filename)
+	// if our file does not exist, it is older
+	if os.IsNotExist(err) {
+		// create the file with an old timestamp
+		err = s.Create(time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC))
+		return false, err
+	}
 	if err != nil {
 		return false, fmt.Errorf("failed to stat %s: %v", s.filename, err)
 	}
 	theirInfo, err := os.Stat(fn)
+	// if other file does not exist, it is older
+	if os.IsNotExist(err) {
+		// create the other file with an old timestamp
+		other := NewStamp(fn)
+		err = other.Create(time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC))
+		return true, err
+	}
 	if err != nil {
 		return false, fmt.Errorf("failed to stat %s: %v", fn, err)
 	}
@@ -94,10 +107,23 @@ func (s *Stamp) NewerThan(fn string) (bool, error) {
 // OlderThan returns true if our timestamp is older than the modification time of the given file.
 func (s *Stamp) OlderThan(fn string) (bool, error) {
 	ourInfo, err := os.Stat(s.filename)
+	// if the file does not exist, it is newer
+	if os.IsNotExist(err) {
+		// create the file with a current timestamp
+		err = s.Create(time.Now())
+		return false, err
+	}
 	if err != nil {
 		return false, fmt.Errorf("failed to stat %s: %v", s.filename, err)
 	}
 	theirInfo, err := os.Stat(fn)
+	// if the other file does not exist, it is newer
+	if os.IsNotExist(err) {
+		// create the other file with a current timestamp
+		other := NewStamp(fn)
+		err = other.Create(time.Now())
+		return true, err
+	}
 	if err != nil {
 		return false, fmt.Errorf("failed to stat %s: %v", fn, err)
 	}
