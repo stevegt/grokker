@@ -703,6 +703,8 @@ func generate(g *core.Grokker, p *Prompt) (err error) {
 		Pl(f)
 	}
 
+	Pl("Using model:", g.Model)
+
 	Pf("Querying GPT...")
 	// Start a goroutine to print dots while waiting for the response
 	var stopDots = make(chan bool)
