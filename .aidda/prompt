@@ -1,0 +1,9 @@
+aidda: create timestamp files if they don't exist 
+
+In: 
+    v3/aidda/aidda.go
+Out: 
+    v3/aidda/aidda.go
+.stop
+
+Sysmsg header missing, using default.Sysmsg

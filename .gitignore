@@ -23,3 +23,10 @@ local/
 .grok.lock
 go.work
 go.work.sum
+grok
+.aidda/
+
+# goland
+.idea/
+
+

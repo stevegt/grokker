@@ -1,0 +1,41 @@
+digraph BRAINSTORM {
+    rankdir=LR;
+    node [shape=rectangle, style=filled, color=lightblue];
+
+    User [label="User"];
+    WatchDaemon [label="Watch Daemon (W)"];
+    TempRepoDaemon [label="Temporary Repo Daemon (R)"];
+    A [label="Repository A"];
+    T [label="Temporary Repository T"];
+    TestSubcommandA [label="Test Subcommand in A"];
+    TestSubcommandT [label="Test Subcommand in T"];
+    GenerateSubcommandT [label="Generate Subcommand in T"];
+
+    // User interactions
+    User -> WatchDaemon [label="Notify to merge changes"];
+    
+    // Watch Daemon interactions
+    WatchDaemon -> A [label="Monitor and stash changes"];
+    WatchDaemon -> TempRepoDaemon [label="Send CBOR message with prompt and stash hash"];
+    TempRepoDaemon -> WatchDaemon [label="Send object/commit messages"];
+    WatchDaemon -> User [label="Notify changes ready to merge"];
+    
+    // Temporary Repo Daemon interactions
+    TempRepoDaemon -> T [label="Add objects"];
+    TempRepoDaemon -> WatchDaemon [label="Request objects or send commit hashes"];
+    TempRepoDaemon -> GenerateSubcommandT [label="Run generate subcommand"];
+    GenerateSubcommandT -> TestSubcommandT [label="Run tests"];
+    TestSubcommandT -> TempRepoDaemon [label="Test results"];
+    TempRepoDaemon -> WatchDaemon [label="Send commit hash if tests pass"];
+    TempRepoDaemon -> GenerateSubcommandT [label="Append test output and retry if tests fail"];
+    
+    // Watch Daemon merging process
+    WatchDaemon -> A [label="Apply CBOR message to working directory"];
+    WatchDaemon -> A [label="Resolve merge conflicts"];
+    WatchDaemon -> TestSubcommandA [label="Run test subcommand"];
+    TestSubcommandA -> WatchDaemon [label="Display test results"];
+    WatchDaemon -> User [label="Await user review"];
+    User -> WatchDaemon [label="Commit or reject changes"];
+    WatchDaemon -> A [label="Commit changes"];
+    WatchDaemon -> A [label="Unstash changes"];
+}

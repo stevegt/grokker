@@ -1,0 +1,68 @@
+name: Go build and release
+
+on:                                   
+  push:    
+    tags:                                              
+      - 'v*.*.*'
+      
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: v3
+    steps:
+  
+    - name: check out code
+      uses: actions/checkout@v3
+
+    - name: Get tag name
+      id: get_tag
+      run: echo ::set-output name=TAG::${GITHUB_REF#refs/tags/}
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21.3'
+    
+    - name: Tidy
+      run: go mod tidy
+        
+    - name: Build
+      run: go build -v -o grok cmd/grok/main.go
+      
+    - name: Build for linux
+      env:
+        VERSION: ${{ steps.get_tag.outputs.TAG }}
+      run: |
+        mkdir -p release
+        CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.Version=${VERSION}" -o release/grok-${VERSION}-linux cmd/grok/main.go
+
+    - name: Build for Windows
+      env:
+        VERSION: ${{ steps.get_tag.outputs.TAG }}
+      run: |
+        CGO_ENABLED=0 GOOS=windows go build -ldflags="-s -w -X main.Version=${VERSION}" -o release/grok-${VERSION}-windows.exe cmd/grok/main.go
+
+    - name: Build for macOS
+      env:
+        VERSION: ${{ steps.get_tag.outputs.TAG }}
+      run: |
+        CGO_ENABLED=0 GOOS=darwin go build -ldflags="-s -w -X main.Version=${VERSION}" -o release/grok-${VERSION}-macOS cmd/grok/main.go
+
+    - name: Archive production artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: binaries-${{ steps.get_tag.outputs.TAG }}
+        path: v3/release/
+
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: v3/release/*
+        tag_name: ${{ steps.get_tag.outputs.TAG }}
+        draft: false
+        prerelease: false
+
+

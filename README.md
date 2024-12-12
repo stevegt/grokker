@@ -1,67 +1,45 @@
 # grokker
 
-A tool for interactive conversation with your own documents and code
--- for design, research, and rapid learning. Uses OpenAI API services
-for backend.
+Grokker helps maintain this README in a VIM session by reading its own
+source code.
 
-Grokker helped create this document in a VIM session by reading its
-own source code along with iterations of this document.
+Grokker began life as a Retrieval Augmented Generation (RAG) tool for
+answering questions about local documents and code; we use it in
+developing the [PromiseGrid](https://github.com/promisegrid/)
+decentralized computing platform.  Grokker currently uses OpenAI API
+servers for its backend, but we expect that to change as we migrate AI
+services and grokker itself onto the grid.
 
-## Example
+Over time, grokker has grown into a swiss-army-knife for natural
+language processing, code and file interpretation and generation, and
+AI-based research and development.  Its features include:
 
-```
-
-$ grok init
-Initialized a new .grok file in the current directory.
-
-$ grok add README.md cmd/grok/main.go grokker.go TODO.md
-
-Creating .grok file... adding README.md... adding cmd/grok/main.go...
-adding grokker.go... adding TODO.md... done!
-
-$ grok q "What is grokker?"
-
-Grokker is a tool for interactive conversation with one or more
-documents, used for research, training, and rapid learning. It
-utilizes OpenAI API services for the backend. Essentially, you can
-input documents into Grokker and it will use natural language
-processing to analyze the text and help you answer questions about
-those documents.
-
-$ grok q "Describe grokker's subcommands."
-
-Grokker has several subcommands, including:
-
-1. `init`: Initializes a new .grok file in the current directory.
-2. `add`: Adds one or more documents to the database.
-3. `refresh`: Refreshes the embeddings for all documents.
-4. `ls`: Lists all the documents in the .grok file.
-5. `q`: Asks a question and returns an answer. You can include the
-   `-g` flag to also search the OpenAI global knowledge base.
-6. `qi`: Reads a question from standard input and returns an answer.
-
-The `init` subcommand is only used once to create the grok file, while
-the rest are used to manage and interact with the documents in the
-grok file.
-
-$ grok q "What is the `qi` subcommand for?"
-
-The 'qi' subcommand allows you to ask a question by providing it on
-standard input rather than passing it as a command-line argument.
-For example, you could say:
-
-  echo "What is the 'qi' subcommand for?" | grok qi 
-
-This would read the question from standard input and return the
-answer.  This subcommand is especially useful in editor sessions and
-when writing plugins -- more about this below. 
-```
+- Interactive conversation with one or more documents and/or code
+- Human-in-the-loop AI-driven development (AIDDA)
+- Design, research, and rapid learning 
+- Local vector database 
+- Easy VIM integration
+- Chat client with named file I/O
+- Able to accept and generate file content in natural language, code,
+  structured messages, or a combination
+- LLM tooling including system message inputs, token counting and
+  embedding subcommands
 
 ## Installation
 
 ``` 
-go install github.com/stevegt/grokker/cmd/grok 
+go install github.com/stevegt/grokker/v3/cmd/grok@latest
 ``` 
+
+See the "Semantic Versioning" section below for important information
+about versioning, particularly if you're using grokker as a library or
+in a shell script.
+
+If you're installing a particular version instead of `@latest` it's
+important to know that the even-numbered major versions, e.g. v2.X.X,
+v4.X.X, etc., are stable releases, while odd-numbered major
+versions, e.g. v3.X.X, v5.X.X, etc., are development releases that may
+have breaking changes 
 
 You'll need an account with OpenAI and an API key. You can create and
 manage your API keys in your OpenAI dashboard.
@@ -74,13 +52,114 @@ following command:
 export OPENAI_API_KEY=<your_api_key> 
 ```
 
+
+## Example Usage
+
+Getting started, using grokker's own source code as example documents:
+
+```
+$ git clone https://github.com/stevegt/grokker.git
+$ cd grokker
+$ grok init
+$ grok add README.md TODO.md $(find v3 -name '*.go')
+```
+
+Make a one-time query without storing chat history:
+
+```
+$ grok q "What is grokker?"
+
+Grokker is a tool for interactive conversation with one or more
+documents, used for research, training, and rapid learning. It
+utilizes OpenAI API services for the backend. Essentially, you can
+input documents into Grokker and it will use natural language
+processing to analyze the text and help you answer questions about
+those documents.
+```
+
+Same thing, but providing the question on stdin:
+
+```
+$ echo "What is the `qi` subcommand for?" | grok qi
+
+The 'qi' subcommand allows you to ask a question by providing it on
+standard input rather than passing it as a command-line argument. This
+subcommand is especially useful in editor sessions and when writing
+plugins -- more about this below. 
+```
+
+### Queries with chat history on local disk
+
+Execute more complex queries using the newer `chat`
+subcommand. This will create or append to an existing chat history
+file, and will use prior messages in the chat history as context.
+Flags allow you to provide a system message.  You can specify local 
+files as context, and you can generate new files on local disk.  
+
+You can see an example of a generated file in [STORIES.md](./STORIES.md),
+which I created using the following command:
+
+```
+echo "Write user stories for grokker based on the README." \
+   | grok chat STORIES.chat \
+     -s "You are a technical writer." \
+     -i README.md -o STORIES.md
+```
+
+### Automatically generating git commit messages
+
+Grokker can automatically generate git commit messages -- it will
+review the `git diff` of whatever you've staged, and generate a commit
+message on stdout.  See grokker's own commit history for examples of
+what this looks like in practice.
+
+```
+$ git add .
+$ grok commit
+```
+
+In practice, I tend to simply say `!!grok commit` in the VIM session
+that pops open when I run `git commit -a`.  Similarly, I use `grok qi`
+and `grok chat` in VIM while working on code or docs, with the current
+paragraph or visual selection as the input to the query and stdout
+directed to the current buffer.  There are some examples of this
+below.
+
+## Human-in-the-loop AI-driven Development (AIDDA)
+
+- `grok aidda init`: create the .aidda subdirectory and initialize an .aidda/prompt file.
+- `grok aidda commit`: do a `git add -A; git commit` with a generated commit message.
+- `grok aidda prompt`: read the .aidda/prompt file and follow the instructions,
+  sending a query to the OpenAI API and overwriting the files listed
+  in the prompt file's Out: header.  
+
+I use this with
+[diffview.nvim](https://github.com/sindrets/diffview.nvim) so I can
+review, edit, or revert the changes the LLM has made before committing
+them.  Hotkeys in my .vimrc to run the above commands allow for quick
+iteration.
+
+## Tell me more about the `chat` subcommand
+
+The `chat` subcommand allows you to interact with the system's
+knowledge base in a conversational manner. It accepts a `chatfile` as
+a mandatory argument, which is where the chat history is stored. The
+`-s` flag is optional and can be used to pass a system message, which
+controls the behavior of the OpenAI API. In usage, it might look like
+`grok chat foo.chat -s sysmsg`, where `sysmsg` is an optional system
+message, and `foo.chat` is the required text file where the chat
+history is stored.  There are several other optional flags that can be
+used with the `chat` subcommand, such as a `-m` flag so you can
+provide the prompt on the command line instead of on stdin, and `-i`
+and `-o` flags to specify input and output files.  There are also
+flags to control context sources.  See `grok chat -h` for more
+details.
+
 ## Tell me more about the `qi` subcommand
 
-The `qi` subcommand allows you to ask a question by typing it in to
-the standard input rather than passing it as a command-line argument.
-The question is read from stdin and the answer is generated using the
-Grokker library. It's a way to generate quick answers to questions
-without having to provide the question as a command-line argument.
+The `qi` subcommand allows you to ask a question by providing it on
+stdin. It's a way to generate quick answers to questions without
+having to provide the question as a command-line argument.
 
 The `qi` subcommand enables you to use grokker as a chat client in an
 editor session by typing questions directly in your document and
@@ -115,9 +194,9 @@ keyboard mapping to your vimrc file. Here's an example mapping:
 
 This mapping will allow you to ask a question by typing it in VIM and
 then pressing `<leader>g`. The `vap` causes the current paragraph to be
-hightlighted, and the `:!grok qi` causes it to be sent as input to the
+highlighted, and the `:!grok qi` causes it to be sent as input to the
 `qi` subcommand of Grokker.  The answer will be inserted into the
-buffer below the current paragrpah. Note that the mapping assumes that
+buffer below the current paragraph. Note that the mapping assumes that
 Grokker's `grok` command is installed and in your system path.
 
 You will get better results if you `:set autowrite` so the current
@@ -158,22 +237,31 @@ queries.  This default is stored in the local .grok db.  (I haven't
 added a flag to override this default for a single query, but this
 would be doable.)
 
-## What is the `migrate` subcommand?
+## About the words `grokker` and `grok`
 
-The `migrate` subcommand transfers the Grokker database to a new
-version, updating its structure to ensure compatibility with the
-latest version of Grokker. Depending on the major and minor semantic
-versioning, migration might be either optional or required. In both
-cases, the subcommand automatically creates a timestamped backup of
-the grokker db and stores it in the current directory. You can safely
-delete this backup when you no longer need it.
+The word `grok` is from Robert Heinlein's [Stranger in a Strange
+Land](https://en.wikipedia.org/wiki/Stranger_in_a_Strange_Land) --
+there's a good summary of the word's meaning and history in
+[Wikipedia](https://en.wikipedia.org/wiki/Grok).  Roughly translated,
+it means "to understand something so thoroughly that the observer
+becomes a part of the observed".  
 
-## Does the `grok` command conflict with any other common UNIX/Linux commands?
+It's a popular word in science fiction and computer science and the
+namespace is crowded.  
 
-Yes.  For instance, Jordan Sissel's log file analysis tool also uses a
-`grok` command.  If you want to install grokker on the same machine,
-you can install it using an alternate command name.  Here's an example
-of installing grokker as `grokker` instead of `grok`:
+The name `grokker` is used by the company grokker.com, though the
+problem domains are different.  We are not affiliated with
+grokker.com.
+
+The folks at xAI released and filed a trademark application for the
+`grok` online AI tool several months after we were already using the
+word in this project.  We're not affiliated with xAI, but we wish them
+well.  
+
+Jordan Sissel's log file analysis tool also uses a `grok` command.  If
+you want to install grokker on the same machine, you can install it
+using an alternate command name.  Here's an example of installing
+grokker as `grokker` instead of `grok`:
 
 ``` 
 cd /tmp 
@@ -201,7 +289,7 @@ projects that were previously stalled.
 
 ### What are some use cases grokker already supports?
 
-In all of the following use cases, I tend to create and `grok add` a
+In most of the following use cases, I tend to create and `grok add` a
 `context.md` file that I use as a scratchpad, writing and refining
 questions and answers as I work on other files in the same directory
 or repository. This file is my interactive, animated [rubber
@@ -209,6 +297,12 @@ duck](https://en.wikipedia.org/wiki/Rubber_duck_debugging).  This
 technique has worked well.  I'm considering switching to using
 something like `grok.md`, `grokker.md`, `groktext.md`, or `gpt.md` for
 this filename and proposing it as a best practice.
+
+The newer `chat` subcommand is turning out to be even more useful -- I
+tend to name the chat history file after the problem I'm working on,
+such as `protocol.chat` or `design.chat`, and then use the `-i` and
+`-o` flags to specify input and output files to generate code or docs
+based on the conversation, requirements etc.
 
 Grokker has been a huge help in its original use case -- getting up to
 speed quickly on complex topics, documents, and code bases.  It's
@@ -236,6 +330,60 @@ context in future model queries, this provides feedback to the model,
 causing future answers to converge toward my intent.  (See
 [RLHF](https://en.wikipedia.org/wiki/Reinforcement_learning_from_human_feedback)
 for one possible way of formalizing this.)
+
+## Roadmap
+
+Here's where it appears this project is going as we migrate grokker to
+[PromiseGrid](https://github.com/promisegrid/promisegrid):
+
+- Multi-agent collaboration (with human, AI, and algorithmic agents)
+   - working on this right now
+- Decentralized consensus tool
+   - a useful side-effect of multi-agent collaboration
+- Web Assembly (WASM/WASI) execution
+   - enables easy use and distribution
+- Web UI (while keeping CLI)
+   - enabled by WASM/WASI
+- Plugin architecture
+   - enabled by WASM/WASI
+- Decentralized storage
+   - enabled by WASM/WASI
+- Decentralized virtual machine
+   - enabled by WASM/WASI
+- Decentralized vector database 
+   - enabled by decentralized storage/VM
+- Decentralized neural nets
+   - enabled by decentralized computing/storage/VM
+- Decentralized LLM/AI
+   - enabled by all of the above
+- Decentralized community consensus and governance
+   - enabled by all of the above
+
+## Semantic Versioning
+
+Grokker uses semantic versioning, with odd-numbered versions
+representing unstable development versions.  See
+[semver.org](https://semver.org/spec/v2.0.0.html) for more details
+about semantic versioning itself, and [Go's module release
+workflow](https://go.dev/doc/modules/release-workflow) for more
+details about how semantic versioning is used in Go.
+
+A version number is in the form: MAJOR.MINOR.PATCH
+
+- MAJOR version changes when making incompatible API or CLI changes
+- MINOR version changes when making API or CLI changes in a backwards
+  compatible manner
+     - we're also using this to trigger db version migrations
+- PATCH version changes when making backwards compatible bug fixes or
+  minor feature enhancements
+
+Any odd-numbered element indicates an unstable pre-release version
+that is collecting changes for the next stable release.
+
+Examples:
+- 2.2.2 is a stable release version
+- 2.3.X is a pre-release version of 2.4.0
+- 3.X.X is a pre-release version of 4.0.0
 
 # Important disclaimer regarding sensitive and confidential information
 
