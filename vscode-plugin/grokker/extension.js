@@ -8,6 +8,10 @@ const vscode = require('vscode');
 /**
  * @param {vscode.ExtensionContext} context
  */
+
+// Create a global terminal variable to be used in the activate function
+let terminal;
+
 function activate(context) {
 
 	// Use the console to output diagnostic information (console.log) and errors (console.error)
@@ -17,9 +21,12 @@ function activate(context) {
 	// The command has been defined in the package.json file
 	// Now provide the implementation of the command with  registerCommand
 	// The commandId parameter must match the command field in package.json
-	const disposable = vscode.commands.registerCommand('grokker.helloWorld', helloWorld);
-
+	let disposable = vscode.commands.registerCommand('grokker.helloWorld', helloWorld);
 	context.subscriptions.push(disposable);
+
+	terminal = vscode.window.createTerminal('aidda-menu');
+	let disposable2 = vscode.commands.registerCommand('grokker.aiddaMenu', aiddaMenu);
+	context.subscriptions.push(disposable2);
 }
 
 // This method is called when your extension is deactivated
@@ -31,5 +38,11 @@ module.exports = {
 }
 
 function helloWorld() {
-	vscode.window.showInformationMessage('Hello Again Big World from grokker!!!');
+	vscode.window.showInformationMessage('Hello Again Big World from grokker!');
+}
+
+// opens terminal tab running 'grok aidda menu'
+function aiddaMenu() {
+	terminal.show();
+	terminal.sendText('grok aidda menu');
 }

@@ -883,7 +883,7 @@ func menu(g *core.Grokker) (action string, err error) {
 		fmt.Println("  [g]enerate      - Generate code from current prompt file contents")
 		fmt.Println("  [r]egenerate    - Regenerate code from the prompt without committing")
 		fmt.Println("  [c]ommit        - Commit using the current prompt file contents as the commit message")
-		fmt.Println("  [f]orce-commit  - Commit changes without checking if the prompt has been updated")
+		fmt.Println("  [f]orce-commit  - Commit changes even if only the prompt has been updated")
 		fmt.Println("  [t]est          - Run tests and include the results in the next LLM prompt")
 		fmt.Println("  [a]uto          - Automatically run generate or commit based on file timestamps")
 		fmt.Println("  e[x]it          - Abort and exit the menu")

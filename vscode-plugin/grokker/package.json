@@ -15,12 +15,16 @@
     "commands": [{
       "command": "grokker.helloWorld",
       "title": "Hello World"
+    },
+    {
+      "command": "grokker.aiddaMenu",
+      "title": "Grokker AIDDA Menu"
     }],
     "keybindings": [
       {
-        "command": "grokker.helloWorld",
+        "command": "grokker.aiddaMenu",
         "key": "ctrl+alt+y",
-        "mac": "cmd+alt+y",
+        "mac": "ctrl+alt+y",
         "when": "editorTextFocus"
       }]
   },
