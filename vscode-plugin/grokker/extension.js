@@ -31,5 +31,5 @@ module.exports = {
 }
 
 function helloWorld() {
-	vscode.window.showInformationMessage('Hello Again Big World from grokker!');
+	vscode.window.showInformationMessage('Hello Again Big World from grokker!!!');
 }
