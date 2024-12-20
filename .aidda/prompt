@@ -1,9 +1,12 @@
-aidda: create timestamp files if they don't exist 
+aidda: remove auto mode and menu entry
+
+Remove the [a]uto menu entry and the code it triggers. 
 
 In: 
     v3/aidda/aidda.go
 Out: 
     v3/aidda/aidda.go
 .stop
+
 
 Sysmsg header missing, using default.Sysmsg

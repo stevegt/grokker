@@ -237,38 +237,6 @@ func Do(g *core.Grokker, args ...string) (err error) {
 		case "test":
 			err = runTest(testFn)
 			Ck(err)
-		case "auto":
-			// Decide based on timestamps
-			promptInfo, err := os.Stat(promptFn)
-			Ck(err)
-			if !promptInfo.ModTime().IsZero() {
-				// Get the list of output files
-				var p *Prompt
-				p, err = getPrompt(promptFn)
-				Ck(err)
-				commitNeeded := false
-				for _, outFn := range p.Out {
-					outInfo, err := os.Stat(outFn)
-					if os.IsNotExist(err) {
-						// If any output file does not exist, treat as need to generate
-						commitNeeded = true
-						break
-					} else {
-						Ck(err)
-						if outInfo.ModTime().After(promptInfo.ModTime()) {
-							commitNeeded = true
-							break
-						}
-					}
-				}
-				if commitNeeded {
-					args = append(args, "commit")
-				} else {
-					args = append(args, "generate")
-				}
-			} else {
-				return fmt.Errorf("prompt file does not exist or has invalid modification time")
-			}
 		case "abort":
 			// Abort the current operation
 			Pl("Operation aborted by user.")
@@ -291,7 +259,6 @@ func PrintUsageAndExit() {
 	fmt.Println("  regenerate    - Regenerate code from the prompt without committing")
 	fmt.Println("  force-commit  - Commit changes without checking if the prompt has been updated")
 	fmt.Println("  test          - Run tests and include the results in the next LLM prompt")
-	fmt.Println("  auto          - Automatically run generate or commit based on file timestamps")
 	fmt.Println("  abort         - Abort subcommand processing")
 	os.Exit(1)
 }
@@ -885,7 +852,6 @@ func menu(g *core.Grokker) (action string, err error) {
 		fmt.Println("  [c]ommit        - Commit using the current prompt file contents as the commit message")
 		fmt.Println("  [f]orce-commit  - Commit changes even if only the prompt has been updated")
 		fmt.Println("  [t]est          - Run tests and include the results in the next LLM prompt")
-		fmt.Println("  [a]uto          - Automatically run generate or commit based on file timestamps")
 		fmt.Println("  e[x]it          - Abort and exit the menu")
 		fmt.Println("Press the corresponding key to select an action...")
 
@@ -913,8 +879,6 @@ func menu(g *core.Grokker) (action string, err error) {
 			return "force-commit", nil
 		case "t":
 			return "test", nil
-		case "a":
-			return "auto", nil
 		case "x":
 			return "abort", nil
 		default:

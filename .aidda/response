@@ -83,10 +83,23 @@ func (s *Stamp) Update() error {
 // NewerThan returns true if our timestamp is newer than the modification time of the given file.
 func (s *Stamp) NewerThan(fn string) (bool, error) {
 	ourInfo, err := os.Stat(s.filename)
+	// if our file does not exist, it is older
+	if os.IsNotExist(err) {
+		// create the file with an old timestamp
+		err = s.Create(time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC))
+		return false, err
+	}
 	if err != nil {
 		return false, fmt.Errorf("failed to stat %s: %v", s.filename, err)
 	}
 	theirInfo, err := os.Stat(fn)
+	// if other file does not exist, it is older
+	if os.IsNotExist(err) {
+		// create the other file with an old timestamp
+		other := NewStamp(fn)
+		err = other.Create(time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC))
+		return true, err
+	}
 	if err != nil {
 		return false, fmt.Errorf("failed to stat %s: %v", fn, err)
 	}
@@ -96,10 +109,23 @@ func (s *Stamp) NewerThan(fn string) (bool, error) {
 // OlderThan returns true if our timestamp is older than the modification time of the given file.
 func (s *Stamp) OlderThan(fn string) (bool, error) {
 	ourInfo, err := os.Stat(s.filename)
+	// if the file does not exist, it is newer
+	if os.IsNotExist(err) {
+		// create the file with a current timestamp
+		err = s.Create(time.Now())
+		return false, err
+	}
 	if err != nil {
 		return false, fmt.Errorf("failed to stat %s: %v", s.filename, err)
 	}
 	theirInfo, err := os.Stat(fn)
+	// if the other file does not exist, it is newer
+	if os.IsNotExist(err) {
+		// create the other file with a current timestamp
+		other := NewStamp(fn)
+		err = other.Create(time.Now())
+		return true, err
+	}
 	if err != nil {
 		return false, fmt.Errorf("failed to stat %s: %v", fn, err)
 	}
@@ -213,38 +239,6 @@ func Do(g *core.Grokker, args ...string) (err error) {
 		case "test":
 			err = runTest(testFn)
 			Ck(err)
-		case "auto":
-			// Decide based on timestamps
-			promptInfo, err := os.Stat(promptFn)
-			Ck(err)
-			if !promptInfo.ModTime().IsZero() {
-				// Get the list of output files
-				var p *Prompt
-				p, err = getPrompt(promptFn)
-				Ck(err)
-				commitNeeded := false
-				for _, outFn := range p.Out {
-					outInfo, err := os.Stat(outFn)
-					if os.IsNotExist(err) {
-						// If any output file does not exist, treat as need to generate
-						commitNeeded = true
-						break
-					} else {
-						Ck(err)
-						if outInfo.ModTime().After(promptInfo.ModTime()) {
-							commitNeeded = true
-							break
-						}
-					}
-				}
-				if commitNeeded {
-					args = append(args, "commit")
-				} else {
-					args = append(args, "generate")
-				}
-			} else {
-				return fmt.Errorf("prompt file does not exist or has invalid modification time")
-			}
 		case "abort":
 			// Abort the current operation
 			Pl("Operation aborted by user.")
@@ -266,9 +260,8 @@ func PrintUsageAndExit() {
 	fmt.Println("  generate      - Generate changes from GPT based on the prompt")
 	fmt.Println("  regenerate    - Regenerate code from the prompt without committing")
 	fmt.Println("  force-commit  - Commit changes without checking if the prompt has been updated")
-	fmt.Println("  test          - Run tests and include the results in the prompt file")
-	fmt.Println("  auto          - Automatically run generate or commit based on file timestamps")
-	fmt.Println("  abort         - Abort the current operation")
+	fmt.Println("  test          - Run tests and include the results in the next LLM prompt")
+	fmt.Println("  abort         - Abort subcommand processing")
 	os.Exit(1)
 }
 
@@ -679,6 +672,8 @@ func generate(g *core.Grokker, p *Prompt) (err error) {
 		Pl(f)
 	}
 
+	Pl("Using model:", g.Model)
+
 	Pf("Querying GPT...")
 	// Start a goroutine to print dots while waiting for the response
 	var stopDots = make(chan bool)
@@ -857,10 +852,9 @@ func menu(g *core.Grokker) (action string, err error) {
 		fmt.Println("  [g]enerate      - Generate code from current prompt file contents")
 		fmt.Println("  [r]egenerate    - Regenerate code from the prompt without committing")
 		fmt.Println("  [c]ommit        - Commit using the current prompt file contents as the commit message")
-		fmt.Println("  [f]orce-commit  - Commit changes without checking if the prompt has been updated")
-		fmt.Println("  [t]est          - Run tests and include the results in the prompt file")
-		fmt.Println("  [a]uto          - Automatically run generate or commit based on file timestamps")
-		fmt.Println("  e[x]it        - Abort and exit the menu")
+		fmt.Println("  [f]orce-commit  - Commit changes even if only the prompt has been updated")
+		fmt.Println("  [t]est          - Run tests and include the results in the next LLM prompt")
+		fmt.Println("  e[x]it          - Abort and exit the menu")
 		fmt.Println("Press the corresponding key to select an action...")
 
 		// Initialize keyboard
@@ -887,11 +881,8 @@ func menu(g *core.Grokker) (action string, err error) {
 			return "force-commit", nil
 		case "t":
 			return "test", nil
-		case "a":
-			return "auto", nil
 		case "x":
-			Pl("Operation aborted by user.")
-			return "", nil
+			return "abort", nil
 		default:
 			fmt.Printf("\nUnknown option: %s\n\n", string(char))
 			// Continue the loop to re-display the menu
@@ -914,6 +905,10 @@ func getTestResults(testFn string, inFns []string, outFns []string) (testResults
 		fns := append(inFns, outFns...)
 		for _, fn := range fns {
 			inStat, err := os.Stat(fn)
+			// skip if the file does not exist
+			if os.IsNotExist(err) {
+				continue
+			}
 			Ck(err)
 			if testStat.ModTime().After(inStat.ModTime()) {
 				// return the test file contents
