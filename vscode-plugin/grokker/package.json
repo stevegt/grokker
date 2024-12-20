@@ -3,6 +3,7 @@
   "displayName": "grokker",
   "description": "Keybindings for the Grokker AI tool https://github.com/stevegt/grokker",
   "version": "0.0.1",
+  "publisher": "CSWG",
   "repository": {
     "type": "git",
     "url": "https://github.com/stevegt/grokker"
