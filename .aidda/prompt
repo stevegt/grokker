@@ -1,11 +1,15 @@
-x/tokencount: accept directory name as command line argument
+x/tokencount: clean columnar output
 
-Accept an optional directory name as a positional command line
-argument. If the directory name is not provided, use the current
-directory. 
+Provide output in a format similar to:
+
+Language          Files     Tokens
+----------------  -----  ---------
+golang                1        116
+ampl                  1         22
+----------------  -----  ---------
+Total                 2        138
 
 In:
-    v3/cli/cli.go
     x/tokencount/main.go
 Out: 
     x/tokencount/main.go

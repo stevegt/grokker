@@ -28,14 +28,16 @@ func main() {
 	}
 
 	langCounts := make(map[string]int)
+	langFileCounts := make(map[string]int)
 	totalTokens := 0
+	totalFiles := 0
 
 	// initialize Tokenizer
 	var grok *core.Grokker
 	err = core.InitTokenizer()
 	Ck(err)
 
-	// Count tokens in each file, totaling by language
+	// Count tokens and files in each language
 	for file, lang := range fileLangMap {
 		tokens, err := countTokens(grok, file)
 		if err != nil {
@@ -43,17 +45,20 @@ func main() {
 			continue
 		}
 		langCounts[lang] += tokens
+		langFileCounts[lang]++
 		totalTokens += tokens
+		totalFiles++
 	}
 
-	// Report totals by language
-	fmt.Println("Token counts by language:")
+	// Report totals by language in columnar format
+	fmt.Printf("%-16s  %-5s  %-9s\n", "Language", "Files", "Tokens")
+	fmt.Printf("----------------  -----  ---------\n")
 	for lang, count := range langCounts {
-		fmt.Printf("%s: %d\n", lang, count)
+		fileCount := langFileCounts[lang]
+		fmt.Printf("%-16s  %5d  %9d\n", lang, fileCount, count)
 	}
-
-	// Report grand total
-	fmt.Printf("Grand total: %d\n", totalTokens)
+	fmt.Printf("----------------  -----  ---------\n")
+	fmt.Printf("%-16s  %5d  %9d\n", "Total", totalFiles, totalTokens)
 }
 
 // getFileLanguages runs `ohcount -d <root>` and parses its output to map files to languages
@@ -82,6 +87,9 @@ func getFileLanguages(root string) (map[string]string, error) {
 		if err != nil {
 			log.Printf("Failed to get absolute path for %s: %v", filePath, err)
 			continue
+		}
+		if lang == "(null)" {
+			lang = "other"
 		}
 		fileLangMap[absolutePath] = lang
 	}
