@@ -4,16 +4,21 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/v3/core"
 )
 
 func main() {
-	// Inventory tree content using `ohcount -d`
-	fileLangMap, err := getFileLanguages(".")
+	// Inventory tree content using `ohcount -d <directory>`
+	directory := "."
+	fileLangMap, err := getFileLanguages(directory)
 	if err != nil {
 		log.Fatalf("Error getting file languages: %v", err)
 	}
@@ -21,9 +26,14 @@ func main() {
 	langCounts := make(map[string]int)
 	totalTokens := 0
 
+	// initialize Tokenizer
+	var grok *core.Grokker
+	err = core.InitTokenizer()
+	Ck(err)
+
 	// Count tokens in each file, totaling by language
 	for file, lang := range fileLangMap {
-		tokens, err := countTokens(file)
+		tokens, err := countTokens(grok, file)
 		if err != nil {
 			log.Printf("Failed to count tokens in %s: %v", file, err)
 			continue
@@ -42,9 +52,9 @@ func main() {
 	fmt.Printf("Grand total: %d\n", totalTokens)
 }
 
-// getFileLanguages runs `ohcount -d` and parses its output to map files to languages
+// getFileLanguages runs `ohcount -d <root>` and parses its output to map files to languages
 func getFileLanguages(root string) (map[string]string, error) {
-	cmd := exec.Command("ohcount", "-d")
+	cmd := exec.Command("ohcount", "-d", root)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
@@ -64,7 +74,7 @@ func getFileLanguages(root string) (map[string]string, error) {
 		}
 		lang := parts[0]
 		filePath := strings.Join(parts[1:], " ")
-		absolutePath, err := filepath.Abs(filePath)
+		absolutePath, err := filepath.Abs(filepath.Join(root, filePath))
 		if err != nil {
 			log.Printf("Failed to get absolute path for %s: %v", filePath, err)
 			continue
@@ -80,23 +90,23 @@ func getFileLanguages(root string) (map[string]string, error) {
 }
 
 // countTokens counts the number of tokens (words) in a file
-func countTokens(file string) (int, error) {
+func countTokens(grok *core.Grokker, file string) (count int, err error) {
+	// Open the file
 	f, err := os.Open(file)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to open file %s: %v", file, err)
 	}
 	defer f.Close()
 
-	scanner := bufio.NewScanner(f)
-	scanner.Split(bufio.ScanWords)
-	count := 0
-	for scanner.Scan() {
-		count++
+	// Read the file content
+	buf, err := ioutil.ReadAll(f)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read file %s: %v", file, err)
 	}
+	content := string(buf)
+	content = strings.TrimSpace(content)
 
-	if err := scanner.Err(); err != nil {
-		return count, err
-	}
+	count, err = grok.TokenCount(content)
 
-	return count, nil
+	return
 }

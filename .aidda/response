@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -14,8 +15,9 @@ import (
 )
 
 func main() {
-	// Inventory tree content using `ohcount -d`
-	fileLangMap, err := getFileLanguages(".")
+	// Inventory tree content using `ohcount -d <directory>`
+	directory := "."
+	fileLangMap, err := getFileLanguages(directory)
 	if err != nil {
 		log.Fatalf("Error getting file languages: %v", err)
 	}
@@ -44,9 +46,9 @@ func main() {
 	fmt.Printf("Grand total: %d\n", totalTokens)
 }
 
-// getFileLanguages runs `ohcount -d` and parses its output to map files to languages
+// getFileLanguages runs `ohcount -d <root>` and parses its output to map files to languages
 func getFileLanguages(root string) (map[string]string, error) {
-	cmd := exec.Command("ohcount", "-d")
+	cmd := exec.Command("ohcount", "-d", root)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
@@ -66,7 +68,7 @@ func getFileLanguages(root string) (map[string]string, error) {
 		}
 		lang := parts[0]
 		filePath := strings.Join(parts[1:], " ")
-		absolutePath, err := filepath.Abs(filePath)
+		absolutePath, err := filepath.Abs(filepath.Join(root, filePath))
 		if err != nil {
 			log.Printf("Failed to get absolute path for %s: %v", filePath, err)
 			continue
@@ -83,24 +85,24 @@ func getFileLanguages(root string) (map[string]string, error) {
 
 // countTokens counts the number of tokens (words) in a file
 func countTokens(file string) (int, error) {
+	// Open the file
 	f, err := os.Open(file)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to open file %s: %v", file, err)
 	}
 	defer f.Close()
 
-	scanner := bufio.NewScanner(f)
-	scanner.Split(bufio.ScanWords)
-	count := 0
-	for scanner.Scan() {
-		count++
+	// Read the file content
+	buf, err := ioutil.ReadAll(f)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read file %s: %v", file, err)
 	}
+	content := string(buf)
+	content = strings.TrimSpace(content)
 
-	if err := scanner.Err(); err != nil {
-		return count, err
-	}
-
-	return count, nil
+	// Count tokens using a simple whitespace split
+	tokens := strings.Fields(content)
+	return len(tokens), nil
 }
 ```
 EOF_/home/stevegt/lab/grokker/x/tokencount/main.go

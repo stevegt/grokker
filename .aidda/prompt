@@ -6,9 +6,13 @@ identify the languages of the files.
 
 - inventory tree content using `ohcount -d`
 - count tokens in each file, totaling by language
+    - use code similar to the "tc" subcommand to count tokens
 - report totals by language
 - report grand total
 
+In:
+    v3/cli/cli.go
+    x/tokencount/main.go
 Out: 
     x/tokencount/main.go
 .stop
