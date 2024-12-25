@@ -1,13 +1,6 @@
-x/tokencount: clean columnar output
+x/tokencount: sort by token count
 
-Provide output in a format similar to:
-
-Language          Files     Tokens
-----------------  -----  ---------
-golang                1        116
-ampl                  1         22
-----------------  -----  ---------
-Total                 2        138
+Sort the output by token count, highest first.
 
 In:
     x/tokencount/main.go

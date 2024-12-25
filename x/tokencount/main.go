@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	. "github.com/stevegt/goadapt"
@@ -50,12 +51,32 @@ func main() {
 		totalFiles++
 	}
 
+	// Prepare a slice for sorting
+	type langStat struct {
+		Language string
+		Files    int
+		Tokens   int
+	}
+
+	var stats []langStat
+	for lang, count := range langCounts {
+		stats = append(stats, langStat{
+			Language: lang,
+			Files:    langFileCounts[lang],
+			Tokens:   count,
+		})
+	}
+
+	// Sort by token count, highest first
+	sort.Slice(stats, func(i, j int) bool {
+		return stats[i].Tokens > stats[j].Tokens
+	})
+
 	// Report totals by language in columnar format
 	fmt.Printf("%-16s  %-5s  %-9s\n", "Language", "Files", "Tokens")
 	fmt.Printf("----------------  -----  ---------\n")
-	for lang, count := range langCounts {
-		fileCount := langFileCounts[lang]
-		fmt.Printf("%-16s  %5d  %9d\n", lang, fileCount, count)
+	for _, stat := range stats {
+		fmt.Printf("%-16s  %5d  %9d\n", stat.Language, stat.Files, stat.Tokens)
 	}
 	fmt.Printf("----------------  -----  ---------\n")
 	fmt.Printf("%-16s  %5d  %9d\n", "Total", totalFiles, totalTokens)
