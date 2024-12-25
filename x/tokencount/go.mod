@@ -1,4 +1,4 @@
-module main
+module tokencount
 
 go 1.22.1
 
