@@ -8,7 +8,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -39,10 +38,10 @@ func main() {
 	Ck(err)
 
 	// Count tokens and files in each language
-	for file, lang := range fileLangMap {
-		tokens, err := countTokens(grok, file)
+	for path, lang := range fileLangMap {
+		tokens, err := countTokens(grok, path)
 		if err != nil {
-			log.Printf("Failed to count tokens in %s: %v", file, err)
+			log.Printf("Failed to count tokens in %s: %v", path, err)
 			continue
 		}
 		langCounts[lang] += tokens
@@ -104,15 +103,10 @@ func getFileLanguages(root string) (map[string]string, error) {
 		}
 		lang := parts[0]
 		filePath := strings.Join(parts[1:], " ")
-		absolutePath, err := filepath.Abs(filepath.Join(root, filePath))
-		if err != nil {
-			log.Printf("Failed to get absolute path for %s: %v", filePath, err)
-			continue
-		}
 		if lang == "(null)" {
 			lang = "other"
 		}
-		fileLangMap[absolutePath] = lang
+		fileLangMap[filePath] = lang
 	}
 
 	if err := scanner.Err(); err != nil {
