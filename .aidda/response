@@ -12,11 +12,18 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/v3/core"
 )
 
 func main() {
 	// Inventory tree content using `ohcount -d <directory>`
 	directory := "."
+	if len(os.Args) > 1 {
+		directory = os.Args[1]
+	}
+
 	fileLangMap, err := getFileLanguages(directory)
 	if err != nil {
 		log.Fatalf("Error getting file languages: %v", err)
@@ -25,9 +32,14 @@ func main() {
 	langCounts := make(map[string]int)
 	totalTokens := 0
 
+	// initialize Tokenizer
+	var grok *core.Grokker
+	err = core.InitTokenizer()
+	Ck(err)
+
 	// Count tokens in each file, totaling by language
 	for file, lang := range fileLangMap {
-		tokens, err := countTokens(file)
+		tokens, err := countTokens(grok, file)
 		if err != nil {
 			log.Printf("Failed to count tokens in %s: %v", file, err)
 			continue
@@ -84,7 +96,7 @@ func getFileLanguages(root string) (map[string]string, error) {
 }
 
 // countTokens counts the number of tokens (words) in a file
-func countTokens(file string) (int, error) {
+func countTokens(grok *core.Grokker, file string) (count int, err error) {
 	// Open the file
 	f, err := os.Open(file)
 	if err != nil {
@@ -100,9 +112,9 @@ func countTokens(file string) (int, error) {
 	content := string(buf)
 	content = strings.TrimSpace(content)
 
-	// Count tokens using a simple whitespace split
-	tokens := strings.Fields(content)
-	return len(tokens), nil
+	count, err = grok.TokenCount(content)
+
+	return
 }
 ```
 EOF_/home/stevegt/lab/grokker/x/tokencount/main.go

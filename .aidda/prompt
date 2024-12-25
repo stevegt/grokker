@@ -1,14 +1,8 @@
-x/tokencount: first draft 
+x/tokencount: accept directory name as command line argument
 
-First draft of a tool to count tokens in all files in a directory
-tree.  Similar to `ohcount`, and actually uses `ohcount -d` to
-identify the languages of the files.
-
-- inventory tree content using `ohcount -d`
-- count tokens in each file, totaling by language
-    - use code similar to the "tc" subcommand to count tokens
-- report totals by language
-- report grand total
+Accept an optional directory name as a positional command line
+argument. If the directory name is not provided, use the current
+directory. 
 
 In:
     v3/cli/cli.go

@@ -18,6 +18,10 @@ import (
 func main() {
 	// Inventory tree content using `ohcount -d <directory>`
 	directory := "."
+	if len(os.Args) > 1 {
+		directory = os.Args[1]
+	}
+
 	fileLangMap, err := getFileLanguages(directory)
 	if err != nil {
 		log.Fatalf("Error getting file languages: %v", err)
