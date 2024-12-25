@@ -1,12 +1,19 @@
-aidda: remove auto mode and menu entry
+x/tokencount: first draft 
 
-Remove the [a]uto menu entry and the code it triggers. 
+First draft of a tool to count tokens in all files in a directory
+tree.  Similar to `ohcount`, and actually uses `ohcount -d` to
+identify the languages of the files.
+
+- inventory tree content using `ohcount -d`
+- count tokens in each file, totaling by language
+- report totals by language
+- report grand total
+
+Out: 
+    x/tokencount/main.go
+.stop
 
 In: 
     v3/aidda/aidda.go
-Out: 
-    v3/aidda/aidda.go
-.stop
-
 
 Sysmsg header missing, using default.Sysmsg

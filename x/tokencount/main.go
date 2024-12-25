@@ -1,5 +1,3 @@
-File: /home/stevegt/lab/grokker/x/tokencount/main.go
-```go
 package main
 
 import (
@@ -102,5 +100,3 @@ func countTokens(file string) (int, error) {
 
 	return count, nil
 }
-```
-EOF_/home/stevegt/lab/grokker/x/tokencount/main.go
