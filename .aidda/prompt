@@ -1,6 +1,34 @@
-x/tokencount: sort by token count
+x/tokencount: add -i flag to show individual token counts
 
-Sort the output by token count, highest first.
+Add a -i flag to show token counts for individual files.  The output
+looks like:
+
+Language             Tokens  File
+----------------  ---------  -----------------------------------------------
+golang                  140  ../../v3/util/util.go
+golang                  170  ../../v3/cli/chat_test.go
+golang                  777  ../../v3/cli/cli.go
+golang                  632  ../../v3/cli/cli_test.go
+golang                  198  ../../v3/cli/migration_test.go
+golang                  107  ../../v3/lang/go/split.go
+golang                   53  ../../v3/lang/go/split_test.go
+golang                  221  ../../v3/core/grokker_test.go
+golang                  432  ../../v3/core/chunk.go
+golang                  711  ../../v3/core/chat.go
+golang                  158  ../../v3/core/migrate.go
+golang                  122  ../../v3/core/grokker.go
+golang                  271  ../../v3/core/openai.go
+golang                   91  ../../v3/core/git.go
+golang                  111  ../../v3/core/model.go
+golang                  597  ../../v3/core/api.go
+golang                   98  ../../v3/core/document.go
+golang                   16  ../../v3/cmd/grok/main.go
+ampl                     35  ../../v3/go.mod
+golang                  285  ../../v3/aidda/aidda_test.go
+golang                   19  ../../v3/aidda/cmd/aidda3/main.go
+golang                  161  ../../v3/aidda/run.go
+golang                  928  ../../v3/aidda/aidda.go
+
 
 In:
     x/tokencount/main.go

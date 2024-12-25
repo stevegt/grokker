@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -16,10 +17,15 @@ import (
 )
 
 func main() {
-	// Inventory tree content using `ohcount -d <directory>`
+	// Define and parse command-line flags
+	showIndividual := flag.Bool("i", false, "Show individual token counts for each file")
+	flag.Parse()
+
+	// Determine the directory to process
 	directory := "."
-	if len(os.Args) > 1 {
-		directory = os.Args[1]
+	args := flag.Args()
+	if len(args) > 0 {
+		directory = args[0]
 	}
 
 	fileLangMap, err := getFileLanguages(directory)
@@ -32,10 +38,18 @@ func main() {
 	totalTokens := 0
 	totalFiles := 0
 
-	// initialize Tokenizer
+	// Initialize Tokenizer
 	var grok *core.Grokker
 	err = core.InitTokenizer()
 	Ck(err)
+
+	// Prepare slice for individual file stats if -i flag is set
+	type fileStat struct {
+		Language string
+		Tokens   int
+		File     string
+	}
+	var individualStats []fileStat
 
 	// Count tokens and files in each language
 	for path, lang := range fileLangMap {
@@ -48,37 +62,63 @@ func main() {
 		langFileCounts[lang]++
 		totalTokens += tokens
 		totalFiles++
-	}
 
-	// Prepare a slice for sorting
-	type langStat struct {
-		Language string
-		Files    int
-		Tokens   int
-	}
-
-	var stats []langStat
-	for lang, count := range langCounts {
-		stats = append(stats, langStat{
+		individualStats = append(individualStats, fileStat{
 			Language: lang,
-			Files:    langFileCounts[lang],
-			Tokens:   count,
+			Tokens:   tokens,
+			File:     path,
 		})
 	}
 
-	// Sort by token count, highest first
-	sort.Slice(stats, func(i, j int) bool {
-		return stats[i].Tokens > stats[j].Tokens
-	})
+	if *showIndividual {
+		// Sort individual stats by token count in descending order
+		sort.Slice(individualStats, func(i, j int) bool {
+			return individualStats[i].Tokens > individualStats[j].Tokens
+		})
 
-	// Report totals by language in columnar format
-	fmt.Printf("%-16s  %-5s  %-9s\n", "Language", "Files", "Tokens")
-	fmt.Printf("----------------  -----  ---------\n")
-	for _, stat := range stats {
-		fmt.Printf("%-16s  %5d  %9d\n", stat.Language, stat.Files, stat.Tokens)
+		// Print header
+		fmt.Printf("%-20s  %-7s  %-50s\n", "Language", "Tokens", "File")
+		fmt.Printf("%-20s  %-7s  %-50s\n", strings.Repeat("-", 20), strings.Repeat("-", 7), strings.Repeat("-", 50))
+
+		// Print each file's stats
+		for _, stat := range individualStats {
+			fmt.Printf("%-20s  %7d  %-50s\n", stat.Language, stat.Tokens, stat.File)
+		}
+
+		// Print footer
+		fmt.Printf("%-20s  %-7s  %-50s\n", strings.Repeat("-", 20), strings.Repeat("-", 7), strings.Repeat("-", 50))
+		fmt.Printf("%-20s  %7d  %-50s\n", "Total", totalTokens, "All Files")
+	} else {
+		// Prepare a slice for sorting languages
+		type langStat struct {
+			Language string
+			Files    int
+			Tokens   int
+		}
+
+		var stats []langStat
+		for lang, count := range langCounts {
+			stats = append(stats, langStat{
+				Language: lang,
+				Files:    langFileCounts[lang],
+				Tokens:   count,
+			})
+		}
+
+		// Sort by token count, highest first
+		sort.Slice(stats, func(i, j int) bool {
+			return stats[i].Tokens > stats[j].Tokens
+		})
+
+		// Report totals by language in columnar format
+		fmt.Printf("%-16s  %-5s  %-9s\n", "Language", "Files", "Tokens")
+		fmt.Printf("----------------  -----  ---------\n")
+		for _, stat := range stats {
+			fmt.Printf("%-16s  %5d  %9d\n", stat.Language, stat.Files, stat.Tokens)
+		}
+		fmt.Printf("----------------  -----  ---------\n")
+		fmt.Printf("%-16s  %5d  %9d\n", "Total", totalFiles, totalTokens)
 	}
-	fmt.Printf("----------------  -----  ---------\n")
-	fmt.Printf("%-16s  %5d  %9d\n", "Total", totalFiles, totalTokens)
 }
 
 // getFileLanguages runs `ohcount -d <root>` and parses its output to map files to languages
