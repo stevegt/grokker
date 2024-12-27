@@ -14,6 +14,7 @@ import (
 
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker/v3/core"
+	"github.com/gabriel-vasile/mimetype"
 )
 
 func main() {
@@ -144,7 +145,17 @@ func getFileLanguages(root string) (map[string]string, error) {
 		lang := parts[0]
 		filePath := strings.Join(parts[1:], " ")
 		if lang == "(null)" {
-			lang = "other"
+			mtype, err := mimetype.DetectFile(filePath)
+			if err != nil {
+				log.Printf("Failed to detect mimetype for %s: %v", filePath, err)
+				continue
+			}
+			if mtype.Is("text/plain") {
+				lang = "text/plain"
+			} else {
+				// Ignore non-text/plain files
+				continue
+			}
 		}
 		fileLangMap[filePath] = lang
 	}
