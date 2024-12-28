@@ -1,10 +1,8 @@
-x/tokencount: use mimetype to determine type of null files
+x/tokencount: add -l flag to list all countable files
 
-In the case of files for which ohcount returns '(null)', use 
-github.com/gabriel-vasile/mimetype to determine the type of the file.
-If the file is of type 'text/plain', then include the file in the
-count.  Otherwise, ignore the file.
-
+Add a -l flag to list the relative path of all files that are counted
+by tokencount, one per line.  This is useful for feeding the file list
+into other tools.
 
 In:
     x/tokencount/main.go

@@ -22,6 +22,7 @@ import (
 func main() {
 	// Define and parse command-line flags
 	showIndividual := flag.Bool("i", false, "Show individual token counts for each file")
+	listFiles := flag.Bool("l", false, "List all countable files")
 	flag.Parse()
 
 	// Determine the directory to process
@@ -34,6 +35,14 @@ func main() {
 	fileLangMap, err := getFileLanguages(directory)
 	if err != nil {
 		log.Fatalf("Error getting file languages: %v", err)
+	}
+
+	// If -l flag is set, list all countable files and exit
+	if *listFiles {
+		for file := range fileLangMap {
+			fmt.Println(file)
+		}
+		os.Exit(0)
 	}
 
 	langCounts := make(map[string]int)
