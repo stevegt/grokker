@@ -28,4 +28,6 @@ x/tokencount/tokencount
 # goland
 .idea/
 
+# plugin-related
+vscode-plugin/grokker/core.*
 

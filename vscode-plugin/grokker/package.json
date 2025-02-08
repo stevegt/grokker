@@ -2,7 +2,7 @@
   "name": "grokker",
   "displayName": "grokker",
   "description": "Keybindings for the Grokker AI tool https://github.com/stevegt/grokker",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publisher": "CSWG",
   "repository": {
     "type": "git",
@@ -36,7 +36,8 @@
   "scripts": {
     "lint": "eslint .",
     "pretest": "npm run lint",
-    "test": "vscode-test"
+    "test": "vscode-test",
+    "postinstall": "node scripts/postinstall.js"
   },
   "devDependencies": {
     "@types/vscode": "^1.95.0",

@@ -545,9 +545,9 @@ func createPromptFile(path string) (err error) {
 	outFns := make([]string, len(inFns))
 	copy(outFns, inFns)
 
-	// Filenames are space-separated
-	inStr := strings.Join(inFns, " ")
-	outStr := strings.Join(outFns, " ")
+	// Filenames are newline-separated, indented by 4 spaces
+	inStr := strings.Join(inFns, "\n    ")
+	outStr := strings.Join(outFns, "\n    ")
 
 	// Write the initial prompt line and a blank line
 	_, err = fmt.Fprintf(file, "# write commit message here -- it will be used as the LLM prompt\n\n")

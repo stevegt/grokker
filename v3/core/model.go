@@ -7,7 +7,7 @@ import (
 	. "github.com/stevegt/goadapt"
 )
 
-var DefaultModel = "gpt-4o"
+var DefaultModel = "o3-mini"
 
 // Model is a type for model name and characteristics
 type Model struct {
@@ -50,6 +50,8 @@ func NewModels() (m *Models) {
 		"gpt-4o":              {"", 128000, oai.GPT4o, false},
 		"o1-preview":          {"", 128000, oai.O1Preview, false},
 		"o1-mini":             {"", 128000, oai.O1Mini, false},
+		"o1":                  {"", 128000, oai.O1Preview, false},
+		"o3-mini":             {"", 200000, oai.O3Mini, false},
 	}
 	// fill in the model names
 	for k, v := range m.Available {

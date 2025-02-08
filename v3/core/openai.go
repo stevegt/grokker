@@ -197,13 +197,14 @@ func (g *Grokker) msg(sysmsg, input string) (resp gptLib.ChatCompletionResponse,
 // the system message if the model supports it, otherwise it includes the
 // system message in the first user message.
 func initMessages(g *Grokker, sysmsg string) []gptLib.ChatCompletionMessage {
-	// models that do not support system messages
-	models := []string{
+	// noSysMsg that do not support system messages
+	noSysMsg := []string{
 		"o1-preview",
 		"o1-mini",
+		"o3-mini",
 	}
 	sysmsgOk := true
-	for _, model := range models {
+	for _, model := range noSysMsg {
 		if g.Model == model {
 			sysmsgOk = false
 			break
