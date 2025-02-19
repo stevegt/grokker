@@ -629,9 +629,12 @@ func generate(g *core.Grokker, p *Prompt) (err error) {
 	var outFls []core.FileLang
 	for _, fn := range outFns {
 		lang, known, err := util.Ext2Lang(fn)
-		Ck(err)
-		if !known {
-			Pf("Unknown language for file %s, defaulting to %s\n", fn, lang)
+		if !known || err != nil {
+			if lang != "" {
+				Pf("Unknown language for file %s, defaulting to %s\n", fn, lang)
+			} else {
+				Pf("Unknown language for file %s, defaulting to empty\n", fn)
+			}
 		}
 		outFls = append(outFls, core.FileLang{File: fn, Language: lang})
 	}
