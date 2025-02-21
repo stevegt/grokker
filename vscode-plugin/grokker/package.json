@@ -2,7 +2,7 @@
   "name": "grokker",
   "displayName": "grokker",
   "description": "Keybindings for the Grokker AI tool https://github.com/stevegt/grokker",
-  "version": "0.0.2",
+  "version": "0.0.5",
   "publisher": "CSWG",
   "repository": {
     "type": "git",
@@ -20,6 +20,10 @@
     "commands": [{
       "command": "grokker.helloWorld",
       "title": "Hello World"
+    },
+    {
+      "command": "grokker.installGrokker",
+      "title": "Install Grokker Binary"
     },
     {
       "command": "grokker.aiddaMenu",
