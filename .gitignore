@@ -30,4 +30,5 @@ x/tokencount/tokencount
 
 # plugin-related
 vscode-plugin/grokker/core.*
+*.vsix
 
