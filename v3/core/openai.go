@@ -254,7 +254,7 @@ func (g *Grokker) complete(messages []gptLib.ChatCompletionMessage) (res gptLib.
 	res, err = client.CreateChatCompletion(
 		context.Background(),
 		gptLib.ChatCompletionRequest{
-			Model:    g.modelObj.oaiModel,
+			Model:    g.modelObj.upstreamName,
 			Messages: messages,
 		},
 	)

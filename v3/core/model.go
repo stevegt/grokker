@@ -11,10 +11,10 @@ var DefaultModel = "o3-mini"
 
 // Model is a type for model name and characteristics
 type Model struct {
-	Name       string
-	TokenLimit int
-	oaiModel   string
-	active     bool
+	Name         string
+	TokenLimit   int
+	upstreamName string
+	active       bool
 }
 
 func (m *Model) String() string {

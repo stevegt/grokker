@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -220,6 +221,22 @@ func Do(g *core.Grokker, args ...string) (err error) {
 			Ck(err)
 			err = generate(g, p)
 			Ck(err)
+		case "auto":
+			// commit using the git diff to generate a commit message
+			// do a git add -A first
+			cmd := exec.Command("git", "add", "-A")
+			out, err := cmd.CombinedOutput()
+			Ck(err)
+			Pl(string(out))
+			// ...then generate the commit message
+			summary, err := g.GitCommitMessage("--staged")
+			Ck(err)
+			Pl(summary)
+			// ...then commit
+			err = commit(g, summary)
+			Ck(err)
+			// then regenerate
+			fallthrough
 		case "regenerate":
 			// Regenerate code from the prompt without committing
 			var p *Prompt
@@ -854,6 +871,7 @@ func menu(g *core.Grokker) (action string, err error) {
 		fmt.Println("  [r]egenerate    - Regenerate code from the prompt without committing")
 		fmt.Println("  [c]ommit        - Commit using the current prompt file contents as the commit message")
 		fmt.Println("  [f]orce-commit  - Commit changes even if only the prompt has been updated")
+		fmt.Println("  [a]uto          - Auto-generate a commit message, commit, then regenerate")
 		fmt.Println("  [t]est          - Run tests and include the results in the next LLM prompt")
 		fmt.Println("  e[x]it          - Abort and exit the menu")
 		fmt.Println("Press the corresponding key to select an action...")
@@ -880,6 +898,8 @@ func menu(g *core.Grokker) (action string, err error) {
 			return "commit", nil
 		case "f":
 			return "force-commit", nil
+		case "a":
+			return "auto", nil
 		case "t":
 			return "test", nil
 		case "x":
