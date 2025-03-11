@@ -1,203 +1,58 @@
-File: /home/stevegt/lab/grokker/x/tokencount/main.go
-```go
-package main
+File: /home/stevegt/lab/grokker/.aidda/plan.md
+```markdown
+Integrating Perplexity.ai's API and models into Grokker can significantly enhance the application's capabilities by offering a diverse range of AI-powered functionalities alongside OpenAI's offerings. This integration aims to provide users with more flexibility, improved performance, and specialized features that cater to varied user needs.
 
-import (
-	"bufio"
-	"bytes"
-	"flag"
-	"fmt"
-	"io/ioutil"
-	"log"
-	"os"
-	"os/exec"
-	"sort"
-	"strings"
+## Overview
 
-	. "github.com/stevegt/goadapt"
-	"github.com/stevegt/grokker/v3/core"
-	"github.com/gabriel-vasile/mimetype"
-)
+The primary objective is to allow users to select an AI model by name—whether it's provided by OpenAI or Perplexity.ai—without having to explicitly specify the provider. Internally, each model will have a Provider field, and the request handler will use that field to determine the appropriate endpoint URL and configuration.
 
-func main() {
-	// Define and parse command-line flags
-	showIndividual := flag.Bool("i", false, "Show individual token counts for each file")
-	listFiles := flag.Bool("l", false, "List all countable files")
-	flag.Parse()
+Key changes include:
+- Adding a Provider field to the Model struct.
+- Removing the ActiveProvider field from the Grokker struct.
+- Extending the NewModels function to initialize models for both OpenAI and Perplexity.ai, setting the Provider field accordingly.
+- Using the same chat completion function for both providers, differing only in endpoint URL and model name.
 
-	// Determine the directory to process
-	directory := "."
-	args := flag.Args()
-	if len(args) > 0 {
-		directory = args[0]
-	}
+## Implementation Strategy
 
-	fileLangMap, err := getFileLanguages(directory)
-	if err != nil {
-		log.Fatalf("Error getting file languages: %v", err)
-	}
+1. **Define AIProvider Interface:**
+   - Create a new file (e.g., `core/provider.go`) that defines an interface for AI providers (methods for creating embeddings and handling chat completions).
+   - Implement this interface for Perplexity.ai in a new file (e.g., `core/perplexity.go`).
 
-	// If -l flag is set, list all countable files and exit
-	if *listFiles {
-		for file := range fileLangMap {
-			fmt.Println(file)
-		}
-		os.Exit(0)
-	}
+2. **Model Struct Changes:**
+   - Extend the `Model` struct in `core/model.go` to include a new field named `Provider` (which will be of type AIProvider or a string representing the provider).
+   - In `NewModels`, initialize existing OpenAI models as before and add new Perplexity.ai models with their Provider field set to “perplexity”.
 
-	langCounts := make(map[string]int)
-	langFileCounts := make(map[string]int)
-	totalTokens := 0
-	totalFiles := 0
+3. **Grokker Struct and Setup:**
+   - Remove the `ActiveProvider` field from the Grokker struct in `core/grokker.go`.
+   - In the `Setup` and `initModel` functions, ensure that the correct provider is associated with the selected model based on its name.
 
-	// Initialize Tokenizer
-	var grok *core.Grokker
-	err = core.InitTokenizer()
-	Ck(err)
+4. **Chat Completion and Embedding:**
+   - Refactor the chat-related functions (e.g., `CompleteChat`) in `core/openai.go` (or abstracted in a common file) to use the Provider information to determine which API endpoint and credentials to use.
+   - Since Perplexity.ai uses the same chat API pattern as OpenAI, the underlying completion function should remain largely similar; only the endpoint URLs and model names differ.
 
-	// Prepare slice for individual file stats if -i flag is set
-	type fileStat struct {
-		Language string
-		Tokens   int
-		File     string
-	}
-	var individualStats []fileStat
+5. **CLI Adjustments:**
+   - In the CLI code (`cli/cli.go`), remove any flags or subcommands that directly reference providers.
+   - Accept a model flag or argument that corresponds to the model name, and internally look up the provider through the model’s Provider field.
+   - This will give the end-user a seamless interface to select between models without needing to know or specify the underlying provider.
 
-	// Count tokens and files in each language
-	for path, lang := range fileLangMap {
-		tokens, err := countTokens(grok, path)
-		if err != nil {
-			log.Printf("Failed to count tokens in %s: %v", path, err)
-			continue
-		}
-		langCounts[lang] += tokens
-		langFileCounts[lang]++
-		totalTokens += tokens
-		totalFiles++
+6. **Testing and Verification:**
+   - Update the unit and integration tests (e.g., in `core/grokker_test.go` and `cli/cli_test.go`) to verify that both OpenAI and Perplexity.ai models work as expected.
+   - Include tests to check that the Provider field is correctly set for each model and that the same chat and embedding functions can handle requests from both providers.
 
-		individualStats = append(individualStats, fileStat{
-			Language: lang,
-			Tokens:   tokens,
-			File:     path,
-		})
-	}
+7. **Documentation Updates:**
+   - Update README and other user/developer guides to reflect the new model selection process.
+   - Document the new Provider field in developer documentation, explaining how the abstraction allows seamless handling of multiple AI providers.
 
-	if *showIndividual {
-		// Sort individual stats by token count in descending order
-		sort.Slice(individualStats, func(i, j int) bool {
-			return individualStats[i].Tokens > individualStats[j].Tokens
-		})
+## Files to be Changed
 
-		// Print header
-		fmt.Printf("%-20s  %-7s  %-50s\n", "Language", "Tokens", "File")
-		fmt.Printf("%-20s  %-7s  %-50s\n", strings.Repeat("-", 20), strings.Repeat("-", 7), strings.Repeat("-", 50))
-
-		// Print each file's stats
-		for _, stat := range individualStats {
-			fmt.Printf("%-20s  %7d  %-50s\n", stat.Language, stat.Tokens, stat.File)
-		}
-
-		// Print footer
-		fmt.Printf("%-20s  %-7s  %-50s\n", strings.Repeat("-", 20), strings.Repeat("-", 7), strings.Repeat("-", 50))
-		fmt.Printf("%-20s  %7d  %-50s\n", "Total", totalTokens, "All Files")
-	} else {
-		// Prepare a slice for sorting languages
-		type langStat struct {
-			Language string
-			Files    int
-			Tokens   int
-		}
-
-		var stats []langStat
-		for lang, count := range langCounts {
-			stats = append(stats, langStat{
-				Language: lang,
-				Files:    langFileCounts[lang],
-				Tokens:   count,
-			})
-		}
-
-		// Sort by token count, highest first
-		sort.Slice(stats, func(i, j int) bool {
-			return stats[i].Tokens > stats[j].Tokens
-		})
-
-		// Report totals by language in columnar format
-		fmt.Printf("%-16s  %-5s  %-9s\n", "Language", "Files", "Tokens")
-		fmt.Printf("----------------  -----  ---------\n")
-		for _, stat := range stats {
-			fmt.Printf("%-16s  %5d  %9d\n", stat.Language, stat.Files, stat.Tokens)
-		}
-		fmt.Printf("----------------  -----  ---------\n")
-		fmt.Printf("%-16s  %5d  %9d\n", "Total", totalFiles, totalTokens)
-	}
-}
-
-// getFileLanguages runs `ohcount -d <root>` and parses its output to map files to languages
-func getFileLanguages(root string) (map[string]string, error) {
-	cmd := exec.Command("ohcount", "-d", root)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-
-	err := cmd.Run()
-	if err != nil {
-		return nil, fmt.Errorf("ohcount command failed: %v, output: %s", err, out.String())
-	}
-
-	fileLangMap := make(map[string]string)
-	scanner := bufio.NewScanner(&out)
-	for scanner.Scan() {
-		line := scanner.Text()
-		parts := strings.Fields(line)
-		if len(parts) < 2 {
-			continue
-		}
-		lang := parts[0]
-		filePath := strings.Join(parts[1:], " ")
-		if lang == "(null)" {
-			mtype, err := mimetype.DetectFile(filePath)
-			if err != nil {
-				log.Printf("Failed to detect mimetype for %s: %v", filePath, err)
-				continue
-			}
-			if mtype.Is("text/plain") {
-				lang = "text/plain"
-			} else {
-				// Ignore non-text/plain files
-				continue
-			}
-		}
-		fileLangMap[filePath] = lang
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading ohcount output: %v", err)
-	}
-
-	return fileLangMap, nil
-}
-
-// countTokens counts the number of tokens (words) in a file
-func countTokens(grok *core.Grokker, file string) (count int, err error) {
-	// Open the file
-	f, err := os.Open(file)
-	if err != nil {
-		return 0, fmt.Errorf("failed to open file %s: %v", file, err)
-	}
-	defer f.Close()
-
-	// Read the file content
-	buf, err := ioutil.ReadAll(f)
-	if err != nil {
-		return 0, fmt.Errorf("failed to read file %s: %v", file, err)
-	}
-	content := string(buf)
-	content = strings.TrimSpace(content)
-
-	count, err = grok.TokenCount(content)
-
-	return
-}
+/home/stevegt/lab/grokker/.aidda/plan.md  
+/home/stevegt/lab/grokker/v3/core/provider.go  
+/home/stevegt/lab/grokker/v3/core/perplexity.go  
+/home/stevegt/lab/grokker/v3/core/model.go  
+/home/stevegt/lab/grokker/v3/core/grokker.go  
+/home/stevegt/lab/grokker/v3/core/openai.go  
+/home/stevegt/lab/grokker/v3/cli/cli.go  
+/home/stevegt/lab/grokker/v3/core/grokker_test.go  
+/home/stevegt/lab/grokker/v3/cli/cli_test.go
 ```
-EOF_/home/stevegt/lab/grokker/x/tokencount/main.go
+EOF_/home/stevegt/lab/grokker/.aidda/plan.md

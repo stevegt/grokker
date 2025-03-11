@@ -52,6 +52,7 @@ func NewModels() (m *Models) {
 		"o1-mini":             {"", 128000, oai.O1Mini, false},
 		"o1":                  {"", 128000, oai.O1Preview, false},
 		"o3-mini":             {"", 200000, oai.O3Mini, false},
+		"sonar-deep-research": {"", 128000, "sonar-deep-research", false},
 	}
 	// fill in the model names
 	for k, v := range m.Available {
