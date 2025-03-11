@@ -13,6 +13,7 @@ var DefaultModel = "o3-mini"
 type Model struct {
 	Name         string
 	TokenLimit   int
+	providerName string
 	upstreamName string
 	active       bool
 }
@@ -43,16 +44,16 @@ type Models struct {
 func NewModels() (m *Models) {
 	m = &Models{}
 	m.Available = map[string]*Model{
-		"gpt-3.5-turbo":       {"", 4096, oai.GPT3Dot5Turbo, false},
-		"gpt-4":               {"", 8192, oai.GPT4, false},
-		"gpt-4-32k":           {"", 32768, oai.GPT432K, false},
-		"gpt-4-turbo-preview": {"", 128000, oai.GPT4TurboPreview, false},
-		"gpt-4o":              {"", 128000, oai.GPT4o, false},
-		"o1-preview":          {"", 128000, oai.O1Preview, false},
-		"o1-mini":             {"", 128000, oai.O1Mini, false},
-		"o1":                  {"", 128000, oai.O1Preview, false},
-		"o3-mini":             {"", 200000, oai.O3Mini, false},
-		"sonar-deep-research": {"", 128000, "sonar-deep-research", false},
+		"gpt-3.5-turbo":       {"", 4096, "openai", oai.GPT3Dot5Turbo, false},
+		"gpt-4":               {"", 8192, "openai", oai.GPT4, false},
+		"gpt-4-32k":           {"", 32768, "openai", oai.GPT432K, false},
+		"gpt-4-turbo-preview": {"", 128000, "openai", oai.GPT4TurboPreview, false},
+		"gpt-4o":              {"", 128000, "openai", oai.GPT4o, false},
+		"o1-preview":          {"", 128000, "openai", oai.O1Preview, false},
+		"o1-mini":             {"", 128000, "openai", oai.O1Mini, false},
+		"o1":                  {"", 128000, "openai", oai.O1Preview, false},
+		"o3-mini":             {"", 200000, "openai", oai.O3Mini, false},
+		"sonar-deep-research": {"", 128000, "perplexity", "sonar-deep-research", false},
 	}
 	// fill in the model names
 	for k, v := range m.Available {

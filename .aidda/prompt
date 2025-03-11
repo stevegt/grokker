@@ -1,23 +1,6 @@
-Plan perplexity API inclusion
+add provider name to Model struct
 
-Plan to add perplexity.ai's API and models to grokker.  Users
-should be able to select perplexity models as well as openai models.
-They should not need to select the provider, just the model name; in
-other words, there should be no provider flag or subcommand.  
-
-- The Provider name should be a field in the Model struct for use by
-  the request handler.  
-- Remove the ActiveProvider field from the Grokker struct.  
-- In NewModels, keep all existing models.  Add the provider name to
-  the Provider field of the Model struct.
-- Perplexity uses the same chat completion API as OpenAI.  The
-  completion function should be the same for both providers.  The only
-  difference is the endpoint URL and the model name.  
-
-At the end of plan.md, list the files that will be changed by this
-plan.  The files should be listed one per line, with the full path
-from the root of the repository, and no leading or trailing whitespace
-or formatting.
+Make no other changes to the codebase.
 
 In: 
     .aidda/plan.md
@@ -34,6 +17,7 @@ In:
     v3/core/migrate.go
     v3/core/grokker.go
     v3/core/openai.go
+    v3/core/provider.go
     v3/core/git.go
     v3/core/model.go
     v3/core/api.go

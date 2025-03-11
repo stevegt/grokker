@@ -1,58 +1,20 @@
-File: /home/stevegt/lab/grokker/.aidda/plan.md
-```markdown
-Integrating Perplexity.ai's API and models into Grokker can significantly enhance the application's capabilities by offering a diverse range of AI-powered functionalities alongside OpenAI's offerings. This integration aims to provide users with more flexibility, improved performance, and specialized features that cater to varied user needs.
+File: /home/stevegt/lab/grokker/v3/core/provider.go
+```go
+package core
 
-## Overview
+// AIProvider defines an interface for AI providers.
+// It abstracts the functionality required for creating embeddings from text
+// and for handling chat completions. This interface allows multiple AI providers,
+// such as OpenAI or Perplexity.ai, to be used interchangeably within Grokker.
+type AIProvider interface {
+	// CreateEmbeddings takes a slice of text inputs and returns a slice of embedding vectors.
+	// Each text input is converted into its corresponding embedding representation.
+	CreateEmbeddings(texts []string) ([][]float64, error)
 
-The primary objective is to allow users to select an AI model by name—whether it's provided by OpenAI or Perplexity.ai—without having to explicitly specify the provider. Internally, each model will have a Provider field, and the request handler will use that field to determine the appropriate endpoint URL and configuration.
-
-Key changes include:
-- Adding a Provider field to the Model struct.
-- Removing the ActiveProvider field from the Grokker struct.
-- Extending the NewModels function to initialize models for both OpenAI and Perplexity.ai, setting the Provider field accordingly.
-- Using the same chat completion function for both providers, differing only in endpoint URL and model name.
-
-## Implementation Strategy
-
-1. **Define AIProvider Interface:**
-   - Create a new file (e.g., `core/provider.go`) that defines an interface for AI providers (methods for creating embeddings and handling chat completions).
-   - Implement this interface for Perplexity.ai in a new file (e.g., `core/perplexity.go`).
-
-2. **Model Struct Changes:**
-   - Extend the `Model` struct in `core/model.go` to include a new field named `Provider` (which will be of type AIProvider or a string representing the provider).
-   - In `NewModels`, initialize existing OpenAI models as before and add new Perplexity.ai models with their Provider field set to “perplexity”.
-
-3. **Grokker Struct and Setup:**
-   - Remove the `ActiveProvider` field from the Grokker struct in `core/grokker.go`.
-   - In the `Setup` and `initModel` functions, ensure that the correct provider is associated with the selected model based on its name.
-
-4. **Chat Completion and Embedding:**
-   - Refactor the chat-related functions (e.g., `CompleteChat`) in `core/openai.go` (or abstracted in a common file) to use the Provider information to determine which API endpoint and credentials to use.
-   - Since Perplexity.ai uses the same chat API pattern as OpenAI, the underlying completion function should remain largely similar; only the endpoint URLs and model names differ.
-
-5. **CLI Adjustments:**
-   - In the CLI code (`cli/cli.go`), remove any flags or subcommands that directly reference providers.
-   - Accept a model flag or argument that corresponds to the model name, and internally look up the provider through the model’s Provider field.
-   - This will give the end-user a seamless interface to select between models without needing to know or specify the underlying provider.
-
-6. **Testing and Verification:**
-   - Update the unit and integration tests (e.g., in `core/grokker_test.go` and `cli/cli_test.go`) to verify that both OpenAI and Perplexity.ai models work as expected.
-   - Include tests to check that the Provider field is correctly set for each model and that the same chat and embedding functions can handle requests from both providers.
-
-7. **Documentation Updates:**
-   - Update README and other user/developer guides to reflect the new model selection process.
-   - Document the new Provider field in developer documentation, explaining how the abstraction allows seamless handling of multiple AI providers.
-
-## Files to be Changed
-
-/home/stevegt/lab/grokker/.aidda/plan.md  
-/home/stevegt/lab/grokker/v3/core/provider.go  
-/home/stevegt/lab/grokker/v3/core/perplexity.go  
-/home/stevegt/lab/grokker/v3/core/model.go  
-/home/stevegt/lab/grokker/v3/core/grokker.go  
-/home/stevegt/lab/grokker/v3/core/openai.go  
-/home/stevegt/lab/grokker/v3/cli/cli.go  
-/home/stevegt/lab/grokker/v3/core/grokker_test.go  
-/home/stevegt/lab/grokker/v3/cli/cli_test.go
+	// CompleteChat takes a system message (sysmsg) and a slice of chat messages (ChatMsg)
+	// and returns the resulting chat response as a string.
+	// The chat messages represent the conversation history.
+	CompleteChat(sysmsg string, messages []ChatMsg) (string, error)
+}
 ```
-EOF_/home/stevegt/lab/grokker/.aidda/plan.md
+EOF_/home/stevegt/lab/grokker/v3/core/provider.go
