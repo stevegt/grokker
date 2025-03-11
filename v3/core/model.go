@@ -16,6 +16,7 @@ type Model struct {
 	providerName string
 	upstreamName string
 	active       bool
+	provider     ChatProvider
 }
 
 func (m *Model) String() string {
@@ -23,7 +24,7 @@ func (m *Model) String() string {
 	if m.active {
 		status = "*"
 	}
-	return fmt.Sprintf("%1s %-20s tokens: %d)", status, m.Name, m.TokenLimit)
+	return fmt.Sprintf("%1s %-20s %-20s tokens: %d)", status, m.Name, m.providerName, m.TokenLimit)
 }
 
 // GetModel returns the current model name and model_t from the db
@@ -41,25 +42,30 @@ type Models struct {
 }
 
 // NewModels creates a new Models object.
-func NewModels() (m *Models) {
-	m = &Models{}
-	m.Available = map[string]*Model{
-		"gpt-3.5-turbo":       {"", 4096, "openai", oai.GPT3Dot5Turbo, false},
-		"gpt-4":               {"", 8192, "openai", oai.GPT4, false},
-		"gpt-4-32k":           {"", 32768, "openai", oai.GPT432K, false},
-		"gpt-4-turbo-preview": {"", 128000, "openai", oai.GPT4TurboPreview, false},
-		"gpt-4o":              {"", 128000, "openai", oai.GPT4o, false},
-		"o1-preview":          {"", 128000, "openai", oai.O1Preview, false},
-		"o1-mini":             {"", 128000, "openai", oai.O1Mini, false},
-		"o1":                  {"", 128000, "openai", oai.O1Preview, false},
-		"o3-mini":             {"", 200000, "openai", oai.O3Mini, false},
-		"sonar-deep-research": {"", 128000, "perplexity", "sonar-deep-research", false},
+func NewModels() (models *Models) {
+	models = &Models{}
+	models.Available = make(map[string]*Model)
+	add := func(name string, tokenLimit int, providerName string, upstreamName string) {
+		m := &Model{
+			Name:         name,
+			TokenLimit:   tokenLimit,
+			providerName: providerName,
+			upstreamName: upstreamName,
+		}
+		models.Available[name] = m
 	}
-	// fill in the model names
-	for k, v := range m.Available {
-		v.Name = k
-		m.Available[k] = v
-	}
+
+	add("gpt-3.5-turbo", 4096, "openai", oai.GPT3Dot5Turbo)
+	add("gpt-4", 8192, "openai", oai.GPT4)
+	add("gpt-4-32k", 32768, "openai", oai.GPT432K)
+	add("gpt-4-turbo-preview", 128000, "openai", oai.GPT4TurboPreview)
+	add("gpt-4o", 128000, "openai", oai.GPT4o)
+	add("o1-preview", 128000, "openai", oai.O1Preview)
+	add("o1-mini", 128000, "openai", oai.O1Mini)
+	add("o1", 128000, "openai", oai.O1Preview)
+	add("o3-mini", 200000, "openai", oai.O3Mini)
+	add("sonar-deep-research", 128000, "perplexity", "sonar-deep-research")
+
 	return
 }
 

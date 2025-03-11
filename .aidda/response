@@ -1,20 +1,34 @@
-File: /home/stevegt/lab/grokker/v3/core/provider.go
-```go
-package core
+File: /home/stevegt/lab/grokker/.aidda/plan.md
+```markdown
+Integrating Perplexity.ai's API and models into Grokker can significantly enhance the application's capabilities by offering a diverse range of AI-powered functionalities alongside OpenAI's offerings. This integration aims to provide users with more flexibility, improved performance, and specialized features that cater to varied user needs.
 
-// AIProvider defines an interface for AI providers.
-// It abstracts the functionality required for creating embeddings from text
-// and for handling chat completions. This interface allows multiple AI providers,
-// such as OpenAI or Perplexity.ai, to be used interchangeably within Grokker.
-type AIProvider interface {
-	// CreateEmbeddings takes a slice of text inputs and returns a slice of embedding vectors.
-	// Each text input is converted into its corresponding embedding representation.
-	CreateEmbeddings(texts []string) ([][]float64, error)
+## Overview
 
-	// CompleteChat takes a system message (sysmsg) and a slice of chat messages (ChatMsg)
-	// and returns the resulting chat response as a string.
-	// The chat messages represent the conversation history.
-	CompleteChat(sysmsg string, messages []ChatMsg) (string, error)
-}
+The primary objective is to allow users to select an AI model by name—whether it's provided by OpenAI or Perplexity.ai—without having to explicitly specify the provider. Internally, each model will have a Provider field, and the request handler will use that field to determine the appropriate endpoint URL, client initialization, and API configuration.
+
+Key changes include:
+- Adding a Provider field to the Model struct.
+- Removing the ActiveProvider field from the Grokker struct.
+- Extending the NewModels function to initialize models for both OpenAI and Perplexity.ai, setting the Provider field accordingly.
+- Using the same chat completion and embedding functions for both providers, differing only in endpoint URL, model name, and client initialization.
+- Handling client initialization based on model configuration: During the setup phase (for example, in the `Setup` and `initModel` functions), the application will examine the selected model’s Provider field and instantiate the appropriate API client. In particular, the initClients() function will be refactored so that rather than being hardcoded to initialize only the OpenAI client, it acts as a factory that checks the Provider field and initializes either the OpenAI client or a Perplexity.ai-compatible client. This ensures that all subsequent API calls—tokenization, chat completions, embeddings, etc.—are directed to the correct provider endpoints with the proper credentials.
+
+## Implementation Strategy
+
+3. **Grokker Struct and Setup:**
+   - In the `Setup` and `initModel` functions, ensure that the correct provider is associated with the selected model based on its name.
+   - Revise client initialization logic: update initClients() to inspect the Provider field from the model configuration and instantiate the corresponding API client. For instance, if the Provider is "openai", initialize the OpenAI client; if it is "perplexity", initialize a Perplexity.ai compatible client.
+  
+4. **Chat Completion and Embedding:**
+   - Refactor the chat-related functions (e.g., `CompleteChat`) in `core/openai.go` (or in an abstracted common file) to use the Provider information for determining which API endpoint, credentials, and client instance to use.
+   - Since Perplexity.ai uses a similar chat API pattern to OpenAI, the underlying completion function should remain largely similar; only the endpoint URLs, model names, and client initialization differ.
+
+6. **Testing and Verification:**
+   - Update the unit and integration tests (e.g., in `core/grokker_test.go` and `cli/cli_test.go`) to verify that both OpenAI and Perplexity.ai models function as expected.
+   - Include tests to check that the Provider field is correctly set for each model and that the unified chat and embedding functions correctly handle requests from both providers, including proper client initialization based on the model configuration.
+
+7. **Documentation Updates:**
+   - Update the README and other user/developer guides to reflect the new model selection process and the ability to use multiple providers.
+   - Document the new Provider field in developer documentation, explaining how the abstraction allows seamless handling of multiple API providers and how client initialization is automatically performed based on the chosen model's configuration.
 ```
-EOF_/home/stevegt/lab/grokker/v3/core/provider.go
+EOF_/home/stevegt/lab/grokker/.aidda/plan.md

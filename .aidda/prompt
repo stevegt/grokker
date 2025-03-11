@@ -1,6 +1,8 @@
-add provider name to Model struct
+plan client initialization
 
-Make no other changes to the codebase.
+Revise the plan to include handling client initialization based on
+model configuration.  For instance, initClients() currently is
+openai-specific.  
 
 In: 
     .aidda/plan.md
