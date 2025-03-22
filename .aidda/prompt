@@ -32,7 +32,7 @@ In:
     v3/aidda/cmd/aidda3/main.go
     v3/aidda/run.go
     v3/aidda/aidda.go
-    .aidda/
+    .aidda/perplexity-example.go
 Out:
     .aidda/plan.md
     v3/core/perplexity.go
