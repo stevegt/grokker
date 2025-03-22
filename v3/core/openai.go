@@ -271,3 +271,9 @@ func (g *Grokker) initClients() {
 	g.chatClient = gptLib.NewClient(authtoken)
 	return
 }
+
+/*
+// ClientFactory returns a new ChatClient object.
+func ClientFactory() interface{} {
+}
+*/

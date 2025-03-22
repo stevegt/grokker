@@ -1,15 +1,17 @@
-plan design patterns
+plan factory pattern for chat client migration
 
-Update plan.md to discuss the pros and cons of different design
-patterns we could use in migrating from the legacy OpenAI-specific
-code to a more general design that can support multiple chat
-providers.  Make recommendations.
+Update plan.md to add example code for the factory pattern we could
+use in migrating from the legacy OpenAI-specific code to a more
+general design that can support multiple chat providers. 
 
 There is a partial implementation of the new chat client interface and
 the OpenAI and Perplexity in v3/client/chatclient.go,
 v3/openai/openai.go, and v3/perplexity/perplexity.go, but these are
 not yet used in the code and may not be the right design or even
 package structure.
+
+Have the factory call the legacy code for OpenAI and the new code for
+Perplexity. 
 
 In: 
     .aidda/plan.md
