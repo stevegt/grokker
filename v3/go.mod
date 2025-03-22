@@ -2,7 +2,7 @@ module github.com/stevegt/grokker/v3
 
 go 1.22.1
 
-replace github.com/sashabaranov/go-openai => github.com/stevegt/go-openai v0.0.0-20240913165527-e333fbe6374f
+replace github.com/sashabaranov/go-openai => github.com/stevegt/go-openai v0.0.0-20250322231423-5674e5bd5685
 
 require (
 	github.com/alecthomas/kong v0.7.1

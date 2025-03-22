@@ -1,3 +1,10 @@
+remove g.TokenLimit 
+
+Replace all references to g.TokenLimit with g. in the codebase.
+
+
+.stop
+
 plan factory pattern for chat client migration
 
 Update plan.md to add example code for the factory pattern we could
