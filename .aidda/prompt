@@ -4,8 +4,7 @@ Revise the plan to include handling client initialization based on
 model configuration.  For instance, initClients() currently is
 openai-specific.  
 
-Create a perplexity.go file in the core package to encapsulate the
-Perplexity.ai-specific API client and functions.
+Move perplexity.go to v3/perplexity/perplexity.go.
 
 In: 
     .aidda/plan.md
@@ -32,7 +31,7 @@ In:
     v3/aidda/cmd/aidda3/main.go
     v3/aidda/run.go
     v3/aidda/aidda.go
-    .aidda/perplexity-example.go
 Out:
     .aidda/plan.md
     v3/core/perplexity.go
+    v3/perplexity/perplexity.go
