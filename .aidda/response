@@ -1,229 +1,157 @@
 File: /home/stevegt/lab/grokker/.aidda/plan.md
 ```markdown
-# Integration Plan for Multi-Provider LLM Client Initialization and Client Configuration
+# Integration Plan Update: Client Initialization and Perplexity.ai Provider Refactoring
 
-This plan revises our previous approach to support multiple LLM providers – notably OpenAI and Perplexity.ai – by abstracting client initialization and API calls based on the selected model configuration. The key changes and implementation strategies are as follows:
+This document outlines two main changes:
 
-## Overview
+1. **Client Initialization Based on Model Configuration:**  
+   The existing `initClients()` function will be refactored into a factory‑style function. At startup the Grokker core will examine the model configuration – now including a new field `Provider` – and decide which API client to initialize. For example:  
+   - For `"openai"` models, the OpenAI client is constructed as before.
+   - For `"perplexity"` models, a new Perplexity.ai client will be instantiated.
+   
+   This change enables the code to remain provider‑agnostic and easily support multiple LLM backends. All downstream APIs (chat completions, embeddings, etc.) will invoke methods on the active client (which satisfies a common interface, e.g. `ChatProvider`).
 
-- **Provider Abstraction and Client Initialization:**  
-  Instead of having an `initClients()` function that is specific to OpenAI, Grokker will now initialize the chat client based on the model’s configuration. If the model’s provider is set to `"openai"`, Grokker will initialize the OpenAI client(s) as before. If the model’s provider is set to `"perplexity"`, Grokker will initialize a Perplexity.ai client.
+2. **Refactoring the Perplexity.ai Provider Implementation:**  
+   The file `v3/perplexity/perplexity.go` will implement the Perplexity.ai API client with simplified identifiers – removing the "perplexity" prefix from all names. For example:
+   - The client type is now defined as a plain `Client` instead of `PerplexityClient`.
+   - The constructor is `NewClient()` instead of `NewPerplexityClient()`.
+   - Other identifiers (such as request/response types and associated fields) are renamed generically (e.g. `Request`, `Response`, `Message`, `Choice`).
+   
+   The new client implementation will:
+   - Read the `PERPLEXITY_API_KEY` environment variable.
+   - Use the Perplexity.ai API endpoint (`https://api.perplexity.ai/chat/completions`) with a default model (for instance, `"sonar-deep-research"`).
+   - Accept a system message and a slice of chat messages, perform an HTTP POST to the API, parse the JSON response, and return the chat response from the first choice.
 
-- **Perplexity.ai Client Implementation:**  
-  A new `PerplexityClient` will be implemented (see file `/home/stevegt/lab/grokker/v3/perplexity/perplexity.go`) to satisfy the `ChatProvider` interface. This client will send requests to the Perplexity.ai API endpoint (e.g. `https://api.perplexity.ai/chat/completions`) using a designated model (for example, `"sonar-deep-research"`). It will obtain its API key from the `PERPLEXITY_API_KEY` environment variable.
-
-- **File Organization and Refactoring:**  
-  - **Client Initialization:** The existing `initClients()` function will be refactored into a factory function that checks the model configuration and calls either the OpenAI client initializer or, if the provider is `"perplexity"`, calls `NewPerplexityClient()` from the perplexity package.
-  - **New Perplexity Client Files:**  
-    - A core-level wrapper is defined in `/home/stevegt/lab/grokker/v3/core/perplexity.go` to expose the Perplexity client constructor and its basic implementation.
-    - The full implementation of the Perplexity.ai client is moved to `/home/stevegt/lab/grokker/v3/perplexity/perplexity.go` where provider–specific logic resides.
-
-## Implementation Strategy
-
-1. **Refactor Client Initialization:**
-   - Update `initClients()` to inspect the current model’s provider field.
-   - If the provider is `"openai"`, initialize the OpenAI client as before.
-   - If the provider is `"perplexity"`, initialize the Perplexity.ai client by calling `NewPerplexityClient()`.
-
-2. **Implement Perplexity.ai Client:**
-   - In the core package (file `/home/stevegt/lab/grokker/v3/core/perplexity.go`), define a `PerplexityClient` type that satisfies the `ChatProvider` interface.  
-   - Implement a constructor `NewPerplexityClient()` that reads the `PERPLEXITY_API_KEY` environment variable.
-   - Implement the method `CompleteChat(sysmsg string, messages []ChatMsg) (string, error)` which builds a JSON payload, sends it to Perplexity.ai’s endpoint, and parses the response.
-
-3. **Move Provider Code to Its Own Package:**
-   - Place the full Perplexity.ai client implementation into `/home/stevegt/lab/grokker/v3/perplexity/perplexity.go` under a dedicated package (`perplexity`), so that core code can remain provider–agnostic by importing this package when needed.
-
-4. **Testing and Documentation:**
-   - Update existing tests to verify that switching the model provider to `"perplexity"` correctly initializes the Perplexity.ai client.
-   - Update documentation to instruct developers on setting the `PERPLEXITY_API_KEY` environment variable and configuring the model’s provider field.
-
-This design will enable Grokker to seamlessly switch between different LLM providers while using a unified interface for chat completions and other API calls.
-
+By implementing these changes, Grokker will initialize and choose between multiple providers at runtime based on the model configuration while maintaining a unified interface for chat completion and embedding API calls.
+```
 EOF_/home/stevegt/lab/grokker/.aidda/plan.md
 
-File: /home/stevegt/lab/grokker/v3/core/perplexity.go
+File: /home/stevegt/lab/grokker/v3/perplexity/perplexity.go
 ```go
 package core
 
 import (
-	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
-	"time"
+	"strings"
 )
 
-// PerplexityClient implements the ChatProvider interface for Perplexity.ai.
-type PerplexityClient struct {
-	APIKey   string
-	Endpoint string
-	Model    string
-}
-
-// NewPerplexityClient creates a new PerplexityClient instance.
-// It reads the PERPLEXITY_API_KEY from the environment.
-func NewPerplexityClient() (*PerplexityClient, error) {
-	key := os.Getenv("PERPLEXITY_API_KEY")
-	if key == "" {
-		return nil, errors.New("PERPLEXITY_API_KEY environment variable not set")
-	}
-	return &PerplexityClient{
-		APIKey:   key,
-		Endpoint: "https://api.perplexity.ai/chat/completions",
-		Model:    "sonar-deep-research",
-	}, nil
-}
-
-// ChatMsg represents a chat message.
-type ChatMsg struct {
-	Role string `json:"role"`
-	Txt  string `json:"content"`
-}
-
-// CompleteChat sends the provided system message and conversation history to the Perplexity.ai API,
-// and returns the response text.
-func (pc *PerplexityClient) CompleteChat(sysmsg string, messages []ChatMsg) (string, error) {
-	// Build the payload for the API request.
-	payload := map[string]interface{}{
-		"model":          pc.Model,
-		"system_message": sysmsg,
-		"messages":       messages,
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return "", err
-	}
-
-	req, err := http.NewRequest("POST", pc.Endpoint, bytes.NewReader(body))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+pc.APIKey)
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := ioutil.ReadAll(resp.Body)
-		return "", fmt.Errorf("Perplexity API error: %s", string(respBody))
-	}
-
-	var result struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	err = json.NewDecoder(resp.Body).Decode(&result)
-	if err != nil {
-		return "", err
-	}
-	if len(result.Choices) == 0 {
-		return "", errors.New("no response choices from Perplexity API")
-	}
-	return result.Choices[0].Message.Content, nil
-}
-```
-EOF_/home/stevegt/lab/grokker/v3/core/perplexity.go
-
-File: /home/stevegt/lab/grokker/v3/perplexity/perplexity.go
-```go
-package perplexity
-
-import (
-	"bytes"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io/ioutil"
-	"net/http"
-	"os"
-	"time"
-)
-
-// ChatMsg represents a chat message for Perplexity.
-type ChatMsg struct {
-	Role string `json:"role"`
-	Txt  string `json:"content"`
-}
-
-// Client provides a Perplexity.ai client implementation.
+// Client encapsulates the API client for Perplexity.ai.
 type Client struct {
 	APIKey   string
 	Endpoint string
-	Model    string
 }
 
-// NewClient returns a new Perplexity client.
-// It reads the PERPLEXITY_API_KEY environment variable.
-func NewClient() (*Client, error) {
+// NewClient creates a new Client instance.
+// It reads the PERPLEXITY_API_KEY from the environment and sets the API endpoint.
+func NewClient() *Client {
 	key := os.Getenv("PERPLEXITY_API_KEY")
 	if key == "" {
-		return nil, errors.New("PERPLEXITY_API_KEY environment variable not set")
+		fmt.Fprintln(os.Stderr, "Warning: PERPLEXITY_API_KEY environment variable not set")
 	}
 	return &Client{
 		APIKey:   key,
 		Endpoint: "https://api.perplexity.ai/chat/completions",
-		Model:    "sonar-deep-research",
-	}, nil
+	}
 }
 
-// CompleteChat sends the system message and conversation history to Perplexity.ai
-// and returns the chat response.
+// Request defines the request payload sent to Perplexity.ai.
+type Request struct {
+	Model    string    `json:"model"`
+	Messages []Message `json:"messages"`
+}
+
+// Message represents a single message in the chat conversation.
+type Message struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+// Response defines the structure of the response from Perplexity.ai.
+type Response struct {
+	Citations []string `json:"citations"`
+	Choices   []Choice `json:"choices"`
+}
+
+// Choice holds a single generated chat choice.
+type Choice struct {
+	FinishReason string  `json:"finish_reason"`
+	Role         string  `json:"role"`
+	Message      Message `json:"message"`
+}
+
+// CompleteChat implements the ChatProvider interface for Client.
+// It sends the system message along with the chat history to the Perplexity.ai API,
+// and returns the content of the first choice in the response.
 func (c *Client) CompleteChat(sysmsg string, messages []ChatMsg) (string, error) {
-	payload := map[string]interface{}{
-		"model":          c.Model,
-		"system_message": sysmsg,
-		"messages":       messages,
+	// Prepare the request payload.
+	reqPayload := Request{
+		Model: "sonar-deep-research", // This can be adjusted or made configurable.
+		Messages: []Message{
+			{
+				Role:    "system",
+				Content: sysmsg,
+			},
+		},
 	}
-	body, err := json.Marshal(payload)
+
+	// Convert ChatMsg (from Grokker) to Message for Perplexity.ai.
+	for _, m := range messages {
+		// Perplexity.ai prefers lowercase role names.
+		reqPayload.Messages = append(reqPayload.Messages, Message{
+			Role:    strings.ToLower(m.Role),
+			Content: m.Txt,
+		})
+	}
+
+	// Marshal the request payload.
+	payloadBytes, err := json.Marshal(reqPayload)
 	if err != nil {
 		return "", err
 	}
 
-	req, err := http.NewRequest("POST", c.Endpoint, bytes.NewReader(body))
+	// Create the HTTP request.
+	req, err := http.NewRequest("POST", c.Endpoint, strings.NewReader(string(payloadBytes)))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.APIKey))
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	// Execute the HTTP request.
+	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 
+	// Check for non-200 status codes.
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := ioutil.ReadAll(resp.Body)
-		return "", fmt.Errorf("Perplexity API error: %s", string(respBody))
+		body, _ := ioutil.ReadAll(resp.Body)
+		return "", fmt.Errorf("Perplexity API returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var result struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	err = json.NewDecoder(resp.Body).Decode(&result)
+	// Read and unmarshal the response.
+	respBytes, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
 	}
-	if len(result.Choices) == 0 {
-		return "", errors.New("no reply choices from Perplexity API")
+
+	var response Response
+	if err := json.Unmarshal(respBytes, &response); err != nil {
+		return "", err
 	}
-	return result.Choices[0].Message.Content, nil
+
+	if len(response.Choices) == 0 {
+		return "", fmt.Errorf("no choices in Perplexity response")
+	}
+
+	// Return the content of the first choice.
+	return response.Choices[0].Message.Content, nil
 }
 ```
 EOF_/home/stevegt/lab/grokker/v3/perplexity/perplexity.go

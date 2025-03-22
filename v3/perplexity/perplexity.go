@@ -9,58 +9,61 @@ import (
 	"strings"
 )
 
-// PerplexityClient encapsulates the API client for Perplexity.ai.
-type PerplexityClient struct {
+// Client encapsulates the API client for Perplexity.ai.
+type Client struct {
 	APIKey   string
 	Endpoint string
 }
 
-// NewPerplexityClient creates a new PerplexityClient instance.
+// NewClient creates a new Client instance.
 // It reads the PERPLEXITY_API_KEY from the environment and sets the API endpoint.
-func NewPerplexityClient() *PerplexityClient {
+func NewClient() *Client {
 	key := os.Getenv("PERPLEXITY_API_KEY")
 	if key == "" {
 		fmt.Fprintln(os.Stderr, "Warning: PERPLEXITY_API_KEY environment variable not set")
 	}
-	return &PerplexityClient{
+	return &Client{
 		APIKey:   key,
 		Endpoint: "https://api.perplexity.ai/chat/completions",
 	}
 }
 
-// PerplexityRequest defines the request payload sent to Perplexity.ai.
-type PerplexityRequest struct {
+// Request defines the request payload sent to Perplexity.ai.
+type Request struct {
 	Model    string    `json:"model"`
-	Messages []Message `json:"messages"`
+	Messages []ChatMsg `json:"messages"`
 }
 
-// Message represents a single message in the chat conversation.
-type Message struct {
+// ChatMsg represents a single message in the chat conversation.
+type ChatMsg struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
 
-// PerplexityResponse defines the structure of the response from Perplexity.ai.
-type PerplexityResponse struct {
+// Response defines the structure of the response from Perplexity.ai.
+type Response struct {
 	Citations []string `json:"citations"`
 	Choices   []Choice `json:"choices"`
+	Error     *struct {
+		Message string `json:"message"`
+	} `json:"error,omitempty"`
 }
 
 // Choice holds a single generated chat choice.
 type Choice struct {
 	FinishReason string  `json:"finish_reason"`
 	Role         string  `json:"role"`
-	Message      Message `json:"message"`
+	Message      ChatMsg `json:"message"`
 }
 
-// CompleteChat implements the ChatProvider interface for PerplexityClient.
-// It sends the system message along with the chat history to the Perplexity.ai API
+// CompleteChat implements the ChatProvider interface for Client.
+// It sends the system message along with the chat history to the Perplexity.ai API,
 // and returns the content of the first choice in the response.
-func (pc *PerplexityClient) CompleteChat(sysmsg string, messages []ChatMsg) (string, error) {
+func (c *Client) CompleteChat(model, sysmsg string, messages []ChatMsg) (string, error) {
 	// Prepare the request payload.
-	reqPayload := PerplexityRequest{
-		Model: "sonar-deep-research", // This can be adjusted or made configurable.
-		Messages: []Message{
+	reqPayload := Request{
+		Model: model,
+		Messages: []ChatMsg{
 			{
 				Role:    "system",
 				Content: sysmsg,
@@ -71,9 +74,9 @@ func (pc *PerplexityClient) CompleteChat(sysmsg string, messages []ChatMsg) (str
 	// Convert ChatMsg (from Grokker) to Message for Perplexity.ai.
 	for _, m := range messages {
 		// Perplexity.ai prefers lowercase role names.
-		reqPayload.Messages = append(reqPayload.Messages, Message{
+		reqPayload.Messages = append(reqPayload.Messages, ChatMsg{
 			Role:    strings.ToLower(m.Role),
-			Content: m.Txt,
+			Content: m.Content,
 		})
 	}
 
@@ -84,12 +87,12 @@ func (pc *PerplexityClient) CompleteChat(sysmsg string, messages []ChatMsg) (str
 	}
 
 	// Create the HTTP request.
-	req, err := http.NewRequest("POST", pc.Endpoint, strings.NewReader(string(payloadBytes)))
+	req, err := http.NewRequest("POST", c.Endpoint, strings.NewReader(string(payloadBytes)))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", pc.APIKey))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.APIKey))
 
 	// Execute the HTTP request.
 	client := &http.Client{}
@@ -111,15 +114,15 @@ func (pc *PerplexityClient) CompleteChat(sysmsg string, messages []ChatMsg) (str
 		return "", err
 	}
 
-	var perplexityResp PerplexityResponse
-	if err := json.Unmarshal(respBytes, &perplexityResp); err != nil {
+	var response Response
+	if err := json.Unmarshal(respBytes, &response); err != nil {
 		return "", err
 	}
 
-	if len(perplexityResp.Choices) == 0 {
+	if len(response.Choices) == 0 {
 		return "", fmt.Errorf("no choices in Perplexity response")
 	}
 
 	// Return the content of the first choice.
-	return perplexityResp.Choices[0].Message.Content, nil
+	return response.Choices[0].Message.Content, nil
 }

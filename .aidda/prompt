@@ -4,7 +4,8 @@ Revise the plan to include handling client initialization based on
 model configuration.  For instance, initClients() currently is
 openai-specific.  
 
-Move perplexity.go to v3/perplexity/perplexity.go.
+Refactor v3/perplexity/perplexity.go to simplify identifiers,
+essentially removing the "perplexity" prefix from all identifiers.
 
 In: 
     .aidda/plan.md
@@ -31,7 +32,8 @@ In:
     v3/aidda/cmd/aidda3/main.go
     v3/aidda/run.go
     v3/aidda/aidda.go
+    v3/perplexity/perplexity.go
+    x/perplexity-example.go
 Out:
     .aidda/plan.md
-    v3/core/perplexity.go
     v3/perplexity/perplexity.go
