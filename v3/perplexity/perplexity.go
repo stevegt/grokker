@@ -10,13 +10,15 @@ import (
 )
 
 // Client encapsulates the API client for Perplexity.ai.
+// This client implements the ChatClient interface (as defined in the client package)
+// for generating chat completions.
 type Client struct {
 	APIKey   string
 	Endpoint string
 }
 
-// NewClient creates a new Client instance.
-// It reads the PERPLEXITY_API_KEY from the environment and sets the API endpoint.
+// NewClient creates a new instance of the Perplexity chat client.
+// It loads the PERPLEXITY_API_KEY from the environment.
 func NewClient() *Client {
 	key := os.Getenv("PERPLEXITY_API_KEY")
 	if key == "" {
@@ -28,19 +30,19 @@ func NewClient() *Client {
 	}
 }
 
-// Request defines the request payload sent to Perplexity.ai.
+// Request defines the payload sent to Perplexity.ai.
 type Request struct {
 	Model    string    `json:"model"`
 	Messages []ChatMsg `json:"messages"`
 }
 
-// ChatMsg represents a single message in the chat conversation.
+// ChatMsg represents a single chat message.
 type ChatMsg struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
 
-// Response defines the structure of the response from Perplexity.ai.
+// Response defines Perplexity.ai's response structure.
 type Response struct {
 	Citations []string `json:"citations"`
 	Choices   []Choice `json:"choices"`
@@ -49,16 +51,15 @@ type Response struct {
 	} `json:"error,omitempty"`
 }
 
-// Choice holds a single generated chat choice.
+// Choice holds a generated chat choice.
 type Choice struct {
 	FinishReason string  `json:"finish_reason"`
 	Role         string  `json:"role"`
 	Message      ChatMsg `json:"message"`
 }
 
-// CompleteChat implements the ChatProvider interface for Client.
-// It sends the system message along with the chat history to the Perplexity.ai API,
-// and returns the content of the first choice in the response.
+// CompleteChat sends a chat completion request to Perplexity.ai and returns the generated text.
+// This method conforms to the ChatClient interface.
 func (c *Client) CompleteChat(model, sysmsg string, messages []ChatMsg) (string, error) {
 	// Prepare the request payload.
 	reqPayload := Request{
@@ -71,7 +72,7 @@ func (c *Client) CompleteChat(model, sysmsg string, messages []ChatMsg) (string,
 		},
 	}
 
-	// Convert ChatMsg (from Grokker) to Message for Perplexity.ai.
+	// Convert ChatMsg (from client interface) to Message for Perplexity.ai.
 	for _, m := range messages {
 		// Perplexity.ai prefers lowercase role names.
 		reqPayload.Messages = append(reqPayload.Messages, ChatMsg{

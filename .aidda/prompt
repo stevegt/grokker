@@ -1,11 +1,10 @@
-plan client initialization
+enable choosing between openai and perplexity models
 
-Revise the plan to include handling client initialization based on
-model configuration.  For instance, initClients() currently is
-openai-specific.  
+Add a ChatClient interface that can be implemented by OpenAI and
+Perplexity models. This allows the user to choose between the two
+models.
 
-Refactor v3/perplexity/perplexity.go to simplify identifiers,
-essentially removing the "perplexity" prefix from all identifiers.
+Replace all mentions of chat provider with chat client.
 
 In: 
     .aidda/plan.md
@@ -22,7 +21,6 @@ In:
     v3/core/migrate.go
     v3/core/grokker.go
     v3/core/openai.go
-    v3/core/provider.go
     v3/core/git.go
     v3/core/model.go
     v3/core/api.go
@@ -36,4 +34,7 @@ In:
     x/perplexity-example.go
 Out:
     .aidda/plan.md
+    v3/core/openai.go
+    v3/client/chatclient.go
+    v3/openai/openai.go
     v3/perplexity/perplexity.go

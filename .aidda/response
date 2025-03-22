@@ -1,30 +1,342 @@
 File: /home/stevegt/lab/grokker/.aidda/plan.md
 ```markdown
-# Integration Plan Update: Client Initialization and Perplexity.ai Provider Refactoring
+# Integration Plan: Chat Client Interface and Multi-Model Support
 
-This document outlines two main changes:
+This update refactors Grokker’s chat functionality by introducing a new abstraction—the **ChatClient** interface. This interface unifies all chat operations regardless of the underlying large language model backend, and allows users to choose between different models (for example, OpenAI and Perplexity). In this update, all references to “chat provider” have been replaced with “chat client” for clearer naming and future extensibility.
 
-1. **Client Initialization Based on Model Configuration:**  
-   The existing `initClients()` function will be refactored into a factory‑style function. At startup the Grokker core will examine the model configuration – now including a new field `Provider` – and decide which API client to initialize. For example:  
-   - For `"openai"` models, the OpenAI client is constructed as before.
-   - For `"perplexity"` models, a new Perplexity.ai client will be instantiated.
-   
-   This change enables the code to remain provider‑agnostic and easily support multiple LLM backends. All downstream APIs (chat completions, embeddings, etc.) will invoke methods on the active client (which satisfies a common interface, e.g. `ChatProvider`).
+Key changes include:
 
-2. **Refactoring the Perplexity.ai Provider Implementation:**  
-   The file `v3/perplexity/perplexity.go` will implement the Perplexity.ai API client with simplified identifiers – removing the "perplexity" prefix from all names. For example:
-   - The client type is now defined as a plain `Client` instead of `PerplexityClient`.
-   - The constructor is `NewClient()` instead of `NewPerplexityClient()`.
-   - Other identifiers (such as request/response types and associated fields) are renamed generically (e.g. `Request`, `Response`, `Message`, `Choice`).
-   
-   The new client implementation will:
-   - Read the `PERPLEXITY_API_KEY` environment variable.
-   - Use the Perplexity.ai API endpoint (`https://api.perplexity.ai/chat/completions`) with a default model (for instance, `"sonar-deep-research"`).
-   - Accept a system message and a slice of chat messages, perform an HTTP POST to the API, parse the JSON response, and return the chat response from the first choice.
+1. **New ChatClient Interface:**
+   - The `ChatClient` interface declares a single method:
+     - `CompleteChat(sysmsg string, messages []ChatMsg) (string, error)`
+   - Here, `ChatMsg` is a lightweight struct representing a chat message with fields for role (e.g. "USER" or "AI") and message content.
+   - Both the OpenAI and Perplexity backends will implement this interface, making it simple to switch between them at runtime.
 
-By implementing these changes, Grokker will initialize and choose between multiple providers at runtime based on the model configuration while maintaining a unified interface for chat completion and embedding API calls.
+2. **OpenAIChatClient Implementation:**
+   - Implemented in the `openai` package.
+   - Wraps the OpenAI API (via the go-openai library) to perform chat completions.
+   - Translates internal `ChatMsg` values into the format required by the OpenAI API.
+   - Registered as the active chat client when an OpenAI model is selected.
+
+3. **PerplexityChatClient Implementation:**
+   - Implemented in the `perplexity` package.
+   - Uses the Perplexity.ai API to generate chat completions.
+   - Adheres to the new `ChatClient` interface.
+   - All internal references have been updated so that “chat provider” is now “chat client.”
+
+4. **Client Initialization and Model Selection:**
+   - Grokker instantiates a `ChatClient` based on configuration so that users can choose between different LLMs.
+   - This decouples the core logic from any one API and makes it easy to add further implementations in the future.
+
+By adopting the ChatClient interface and updating naming throughout to refer to “chat client” rather than “chat provider,” Grokker becomes more modular, maintainable, and extensible for future integrations.
+
 ```
 EOF_/home/stevegt/lab/grokker/.aidda/plan.md
+
+File: /home/stevegt/lab/grokker/v3/core/openai.go
+```go
+package core
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	embedLib "github.com/fabiustech/openai"
+	embedModelLib "github.com/fabiustech/openai/models"
+	gptLib "github.com/sashabaranov/go-openai"
+	. "github.com/stevegt/goadapt"
+)
+
+// promptTmpl is the template for generating chat prompts.
+var promptTmpl = `{{.Question}}
+
+Context:
+{{.Context}}`
+
+var SysMsgChat = "You are an expert knowledgeable in the provided context. I will supply context first; then you will acknowledge it before answering my question."
+var SysMsgRevise = "You are an expert knowledgeable in the provided context. Revise the provided text based on that context while maintaining its style."
+var SysMsgContinue = "You are an expert knowledgeable in the provided context. Continue the text based on the supplied context, preserving its style."
+
+// createEmbeddings returns the embeddings for a slice of text chunks using the OpenAI API.
+func (g *Grokker) createEmbeddings(texts []string) (embeddings [][]float64, err error) {
+	defer Return(&err)
+	c := g.embeddingClient
+	for i := 0; i < len(texts); i++ {
+		text := texts[i]
+		if len(text) == 0 {
+			embeddings = append(embeddings, nil)
+			continue
+		}
+		inputs := []string{text}
+		req := &embedLib.EmbeddingRequest{
+			Input: inputs,
+			Model: embedModelLib.AdaEmbeddingV2,
+		}
+		Debug("Creating embedding for chunk %d of %d...", i+1, len(texts))
+		var res *embedLib.EmbeddingResponse
+		for backoff := 1; backoff < 10; backoff++ {
+			res, err = c.CreateEmbeddings(context.Background(), req)
+			if err == nil {
+				break
+			}
+			Pf("OpenAI API error, retrying: %#v", err)
+			time.Sleep(time.Second * time.Duration(backoff))
+		}
+		Ck(err, "%T: %#v", err, err)
+		for _, em := range res.Data {
+			embeddings = append(embeddings, em.Embedding)
+		}
+	}
+	Debug("Created %d embeddings", len(embeddings))
+	Assert(len(embeddings) <= len(texts))
+	return
+}
+
+// CompleteChat uses the OpenAI chat API to complete a chat conversation.
+// This function is used internally and by the ChatClient implementations.
+func (g *Grokker) CompleteChat(sysmsg string, msgs []ChatMsg) (response string, err error) {
+	defer Return(&err)
+
+	Debug("Chat messages: %s", Spprint(msgs))
+
+	omsgs := initMessages(g, sysmsg)
+	for _, msg := range msgs {
+		if len(strings.TrimSpace(msg.Txt)) == 0 {
+			continue
+		}
+		var role string
+		switch msg.Role {
+		case "USER":
+			role = gptLib.ChatMessageRoleUser
+		case "AI":
+			role = gptLib.ChatMessageRoleAssistant
+		default:
+			Assert(false, "unknown role: %q", msg)
+		}
+		omsgs = append(omsgs, gptLib.ChatCompletionMessage{
+			Role:    role,
+			Content: msg.Txt,
+		})
+	}
+
+	Debug("Sending messages to OpenAI: %s", Spprint(omsgs))
+	var resp gptLib.ChatCompletionResponse
+	resp, err = g.complete(omsgs)
+	parser.FatalIfErrorf(err)
+	response = resp.Choices[0].Message.Content
+
+	Debug("Response from OpenAI: %s", response)
+	return
+}
+
+// generate returns an answer given a question and context.
+func (g *Grokker) generate(sysmsg, question, ctxt string, global bool) (resp gptLib.ChatCompletionResponse, err error) {
+	defer Return(&err)
+	messages := initMessages(g, sysmsg)
+
+	if global {
+		messages = append(messages, gptLib.ChatCompletionMessage{
+			Role:    gptLib.ChatMessageRoleUser,
+			Content: question,
+		})
+		resp, err = g.chat(messages)
+		Ck(err)
+		messages = append(messages, gptLib.ChatCompletionMessage{
+			Role:    gptLib.ChatMessageRoleAssistant,
+			Content: resp.Choices[0].Message.Content,
+		})
+	}
+	if len(ctxt) > 0 {
+		messages = append(messages, []gptLib.ChatCompletionMessage{
+			{
+				Role:    gptLib.ChatMessageRoleUser,
+				Content: Spf("Context:\n\n%s", ctxt),
+			},
+			{
+				Role:    gptLib.ChatMessageRoleAssistant,
+				Content: "Understood the context.",
+			},
+		}...)
+	}
+	messages = append(messages, gptLib.ChatCompletionMessage{
+		Role:    gptLib.ChatMessageRoleUser,
+		Content: question,
+	})
+	resp, err = g.chat(messages)
+	Ck(err)
+	return
+}
+
+// msg generates a response for a single message.
+func (g *Grokker) msg(sysmsg, input string) (resp gptLib.ChatCompletionResponse, err error) {
+	defer Return(&err)
+	sysmsgTc, err := g.TokenCount(sysmsg)
+	Ck(err)
+	inputTc, err := g.TokenCount(input)
+	Ck(err)
+	if sysmsgTc+inputTc > g.TokenLimit {
+		err = fmt.Errorf("token count %d exceeds token limit %d", sysmsgTc+inputTc, g.TokenLimit)
+		return
+	}
+	messages := initMessages(g, sysmsg)
+	userMsg := gptLib.ChatCompletionMessage{Role: gptLib.ChatMessageRoleUser, Content: input}
+	messages = append(messages, userMsg)
+	resp, err = g.chat(messages)
+	Ck(err)
+	return
+}
+
+// initMessages prepares the initial message slice.
+func initMessages(g *Grokker, sysmsg string) []gptLib.ChatCompletionMessage {
+	noSysMsg := []string{"o1-preview", "o1-mini", "o3-mini"}
+	sysmsgOk := true
+	for _, model := range noSysMsg {
+		if g.Model == model {
+			sysmsgOk = false
+			break
+		}
+	}
+	sysmsgRole := gptLib.ChatMessageRoleSystem
+	if !sysmsgOk {
+		sysmsgRole = gptLib.ChatMessageRoleUser
+	}
+	messages := []gptLib.ChatCompletionMessage{{Role: sysmsgRole, Content: sysmsg}}
+	if !sysmsgOk {
+		sysmsgResponse := gptLib.ChatCompletionMessage{
+			Role:    gptLib.ChatMessageRoleAssistant,
+			Content: "Acknowledged. I will follow those instructions.",
+		}
+		messages = append(messages, sysmsgResponse)
+	}
+	return messages
+}
+
+// chat sends a set of chat messages to the OpenAI API.
+func (g *Grokker) chat(messages []gptLib.ChatCompletionMessage) (resp gptLib.ChatCompletionResponse, err error) {
+	client := g.chatClient
+	resp, err = client.CreateChatCompletion(
+		context.Background(),
+		gptLib.ChatCompletionRequest{
+			Model:    g.modelObj.upstreamName,
+			Messages: messages,
+		},
+	)
+	if err != nil {
+		return resp, err
+	}
+	totalBytes := 0
+	for _, msg := range messages {
+		totalBytes += len(msg.Content)
+	}
+	totalBytes += len(resp.Choices[0].Message.Content)
+	ratio := float64(totalBytes) / float64(resp.Usage.TotalTokens)
+	Debug("Total tokens: %d  Characters per token ratio: %.1f\n", resp.Usage.TotalTokens, ratio)
+	return
+}
+
+func (g *Grokker) complete(messages []gptLib.ChatCompletionMessage) (res gptLib.ChatCompletionResponse, err error) {
+	client := g.chatClient
+	res, err = client.CreateChatCompletion(
+		context.Background(),
+		gptLib.ChatCompletionRequest{
+			Model:    g.modelObj.upstreamName,
+			Messages: messages,
+		},
+	)
+	return res, err
+}
+
+// initClients initializes the OpenAI chat and embedding clients.
+func (g *Grokker) initClients() {
+	authtoken := os.Getenv("OPENAI_API_KEY")
+	g.embeddingClient = embedLib.NewClient(authtoken)
+	g.chatClient = gptLib.NewClient(authtoken)
+	return
+}
+```
+EOF_/home/stevegt/lab/grokker/v3/core/openai.go
+
+File: /home/stevegt/lab/grokker/v3/client/chatclient.go
+```go
+package client
+
+import "github.com/stevegt/grokker/v3/core"
+
+// ChatClient defines the interface for chat operations.
+// Implementations of ChatClient (such as OpenAIChatClient and PerplexityChatClient)
+// must implement this method to generate a complete chat response.
+type ChatClient interface {
+	CompleteChat(sysmsg string, messages []core.ChatMsg) (string, error)
+}
+```
+EOF_/home/stevegt/lab/grokker/v3/client/chatclient.go
+
+File: /home/stevegt/lab/grokker/v3/openai/openai.go
+```go
+package openai
+
+import (
+	"context"
+
+	gptLib "github.com/sashabaranov/go-openai"
+	"github.com/stevegt/grokker/v3/core"
+	"github.com/stevegt/grokker/v3/client"
+)
+
+// OpenAIChatClient implements the ChatClient interface for OpenAI.
+type OpenAIChatClient struct {
+	client *gptLib.Client
+	model  string
+}
+
+// NewOpenAIChatClient creates a new OpenAIChatClient instance.
+func NewOpenAIChatClient(apiKey, model string) *OpenAIChatClient {
+	c := gptLib.NewClient(apiKey)
+	return &OpenAIChatClient{client: c, model: model}
+}
+
+// CompleteChat sends a chat request to the OpenAI API and returns the response.
+// It converts core.ChatMsg messages into OpenAI's ChatCompletionMessage format.
+func (oc *OpenAIChatClient) CompleteChat(sysmsg string, messages []core.ChatMsg) (string, error) {
+	omsgs := []gptLib.ChatCompletionMessage{
+		{
+			Role:    gptLib.ChatMessageRoleSystem,
+			Content: sysmsg,
+		},
+	}
+	for _, msg := range messages {
+		var role string
+		switch msg.Role {
+		case "USER":
+			role = gptLib.ChatMessageRoleUser
+		case "AI":
+			role = gptLib.ChatMessageRoleAssistant
+		default:
+			role = gptLib.ChatMessageRoleUser
+		}
+		omsgs = append(omsgs, gptLib.ChatCompletionMessage{
+			Role:    role,
+			Content: msg.Txt,
+		})
+	}
+	req := gptLib.ChatCompletionRequest{
+		Model:    oc.model,
+		Messages: omsgs,
+	}
+	resp, err := oc.client.CreateChatCompletion(context.Background(), req)
+	if err != nil {
+		return "", err
+	}
+	return resp.Choices[0].Message.Content, nil
+}
+
+// Assert that OpenAIChatClient implements client.ChatClient.
+var _ client.ChatClient = (*OpenAIChatClient)(nil)
+```
+EOF_/home/stevegt/lab/grokker/v3/openai/openai.go
 
 File: /home/stevegt/lab/grokker/v3/perplexity/perplexity.go
 ```go
@@ -40,13 +352,15 @@ import (
 )
 
 // Client encapsulates the API client for Perplexity.ai.
+// This client now implements the ChatClient interface (as defined in the client package)
+// for generating chat completions.
 type Client struct {
 	APIKey   string
 	Endpoint string
 }
 
-// NewClient creates a new Client instance.
-// It reads the PERPLEXITY_API_KEY from the environment and sets the API endpoint.
+// NewClient creates a new instance of the Perplexity chat client.
+// It loads the PERPLEXITY_API_KEY from the environment.
 func NewClient() *Client {
 	key := os.Getenv("PERPLEXITY_API_KEY")
 	if key == "" {
@@ -58,39 +372,40 @@ func NewClient() *Client {
 	}
 }
 
-// Request defines the request payload sent to Perplexity.ai.
+// Request defines the payload sent to Perplexity.ai.
 type Request struct {
 	Model    string    `json:"model"`
-	Messages []Message `json:"messages"`
+	Messages []ChatMsg `json:"messages"`
 }
 
-// Message represents a single message in the chat conversation.
-type Message struct {
+// ChatMsg represents a single chat message.
+type ChatMsg struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
 
-// Response defines the structure of the response from Perplexity.ai.
+// Response defines Perplexity.ai's response structure.
 type Response struct {
 	Citations []string `json:"citations"`
 	Choices   []Choice `json:"choices"`
+	Error     *struct {
+		Message string `json:"message"`
+	} `json:"error,omitempty"`
 }
 
-// Choice holds a single generated chat choice.
+// Choice holds a generated chat choice.
 type Choice struct {
 	FinishReason string  `json:"finish_reason"`
 	Role         string  `json:"role"`
-	Message      Message `json:"message"`
+	Message      ChatMsg `json:"message"`
 }
 
-// CompleteChat implements the ChatProvider interface for Client.
-// It sends the system message along with the chat history to the Perplexity.ai API,
-// and returns the content of the first choice in the response.
+// CompleteChat sends a chat completion request to Perplexity.ai and returns the generated text.
+// This method conforms to the ChatClient interface.
 func (c *Client) CompleteChat(sysmsg string, messages []ChatMsg) (string, error) {
-	// Prepare the request payload.
 	reqPayload := Request{
-		Model: "sonar-deep-research", // This can be adjusted or made configurable.
-		Messages: []Message{
+		Model: "sonar-deep-research",
+		Messages: []ChatMsg{
 			{
 				Role:    "system",
 				Content: sysmsg,
@@ -98,22 +413,19 @@ func (c *Client) CompleteChat(sysmsg string, messages []ChatMsg) (string, error)
 		},
 	}
 
-	// Convert ChatMsg (from Grokker) to Message for Perplexity.ai.
+	// Append incoming messages (role converted to lowercase)
 	for _, m := range messages {
-		// Perplexity.ai prefers lowercase role names.
-		reqPayload.Messages = append(reqPayload.Messages, Message{
+		reqPayload.Messages = append(reqPayload.Messages, ChatMsg{
 			Role:    strings.ToLower(m.Role),
-			Content: m.Txt,
+			Content: m.Content,
 		})
 	}
 
-	// Marshal the request payload.
 	payloadBytes, err := json.Marshal(reqPayload)
 	if err != nil {
 		return "", err
 	}
 
-	// Create the HTTP request.
 	req, err := http.NewRequest("POST", c.Endpoint, strings.NewReader(string(payloadBytes)))
 	if err != nil {
 		return "", err
@@ -121,7 +433,6 @@ func (c *Client) CompleteChat(sysmsg string, messages []ChatMsg) (string, error)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.APIKey))
 
-	// Execute the HTTP request.
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -129,13 +440,11 @@ func (c *Client) CompleteChat(sysmsg string, messages []ChatMsg) (string, error)
 	}
 	defer resp.Body.Close()
 
-	// Check for non-200 status codes.
 	if resp.StatusCode != http.StatusOK {
 		body, _ := ioutil.ReadAll(resp.Body)
 		return "", fmt.Errorf("Perplexity API returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Read and unmarshal the response.
 	respBytes, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
@@ -150,7 +459,6 @@ func (c *Client) CompleteChat(sysmsg string, messages []ChatMsg) (string, error)
 		return "", fmt.Errorf("no choices in Perplexity response")
 	}
 
-	// Return the content of the first choice.
 	return response.Choices[0].Message.Content, nil
 }
 ```

@@ -5,6 +5,7 @@ import (
 
 	oai "github.com/sashabaranov/go-openai"
 	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/v3/client"
 )
 
 var DefaultModel = "o3-mini"
@@ -16,7 +17,7 @@ type Model struct {
 	providerName string
 	upstreamName string
 	active       bool
-	provider     ChatProvider
+	provider     client.ChatClient
 }
 
 func (m *Model) String() string {
