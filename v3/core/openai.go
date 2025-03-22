@@ -265,6 +265,7 @@ func (g *Grokker) complete(messages []gptLib.ChatCompletionMessage) (res gptLib.
 // This function needs to be idempotent because it might be called multiple
 // times during the lifetime of a Grokker object.
 func (g *Grokker) initClients() {
+	// XXX using only OpenAI for embedding -- need to support more providers
 	authtoken := os.Getenv("OPENAI_API_KEY")
 	g.embeddingClient = embedLib.NewClient(authtoken)
 	g.chatClient = gptLib.NewClient(authtoken)
