@@ -1,10 +1,15 @@
-enable choosing between openai and perplexity models
+plan design patterns
 
-Add a ChatClient interface that can be implemented by OpenAI and
-Perplexity models. This allows the user to choose between the two
-models.
+Update plan.md to discuss the pros and cons of different design
+patterns we could use in migrating from the legacy OpenAI-specific
+code to a more general design that can support multiple chat
+providers.  Make recommendations.
 
-Replace all mentions of chat provider with chat client.
+There is a partial implementation of the new chat client interface and
+the OpenAI and Perplexity in v3/client/chatclient.go,
+v3/openai/openai.go, and v3/perplexity/perplexity.go, but these are
+not yet used in the code and may not be the right design or even
+package structure.
 
 In: 
     .aidda/plan.md
@@ -30,11 +35,10 @@ In:
     v3/aidda/cmd/aidda3/main.go
     v3/aidda/run.go
     v3/aidda/aidda.go
-    v3/perplexity/perplexity.go
     x/perplexity-example.go
-Out:
-    .aidda/plan.md
-    v3/core/openai.go
     v3/client/chatclient.go
     v3/openai/openai.go
     v3/perplexity/perplexity.go
+    x/patterns.md
+Out:
+    .aidda/plan.md

@@ -1,5 +1,3 @@
-File: /home/stevegt/lab/grokker/.aidda/plan.md
-```markdown
 # Migrating to a Multi-Provider Chat Design: Patterns and Recommendations
 
 This document discusses several design patterns and architectural approaches for refactoring the legacy OpenAI-specific chat code into a more generalized solution that can support multiple chat providers (for example, OpenAI and Perplexity). In this plan we detail the pros and cons for each pattern and provide our recommendations for a robust solution.
@@ -144,5 +142,3 @@ A hybrid design that builds on the existing adapter/struct approach combined wit
 ---
 
 This plan should serve as a roadmap for evolving our chat client architecture into a flexible, extensible, and maintainable system capable of supporting multiple chat providers.
-```
-EOF_/home/stevegt/lab/grokker/.aidda/plan.md

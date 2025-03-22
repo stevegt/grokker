@@ -19,7 +19,6 @@ local/
 .grok.lock
 go.work
 go.work.sum
-.aidda/
 
 # executables
 grok
