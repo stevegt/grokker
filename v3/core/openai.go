@@ -9,8 +9,6 @@ import (
 	"github.com/stevegt/grokker/v3/openai"
 )
 
-// var promptTmpl = `You are a helpful assistant.  Answer the following question and summarize the context:
-// var promptTmpl = `You are a helpful assistant.
 var promptTmpl = `{{.Question}}
 
 Context:
@@ -59,8 +57,6 @@ func (g *Grokker) CompleteChat(modelName, sysmsg string, msgs []client.ChatMsg) 
 func (g *Grokker) AnswerWithRAG(modelName, sysmsg, question, ctxt string, global bool) (out string, err error) {
 	defer Return(&err)
 
-	// XXX don't exceed max tokens
-
 	messages := initMessages(g, sysmsg)
 
 	// first get global knowledge
@@ -99,39 +95,22 @@ func (g *Grokker) AnswerWithRAG(modelName, sysmsg, question, ctxt string, global
 		Content: question,
 	})
 
-	// get the answer
-	out, err = g.complete(modelName, messages)
-	Ck(err, "context length: %d type: %T: %#v", len(ctxt), ctxt, ctxt)
-
-	return
-}
-
-// msg uses the openai API to generate a response to a message.
-func (g *Grokker) msg(modelName, sysmsg, input string) (output string, err error) {
-	defer Return(&err)
-
 	// don't exceed max tokens
-	sysmsgTc, err := g.TokenCount(sysmsg)
-	Ck(err)
-	inputTc, err := g.TokenCount(input)
-	Ck(err)
-	if sysmsgTc+inputTc > g.ModelObj.TokenLimit {
-		err = fmt.Errorf("token count %d exceeds token limit %d", sysmsgTc+inputTc, g.ModelObj.TokenLimit)
+	// XXX might want to summarize the context
+	totalTc := 0
+	for _, msg := range messages {
+		tc, err := g.TokenCount(msg.Content)
+		Ck(err)
+		totalTc += tc
+	}
+	if totalTc > g.ModelObj.TokenLimit {
+		err = fmt.Errorf("token count %d exceeds token limit %d -- try reducing context", totalTc, g.ModelObj.TokenLimit)
 		return
 	}
 
-	messages := initMessages(g, sysmsg)
-
-	// add the user message
-	userMsg := client.ChatMsg{
-		Role:    RoleUser,
-		Content: input,
-	}
-	messages = append(messages, userMsg)
-
 	// get the answer
-	output, err = g.complete(modelName, messages)
-	Ck(err)
+	out, err = g.complete(modelName, messages)
+	Ck(err, "context length: %d type: %T: %#v", len(ctxt), ctxt, ctxt)
 
 	return
 }

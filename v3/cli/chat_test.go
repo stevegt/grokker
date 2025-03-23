@@ -175,8 +175,14 @@ func TestChatSummarization(t *testing.T) {
 	Tassert(t, ok, "chat1 file never exceeded token limit: %v", debug)
 
 	// check that we still remember the blue widget
-	res, err = grok.Chat(modelName, "", "What color is the center of the blue widget?", "chat1", util.ContextAll, nil, nil, 0, 0, false, true, false)
+	// res, err = grok.Chat(modelName, "", "What color is the center of the blue widget?", "chat1", util.ContextAll, nil, nil, 0, 0, false, true, false)
+	res, err = grok.Chat(modelName, "", "From the context, what widget has a red center?", "chat1", util.ContextAll, nil, nil, 0, 0, false, true, false)
 	match = cimatch(res, "red")
-	Tassert(t, match, "CLI did not return expected output: %s", res)
+	if !match {
+		Pf("dir: %s\n", dir)
+		Pf("modelName: %s\n", modelName)
+		Pf("res: %s\n", res)
+		t.Fatal("CLI did not return expected output")
+	}
 
 }

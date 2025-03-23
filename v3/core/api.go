@@ -543,8 +543,7 @@ func (g *Grokker) GitCommitMessage(modelName string, args ...string) (msg string
 // Msg sends sysmsg and txt to openai and returns the response.
 func (g *Grokker) Msg(modelName, sysmsg, txt string) (out string, err error) {
 	defer Return(&err)
-	out, err = g.msg(modelName, sysmsg, txt)
-	Ck(err)
+	out, err = g.AnswerWithRAG(modelName, sysmsg, txt, "", false)
 	return
 }
 
