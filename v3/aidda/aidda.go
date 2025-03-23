@@ -131,7 +131,7 @@ func (s *Stamp) OlderThan(fn string) (bool, error) {
 	return ourInfo.ModTime().Before(theirInfo.ModTime()), nil
 }
 
-func Do(g *core.Grokker, args ...string) (err error) {
+func Do(g *core.Grokker, modelName string, args ...string) (err error) {
 	defer Return(&err)
 
 	baseDir = g.Root
@@ -219,7 +219,7 @@ func Do(g *core.Grokker, args ...string) (err error) {
 			var p *Prompt
 			p, err = getPrompt(promptFn)
 			Ck(err)
-			err = generate(g, p)
+			err = generate(g, modelName, p)
 			Ck(err)
 		case "auto":
 			// commit using the git diff to generate a commit message
@@ -242,7 +242,7 @@ func Do(g *core.Grokker, args ...string) (err error) {
 			var p *Prompt
 			p, err = getPrompt(promptFn)
 			Ck(err)
-			err = generate(g, p)
+			err = generate(g, modelName, p)
 			Ck(err)
 		case "force-commit":
 			// Commit using the current promptFn without checking
@@ -628,7 +628,7 @@ func runTest(fn string) (err error) {
 	return err
 }
 
-func generate(g *core.Grokker, p *Prompt) (err error) {
+func generate(g *core.Grokker, modelName string, p *Prompt) (err error) {
 	defer Return(&err)
 
 	prompt := p.Txt
@@ -707,7 +707,7 @@ func generate(g *core.Grokker, p *Prompt) (err error) {
 		}
 	}()
 	start := time.Now()
-	resp, err := g.SendWithFiles(sysmsg, msgs, inFns, outFls)
+	resp, err := g.SendWithFiles(modelName, sysmsg, msgs, inFns, outFls)
 	Ck(err)
 	elapsed := time.Since(start)
 	stopDots <- true

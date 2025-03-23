@@ -184,30 +184,30 @@ type cmdTc struct{}
 type cmdVersion struct{}
 
 var cli struct {
-	Add           cmdAdd        `cmd:"" help:"Add a file to the knowledge base."`
-	Aidda         cmdAidda      `cmd:"" help:"Perform AIDDA operations."`
-	Backup        cmdBackup     `cmd:"" help:"Backup the knowledge base."`
-	Chat          cmdChat       `cmd:"" help:"Have a conversation with the knowledge base; accepts prompt on stdin."`
-	Commit        cmdCommit     `cmd:"" help:"Generate a git commit message on stdout."`
-	Ctx           cmdCtx        `cmd:"" help:"Extract the context from the knowledge base most closely related to stdin."`
-	Embed         cmdEmbed      `cmd:"" help:"print the embedding vector for the given stdin text."`
-	Forget        cmdForget     `cmd:"" help:"Forget about a file, removing it from the knowledge base."`
-	Global        bool          `short:"g" help:"Include results from OpenAI's global knowledge base as well as from local documents."`
-	Init          cmdInit       `cmd:"" help:"Initialize a new .grok file in the current directory."`
-	Ls            cmdLs         `cmd:"" help:"List all documents in the knowledge base."`
-	ModelOverride string        `name:"model" help:"Model to use during this execution (not persistent)."`
-	Model         cmdModel      `cmd:"" help:"Upgrade the model used by the knowledge base (persistent)."`
-	Models        cmdModels     `cmd:"" help:"List all available models."`
-	Msg           cmdMsg        `cmd:"" help:"Send message to openAI's API from stdin and print response on stdout."`
-	Q             cmdQ          `cmd:"" help:"Ask the knowledge base a question."`
-	Qc            cmdQc         `cmd:"" help:"Continue text from stdin based on the context in the knowledge base."`
-	Qi            cmdQi         `cmd:"" help:"Ask the knowledge base a question on stdin."`
-	Qr            cmdQr         `cmd:"" help:"Revise stdin based on the context in the knowledge base."`
-	Refresh       cmdRefresh    `cmd:"" help:"Refresh the embeddings for all documents in the knowledge base."`
-	Similarity    cmdSimilarity `cmd:"" help:"Calculate the similarity between two or more files in the knowledge base."`
-	Tc            cmdTc         `cmd:"" help:"Calculate the token count of stdin."`
-	Verbose       bool          `short:"v" help:"Show debug and progress information on stderr."`
-	Version       cmdVersion    `cmd:"" help:"Show version of grok and its database."`
+	Add        cmdAdd        `cmd:"" help:"Add a file to the knowledge base."`
+	Aidda      cmdAidda      `cmd:"" help:"Perform AIDDA operations."`
+	Backup     cmdBackup     `cmd:"" help:"Backup the knowledge base."`
+	Chat       cmdChat       `cmd:"" help:"Have a conversation with the knowledge base; accepts prompt on stdin."`
+	Commit     cmdCommit     `cmd:"" help:"Generate a git commit message on stdout."`
+	Ctx        cmdCtx        `cmd:"" help:"Extract the context from the knowledge base most closely related to stdin."`
+	Embed      cmdEmbed      `cmd:"" help:"print the embedding vector for the given stdin text."`
+	Forget     cmdForget     `cmd:"" help:"Forget about a file, removing it from the knowledge base."`
+	Global     bool          `short:"g" help:"Include results from OpenAI's global knowledge base as well as from local documents."`
+	Init       cmdInit       `cmd:"" help:"Initialize a new .grok file in the current directory."`
+	Ls         cmdLs         `cmd:"" help:"List all documents in the knowledge base."`
+	NewModel   string        `name:"model" help:"Model to use during this and later executions (persistent)."`
+	Model      cmdModel      `cmd:"" help:"Upgrade the model used by the knowledge base (persistent)."`
+	Models     cmdModels     `cmd:"" help:"List all available models."`
+	Msg        cmdMsg        `cmd:"" help:"Send message to openAI's API from stdin and print response on stdout."`
+	Q          cmdQ          `cmd:"" help:"Ask the knowledge base a question."`
+	Qc         cmdQc         `cmd:"" help:"Continue text from stdin based on the context in the knowledge base."`
+	Qi         cmdQi         `cmd:"" help:"Ask the knowledge base a question on stdin."`
+	Qr         cmdQr         `cmd:"" help:"Revise stdin based on the context in the knowledge base."`
+	Refresh    cmdRefresh    `cmd:"" help:"Refresh the embeddings for all documents in the knowledge base."`
+	Similarity cmdSimilarity `cmd:"" help:"Calculate the similarity between two or more files in the knowledge base."`
+	Tc         cmdTc         `cmd:"" help:"Calculate the token count of stdin."`
+	Verbose    bool          `short:"v" help:"Show debug and progress information on stderr."`
+	Version    cmdVersion    `cmd:"" help:"Show version of grok and its database."`
 }
 
 // CliConfig contains the configuration for grokker's cli
@@ -307,11 +307,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 
 	var grok *core.Grokker
 	var save bool
-	var modelOverride string
-	// Check if the global model flag is set
-	if cli.ModelOverride != "" {
-		modelOverride = cli.ModelOverride
-	}
+	modelName := cli.NewModel
 	// initialize Tokenizer
 	err = core.InitTokenizer()
 	Ck(err)
@@ -320,7 +316,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		var migrated bool
 		var was, now string
 		var lock *flock.Flock
-		grok, migrated, was, now, lock, err = core.Load(modelOverride, readonly)
+		grok, migrated, was, now, lock, err = core.Load(modelName, readonly)
 		Ck(err)
 		defer func() {
 			// unlock the db
@@ -336,6 +332,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 			Fpf(config.Stderr, "backup of old db saved to %s\n", fn)
 			save = true
 		}
+		modelName = grok.Model
 	}
 
 	// XXX replace this with "command pattern" or "command object"
@@ -376,7 +373,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 			return
 		}
 		// perform the AIDDA operations
-		err := aidda.Do(grok, cli.Aidda.Subcommands...)
+		err := aidda.Do(grok, modelName, cli.Aidda.Subcommands...)
 		Ck(err)
 	case "chat <chat-file>":
 		if cli.Chat.OutputFilesRegex {
@@ -458,7 +455,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 			}
 		}
 		// get the response
-		outtxt, err := grok.Chat(cli.Chat.Sysmsg, prompt, cli.Chat.ChatFile, level, infiles, outfiles, extract, cli.Chat.PromptTokenLimit, cli.Chat.ExtractToStdout, !cli.Chat.NoAddToDb, edit)
+		outtxt, err := grok.Chat(modelName, cli.Chat.Sysmsg, prompt, cli.Chat.ChatFile, level, infiles, outfiles, extract, cli.Chat.PromptTokenLimit, cli.Chat.ExtractToStdout, !cli.Chat.NoAddToDb, edit)
 		Ck(err)
 		Pl(outtxt)
 		// save the grok file
@@ -518,7 +515,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 			return
 		}
 		question := cli.Q.Question
-		resp, _, updated, err := answer(grok, question, cli.Global)
+		resp, _, updated, err := answer(modelName, grok, question, cli.Global)
 		Ck(err)
 		Pl(resp)
 		if updated {
@@ -531,7 +528,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		txt := string(buf)
 		// trim whitespace
 		// txt = strings.TrimSpace(txt)
-		resp, _, updated, err := cont(grok, txt, cli.Global)
+		resp, _, updated, err := cont(modelName, grok, txt, cli.Global)
 		Ck(err)
 		Pf("%s\n%s\n", txt, resp)
 		if updated {
@@ -544,7 +541,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		question := string(buf)
 		// trim whitespace
 		question = strings.TrimSpace(question)
-		resp, query, updated, err := answer(grok, question, cli.Global)
+		resp, query, updated, err := answer(modelName, grok, question, cli.Global)
 		Ck(err)
 		_ = query
 		Pf("\n%s\n\n%s\n\n", question, resp)
@@ -557,7 +554,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		Ck(err)
 		in := string(buf)
 		// in = strings.TrimSpace(in)
-		out, updated, err := revise(grok, in, cli.Global, cli.Qr.SysMsg)
+		out, updated, err := revise(modelName, grok, in, cli.Global, cli.Qr.SysMsg)
 		Ck(err)
 		// Pf("%s\n\n%s\n", sysmsg, out)
 		// Pf("%s\n\n%s\n\n", in, out)
@@ -605,7 +602,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		// trim whitespace
 		input = strings.TrimSpace(input)
 		sysmsg := cli.Msg.Sysmsg
-		res, err := grok.Msg(sysmsg, input)
+		res, err := grok.Msg(modelName, sysmsg, input)
 		Ck(err)
 		Pl(res)
 	case "commit":
@@ -615,8 +612,12 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		if len(cli.Commit.Diffargs) < 1 {
 			cli.Commit.Diffargs = []string{"--staged"}
 		}
+		gitModelName := "gpt-4o"
+		if modelName != "" {
+			gitModelName = modelName
+		}
 		// call grokker
-		summary, err := grok.GitCommitMessage(cli.Commit.Diffargs...)
+		summary, err := grok.GitCommitMessage(gitModelName, cli.Commit.Diffargs...)
 		Ck(err)
 		Pl(summary)
 	case "models":
@@ -661,7 +662,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 }
 
 // answer a question
-func answer(grok *core.Grokker, question string, global bool) (resp, query string, updated bool, err error) {
+func answer(modelName string, grok *core.Grokker, question string, global bool) (resp, query string, updated bool, err error) {
 	defer Return(&err)
 
 	// update the knowledge base
@@ -669,14 +670,14 @@ func answer(grok *core.Grokker, question string, global bool) (resp, query strin
 	Ck(err)
 
 	// answer the question
-	resp, err = grok.Answer(question, false, false, global)
+	resp, err = grok.Answer(modelName, question, false, false, global)
 	Ck(err)
 
 	return
 }
 
 // continue text
-func cont(grok *core.Grokker, in string, global bool) (resp, query string, updated bool, err error) {
+func cont(modelName string, grok *core.Grokker, in string, global bool) (resp, query string, updated bool, err error) {
 	defer Return(&err)
 
 	// update the knowledge base
@@ -685,14 +686,14 @@ func cont(grok *core.Grokker, in string, global bool) (resp, query string, updat
 
 	// continue the text
 	Debug("cont: in: %s", in)
-	resp, query, err = grok.Continue(in, global)
+	resp, query, err = grok.Continue(modelName, in, global)
 	Ck(err)
 
 	return
 }
 
 // revise text
-func revise(grok *core.Grokker, in string, global, sysmsgin bool) (out string, updated bool, err error) {
+func revise(modelName string, grok *core.Grokker, in string, global, sysmsgin bool) (out string, updated bool, err error) {
 	defer Return(&err)
 
 	// update the knowledge base
@@ -700,7 +701,7 @@ func revise(grok *core.Grokker, in string, global, sysmsgin bool) (out string, u
 	Ck(err)
 
 	// return revised text
-	out, _, err = grok.Revise(in, global, sysmsgin)
+	out, _, err = grok.Revise(modelName, in, global, sysmsgin)
 	Ck(err)
 
 	return

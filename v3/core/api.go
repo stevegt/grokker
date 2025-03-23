@@ -92,7 +92,7 @@ func (g *Grokker) ForgetDocument(path string) (err error) {
 
 // Chat uses the given sysmsg and prompt along with context from the
 // knowledge base and message history file to generate a response.
-func (g *Grokker) Chat(sysmsg, prompt, fileName string, level util.ContextLevel, infiles []string, outfiles []FileLang, extract, promptTokenLimit int, extractToStdout, addToDb, edit bool) (resp string, err error) {
+func (g *Grokker) Chat(modelName, sysmsg, prompt, fileName string, level util.ContextLevel, infiles []string, outfiles []FileLang, extract, promptTokenLimit int, extractToStdout, addToDb, edit bool) (resp string, err error) {
 	defer Return(&err)
 	// open the message history file
 	history, err := g.OpenChatHistory(sysmsg, fileName)
@@ -108,7 +108,7 @@ func (g *Grokker) Chat(sysmsg, prompt, fileName string, level util.ContextLevel,
 		return
 	}
 	// get response
-	resp, _, err = history.ContinueChat(prompt, level, infiles, outfiles, promptTokenLimit, edit)
+	resp, _, err = history.ContinueChat(modelName, prompt, level, infiles, outfiles, promptTokenLimit, edit)
 	Ck(err)
 	return
 }
@@ -123,7 +123,7 @@ func (g *Grokker) Context(text string, tokenLimit int, withHeaders, withLineNumb
 }
 
 // Continue returns a continuation of the input text.
-func (g *Grokker) Continue(in string, global bool) (out, sysmsg string, err error) {
+func (g *Grokker) Continue(modelName, in string, global bool) (out, sysmsg string, err error) {
 	defer Return(&err)
 	sysmsg = SysMsgContinue
 	// tokenize sysmsg
@@ -137,14 +137,14 @@ func (g *Grokker) Continue(in string, global bool) (out, sysmsg string, err erro
 	context, err := g.getContext(in, tokenLimit, false, false, nil)
 	Ck(err)
 	// generate the answer.
-	out, err = g.AnswerWithRAG(sysmsg, in, context, global)
+	out, err = g.AnswerWithRAG(modelName, sysmsg, in, context, global)
 	Ck(err)
 	Debug("Continue() in: %s\ncontext: %s\nout: %s\n", in, context, out)
 	return
 }
 
 // Answer returns the answer to a question.
-func (g *Grokker) Answer(question string, withHeaders, withLineNumbers, global bool) (out string, err error) {
+func (g *Grokker) Answer(modelName, question string, withHeaders, withLineNumbers, global bool) (out string, err error) {
 	defer Return(&err)
 	// tokenize the question
 	qtokens, err := g.tokens(question)
@@ -153,12 +153,12 @@ func (g *Grokker) Answer(question string, withHeaders, withLineNumbers, global b
 	context, err := g.getContext(question, maxTokens, withHeaders, withLineNumbers, nil)
 	Ck(err)
 	// generate the answer.
-	out, err = g.AnswerWithRAG(SysMsgChat, question, context, global)
+	out, err = g.AnswerWithRAG(modelName, SysMsgChat, question, context, global)
 	return
 }
 
 // Revise returns revised text based on input text.
-func (g *Grokker) Revise(in string, global, sysmsgin bool) (out, sysmsg string, err error) {
+func (g *Grokker) Revise(modelName, in string, global, sysmsgin bool) (out, sysmsg string, err error) {
 	defer Return(&err)
 
 	// tokenize the entire input
@@ -183,7 +183,7 @@ func (g *Grokker) Revise(in string, global, sysmsgin bool) (out, sysmsg string, 
 	Ck(err)
 
 	// generate the answer.
-	resp, err := g.AnswerWithRAG(sysmsg, in, context, global)
+	resp, err := g.AnswerWithRAG(modelName, sysmsg, in, context, global)
 	Ck(err)
 	if sysmsgin {
 		out = Spf("%s\n\n%s", sysmsg, resp)
@@ -211,21 +211,6 @@ func (g *Grokker) Backup() (backpath string, err error) {
 // Save saves the Grokker database to the stored path.
 func (g *Grokker) Save() (err error) {
 	defer Return(&err)
-
-	if g.modelOverride {
-		// Temporarily store the original model
-		tmpModel := g.Model
-		// Revert to the stored model from .grok file
-		g.Model = g.modelFromDb
-		// Proceed with saving
-		err = g.saveToFile()
-		// Restore the overridden model
-		g.Model = tmpModel
-		Ck(err)
-		return
-	}
-
-	// Proceed with saving
 	err = g.saveToFile()
 	Ck(err)
 	return
@@ -391,7 +376,7 @@ func (g *Grokker) ListDocuments() (paths []string) {
 // LoadFrom loads a Grokker database from a given path.
 // XXX replace the json db with a kv store, store vectors as binary
 // floating point values.
-func LoadFrom(grokpath string, modelOverride string, readonly bool) (g *Grokker, migrated bool, oldver, newver string, lock *flock.Flock, err error) {
+func LoadFrom(grokpath string, newModel string, readonly bool) (g *Grokker, migrated bool, oldver, newver string, lock *flock.Flock, err error) {
 	g = &Grokker{}
 	g.grokpath = grokpath
 	lockpath := grokpath + ".lock"
@@ -428,19 +413,15 @@ func LoadFrom(grokpath string, modelOverride string, readonly bool) (g *Grokker,
 	migrated, oldver, newver, err = g.migrate()
 	Ck(err)
 
-	// store the original model from the .grok file
-	g.modelFromDb = g.Model
-
-	// Setup grokker with the model, giving precedence to modelOverride
-	modelChoice := modelOverride
-	if modelChoice == "" {
-		modelChoice = g.Model // Use model from .grok if no override
-	} else {
-		// Set modelOverride flag
-		g.modelOverride = true
+	// XXX this is janky -- we're getting the model from the db, but
+	// then in Setup() we're setting it in the db.
+	model := g.Model
+	// replace the model if newModel is not empty
+	if newModel != "" {
+		model = newModel
 	}
 
-	err = g.Setup(modelChoice)
+	err = g.Setup(model)
 	Ck(err)
 	return
 }
@@ -486,7 +467,7 @@ func InitNamed(rootdir, name, model string) (g *Grokker, err error) {
 }
 
 // Load loads a Grokker database from the current or any parent directory.
-func Load(modelOverride string, readonly bool) (g *Grokker, migrated bool, oldver, newver string, lock *flock.Flock, err error) {
+func Load(newModel string, readonly bool) (g *Grokker, migrated bool, oldver, newver string, lock *flock.Flock, err error) {
 	defer Return(&err)
 
 	// find the .grok file in the current or any parent directory
@@ -499,7 +480,7 @@ func Load(modelOverride string, readonly bool) (g *Grokker, migrated bool, oldve
 			break
 		}
 	}
-	g, migrated, oldver, newver, lock, err = LoadFrom(grokpath, modelOverride, readonly)
+	g, migrated, oldver, newver, lock, err = LoadFrom(grokpath, newModel, readonly)
 	Ck(err)
 	return
 }
@@ -528,7 +509,7 @@ func (g *Grokker) SetModel(model string) (oldModel string, err error) {
 // GitCommitMessage generates a git commit message given a diff. It
 // appends a reasonable prompt, and then uses the result as a grokker
 // query.
-func (g *Grokker) GitCommitMessage(args ...string) (msg string, err error) {
+func (g *Grokker) GitCommitMessage(modelName string, args ...string) (msg string, err error) {
 	defer Return(&err)
 
 	// run `git diff @args
@@ -540,7 +521,7 @@ func (g *Grokker) GitCommitMessage(args ...string) (msg string, err error) {
 	diff := string(out)
 
 	// summarize the diff
-	sumLines, msg, err := g.summarizeDiff(diff)
+	sumLines, msg, err := g.summarizeDiff(modelName, diff)
 	Ck(err)
 
 	// summarize the sumLines to create the first line of the commit
@@ -550,7 +531,7 @@ func (g *Grokker) GitCommitMessage(args ...string) (msg string, err error) {
 	_ = sumLines
 	//
 	// summarize the entire commit message to create the first line
-	summary, err := g.AnswerWithRAG(SysMsgChat, GitSummaryPrompt, msg, false)
+	summary, err := g.AnswerWithRAG(modelName, SysMsgChat, GitSummaryPrompt, msg, false)
 	Ck(err)
 
 	// glue it all together
@@ -560,9 +541,9 @@ func (g *Grokker) GitCommitMessage(args ...string) (msg string, err error) {
 }
 
 // Msg sends sysmsg and txt to openai and returns the response.
-func (g *Grokker) Msg(sysmsg, txt string) (out string, err error) {
+func (g *Grokker) Msg(modelName, sysmsg, txt string) (out string, err error) {
 	defer Return(&err)
-	out, err = g.msg(sysmsg, txt)
+	out, err = g.msg(modelName, sysmsg, txt)
 	Ck(err)
 	return
 }

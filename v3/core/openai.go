@@ -26,7 +26,7 @@ var SysMsgContinue = "You are an expert knowledgable in the provided context.  I
 // CompleteChat uses the openai API to complete a chat.  It converts the
 // role in the ChatMsg slice to the appropriate openai.ChatMessageRole
 // value.
-func (g *Grokker) CompleteChat(sysmsg string, msgs []ChatMsg) (response string, err error) {
+func (g *Grokker) CompleteChat(modelName, sysmsg string, msgs []ChatMsg) (response string, err error) {
 	defer Return(&err)
 
 	Debug("msgs: %s", Spprint(msgs))
@@ -48,7 +48,7 @@ func (g *Grokker) CompleteChat(sysmsg string, msgs []ChatMsg) (response string, 
 
 	Debug("sending to OpenAI: %s", Spprint(omsgs))
 
-	response, err = g.complete(omsgs)
+	response, err = g.complete(modelName, omsgs)
 	Ck(err)
 
 	Debug("response from OpenAI: %s", response)
@@ -57,7 +57,7 @@ func (g *Grokker) CompleteChat(sysmsg string, msgs []ChatMsg) (response string, 
 }
 
 // AnswerWithRAG returns the answer to a question.
-func (g *Grokker) AnswerWithRAG(sysmsg, question, ctxt string, global bool) (out string, err error) {
+func (g *Grokker) AnswerWithRAG(modelName, sysmsg, question, ctxt string, global bool) (out string, err error) {
 	defer Return(&err)
 
 	// XXX don't exceed max tokens
@@ -71,7 +71,7 @@ func (g *Grokker) AnswerWithRAG(sysmsg, question, ctxt string, global bool) (out
 			Content: question,
 		})
 		var resp string
-		resp, err = g.complete(messages)
+		resp, err = g.complete(modelName, messages)
 		Ck(err)
 		// add the response to the messages.
 		messages = append(messages, ChatMsg{
@@ -101,14 +101,14 @@ func (g *Grokker) AnswerWithRAG(sysmsg, question, ctxt string, global bool) (out
 	})
 
 	// get the answer
-	out, err = g.complete(messages)
+	out, err = g.complete(modelName, messages)
 	Ck(err, "context length: %d type: %T: %#v", len(ctxt), ctxt, ctxt)
 
 	return
 }
 
 // msg uses the openai API to generate a response to a message.
-func (g *Grokker) msg(sysmsg, input string) (output string, err error) {
+func (g *Grokker) msg(modelName, sysmsg, input string) (output string, err error) {
 	defer Return(&err)
 
 	// don't exceed max tokens
@@ -131,7 +131,7 @@ func (g *Grokker) msg(sysmsg, input string) (output string, err error) {
 	messages = append(messages, userMsg)
 
 	// get the answer
-	output, err = g.complete(messages)
+	output, err = g.complete(modelName, messages)
 	Ck(err)
 
 	return
@@ -182,7 +182,8 @@ func initMessages(g *Grokker, sysmsg string) []ChatMsg {
 // argument and having it create the appropriate client.  It may make
 // sense to move it from the Grokker object to a Model or client.ChatClient
 // object.  It may also make sense to move model.go into the client package.
-func (g *Grokker) complete(inmsgs []ChatMsg) (out string, err error) {
+func (g *Grokker) complete(modelName string, inmsgs []ChatMsg) (out string, err error) {
+	defer Return(&err)
 
 	// convert the ChatMsg slice to an oai.ChatCompletionMessage slice
 	omsgs := []gptLib.ChatCompletionMessage{}
@@ -213,16 +214,22 @@ func (g *Grokker) complete(inmsgs []ChatMsg) (out string, err error) {
 		})
 	}
 
+	_, modelObj, err := g.models.FindModel(modelName)
+
 	authtoken := os.Getenv("OPENAI_API_KEY")
 	client := gptLib.NewClient(authtoken)
 	var res gptLib.ChatCompletionResponse
 	res, err = client.CreateChatCompletion(
 		context.Background(),
 		gptLib.ChatCompletionRequest{
-			Model:    g.ModelObj.upstreamName,
+			Model:    modelObj.upstreamName,
 			Messages: omsgs,
 		},
 	)
+	if err != nil {
+		Pf("model: %#v\n", modelObj)
+		Ck(err)
+	}
 	out = res.Choices[0].Message.Content
 	return
 }

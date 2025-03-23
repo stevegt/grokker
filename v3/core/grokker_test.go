@@ -10,6 +10,8 @@ import (
 	"github.com/stevegt/grokker/v3/util"
 )
 
+const modelName = "gpt-4"
+
 /*
 var tempDir string
 
@@ -151,7 +153,7 @@ func TestChatQuery(t *testing.T) {
 	// answer the query
 	query := "What is the cheapest and easiest way to make a set of changes to a set of machines if you want them all to behave the same when you're done?"
 	Pl("query:", query)
-	resp, err := grok.Answer(query, false, false, false)
+	resp, err := grok.Answer(modelName, query, false, false, false)
 	Tassert(t, err == nil, "error answering query: %v", err)
 	Pl("answer:")
 	Pprint(resp)
@@ -194,7 +196,7 @@ func XXXTestRevise(t *testing.T) {
 	text, err := ioutil.ReadFile("testdata/revise.txt")
 	Tassert(t, err == nil, "error reading testdata/revise.txt: %v", err)
 	// revise the text
-	rev, _, err := grok.Revise(string(text), false, true)
+	rev, _, err := grok.Revise(modelName, string(text), false, true)
 	Tassert(t, err == nil, "error revising text: %v", err)
 	// break the original text into paragraphs
 	chunks := splitIntoChunks(nil, string(text), "\n\n")

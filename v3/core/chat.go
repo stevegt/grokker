@@ -103,7 +103,7 @@ func (g *Grokker) OpenChatHistory(sysmsg, relPath string) (history *ChatHistory,
 // ContinueChat continues a chat history.  The debug map contains
 // interesting statistics about the process, for testing and debugging
 // purposes.
-func (history *ChatHistory) ContinueChat(prompt string, contextLevel util.ContextLevel, infiles []string, outfiles []FileLang, promptTokenLimit int, edit bool) (resp string, debug map[string]int, err error) {
+func (history *ChatHistory) ContinueChat(modelName, prompt string, contextLevel util.ContextLevel, infiles []string, outfiles []FileLang, promptTokenLimit int, edit bool) (resp string, debug map[string]int, err error) {
 	defer Return(&err)
 	g := history.g
 
@@ -181,7 +181,7 @@ func (history *ChatHistory) ContinueChat(prompt string, contextLevel util.Contex
 	if promptTokenLimit > 0 {
 		maxTokens = promptTokenLimit
 	}
-	msgs, err = history.summarize(prompt, msgs, maxTokens, contextLevel)
+	msgs, err = history.summarize(modelName, prompt, msgs, maxTokens, contextLevel)
 	Ck(err)
 
 	finalCount, err := history.tokenCount(msgs)
@@ -194,7 +194,7 @@ func (history *ChatHistory) ContinueChat(prompt string, contextLevel util.Contex
 	Fpf(os.Stderr, "Sending %d tokens to OpenAI...\n", finalCount)
 
 	// generate the response
-	resp, err = g.SendWithFiles(history.Sysmsg, msgs, infiles, outfiles)
+	resp, err = g.SendWithFiles(modelName, history.Sysmsg, msgs, infiles, outfiles)
 	Ck(err)
 
 	// append the prompt and response to the stored messages
@@ -214,7 +214,7 @@ func (history *ChatHistory) ContinueChat(prompt string, contextLevel util.Contex
 // prompt.  The msgs are the chat history up to the prompt.  The
 // infiles are the input files that are included in the prompt.  The
 // outfiles are the output files that are required in the response.
-func (g *Grokker) SendWithFiles(sysmsg string, msgs []ChatMsg, infiles []string, outfiles []FileLang) (resp string, err error) {
+func (g *Grokker) SendWithFiles(modelName, sysmsg string, msgs []ChatMsg, infiles []string, outfiles []FileLang) (resp string, err error) {
 	defer Return(&err)
 
 	if len(infiles) > 0 {
@@ -238,14 +238,14 @@ func (g *Grokker) SendWithFiles(sysmsg string, msgs []ChatMsg, infiles []string,
 	}
 	Debug("sysmsg %s", sysmsg)
 
-	resp, err = g.CompleteChat(sysmsg, msgs)
+	resp, err = g.CompleteChat(modelName, sysmsg, msgs)
 	Ck(err)
 	return
 }
 
 // summarize summarizes a chat history until it is within
 // maxTokens.  It always leaves the last message intact.
-func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens int, contextLevel util.ContextLevel) (summarized []ChatMsg, err error) {
+func (history *ChatHistory) summarize(modelName, prompt string, msgs []ChatMsg, maxTokens int, contextLevel util.ContextLevel) (summarized []ChatMsg, err error) {
 	defer Return(&err)
 	g := history.g
 
@@ -270,7 +270,7 @@ func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens i
 	if contextLevel > util.ContextRecent {
 		Fpf(os.Stderr, "Summarizing %d tokens...\n", msgsCount)
 		// generate a sysmsg that includes a short summary of the prompt
-		topic, err := g.Msg("Summarize the topic in one sentence.", prompt)
+		topic, err := g.Msg(modelName, "Summarize the topic in one sentence.", prompt)
 		Ck(err)
 		sysmsg = Spf(SysMsgSummarizeChat, topic)
 	}
@@ -361,7 +361,7 @@ func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens i
 			// The format is the same as the chat history file format.
 			txt := history.chat2txt(msgs[:secondHalfI])
 			// send to GPT-4
-			resp, err := g.Msg(sysmsg, txt)
+			resp, err := g.Msg(modelName, sysmsg, txt)
 			Ck(err)
 			// convert the response back to a slice of messages
 			// Debug("summarize: resp=%s", resp)
@@ -373,7 +373,7 @@ func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens i
 	summarized = append(summarized, msgs[secondHalfI:]...)
 
 	// recurse
-	return history.summarize(prompt, summarized, maxTokens, contextLevel)
+	return history.summarize(modelName, prompt, summarized, maxTokens, contextLevel)
 }
 
 // chat2txt returns the given history messages as a text string.

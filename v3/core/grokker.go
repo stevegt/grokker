@@ -72,9 +72,7 @@ type Grokker struct {
 	ModelObj            *Model `json:"-"`
 	EmbeddingTokenLimit int
 	// pathname of the grokker database file
-	grokpath      string
-	modelOverride bool
-	modelFromDb   string
+	grokpath string
 	// lock                *flock.Flock
 }
 

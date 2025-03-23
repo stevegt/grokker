@@ -32,7 +32,7 @@ Add nothing else.  Never add quote marks.
 
 // summarizeDiff recursively summarizes a diff until the summary is
 // short enough to be used as a prompt.
-func (g *Grokker) summarizeDiff(diff string) (sumlines string, diffSummary string, err error) {
+func (g *Grokker) summarizeDiff(modelName, diff string) (sumlines string, diffSummary string, err error) {
 	defer Return(&err)
 	maxTokens := int(float64(g.ModelObj.TokenLimit) * .7)
 	// split the diff on filenames
@@ -62,7 +62,7 @@ func (g *Grokker) summarizeDiff(diff string) (sumlines string, diffSummary strin
 		for _, chunk := range chunks {
 			// format the chunk
 			context := Spf("diff --git %s\n%s", fns, chunk.text)
-			resp, err := g.AnswerWithRAG(SysMsgChat, GitDiffPrompt, context, false)
+			resp, err := g.AnswerWithRAG(modelName, SysMsgChat, GitDiffPrompt, context, false)
 			Ck(err)
 			fileSummary = Spf("%s\n%s", fileSummary, resp)
 		}
@@ -70,7 +70,7 @@ func (g *Grokker) summarizeDiff(diff string) (sumlines string, diffSummary strin
 		// file?
 
 		// get a summary line of the changes for this file
-		sumLine, err := g.AnswerWithRAG(SysMsgChat, GitSummaryPrompt, fileSummary, false)
+		sumLine, err := g.AnswerWithRAG(modelName, SysMsgChat, GitSummaryPrompt, fileSummary, false)
 		Ck(err)
 		// append the summary line to the list of summary lines
 		sumlines = Spf("%s\n%s", sumlines, sumLine)
