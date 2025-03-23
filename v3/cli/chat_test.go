@@ -94,7 +94,7 @@ func TestChatSummarization(t *testing.T) {
 	err = history.Save(true)
 	Tassert(t, err == nil, "error saving chat history: %v", err)
 	// should take no more than a few iterations to reach half the token limit
-	tokenLimit := grok.TokenLimit
+	tokenLimit := grok.ModelObj.TokenLimit
 	ok := false
 	for i := 0; i < 3; i++ {
 		Pf("iteration %d\n", i)

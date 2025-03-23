@@ -133,7 +133,7 @@ func (history *ChatHistory) ContinueChat(prompt string, contextLevel util.Contex
 	}
 
 	if getContext {
-		maxTokens := int(float64(g.TokenLimit) * 0.5)
+		maxTokens := int(float64(g.ModelObj.TokenLimit) * 0.5)
 		if promptTokenLimit > 0 {
 			maxTokens = promptTokenLimit
 		}
@@ -171,7 +171,7 @@ func (history *ChatHistory) ContinueChat(prompt string, contextLevel util.Contex
 	promptTc, err := g.TokenCount(prompt)
 	Debug("continueChat: promptTc=%d", promptTc)
 	Ck(err)
-	maxTokens := g.TokenLimit / 2
+	maxTokens := g.ModelObj.TokenLimit / 2
 	if promptTokenLimit > 0 {
 		maxTokens = promptTokenLimit
 	}
@@ -250,7 +250,7 @@ func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens i
 	Debug("summarize: msgsCount=%d, maxTokens=%d", msgsCount, maxTokens)
 	// Debug("summarize: msgsBefore=%v", Spprint(msgs))
 
-	minTokens := g.TokenLimit / 10
+	minTokens := g.ModelObj.TokenLimit / 10
 	Assert(maxTokens > minTokens, "maxTokens must be greater than %d", minTokens)
 
 	// if we are already within the limit, return

@@ -35,11 +35,11 @@ func TestSplitChunk(t *testing.T) {
 	text := string(buf)
 	length := len(text)
 	Tassert(t, length > 0, "expected text to be non-empty")
-	Tassert(t, length > grok.TokenLimit, "expected text to be longer than %d tokens", grok.TokenLimit)
+	Tassert(t, length > grok.ModelObj.TokenLimit, "expected text to be longer than %d tokens", grok.ModelObj.TokenLimit)
 	chunk := newChunk(nil, 0, length, text)
 	tc, err := chunk.tokenCount(grok)
 	Tassert(t, err == nil, "error getting token count for chunk: %v", err)
-	Tassert(t, tc > grok.TokenLimit, "expected chunk to have more than %d tokens, got %d tokens", grok.TokenLimit, tc)
+	Tassert(t, tc > grok.ModelObj.TokenLimit, "expected chunk to have more than %d tokens, got %d tokens", grok.ModelObj.TokenLimit, tc)
 
 	// call the splitChunk method
 	newChunks, err := chunk.splitChunk(grok, 2000)
@@ -58,7 +58,7 @@ func TestSplitChunk(t *testing.T) {
 	for i, ch := range newChunks {
 		tc, err := ch.tokenCount(grok)
 		Tassert(t, err == nil, "error getting token count for chunk %d: %v", i, err)
-		Tassert(t, tc <= grok.TokenLimit, "expected chunk %d to have %d tokens or less, got %d tokens", i, grok.TokenLimit, tc)
+		Tassert(t, tc <= grok.ModelObj.TokenLimit, "expected chunk %d to have %d tokens or less, got %d tokens", i, grok.ModelObj.TokenLimit, tc)
 	}
 }
 func TestEmbeddings(t *testing.T) {
@@ -177,7 +177,7 @@ func TestSplitChunks(t *testing.T) {
 		// tokenize the text
 		tokens, err := grok.tokens(text)
 		Tassert(t, err == nil, "error tokenizing text: %v", err)
-		Tassert(t, len(tokens) <= grok.TokenLimit, "expected %d tokens or less, got %d", grok.TokenLimit, len(tokens))
+		Tassert(t, len(tokens) <= grok.ModelObj.TokenLimit, "expected %d tokens or less, got %d", grok.ModelObj.TokenLimit, len(tokens))
 		Tassert(t, len(tokens) > 20, "expected more than 20 tokens, got %d", len(tokens))
 	}
 }

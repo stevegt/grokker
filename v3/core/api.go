@@ -133,7 +133,7 @@ func (g *Grokker) Continue(in string, global bool) (out, sysmsg string, err erro
 	_, inTokens, err := Tokenizer.Encode(in)
 	Ck(err)
 	// get chunks, sorted by similarity to the txt.
-	tokenLimit := int(float64(g.TokenLimit)*0.4) - len(sysmsgTokens) - len(inTokens)
+	tokenLimit := int(float64(g.ModelObj.TokenLimit)*0.4) - len(sysmsgTokens) - len(inTokens)
 	context, err := g.getContext(in, tokenLimit, false, false, nil)
 	Ck(err)
 	// generate the answer.
@@ -150,7 +150,7 @@ func (g *Grokker) Answer(question string, withHeaders, withLineNumbers, global b
 	// tokenize the question
 	qtokens, err := g.tokens(question)
 	Ck(err)
-	maxTokens := int(float64(g.TokenLimit)*0.5) - len(qtokens)
+	maxTokens := int(float64(g.ModelObj.TokenLimit)*0.5) - len(qtokens)
 	context, err := g.getContext(question, maxTokens, withHeaders, withLineNumbers, nil)
 	Ck(err)
 	// generate the answer.
@@ -180,7 +180,7 @@ func (g *Grokker) Revise(in string, global, sysmsgin bool) (out, sysmsg string, 
 	}
 
 	// get context
-	maxTokens := int(float64(g.TokenLimit)*0.5) - len(inTokens)
+	maxTokens := int(float64(g.ModelObj.TokenLimit)*0.5) - len(inTokens)
 	context, err := g.getContext(in, maxTokens, false, false, nil)
 	Ck(err)
 

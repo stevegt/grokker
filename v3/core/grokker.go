@@ -70,8 +70,7 @@ type Grokker struct {
 	// model specs
 	models              *Models
 	Model               string
-	modelObj            *Model
-	TokenLimit          int
+	ModelObj            *Model `json:"-"`
 	EmbeddingTokenLimit int
 	// pathname of the grokker database file
 	grokpath      string
@@ -104,7 +103,7 @@ func (g *Grokker) tokens(text string) (tokens []string, err error) {
 func (g *Grokker) meanVectorFromLongString(text string) (vector []float64, err error) {
 	defer Return(&err)
 	// break up the text into strings smaller than the token limit
-	texts, err := g.stringsFromString(text, g.TokenLimit)
+	texts, err := g.stringsFromString(text, g.ModelObj.TokenLimit)
 	Ck(err)
 	// get the embeddings for each string
 	embeddings, err := g.createEmbeddings(texts)

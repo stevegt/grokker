@@ -34,7 +34,7 @@ Add nothing else.  Never add quote marks.
 // short enough to be used as a prompt.
 func (g *Grokker) summarizeDiff(diff string) (sumlines string, diffSummary string, err error) {
 	defer Return(&err)
-	maxTokens := int(float64(g.TokenLimit) * .7)
+	maxTokens := int(float64(g.ModelObj.TokenLimit) * .7)
 	// split the diff on filenames
 	fileChunks := strings.Split(diff, "diff --git")
 	// split each file chunk into smaller chunks

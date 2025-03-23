@@ -109,14 +109,8 @@ func (g *Grokker) initModel(model string) (err error) {
 	Ck(err)
 	m.active = true
 	g.Model = model
-	g.modelObj = m
-	// XXX replace with a real tokenizer.
-	// charsPerToken := 3.1
-	// g.maxChunkLen = int(math.Floor(float64(m.TokenLimit) * charsPerToken))
-	// XXX replace with a real tokenizer.
-	// g.maxEmbeddingChunkLen = int(math.Floor(float64(8192) * charsPerToken))
-	g.TokenLimit = m.TokenLimit
-	//TokenLimithardcoded for the text-embedding-ada-002 model
+	g.ModelObj = m
+	//XXX EmbeddingTokenLimit hardcoded for the text-embedding-ada-002 model
 	g.EmbeddingTokenLimit = 8192
 	return
 }

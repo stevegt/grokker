@@ -172,8 +172,8 @@ func (g *Grokker) msg(sysmsg, input string) (resp gptLib.ChatCompletionResponse,
 	Ck(err)
 	inputTc, err := g.TokenCount(input)
 	Ck(err)
-	if sysmsgTc+inputTc > g.TokenLimit {
-		err = fmt.Errorf("token count %d exceeds token limit %d", sysmsgTc+inputTc, g.TokenLimit)
+	if sysmsgTc+inputTc > g.ModelObj.TokenLimit {
+		err = fmt.Errorf("token count %d exceeds token limit %d", sysmsgTc+inputTc, g.ModelObj.TokenLimit)
 		return
 	}
 
@@ -254,7 +254,7 @@ func (g *Grokker) complete(messages []gptLib.ChatCompletionMessage) (res gptLib.
 	res, err = client.CreateChatCompletion(
 		context.Background(),
 		gptLib.ChatCompletionRequest{
-			Model:    g.modelObj.upstreamName,
+			Model:    g.ModelObj.upstreamName,
 			Messages: messages,
 		},
 	)
