@@ -56,10 +56,8 @@ func (g *Grokker) CompleteChat(sysmsg string, msgs []ChatMsg) (response string, 
 
 	Debug("sending to OpenAI: %s", Spprint(omsgs))
 
-	var resp gptLib.ChatCompletionResponse
-	resp, err = g.complete(omsgs)
+	response, err = g.complete(omsgs)
 	Ck(err)
-	response = resp.Choices[0].Message.Content
 
 	Debug("response from OpenAI: %s", response)
 
@@ -80,13 +78,13 @@ func (g *Grokker) AnswerWithRAG(sysmsg, question, ctxt string, global bool) (out
 			Role:    gptLib.ChatMessageRoleUser,
 			Content: question,
 		})
-		var resp gptLib.ChatCompletionResponse
+		var resp string
 		resp, err = g.complete(messages)
 		Ck(err)
 		// add the response to the messages.
 		messages = append(messages, gptLib.ChatCompletionMessage{
 			Role:    gptLib.ChatMessageRoleAssistant,
-			Content: resp.Choices[0].Message.Content,
+			Content: resp,
 		})
 	}
 
@@ -111,10 +109,8 @@ func (g *Grokker) AnswerWithRAG(sysmsg, question, ctxt string, global bool) (out
 	})
 
 	// get the answer
-	var resp gptLib.ChatCompletionResponse
-	resp, err = g.complete(messages)
+	out, err = g.complete(messages)
 	Ck(err, "context length: %d type: %T: %#v", len(ctxt), ctxt, ctxt)
-	out = resp.Choices[0].Message.Content
 
 	return
 }
@@ -143,10 +139,8 @@ func (g *Grokker) msg(sysmsg, input string) (output string, err error) {
 	messages = append(messages, userMsg)
 
 	// get the answer
-	res, err := g.complete(messages)
+	output, err = g.complete(messages)
 	Ck(err)
-
-	output = res.Choices[0].Message.Content
 
 	return
 }
@@ -196,9 +190,10 @@ func initMessages(g *Grokker, sysmsg string) []gptLib.ChatCompletionMessage {
 // argument and having it create the appropriate client.  It may make
 // sense to move it from the Grokker object to a Model or client.ChatClient
 // object.  It may also make sense to move model.go into the client package.
-func (g *Grokker) complete(messages []gptLib.ChatCompletionMessage) (res gptLib.ChatCompletionResponse, err error) {
+func (g *Grokker) complete(messages []gptLib.ChatCompletionMessage) (out string, err error) {
 	authtoken := os.Getenv("OPENAI_API_KEY")
 	client := gptLib.NewClient(authtoken)
+	var res gptLib.ChatCompletionResponse
 	res, err = client.CreateChatCompletion(
 		context.Background(),
 		gptLib.ChatCompletionRequest{
@@ -206,7 +201,8 @@ func (g *Grokker) complete(messages []gptLib.ChatCompletionMessage) (res gptLib.
 			Messages: messages,
 		},
 	)
-	return res, err
+	out = res.Choices[0].Message.Content
+	return
 }
 
 /*
