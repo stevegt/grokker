@@ -13,6 +13,7 @@ import (
 	gitignore "github.com/sabhiram/go-gitignore"
 	"github.com/stevegt/envi"
 	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/v3/client"
 	"github.com/stevegt/grokker/v3/core"
 	"github.com/stevegt/grokker/v3/util"
 )
@@ -663,8 +664,8 @@ func generate(g *core.Grokker, modelName string, p *Prompt) (err error) {
 	}
 	Pf("Sysmsg: %s\n", sysmsg)
 
-	msgs := []core.ChatMsg{
-		core.ChatMsg{Role: "USER", Content: prompt},
+	msgs := []client.ChatMsg{
+		client.ChatMsg{Role: "USER", Content: prompt},
 	}
 
 	// Count tokens

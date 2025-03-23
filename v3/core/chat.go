@@ -10,6 +10,7 @@ import (
 	"time"
 
 	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/v3/client"
 	"github.com/stevegt/grokker/v3/util"
 )
 
@@ -17,7 +18,7 @@ type ChatHistory struct {
 	Sysmsg  string
 	Version string
 	relPath string
-	msgs    []ChatMsg
+	msgs    []client.ChatMsg
 	g       *Grokker
 }
 
@@ -60,7 +61,7 @@ func (g *Grokker) OpenChatHistory(sysmsg, relPath string) (history *ChatHistory,
 		// track changes to the sysmsg
 		history = &ChatHistory{relPath: relPath,
 			Sysmsg:  sysmsg,
-			msgs:    make([]ChatMsg, 0),
+			msgs:    make([]client.ChatMsg, 0),
 			Version: Version}
 		err = nil
 	} else {
@@ -110,7 +111,7 @@ func (history *ChatHistory) ContinueChat(modelName, prompt string, contextLevel 
 	Debug("continueChat: context level=%s", contextLevel)
 
 	// create a temporary slice of messages to work with
-	var msgs []ChatMsg
+	var msgs []client.ChatMsg
 
 	// add context
 	getContext := false
@@ -148,9 +149,9 @@ func (history *ChatHistory) ContinueChat(modelName, prompt string, contextLevel 
 		Ck(err)
 		if context != "" {
 			// make context look like a message exchange
-			msgs = []ChatMsg{
-				ChatMsg{Role: "USER", Content: context},
-				ChatMsg{Role: "AI", Content: "I understand the context."},
+			msgs = []client.ChatMsg{
+				client.ChatMsg{Role: "USER", Content: context},
+				client.ChatMsg{Role: "AI", Content: "I understand the context."},
 			}
 		}
 		Debug("continueChat: context len=%d", len(context))
@@ -167,7 +168,7 @@ func (history *ChatHistory) ContinueChat(modelName, prompt string, contextLevel 
 		prompt = history.msgs[len(history.msgs)-1].Content
 	} else {
 		// append the prompt to the context
-		msgs = append(msgs, ChatMsg{Role: "USER", Content: prompt})
+		msgs = append(msgs, client.ChatMsg{Role: "USER", Content: prompt})
 	}
 
 	peakCount, err := history.tokenCount(msgs)
@@ -198,8 +199,8 @@ func (history *ChatHistory) ContinueChat(modelName, prompt string, contextLevel 
 	Ck(err)
 
 	// append the prompt and response to the stored messages
-	history.msgs = append(history.msgs, ChatMsg{Role: "USER", Content: prompt})
-	history.msgs = append(history.msgs, ChatMsg{Role: "AI", Content: resp})
+	history.msgs = append(history.msgs, client.ChatMsg{Role: "USER", Content: prompt})
+	history.msgs = append(history.msgs, client.ChatMsg{Role: "AI", Content: resp})
 
 	// save the output files
 	err = ExtractFiles(outfiles, resp, false, false)
@@ -214,7 +215,7 @@ func (history *ChatHistory) ContinueChat(modelName, prompt string, contextLevel 
 // prompt.  The msgs are the chat history up to the prompt.  The
 // infiles are the input files that are included in the prompt.  The
 // outfiles are the output files that are required in the response.
-func (g *Grokker) SendWithFiles(modelName, sysmsg string, msgs []ChatMsg, infiles []string, outfiles []FileLang) (resp string, err error) {
+func (g *Grokker) SendWithFiles(modelName, sysmsg string, msgs []client.ChatMsg, infiles []string, outfiles []FileLang) (resp string, err error) {
 	defer Return(&err)
 
 	if len(infiles) > 0 {
@@ -245,7 +246,7 @@ func (g *Grokker) SendWithFiles(modelName, sysmsg string, msgs []ChatMsg, infile
 
 // summarize summarizes a chat history until it is within
 // maxTokens.  It always leaves the last message intact.
-func (history *ChatHistory) summarize(modelName, prompt string, msgs []ChatMsg, maxTokens int, contextLevel util.ContextLevel) (summarized []ChatMsg, err error) {
+func (history *ChatHistory) summarize(modelName, prompt string, msgs []client.ChatMsg, maxTokens int, contextLevel util.ContextLevel) (summarized []client.ChatMsg, err error) {
 	defer Return(&err)
 	g := history.g
 
@@ -340,12 +341,12 @@ func (history *ChatHistory) summarize(modelName, prompt string, msgs []ChatMsg, 
 	middleMsg := msgs[middleI]
 	txt1, txt2 := g.splitAt(middleMsg.Content, maxTokens-firstHalfCount)
 	// create two new messages
-	msg1 := ChatMsg{Role: middleMsg.Role, Content: txt1}
-	msg2 := ChatMsg{Role: middleMsg.Role, Content: txt2}
+	msg1 := client.ChatMsg{Role: middleMsg.Role, Content: txt1}
+	msg2 := client.ChatMsg{Role: middleMsg.Role, Content: txt2}
 	// replace the middle message with the first new message
 	msgs[middleI] = msg1
 	// append a new message to the end of the slice as a placeholder
-	msgs = append(msgs, ChatMsg{})
+	msgs = append(msgs, client.ChatMsg{})
 	// shift the second half of the messages right by one
 	// - this copies over the placeholder
 	copy(msgs[secondHalfI+1:], msgs[secondHalfI:])
@@ -377,7 +378,7 @@ func (history *ChatHistory) summarize(modelName, prompt string, msgs []ChatMsg, 
 }
 
 // chat2txt returns the given history messages as a text string.
-func (history *ChatHistory) chat2txt(msgs []ChatMsg) (txt string) {
+func (history *ChatHistory) chat2txt(msgs []client.ChatMsg) (txt string) {
 	for _, msg := range msgs {
 		if strings.TrimSpace(msg.Content) == "" {
 			continue
@@ -389,14 +390,14 @@ func (history *ChatHistory) chat2txt(msgs []ChatMsg) (txt string) {
 
 // parseChat parses a chat history from a string.  See summarize for
 // the format.
-func (history *ChatHistory) parseChat(txt string) (msgs []ChatMsg) {
+func (history *ChatHistory) parseChat(txt string) (msgs []client.ChatMsg) {
 	// split into lines
 	lines := strings.Split(txt, "\n")
 	// the first line of each message is the role followed by a colon
 	// and an optional line of text
 	pattern := `^([A-Z]+):(.*$)`
 	re := regexp.MustCompile(pattern)
-	var msg *ChatMsg
+	var msg *client.ChatMsg
 	// parse each line
 	for _, line := range lines {
 		// look for a role
@@ -409,12 +410,12 @@ func (history *ChatHistory) parseChat(txt string) (msgs []ChatMsg) {
 			role := history.fixRole(m[1])
 			txt := strings.TrimSpace(m[2])
 			// create a new message
-			msg = &ChatMsg{Role: role, Content: txt}
+			msg = &client.ChatMsg{Role: role, Content: txt}
 			continue
 		}
 		if msg == nil {
 			// we are in some sort of preamble -- credit it to the user
-			msg = &ChatMsg{Role: "USER"}
+			msg = &client.ChatMsg{Role: "USER"}
 		}
 		// if we get here, we are in the middle of a message
 		msg.Content += line + "\n"
@@ -510,7 +511,7 @@ func (history *ChatHistory) Save(addToDb bool) (err error) {
 }
 
 // tokenCount returns the number of tokens in the given chat history.
-func (history *ChatHistory) tokenCount(msgs []ChatMsg) (count int, err error) {
+func (history *ChatHistory) tokenCount(msgs []client.ChatMsg) (count int, err error) {
 	defer Return(&err)
 	g := history.g
 	// convert the chat history to a text string

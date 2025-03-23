@@ -1,13 +1,12 @@
 package core
 
 import (
-	"context"
 	"fmt"
-	"os"
 	"strings"
 
-	gptLib "github.com/sashabaranov/go-openai"
 	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/v3/client"
+	"github.com/stevegt/grokker/v3/openai"
 )
 
 // var promptTmpl = `You are a helpful assistant.  Answer the following question and summarize the context:
@@ -26,7 +25,7 @@ var SysMsgContinue = "You are an expert knowledgable in the provided context.  I
 // CompleteChat uses the openai API to complete a chat.  It converts the
 // role in the ChatMsg slice to the appropriate openai.ChatMessageRole
 // value.
-func (g *Grokker) CompleteChat(modelName, sysmsg string, msgs []ChatMsg) (response string, err error) {
+func (g *Grokker) CompleteChat(modelName, sysmsg string, msgs []client.ChatMsg) (response string, err error) {
 	defer Return(&err)
 
 	Debug("msgs: %s", Spprint(msgs))
@@ -40,7 +39,7 @@ func (g *Grokker) CompleteChat(modelName, sysmsg string, msgs []ChatMsg) (respon
 		if len(strings.TrimSpace(msg.Content)) == 0 {
 			continue
 		}
-		omsgs = append(omsgs, ChatMsg{
+		omsgs = append(omsgs, client.ChatMsg{
 			Role:    msg.Role,
 			Content: msg.Content,
 		})
@@ -66,7 +65,7 @@ func (g *Grokker) AnswerWithRAG(modelName, sysmsg, question, ctxt string, global
 
 	// first get global knowledge
 	if global {
-		messages = append(messages, ChatMsg{
+		messages = append(messages, client.ChatMsg{
 			Role:    RoleUser,
 			Content: question,
 		})
@@ -74,7 +73,7 @@ func (g *Grokker) AnswerWithRAG(modelName, sysmsg, question, ctxt string, global
 		resp, err = g.complete(modelName, messages)
 		Ck(err)
 		// add the response to the messages.
-		messages = append(messages, ChatMsg{
+		messages = append(messages, client.ChatMsg{
 			Role:    RoleAI,
 			Content: resp,
 		})
@@ -82,7 +81,7 @@ func (g *Grokker) AnswerWithRAG(modelName, sysmsg, question, ctxt string, global
 
 	// add context from local sources
 	if len(ctxt) > 0 {
-		messages = append(messages, []ChatMsg{
+		messages = append(messages, []client.ChatMsg{
 			{
 				Role:    RoleUser,
 				Content: Spf("Context:\n\n%s", ctxt),
@@ -95,7 +94,7 @@ func (g *Grokker) AnswerWithRAG(modelName, sysmsg, question, ctxt string, global
 	}
 
 	// now ask the question
-	messages = append(messages, ChatMsg{
+	messages = append(messages, client.ChatMsg{
 		Role:    RoleUser,
 		Content: question,
 	})
@@ -124,7 +123,7 @@ func (g *Grokker) msg(modelName, sysmsg, input string) (output string, err error
 	messages := initMessages(g, sysmsg)
 
 	// add the user message
-	userMsg := ChatMsg{
+	userMsg := client.ChatMsg{
 		Role:    RoleUser,
 		Content: input,
 	}
@@ -140,7 +139,7 @@ func (g *Grokker) msg(modelName, sysmsg, input string) (output string, err error
 // initMessages creates and returns the initial messages slice.  It includes
 // the system message if the model supports it, otherwise it includes the
 // system message in the first user message.
-func initMessages(g *Grokker, sysmsg string) []ChatMsg {
+func initMessages(g *Grokker, sysmsg string) []client.ChatMsg {
 	// noSysMsg that do not support system messages
 	noSysMsg := []string{
 		"o1-preview",
@@ -158,14 +157,14 @@ func initMessages(g *Grokker, sysmsg string) []ChatMsg {
 	if !sysmsgOk {
 		sysmsgRole = RoleUser
 	}
-	messages := []ChatMsg{
+	messages := []client.ChatMsg{
 		{
 			Role:    sysmsgRole,
 			Content: sysmsg,
 		},
 	}
 	if !sysmsgOk {
-		sysmsgResponse := ChatMsg{
+		sysmsgResponse := client.ChatMsg{
 			Role:    RoleAI,
 			Content: "Got it!  I will use those instructions as my system message and will follow them faithfully in each of my responses.",
 		}
@@ -177,65 +176,10 @@ func initMessages(g *Grokker, sysmsg string) []ChatMsg {
 
 // complete uses the openai API to continue a conversation given a
 // (possibly synthesized) message history.
-//
-// XXX turn this into a multi-model function by passing model in as an
-// argument and having it create the appropriate client.  It may make
-// sense to move it from the Grokker object to a Model or client.ChatClient
-// object.  It may also make sense to move model.go into the client package.
-func (g *Grokker) complete(modelName string, inmsgs []ChatMsg) (out string, err error) {
+func (g *Grokker) complete(modelName string, inmsgs []client.ChatMsg) (out string, err error) {
 	defer Return(&err)
-
-	// convert the ChatMsg slice to an oai.ChatCompletionMessage slice
-	omsgs := []gptLib.ChatCompletionMessage{}
-	for _, msg := range inmsgs {
-		// skip empty messages
-		if len(strings.TrimSpace(msg.Content)) == 0 {
-			continue
-		}
-		// convert msg.Role to uppercase
-		msgRole := strings.ToUpper(msg.Role)
-		// convert role to gptLib role
-		var role string
-		switch msgRole {
-		case "SYSTEM":
-			role = gptLib.ChatMessageRoleSystem
-		case "USER":
-			role = gptLib.ChatMessageRoleUser
-		case "AI":
-			role = gptLib.ChatMessageRoleAssistant
-		case "ASSISTANT":
-			role = gptLib.ChatMessageRoleAssistant
-		default:
-			Assert(false, "unknown role: %q", msg)
-		}
-		omsgs = append(omsgs, gptLib.ChatCompletionMessage{
-			Role:    role,
-			Content: msg.Content,
-		})
-	}
-
 	_, modelObj, err := g.models.FindModel(modelName)
-
-	authtoken := os.Getenv("OPENAI_API_KEY")
-	client := gptLib.NewClient(authtoken)
-	var res gptLib.ChatCompletionResponse
-	res, err = client.CreateChatCompletion(
-		context.Background(),
-		gptLib.ChatCompletionRequest{
-			Model:    modelObj.upstreamName,
-			Messages: omsgs,
-		},
-	)
-	if err != nil {
-		Pf("model: %#v\n", modelObj)
-		Ck(err)
-	}
-	out = res.Choices[0].Message.Content
-	return
+	Ck(err)
+	upstreamName := modelObj.upstreamName
+	return openai.CompleteChat(upstreamName, inmsgs)
 }
-
-/*
-// ClientFactory returns a new ChatClient object.
-func ClientFactory() interface{} {
-}
-*/
