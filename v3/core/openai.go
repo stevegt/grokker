@@ -5,10 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
-	embedLib "github.com/fabiustech/openai"
-	embedModelLib "github.com/fabiustech/openai/models"
 	gptLib "github.com/sashabaranov/go-openai"
 	. "github.com/stevegt/goadapt"
 )
@@ -25,47 +22,6 @@ var SysMsgChat = "You are an expert knowledgable in the provided context.  I wil
 var SysMsgRevise = "You are an expert knowledgable in the provided context.  I will provide you with context, then you will respond with an acknowledgement, then I will provide you with a block of text.  You will revise the block of text based on the information in the context, maintaining the same style, vocabulary, and reading level."
 
 var SysMsgContinue = "You are an expert knowledgable in the provided context.  I will provide you with context, then you will respond with an acknowledgement, then I will provide you with a block of text.  You will continue the block of text based on the information in the context, maintaining the same style, vocabulary, and reading level."
-
-// createEmbeddings returns the embeddings for a slice of text chunks.
-func (g *Grokker) createEmbeddings(texts []string) (embeddings [][]float64, err error) {
-	defer Return(&err)
-	// use github.com/fabiustech/openai library
-	c := g.embeddingClient
-	// simply call c.CreateEmbeddings() once for each text chunk.
-	for i := 0; i < len(texts); i++ {
-		text := texts[i]
-		// set empty chunk embedding to nil
-		if len(text) == 0 {
-			embeddings = append(embeddings, nil)
-			continue
-		}
-		inputs := []string{text}
-		req := &embedLib.EmbeddingRequest{
-			Input: inputs,
-			Model: embedModelLib.AdaEmbeddingV2,
-		}
-		Debug("creating embedding for chunk %d of %d ...", i+1, len(texts))
-		// Debug("text: %q", text)
-		// loop with backoff until we get a response
-		var res *embedLib.EmbeddingResponse
-		for backoff := 1; backoff < 10; backoff++ {
-			res, err = c.CreateEmbeddings(context.Background(), req)
-			if err == nil {
-				break
-			}
-			Pf("openai API error, retrying: %#v", err)
-			// wait and try again
-			time.Sleep(time.Second * time.Duration(backoff))
-		}
-		Ck(err, "%T: %#v", err, err)
-		for _, em := range res.Data {
-			embeddings = append(embeddings, em.Embedding)
-		}
-	}
-	Debug("created %d embeddings", len(embeddings))
-	Assert(len(embeddings) <= len(texts))
-	return
-}
 
 // CompleteChat uses the openai API to complete a chat.  It converts the
 // role in the ChatMsg slice to the appropriate openai.ChatMessageRole
@@ -110,8 +66,8 @@ func (g *Grokker) CompleteChat(sysmsg string, msgs []ChatMsg) (response string, 
 	return
 }
 
-// generate returns the answer to a question.
-func (g *Grokker) generate(sysmsg, question, ctxt string, global bool) (resp gptLib.ChatCompletionResponse, err error) {
+// AnswerWithRAG returns the answer to a question.
+func (g *Grokker) AnswerWithRAG(sysmsg, question, ctxt string, global bool) (resp gptLib.ChatCompletionResponse, err error) {
 	defer Return(&err)
 
 	// XXX don't exceed max tokens
@@ -124,7 +80,7 @@ func (g *Grokker) generate(sysmsg, question, ctxt string, global bool) (resp gpt
 			Role:    gptLib.ChatMessageRoleUser,
 			Content: question,
 		})
-		resp, err = g.chat(messages)
+		resp, err = g.complete(messages)
 		Ck(err)
 		// add the response to the messages.
 		messages = append(messages, gptLib.ChatCompletionMessage{
@@ -154,7 +110,7 @@ func (g *Grokker) generate(sysmsg, question, ctxt string, global bool) (resp gpt
 	})
 
 	// get the answer
-	resp, err = g.chat(messages)
+	resp, err = g.complete(messages)
 	Ck(err, "context length: %d type: %T: %#v", len(ctxt), ctxt, ctxt)
 
 	// fmt.Println(resp.Choices[0].Message.Content)
@@ -187,7 +143,7 @@ func (g *Grokker) msg(sysmsg, input string) (resp gptLib.ChatCompletionResponse,
 	messages = append(messages, userMsg)
 
 	// get the answer
-	resp, err = g.chat(messages)
+	resp, err = g.complete(messages)
 	Ck(err)
 
 	return
@@ -231,26 +187,16 @@ func initMessages(g *Grokker, sysmsg string) []gptLib.ChatCompletionMessage {
 	return messages
 }
 
-// chat uses the openai API to continue a conversation given a
+// complete uses the openai API to continue a conversation given a
 // (possibly synthesized) message history.
-func (g *Grokker) chat(messages []gptLib.ChatCompletionMessage) (resp gptLib.ChatCompletionResponse, err error) {
-	defer Return(&err)
-
-	resp, err = g.complete(messages)
-	Ck(err, "%#v", messages)
-	totalBytes := 0
-	for _, msg := range messages {
-		totalBytes += len(msg.Content)
-	}
-	totalBytes += len(resp.Choices[0].Message.Content)
-	ratio := float64(totalBytes) / float64(resp.Usage.TotalTokens)
-	// Debug("chat response: %s", resp)
-	Debug("total tokens: %d  char/token ratio: %.1f\n", resp.Usage.TotalTokens, ratio)
-	return
-}
-
+//
+// XXX turn this into a multi-model function by passing model in as an
+// argument and having it create the appropriate client.  It may make
+// sense to move it from the Grokker object to a Model or client.ChatClient
+// object.  It may also make sense to move model.go into the client package.
 func (g *Grokker) complete(messages []gptLib.ChatCompletionMessage) (res gptLib.ChatCompletionResponse, err error) {
-	client := g.chatClient
+	authtoken := os.Getenv("OPENAI_API_KEY")
+	client := gptLib.NewClient(authtoken)
 	res, err = client.CreateChatCompletion(
 		context.Background(),
 		gptLib.ChatCompletionRequest{
@@ -259,17 +205,6 @@ func (g *Grokker) complete(messages []gptLib.ChatCompletionMessage) (res gptLib.
 		},
 	)
 	return res, err
-}
-
-// initClients initializes the OpenAI clients.
-// This function needs to be idempotent because it might be called multiple
-// times during the lifetime of a Grokker object.
-func (g *Grokker) initClients() {
-	// XXX using only OpenAI for embedding -- need to support more providers
-	authtoken := os.Getenv("OPENAI_API_KEY")
-	g.embeddingClient = embedLib.NewClient(authtoken)
-	g.chatClient = gptLib.NewClient(authtoken)
-	return
 }
 
 /*

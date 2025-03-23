@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/fabiustech/openai"
-	oai "github.com/sashabaranov/go-openai"
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker/v3/util"
 	"github.com/tiktoken-go/tokenizer"
@@ -56,7 +55,6 @@ const (
 
 type Grokker struct {
 	embeddingClient *openai.Client
-	chatClient      *oai.Client
 	// The grokker version number this db was last updated with.
 	Version string
 	// The absolute path of the root directory of the document
@@ -68,7 +66,8 @@ type Grokker struct {
 	// The list of chunks in the database.
 	Chunks []*Chunk
 	// model specs
-	models              *Models
+	models *Models
+	// XXX make Model be the most recently used model name
 	Model               string
 	ModelObj            *Model `json:"-"`
 	EmbeddingTokenLimit int

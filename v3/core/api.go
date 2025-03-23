@@ -137,7 +137,7 @@ func (g *Grokker) Continue(in string, global bool) (out, sysmsg string, err erro
 	context, err := g.getContext(in, tokenLimit, false, false, nil)
 	Ck(err)
 	// generate the answer.
-	resp, err := g.generate(sysmsg, in, context, global)
+	resp, err := g.AnswerWithRAG(sysmsg, in, context, global)
 	Ck(err)
 	out = resp.Choices[0].Message.Content
 	Debug("Continue() in: %s\ncontext: %s\nout: %s\n", in, context, out)
@@ -154,7 +154,7 @@ func (g *Grokker) Answer(question string, withHeaders, withLineNumbers, global b
 	context, err := g.getContext(question, maxTokens, withHeaders, withLineNumbers, nil)
 	Ck(err)
 	// generate the answer.
-	respmsg, err := g.generate(SysMsgChat, question, context, global)
+	respmsg, err := g.AnswerWithRAG(SysMsgChat, question, context, global)
 	resp = respmsg.Choices[0].Message.Content
 	return
 }
@@ -185,7 +185,7 @@ func (g *Grokker) Revise(in string, global, sysmsgin bool) (out, sysmsg string, 
 	Ck(err)
 
 	// generate the answer.
-	resp, err := g.generate(sysmsg, in, context, global)
+	resp, err := g.AnswerWithRAG(sysmsg, in, context, global)
 	Ck(err)
 	if sysmsgin {
 		out = Spf("%s\n\n%s", sysmsg, resp.Choices[0].Message.Content)
@@ -552,7 +552,7 @@ func (g *Grokker) GitCommitMessage(args ...string) (msg string, err error) {
 	_ = sumLines
 	//
 	// summarize the entire commit message to create the first line
-	resp, err := g.generate(SysMsgChat, GitSummaryPrompt, msg, false)
+	resp, err := g.AnswerWithRAG(SysMsgChat, GitSummaryPrompt, msg, false)
 	Ck(err)
 	summary := resp.Choices[0].Message.Content
 

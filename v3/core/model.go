@@ -90,9 +90,9 @@ func (models *Models) FindModel(model string) (name string, m *Model, err error)
 // times during the lifetime of a Grokker object.
 func (g *Grokker) Setup(model string) (err error) {
 	defer Return(&err)
+	g.initEmbeddingClient()
 	err = g.initModel(model)
 	Ck(err)
-	g.initClients()
 	err = InitTokenizer()
 	Ck(err)
 	return
@@ -101,6 +101,10 @@ func (g *Grokker) Setup(model string) (err error) {
 // initModel initializes the model for a new or reloaded Grokker database.
 // This function needs to be idempotent because it might be called multiple
 // times during the lifetime of a Grokker object.
+//
+// XXX rename this to initDefaultModel, and always pass model name to
+// LLM API calls. This will make it easier to use multiple models in
+// the same run.
 func (g *Grokker) initModel(model string) (err error) {
 	defer Return(&err)
 	Assert(g.Root != "", "root directory not set")
@@ -108,9 +112,10 @@ func (g *Grokker) initModel(model string) (err error) {
 	model, m, err := g.models.FindModel(model)
 	Ck(err)
 	m.active = true
+	// XXX make Model be the most recently used model name
 	g.Model = model
 	g.ModelObj = m
-	//XXX EmbeddingTokenLimit hardcoded for the text-embedding-ada-002 model
+	// XXX EmbeddingTokenLimit hardcoded for the text-embedding-ada-002 model
 	g.EmbeddingTokenLimit = 8192
 	return
 }
