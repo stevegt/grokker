@@ -67,7 +67,7 @@ func (g *Grokker) AnswerWithRAG(sysmsg, question, ctxt string, global bool) (out
 	// first get global knowledge
 	if global {
 		messages = append(messages, ChatMsg{
-			Role:    gptLib.ChatMessageRoleUser,
+			Role:    RoleUser,
 			Content: question,
 		})
 		var resp string
@@ -75,7 +75,7 @@ func (g *Grokker) AnswerWithRAG(sysmsg, question, ctxt string, global bool) (out
 		Ck(err)
 		// add the response to the messages.
 		messages = append(messages, ChatMsg{
-			Role:    gptLib.ChatMessageRoleAssistant,
+			Role:    RoleAI,
 			Content: resp,
 		})
 	}
@@ -84,11 +84,11 @@ func (g *Grokker) AnswerWithRAG(sysmsg, question, ctxt string, global bool) (out
 	if len(ctxt) > 0 {
 		messages = append(messages, []ChatMsg{
 			{
-				Role:    gptLib.ChatMessageRoleUser,
+				Role:    RoleUser,
 				Content: Spf("Context:\n\n%s", ctxt),
 			},
 			{
-				Role:    gptLib.ChatMessageRoleAssistant,
+				Role:    RoleAI,
 				Content: "Great! I've read the context.",
 			},
 		}...)
@@ -96,7 +96,7 @@ func (g *Grokker) AnswerWithRAG(sysmsg, question, ctxt string, global bool) (out
 
 	// now ask the question
 	messages = append(messages, ChatMsg{
-		Role:    gptLib.ChatMessageRoleUser,
+		Role:    RoleUser,
 		Content: question,
 	})
 
@@ -125,7 +125,7 @@ func (g *Grokker) msg(sysmsg, input string) (output string, err error) {
 
 	// add the user message
 	userMsg := ChatMsg{
-		Role:    gptLib.ChatMessageRoleUser,
+		Role:    RoleUser,
 		Content: input,
 	}
 	messages = append(messages, userMsg)
@@ -154,9 +154,9 @@ func initMessages(g *Grokker, sysmsg string) []ChatMsg {
 			break
 		}
 	}
-	sysmsgRole := gptLib.ChatMessageRoleSystem
+	sysmsgRole := RoleSystem
 	if !sysmsgOk {
-		sysmsgRole = gptLib.ChatMessageRoleUser
+		sysmsgRole = RoleUser
 	}
 	messages := []ChatMsg{
 		{
@@ -166,7 +166,7 @@ func initMessages(g *Grokker, sysmsg string) []ChatMsg {
 	}
 	if !sysmsgOk {
 		sysmsgResponse := ChatMsg{
-			Role:    gptLib.ChatMessageRoleAssistant,
+			Role:    RoleAI,
 			Content: "Got it!  I will use those instructions as my system message and will follow them faithfully in each of my responses.",
 		}
 		messages = append(messages, sysmsgResponse)

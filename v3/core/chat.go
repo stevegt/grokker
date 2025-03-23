@@ -26,6 +26,12 @@ type ChatMsg struct {
 	Content string
 }
 
+const (
+	RoleSystem = "SYSTEM"
+	RoleUser   = "USER"
+	RoleAI     = "AI"
+)
+
 var SysMsgSummarizeChat = `You are an editor.  Rewrite the chat
 history to make it about half as long, focusing on the following
 topic.  Your answer must be in the same chat format.  Please include
