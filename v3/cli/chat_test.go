@@ -52,13 +52,17 @@ func TestChatSummarization(t *testing.T) {
 	var match bool
 
 	// get some test data before changing directories
-	teFullBuf, err := os.ReadFile("testdata/te-full.txt")
+	teFullBuf, err := os.ReadFile("../core/testdata/te-full.txt")
 	Tassert(t, err == nil, "error reading file: %v", err)
-	largeChatBuf, err := os.ReadFile("testdata/large-chat")
+	largeChatBuf, err := os.ReadFile("../core/testdata/large-chat")
 	Tassert(t, err == nil, "error reading file: %v", err)
 
-	dir := core.TmpTestDir()
+	//get current directory
+	prevDir, err := os.Getwd()
+	Tassert(t, err == nil, "error getting current directory: %v", err)
+
 	// cd to the tmp dir
+	dir := core.TmpTestDir()
 	err = os.Chdir(dir)
 	Tassert(t, err == nil, "error changing directory: %v", err)
 
@@ -167,4 +171,7 @@ func TestChatSummarization(t *testing.T) {
 	match = cimatch(res, "red")
 	Tassert(t, match, "CLI did not return expected output: %s", res)
 
+	// restore the previous directory
+	err = os.Chdir(prevDir)
+	Tassert(t, err == nil, "error changing directory: %v", err)
 }

@@ -67,7 +67,7 @@ func (g *Grokker) CompleteChat(sysmsg string, msgs []ChatMsg) (response string, 
 }
 
 // AnswerWithRAG returns the answer to a question.
-func (g *Grokker) AnswerWithRAG(sysmsg, question, ctxt string, global bool) (resp gptLib.ChatCompletionResponse, err error) {
+func (g *Grokker) AnswerWithRAG(sysmsg, question, ctxt string, global bool) (out string, err error) {
 	defer Return(&err)
 
 	// XXX don't exceed max tokens
@@ -80,6 +80,7 @@ func (g *Grokker) AnswerWithRAG(sysmsg, question, ctxt string, global bool) (res
 			Role:    gptLib.ChatMessageRoleUser,
 			Content: question,
 		})
+		var resp gptLib.ChatCompletionResponse
 		resp, err = g.complete(messages)
 		Ck(err)
 		// add the response to the messages.
@@ -110,17 +111,16 @@ func (g *Grokker) AnswerWithRAG(sysmsg, question, ctxt string, global bool) (res
 	})
 
 	// get the answer
+	var resp gptLib.ChatCompletionResponse
 	resp, err = g.complete(messages)
 	Ck(err, "context length: %d type: %T: %#v", len(ctxt), ctxt, ctxt)
+	out = resp.Choices[0].Message.Content
 
-	// fmt.Println(resp.Choices[0].Message.Content)
-	// Pprint(messages)
-	// Pprint(resp)
 	return
 }
 
 // msg uses the openai API to generate a response to a message.
-func (g *Grokker) msg(sysmsg, input string) (resp gptLib.ChatCompletionResponse, err error) {
+func (g *Grokker) msg(sysmsg, input string) (output string, err error) {
 	defer Return(&err)
 
 	// don't exceed max tokens
@@ -143,8 +143,10 @@ func (g *Grokker) msg(sysmsg, input string) (resp gptLib.ChatCompletionResponse,
 	messages = append(messages, userMsg)
 
 	// get the answer
-	resp, err = g.complete(messages)
+	res, err := g.complete(messages)
 	Ck(err)
+
+	output = res.Choices[0].Message.Content
 
 	return
 }

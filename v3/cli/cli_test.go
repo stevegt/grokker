@@ -157,7 +157,14 @@ func TestCli(t *testing.T) {
 	fmt.Println("testing similarity...")
 	// test with an empty file
 	stdout, stderr, err = grok(emptyStdin, "similarity", "testdata/sim1.md", "/dev/null")
-	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
+	if err != nil {
+		cwd, err := os.Getwd()
+		Ck(err)
+		t.Logf("current working directory: %s", cwd)
+		t.Logf("stdout: %s", stdout.String())
+		t.Logf("stderr: %s", stderr.String())
+		t.Fatalf("CLI returned unexpected error: %v", err)
+	}
 	// check that the stdout buffer contains the expected output
 	match = strings.Contains(stdout.String(), "0.000000")
 	Tassert(t, match, "CLI did not return expected output: %s", stdout.String())

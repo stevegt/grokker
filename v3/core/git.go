@@ -64,15 +64,14 @@ func (g *Grokker) summarizeDiff(diff string) (sumlines string, diffSummary strin
 			context := Spf("diff --git %s\n%s", fns, chunk.text)
 			resp, err := g.AnswerWithRAG(SysMsgChat, GitDiffPrompt, context, false)
 			Ck(err)
-			fileSummary = Spf("%s\n%s", fileSummary, resp.Choices[0].Message.Content)
+			fileSummary = Spf("%s\n%s", fileSummary, resp)
 		}
 		// XXX recurse here to glue the summaries together for a given
 		// file?
 
 		// get a summary line of the changes for this file
-		resp, err := g.AnswerWithRAG(SysMsgChat, GitSummaryPrompt, fileSummary, false)
+		sumLine, err := g.AnswerWithRAG(SysMsgChat, GitSummaryPrompt, fileSummary, false)
 		Ck(err)
-		sumLine := resp.Choices[0].Message.Content
 		// append the summary line to the list of summary lines
 		sumlines = Spf("%s\n%s", sumlines, sumLine)
 		// append sumLine and the diff for this file to the summary

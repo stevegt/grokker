@@ -605,7 +605,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		// trim whitespace
 		input = strings.TrimSpace(input)
 		sysmsg := cli.Msg.Sysmsg
-		res, err := msg(grok, sysmsg, input)
+		res, err := grok.Msg(sysmsg, input)
 		Ck(err)
 		Pl(res)
 	case "commit":
@@ -703,14 +703,6 @@ func revise(grok *core.Grokker, in string, global, sysmsgin bool) (out string, u
 	out, _, err = grok.Revise(in, global, sysmsgin)
 	Ck(err)
 
-	return
-}
-
-// send a message to openAI's API
-func msg(g *core.Grokker, sysmsg string, input string) (res string, err error) {
-	defer Return(&err)
-	res, err = g.Msg(sysmsg, input)
-	Ck(err)
 	return
 }
 

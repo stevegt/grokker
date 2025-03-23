@@ -137,15 +137,14 @@ func (g *Grokker) Continue(in string, global bool) (out, sysmsg string, err erro
 	context, err := g.getContext(in, tokenLimit, false, false, nil)
 	Ck(err)
 	// generate the answer.
-	resp, err := g.AnswerWithRAG(sysmsg, in, context, global)
+	out, err = g.AnswerWithRAG(sysmsg, in, context, global)
 	Ck(err)
-	out = resp.Choices[0].Message.Content
 	Debug("Continue() in: %s\ncontext: %s\nout: %s\n", in, context, out)
 	return
 }
 
 // Answer returns the answer to a question.
-func (g *Grokker) Answer(question string, withHeaders, withLineNumbers, global bool) (resp string, err error) {
+func (g *Grokker) Answer(question string, withHeaders, withLineNumbers, global bool) (out string, err error) {
 	defer Return(&err)
 	// tokenize the question
 	qtokens, err := g.tokens(question)
@@ -154,8 +153,7 @@ func (g *Grokker) Answer(question string, withHeaders, withLineNumbers, global b
 	context, err := g.getContext(question, maxTokens, withHeaders, withLineNumbers, nil)
 	Ck(err)
 	// generate the answer.
-	respmsg, err := g.AnswerWithRAG(SysMsgChat, question, context, global)
-	resp = respmsg.Choices[0].Message.Content
+	out, err = g.AnswerWithRAG(SysMsgChat, question, context, global)
 	return
 }
 
@@ -188,9 +186,9 @@ func (g *Grokker) Revise(in string, global, sysmsgin bool) (out, sysmsg string, 
 	resp, err := g.AnswerWithRAG(sysmsg, in, context, global)
 	Ck(err)
 	if sysmsgin {
-		out = Spf("%s\n\n%s", sysmsg, resp.Choices[0].Message.Content)
+		out = Spf("%s\n\n%s", sysmsg, resp)
 	} else {
-		out = resp.Choices[0].Message.Content
+		out = resp
 	}
 
 	Debug("Revise() in: %s\ncontext: %s\nout: %s\n", in, context, out)
@@ -552,9 +550,8 @@ func (g *Grokker) GitCommitMessage(args ...string) (msg string, err error) {
 	_ = sumLines
 	//
 	// summarize the entire commit message to create the first line
-	resp, err := g.AnswerWithRAG(SysMsgChat, GitSummaryPrompt, msg, false)
+	summary, err := g.AnswerWithRAG(SysMsgChat, GitSummaryPrompt, msg, false)
 	Ck(err)
-	summary := resp.Choices[0].Message.Content
 
 	// glue it all together
 	msg = Spf("%s\n\n%s", summary, msg)
@@ -563,11 +560,10 @@ func (g *Grokker) GitCommitMessage(args ...string) (msg string, err error) {
 }
 
 // Msg sends sysmsg and txt to openai and returns the response.
-func (g *Grokker) Msg(sysmsg, txt string) (resp string, err error) {
+func (g *Grokker) Msg(sysmsg, txt string) (out string, err error) {
 	defer Return(&err)
-	respmsg, err := g.msg(sysmsg, txt)
+	out, err = g.msg(sysmsg, txt)
 	Ck(err)
-	resp = respmsg.Choices[0].Message.Content
 	return
 }
 
