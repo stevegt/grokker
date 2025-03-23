@@ -60,6 +60,7 @@ func TestChatSummarization(t *testing.T) {
 	//get current directory
 	prevDir, err := os.Getwd()
 	Tassert(t, err == nil, "error getting current directory: %v", err)
+	defer os.Chdir(prevDir)
 
 	// cd to the tmp dir
 	dir := core.TmpTestDir()
@@ -171,7 +172,4 @@ func TestChatSummarization(t *testing.T) {
 	match = cimatch(res, "red")
 	Tassert(t, match, "CLI did not return expected output: %s", res)
 
-	// restore the previous directory
-	err = os.Chdir(prevDir)
-	Tassert(t, err == nil, "error changing directory: %v", err)
 }

@@ -117,6 +117,9 @@ func TestMigrationSetup(t *testing.T) {
 	tmpDataDir = tmpRepoDir + "/testdata/migration_tmp"
 
 	// cd into temp base directory
+	prevDir, err := os.Getwd()
+	Ck(err)
+	defer os.Chdir(prevDir)
 	cd(t, tmpBaseDir)
 
 	// clone repo into subdir of temporary base directory

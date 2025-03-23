@@ -664,7 +664,7 @@ func generate(g *core.Grokker, p *Prompt) (err error) {
 	Pf("Sysmsg: %s\n", sysmsg)
 
 	msgs := []core.ChatMsg{
-		core.ChatMsg{Role: "USER", Txt: prompt},
+		core.ChatMsg{Role: "USER", Content: prompt},
 	}
 
 	// Count tokens
@@ -673,7 +673,7 @@ func generate(g *core.Grokker, p *Prompt) (err error) {
 	tcs.add("sysmsg", sysmsg)
 	txt := ""
 	for _, m := range msgs {
-		txt += m.Txt
+		txt += m.Content
 	}
 	tcs.add("msgs", txt)
 	for _, f := range inFns {

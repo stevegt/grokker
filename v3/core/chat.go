@@ -22,8 +22,8 @@ type ChatHistory struct {
 }
 
 type ChatMsg struct {
-	Role string
-	Txt  string
+	Role    string
+	Content string
 }
 
 var SysMsgSummarizeChat = `You are an editor.  Rewrite the chat
@@ -143,8 +143,8 @@ func (history *ChatHistory) ContinueChat(prompt string, contextLevel util.Contex
 		if context != "" {
 			// make context look like a message exchange
 			msgs = []ChatMsg{
-				ChatMsg{Role: "USER", Txt: context},
-				ChatMsg{Role: "AI", Txt: "I understand the context."},
+				ChatMsg{Role: "USER", Content: context},
+				ChatMsg{Role: "AI", Content: "I understand the context."},
 			}
 		}
 		Debug("continueChat: context len=%d", len(context))
@@ -158,10 +158,10 @@ func (history *ChatHistory) ContinueChat(prompt string, contextLevel util.Contex
 	if edit {
 		// get the prompt from the most recent message
 		Assert(len(prompt) == 0, "edit mode expects an empty prompt")
-		prompt = history.msgs[len(history.msgs)-1].Txt
+		prompt = history.msgs[len(history.msgs)-1].Content
 	} else {
 		// append the prompt to the context
-		msgs = append(msgs, ChatMsg{Role: "USER", Txt: prompt})
+		msgs = append(msgs, ChatMsg{Role: "USER", Content: prompt})
 	}
 
 	peakCount, err := history.tokenCount(msgs)
@@ -192,8 +192,8 @@ func (history *ChatHistory) ContinueChat(prompt string, contextLevel util.Contex
 	Ck(err)
 
 	// append the prompt and response to the stored messages
-	history.msgs = append(history.msgs, ChatMsg{Role: "USER", Txt: prompt})
-	history.msgs = append(history.msgs, ChatMsg{Role: "AI", Txt: resp})
+	history.msgs = append(history.msgs, ChatMsg{Role: "USER", Content: prompt})
+	history.msgs = append(history.msgs, ChatMsg{Role: "AI", Content: resp})
 
 	// save the output files
 	err = ExtractFiles(outfiles, resp, false, false)
@@ -216,7 +216,7 @@ func (g *Grokker) SendWithFiles(sysmsg string, msgs []ChatMsg, infiles []string,
 		promptFrag, err := IncludeFiles(infiles)
 		Ck(err)
 		// append the prompt fragment to the last message
-		msgs[len(msgs)-1].Txt += promptFrag
+		msgs[len(msgs)-1].Content += promptFrag
 	}
 
 	if len(outfiles) > 0 {
@@ -307,7 +307,7 @@ func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens i
 	var firstHalfCount int
 	for i, msg := range msgs {
 		// count tokens
-		count, err := g.TokenCount(msg.Txt)
+		count, err := g.TokenCount(msg.Content)
 		Ck(err)
 		if firstHalfCount+count > msgsCount/2 {
 			// we are nearing msgsCount/2
@@ -332,10 +332,10 @@ func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens i
 	// maxTokens.  We go to all this trouble because the middle
 	// message might be longer than maxTokens.
 	middleMsg := msgs[middleI]
-	txt1, txt2 := g.splitAt(middleMsg.Txt, maxTokens-firstHalfCount)
+	txt1, txt2 := g.splitAt(middleMsg.Content, maxTokens-firstHalfCount)
 	// create two new messages
-	msg1 := ChatMsg{Role: middleMsg.Role, Txt: txt1}
-	msg2 := ChatMsg{Role: middleMsg.Role, Txt: txt2}
+	msg1 := ChatMsg{Role: middleMsg.Role, Content: txt1}
+	msg2 := ChatMsg{Role: middleMsg.Role, Content: txt2}
 	// replace the middle message with the first new message
 	msgs[middleI] = msg1
 	// append a new message to the end of the slice as a placeholder
@@ -373,10 +373,10 @@ func (history *ChatHistory) summarize(prompt string, msgs []ChatMsg, maxTokens i
 // chat2txt returns the given history messages as a text string.
 func (history *ChatHistory) chat2txt(msgs []ChatMsg) (txt string) {
 	for _, msg := range msgs {
-		if strings.TrimSpace(msg.Txt) == "" {
+		if strings.TrimSpace(msg.Content) == "" {
 			continue
 		}
-		txt += Spf("%s:\n%s\n\n", msg.Role, msg.Txt)
+		txt += Spf("%s:\n%s\n\n", msg.Role, msg.Content)
 	}
 	return
 }
@@ -403,7 +403,7 @@ func (history *ChatHistory) parseChat(txt string) (msgs []ChatMsg) {
 			role := history.fixRole(m[1])
 			txt := strings.TrimSpace(m[2])
 			// create a new message
-			msg = &ChatMsg{Role: role, Txt: txt}
+			msg = &ChatMsg{Role: role, Content: txt}
 			continue
 		}
 		if msg == nil {
@@ -411,7 +411,7 @@ func (history *ChatHistory) parseChat(txt string) (msgs []ChatMsg) {
 			msg = &ChatMsg{Role: "USER"}
 		}
 		// if we get here, we are in the middle of a message
-		msg.Txt += line + "\n"
+		msg.Content += line + "\n"
 	}
 	// add the last message to the slice
 	if msg != nil {
@@ -645,7 +645,7 @@ func (history *ChatHistory) extractFromChat(outfiles []FileLang, N int, extractT
 			}
 			// see if we have a match for this file
 			dryrun := true
-			err = ExtractFiles(fl, history.msgs[i].Txt, dryrun, false)
+			err = ExtractFiles(fl, history.msgs[i].Content, dryrun, false)
 			if err != nil {
 				// file not found in this response
 				continue
@@ -654,7 +654,7 @@ func (history *ChatHistory) extractFromChat(outfiles []FileLang, N int, extractT
 			if foundN == N {
 				// we found the Nth most recent version of the file
 				dryrun = false
-				err = ExtractFiles(fl, history.msgs[i].Txt, dryrun, extractToStdout)
+				err = ExtractFiles(fl, history.msgs[i].Content, dryrun, extractToStdout)
 				Ck(err)
 				break
 			}

@@ -31,26 +31,18 @@ func (g *Grokker) CompleteChat(sysmsg string, msgs []ChatMsg) (response string, 
 
 	Debug("msgs: %s", Spprint(msgs))
 
+	// initialize the messages slice with the system message as the
+	// first message
 	omsgs := initMessages(g, sysmsg)
-
-	// convert the ChatMsg slice to an oai.ChatCompletionMessage slice
+	// add the rest of the messages
 	for _, msg := range msgs {
 		// skip empty messages
-		if len(strings.TrimSpace(msg.Txt)) == 0 {
+		if len(strings.TrimSpace(msg.Content)) == 0 {
 			continue
 		}
-		var role string
-		switch msg.Role {
-		case "USER":
-			role = gptLib.ChatMessageRoleUser
-		case "AI":
-			role = gptLib.ChatMessageRoleAssistant
-		default:
-			Assert(false, "unknown role: %q", msg)
-		}
-		omsgs = append(omsgs, gptLib.ChatCompletionMessage{
-			Role:    role,
-			Content: msg.Txt,
+		omsgs = append(omsgs, ChatMsg{
+			Role:    msg.Role,
+			Content: msg.Content,
 		})
 	}
 
@@ -74,7 +66,7 @@ func (g *Grokker) AnswerWithRAG(sysmsg, question, ctxt string, global bool) (out
 
 	// first get global knowledge
 	if global {
-		messages = append(messages, gptLib.ChatCompletionMessage{
+		messages = append(messages, ChatMsg{
 			Role:    gptLib.ChatMessageRoleUser,
 			Content: question,
 		})
@@ -82,7 +74,7 @@ func (g *Grokker) AnswerWithRAG(sysmsg, question, ctxt string, global bool) (out
 		resp, err = g.complete(messages)
 		Ck(err)
 		// add the response to the messages.
-		messages = append(messages, gptLib.ChatCompletionMessage{
+		messages = append(messages, ChatMsg{
 			Role:    gptLib.ChatMessageRoleAssistant,
 			Content: resp,
 		})
@@ -90,7 +82,7 @@ func (g *Grokker) AnswerWithRAG(sysmsg, question, ctxt string, global bool) (out
 
 	// add context from local sources
 	if len(ctxt) > 0 {
-		messages = append(messages, []gptLib.ChatCompletionMessage{
+		messages = append(messages, []ChatMsg{
 			{
 				Role:    gptLib.ChatMessageRoleUser,
 				Content: Spf("Context:\n\n%s", ctxt),
@@ -103,7 +95,7 @@ func (g *Grokker) AnswerWithRAG(sysmsg, question, ctxt string, global bool) (out
 	}
 
 	// now ask the question
-	messages = append(messages, gptLib.ChatCompletionMessage{
+	messages = append(messages, ChatMsg{
 		Role:    gptLib.ChatMessageRoleUser,
 		Content: question,
 	})
@@ -132,7 +124,7 @@ func (g *Grokker) msg(sysmsg, input string) (output string, err error) {
 	messages := initMessages(g, sysmsg)
 
 	// add the user message
-	userMsg := gptLib.ChatCompletionMessage{
+	userMsg := ChatMsg{
 		Role:    gptLib.ChatMessageRoleUser,
 		Content: input,
 	}
@@ -148,7 +140,7 @@ func (g *Grokker) msg(sysmsg, input string) (output string, err error) {
 // initMessages creates and returns the initial messages slice.  It includes
 // the system message if the model supports it, otherwise it includes the
 // system message in the first user message.
-func initMessages(g *Grokker, sysmsg string) []gptLib.ChatCompletionMessage {
+func initMessages(g *Grokker, sysmsg string) []ChatMsg {
 	// noSysMsg that do not support system messages
 	noSysMsg := []string{
 		"o1-preview",
@@ -166,14 +158,14 @@ func initMessages(g *Grokker, sysmsg string) []gptLib.ChatCompletionMessage {
 	if !sysmsgOk {
 		sysmsgRole = gptLib.ChatMessageRoleUser
 	}
-	messages := []gptLib.ChatCompletionMessage{
+	messages := []ChatMsg{
 		{
 			Role:    sysmsgRole,
 			Content: sysmsg,
 		},
 	}
 	if !sysmsgOk {
-		sysmsgResponse := gptLib.ChatCompletionMessage{
+		sysmsgResponse := ChatMsg{
 			Role:    gptLib.ChatMessageRoleAssistant,
 			Content: "Got it!  I will use those instructions as my system message and will follow them faithfully in each of my responses.",
 		}
@@ -190,7 +182,37 @@ func initMessages(g *Grokker, sysmsg string) []gptLib.ChatCompletionMessage {
 // argument and having it create the appropriate client.  It may make
 // sense to move it from the Grokker object to a Model or client.ChatClient
 // object.  It may also make sense to move model.go into the client package.
-func (g *Grokker) complete(messages []gptLib.ChatCompletionMessage) (out string, err error) {
+func (g *Grokker) complete(inmsgs []ChatMsg) (out string, err error) {
+
+	// convert the ChatMsg slice to an oai.ChatCompletionMessage slice
+	omsgs := []gptLib.ChatCompletionMessage{}
+	for _, msg := range inmsgs {
+		// skip empty messages
+		if len(strings.TrimSpace(msg.Content)) == 0 {
+			continue
+		}
+		// convert msg.Role to uppercase
+		msgRole := strings.ToUpper(msg.Role)
+		// convert role to gptLib role
+		var role string
+		switch msgRole {
+		case "SYSTEM":
+			role = gptLib.ChatMessageRoleSystem
+		case "USER":
+			role = gptLib.ChatMessageRoleUser
+		case "AI":
+			role = gptLib.ChatMessageRoleAssistant
+		case "ASSISTANT":
+			role = gptLib.ChatMessageRoleAssistant
+		default:
+			Assert(false, "unknown role: %q", msg)
+		}
+		omsgs = append(omsgs, gptLib.ChatCompletionMessage{
+			Role:    role,
+			Content: msg.Content,
+		})
+	}
+
 	authtoken := os.Getenv("OPENAI_API_KEY")
 	client := gptLib.NewClient(authtoken)
 	var res gptLib.ChatCompletionResponse
@@ -198,7 +220,7 @@ func (g *Grokker) complete(messages []gptLib.ChatCompletionMessage) (out string,
 		context.Background(),
 		gptLib.ChatCompletionRequest{
 			Model:    g.ModelObj.upstreamName,
-			Messages: messages,
+			Messages: omsgs,
 		},
 	)
 	out = res.Choices[0].Message.Content
