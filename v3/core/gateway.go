@@ -160,5 +160,6 @@ func (g *Grokker) complete(modelName string, inmsgs []client.ChatMsg) (out strin
 	_, modelObj, err := g.models.FindModel(modelName)
 	Ck(err)
 	upstreamName := modelObj.upstreamName
+
 	return openai.CompleteChat(upstreamName, inmsgs)
 }
