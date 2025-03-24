@@ -512,6 +512,8 @@ func (g *Grokker) SetModel(model string) (oldModel string, err error) {
 func (g *Grokker) GitCommitMessage(modelName string, args ...string) (msg string, err error) {
 	defer Return(&err)
 
+	Debug("GitCommitMessage(%s, %v)", modelName, args)
+
 	// run `git diff @args
 	args = append([]string{"diff"}, args...)
 	cmd := exec.Command("git", args...)
