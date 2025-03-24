@@ -52,6 +52,13 @@ func (g *Grokker) CompleteChat(modelName, sysmsg string, msgs []client.ChatMsg) 
 	Debug("response from OpenAI: %#v", results)
 
 	response = results.Body
+	if results.Citations != nil {
+		response += Spf("\n\n<references>\n")
+		for i, citation := range results.Citations {
+			response += Spf("[%d] %s\n", i+1, citation)
+		}
+		response += "</references>\n"
+	}
 
 	return
 }
