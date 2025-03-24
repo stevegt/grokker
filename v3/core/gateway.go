@@ -46,10 +46,12 @@ func (g *Grokker) CompleteChat(modelName, sysmsg string, msgs []client.ChatMsg) 
 
 	Debug("sending to OpenAI: %s", Spprint(omsgs))
 
-	response, err = g.complete(modelName, omsgs)
+	results, err := g.gateway(modelName, omsgs)
 	Ck(err)
 
-	Debug("response from OpenAI: %s", response)
+	Debug("response from OpenAI: %#v", results)
+
+	response = results.Body
 
 	return
 }
@@ -66,13 +68,13 @@ func (g *Grokker) AnswerWithRAG(modelName, sysmsg, question, ctxt string, global
 			Role:    RoleUser,
 			Content: question,
 		})
-		var resp string
-		resp, err = g.complete(modelName, messages)
+		var results client.Results
+		results, err = g.gateway(modelName, messages)
 		Ck(err)
 		// add the response to the messages.
 		messages = append(messages, client.ChatMsg{
 			Role:    RoleAI,
-			Content: resp,
+			Content: results.Body,
 		})
 	}
 
@@ -110,7 +112,9 @@ func (g *Grokker) AnswerWithRAG(modelName, sysmsg, question, ctxt string, global
 	}
 
 	// get the answer
-	out, err = g.complete(modelName, messages)
+	var results client.Results
+	results, err = g.gateway(modelName, messages)
+	out = results.Body
 	Ck(err, "context length: %d type: %T: %#v", len(ctxt), ctxt, ctxt)
 
 	return
@@ -154,9 +158,8 @@ func initMessages(g *Grokker, sysmsg string) []client.ChatMsg {
 	return messages
 }
 
-// complete acts as a router to the appropriate completion function based on
-// provider.
-func (g *Grokker) complete(modelName string, inmsgs []client.ChatMsg) (out string, err error) {
+// gateway acts as a router to the appropriate completion function based on provider.
+func (g *Grokker) gateway(modelName string, inmsgs []client.ChatMsg) (results client.Results, err error) {
 	defer Return(&err)
 	_, modelObj, err := g.models.FindModel(modelName)
 	Ck(err)

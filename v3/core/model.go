@@ -65,7 +65,14 @@ func NewModels() (models *Models) {
 	add("o1-mini", 128000, "openai", oai.O1Mini)
 	add("o1", 128000, "openai", oai.O1Preview)
 	add("o3-mini", 200000, "openai", oai.O3Mini)
+
+	// XXX perplexity input token limits are not published?
 	add("sonar-deep-research", 128000, "perplexity", "sonar-deep-research")
+	add("sonar", 128000, "perplexity", "sonar")
+	add("sonar-pro", 128000, "perplexity", "sonar-pro")
+	add("sonar-reasoning", 128000, "perplexity", "sonar-reasoning")
+	add("sonar-reasoning-pro", 128000, "perplexity", "sonar-reasoning-pro")
+	add("r1-1776", 128000, "perplexity", "r1-1776")
 
 	return
 }

@@ -62,7 +62,7 @@ type Choice struct {
 
 // CompleteChat sends a chat completion request to Perplexity.ai and returns the generated text.
 // This method conforms to the ChatClient interface.
-func (c *Client) CompleteChat(model string, messagesIn []client.ChatMsg) (string, error) {
+func (c *Client) CompleteChat(model string, messagesIn []client.ChatMsg) (results client.Results, err error) {
 
 	// Prepare the request payload.
 	reqPayload := Request{
@@ -82,13 +82,13 @@ func (c *Client) CompleteChat(model string, messagesIn []client.ChatMsg) (string
 	// Marshal the request payload.
 	payloadBytes, err := json.Marshal(reqPayload)
 	if err != nil {
-		return "", err
+		return
 	}
 
 	// Create the HTTP request.
 	req, err := http.NewRequest("POST", c.Endpoint, strings.NewReader(string(payloadBytes)))
 	if err != nil {
-		return "", err
+		return
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.APIKey))
@@ -97,31 +97,36 @@ func (c *Client) CompleteChat(model string, messagesIn []client.ChatMsg) (string
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", err
+		return
 	}
 	defer resp.Body.Close()
 
 	// Check for non-200 status codes.
 	if resp.StatusCode != http.StatusOK {
 		body, _ := ioutil.ReadAll(resp.Body)
-		return "", fmt.Errorf("Perplexity API returned status %d: %s", resp.StatusCode, string(body))
+		err = fmt.Errorf("Perplexity API returned status %d: %s", resp.StatusCode, string(body))
+		return
 	}
 
 	// Read and unmarshal the response.
 	respBytes, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return "", err
+		return
 	}
 
 	var response Response
-	if err := json.Unmarshal(respBytes, &response); err != nil {
-		return "", err
+	if err = json.Unmarshal(respBytes, &response); err != nil {
+		return
 	}
 
 	if len(response.Choices) == 0 {
-		return "", fmt.Errorf("no choices in Perplexity response")
+		err = fmt.Errorf("no choices in Perplexity response")
+		return
 	}
 
 	// Return the content of the first choice.
-	return response.Choices[0].Message.Content, nil
+	results.Body = response.Choices[0].Message.Content
+	results.Citations = response.Citations
+
+	return
 }

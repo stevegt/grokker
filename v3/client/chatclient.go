@@ -12,3 +12,9 @@ type ChatMsg struct {
 	Role    string
 	Content string
 }
+
+// Results represents the results of a chat operation.
+type Results struct {
+	Body      string
+	Citations []string
+}

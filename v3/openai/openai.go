@@ -24,7 +24,7 @@ func NewOpenAIChatClient(apiKey, model string) *OpenAIChatClient {
 
 // CompleteChat sends a chat request to the OpenAI API and returns the response.
 // It converts core.ChatMsg messages into OpenAI's ChatCompletionMessage format.
-func CompleteChat(upstreamName string, inmsgs []client.ChatMsg) (out string, err error) {
+func CompleteChat(upstreamName string, inmsgs []client.ChatMsg) (results client.Results, err error) {
 	defer Return(&err)
 
 	// convert the ChatMsg slice to an oai.ChatCompletionMessage slice
@@ -70,6 +70,7 @@ func CompleteChat(upstreamName string, inmsgs []client.ChatMsg) (out string, err
 		Pf("model: %s\n", upstreamName)
 		Ck(err)
 	}
-	out = res.Choices[0].Message.Content
+
+	results.Body = res.Choices[0].Message.Content
 	return
 }
