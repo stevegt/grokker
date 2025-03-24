@@ -1,4 +1,4 @@
-package core
+package perplexity
 
 import (
 	"encoding/json"
@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/stevegt/grokker/v3/client"
 )
 
 // Client encapsulates the API client for Perplexity.ai.
@@ -60,20 +62,16 @@ type Choice struct {
 
 // CompleteChat sends a chat completion request to Perplexity.ai and returns the generated text.
 // This method conforms to the ChatClient interface.
-func (c *Client) CompleteChat(model, sysmsg string, messages []ChatMsg) (string, error) {
+func (c *Client) CompleteChat(model string, messagesIn []client.ChatMsg) (string, error) {
+
 	// Prepare the request payload.
 	reqPayload := Request{
-		Model: model,
-		Messages: []ChatMsg{
-			{
-				Role:    "system",
-				Content: sysmsg,
-			},
-		},
+		Model:    model,
+		Messages: []ChatMsg{},
 	}
 
 	// Convert ChatMsg (from client interface) to Message for Perplexity.ai.
-	for _, m := range messages {
+	for _, m := range messagesIn {
 		// Perplexity.ai prefers lowercase role names.
 		reqPayload.Messages = append(reqPayload.Messages, ChatMsg{
 			Role:    strings.ToLower(m.Role),

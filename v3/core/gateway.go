@@ -7,6 +7,7 @@ import (
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker/v3/client"
 	"github.com/stevegt/grokker/v3/openai"
+	"github.com/stevegt/grokker/v3/perplexity"
 )
 
 var promptTmpl = `{{.Question}}
@@ -153,13 +154,23 @@ func initMessages(g *Grokker, sysmsg string) []client.ChatMsg {
 	return messages
 }
 
-// complete uses the openai API to continue a conversation given a
-// (possibly synthesized) message history.
+// complete acts as a router to the appropriate completion function based on
+// provider.
 func (g *Grokker) complete(modelName string, inmsgs []client.ChatMsg) (out string, err error) {
 	defer Return(&err)
 	_, modelObj, err := g.models.FindModel(modelName)
 	Ck(err)
+
 	upstreamName := modelObj.upstreamName
 
-	return openai.CompleteChat(upstreamName, inmsgs)
+	switch modelObj.providerName {
+	case "openai":
+		return openai.CompleteChat(upstreamName, inmsgs)
+	case "perplexity":
+		pp := perplexity.NewClient()
+		return pp.CompleteChat(upstreamName, inmsgs)
+	default:
+		Assert(false, "unknown provider: %s", modelObj.providerName)
+	}
+	return
 }
