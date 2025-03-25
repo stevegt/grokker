@@ -619,8 +619,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		Pl(summary)
 	case "models":
 		// list all available models
-		models, err := grok.ListModels()
-		Ck(err)
+		models := grok.ListModels()
 		for _, model := range models {
 			Pl(model)
 		}

@@ -252,6 +252,9 @@ func Do(g *core.Grokker, modelName string, args ...string) (err error) {
 			Ck(err)
 			err = commit(g, p.Txt)
 			Ck(err)
+		case "model":
+			// run model selection menu
+			selectModel(g)
 		case "test":
 			err = runTest(testFn)
 			Ck(err)
@@ -267,6 +270,42 @@ func Do(g *core.Grokker, modelName string, args ...string) (err error) {
 	return
 }
 
+func selectModel(g *core.Grokker) {
+	for {
+		models := g.ListModels()
+		if len(models) == 0 {
+			Pl("No available models found.")
+			break
+		}
+		Pl("Available models:")
+		for i, m := range models {
+			Pl(fmt.Sprintf("  %d) %s", i+1, m.String()))
+		}
+		Pl("Enter model number to select (or 0 to abort): ")
+		var selection int
+		_, err := fmt.Scanln(&selection)
+		if err != nil {
+			Pl("Invalid input. Select a model number.")
+			continue
+		}
+		if selection == 0 {
+			Pl("Model selection aborted.")
+			break
+		}
+		if selection < 1 || selection > len(models) {
+			Pl("Invalid selection. Select a model number from the list.")
+			continue
+		}
+		selected := models[selection-1].Name
+		oldModel, err := g.SetModel(selected)
+		Ck(err)
+		err = g.Save()
+		Ck(err)
+		Pl(fmt.Sprintf("Switched model from %s to %s", oldModel, selected))
+		break
+	}
+}
+
 func PrintUsageAndExit() {
 	fmt.Println("Usage: go run main.go {subcommand ...}")
 	fmt.Println("Subcommands:")
@@ -276,6 +315,8 @@ func PrintUsageAndExit() {
 	fmt.Println("  generate      - Generate changes from GPT based on the prompt")
 	fmt.Println("  regenerate    - Regenerate code from the prompt without committing")
 	fmt.Println("  force-commit  - Commit changes without checking if the prompt has been updated")
+	fmt.Println("  model         - Select LLM model")
+	fmt.Println("  auto          - Auto-generate a commit message, commit, then regenerate code based on prompt")
 	fmt.Println("  test          - Run tests and include the results in the next LLM prompt")
 	fmt.Println("  abort         - Abort subcommand processing")
 	os.Exit(1)
@@ -308,7 +349,7 @@ func initAidda(dir string) (err error) {
 	err = commitStamp.Ensure(now)
 	Ck(err)
 
-	// Check if the file exists
+	// Check if the prompt file exists; if not, create it
 	_, err = os.Stat(promptFn)
 	if os.IsNotExist(err) {
 		err = createPromptFile(promptFn)
@@ -872,6 +913,7 @@ func menu(g *core.Grokker) (action string, err error) {
 		fmt.Println("  [r]egenerate    - Regenerate code from the prompt without committing")
 		fmt.Println("  [c]ommit        - Commit using the current prompt file contents as the commit message")
 		fmt.Println("  [f]orce-commit  - Commit changes even if only the prompt has been updated")
+		fmt.Println("  [m]odel         - Select LLM model")
 		fmt.Println("  [a]uto          - Auto-generate a commit message, commit, then regenerate code based on prompt")
 		fmt.Println("  [t]est          - Run tests and include the results in the next LLM prompt")
 		fmt.Println("  e[x]it          - Abort and exit the menu")
@@ -899,6 +941,8 @@ func menu(g *core.Grokker) (action string, err error) {
 			return "commit", nil
 		case "f":
 			return "force-commit", nil
+		case "m":
+			return "model", nil
 		case "a":
 			return "auto", nil
 		case "t":

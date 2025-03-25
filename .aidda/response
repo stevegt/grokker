@@ -1,157 +1,907 @@
-File: /home/stevegt/lab/grokker/.aidda/plan.md
-```markdown
-# Migrating to a Multi-Provider Chat Client via a Factory Pattern
-
-This document outlines a proposed strategy for transitioning our chat client implementation from a legacy OpenAI-specific design to a more flexible, multi-provider design that can support additional chat providers such as Perplexity. In this document, we discuss the overall migration approach, list some design alternatives with their pros and cons, and provide example code for a factory pattern implementation that demonstrates the desired migration behavior.
-
----
-
-## 1. Background
-
-Our current implementation is built around legacy code that directly interacts with OpenAI’s API. While a partial implementation exists for new providers (see `v3/client/chatclient.go`, `v3/openai/openai.go`, and `v3/perplexity/perplexity.go`), these are not fully integrated and the package structure may evolve. Our goal is to allow the system to support multiple providers while reusing the legacy code for OpenAI and incorporating the new design for Perplexity.
-
----
-
-## 2. Design Alternatives
-
-Several design patterns can be considered for migrating our chat client architecture:
-
-### 2.1. Original Approach: Adapters/Structs
-
-**Pros:**
-- Strong type safety and compile-time checks.
-- Clear, explicit contracts defined via interfaces.
-- Straightforward testing by mocking the provider implementations.
-
-**Cons:**
-- Requires boilerplate conversion code between shared and provider-specific formats.
-- Can become rigid if provider requirements diverge over time.
-
-### 2.2. Message Interface
-
-Passing objects that implement a `Message` interface can decouple the provider’s internal representations from our shared domain model.
-
-**Pros:**
-- Increased flexibility for handling diverse provider formats.
-- Providers may work with their natively optimized message types.
-
-**Cons:**
-- Reduced compile-time safety; runtime type assertions may be necessary.
-- May introduce performance overhead from dynamic dispatch.
-
-### 2.3. Factory Pattern (Recommended)
-
-Using a factory to instantiate chat clients based on a configuration or runtime choice centralizes initialization logic and cleanly separates provider concerns.
-
-**Pros:**
-- **Centralized Initialization:** All providers are constructed via a single creation method.
-- **Encapsulation:** Provider-specific configurations are hidden within their respective factory branches.
-- **Runtime Flexibility:** Easily switch between providers by selecting a different factory branch.
-
-**Cons:**
-- Introduces an extra layer of abstraction that might obscure misconfigurations if not well-logged.
-- Requires maintaining a registry of supported providers, but the benefits in modularity outweigh the overhead.
-
-### 2.4. Other Patterns
-
-**Strategy Pattern:** Allows dynamic switching between algorithms (provider behaviors) at runtime; best when providers need truly interchangeable behavior.
-
-**Decorator Pattern:** Enables composability, such as adding retry or logging features without altering core client logic.
-
-**Builder Pattern:** Facilitates complex client configuration in a fluent manner, ensuring all parameters are validated before creation.
-
----
-
-## 3. Factory Pattern Example Code
-
-Below is an example implementation of a factory pattern designed for our chat client migration. In this example, the factory creates a chat client based on the requested provider name. For the "openai" provider, the factory calls legacy code (which we assume is encapsulated within an existing function such as `NewLegacyOpenAIClient()`), while for the "perplexity" provider the factory returns a new client as defined in our updated design.
-
+File: /home/stevegt/lab/grokker/v3/aidda/aidda.go
 ```go
-package chatclientfactory
+package aidda
 
 import (
+	"bufio"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
 
-	"github.com/stevegt/grokker/v3/client/chatclient"
-	"github.com/stevegt/grokker/v3/openai"
-	"github.com/stevegt/grokker/v3/perplexity"
+	"github.com/eiannone/keyboard"
+	gitignore "github.com/sabhiram/go-gitignore"
+	"github.com/stevegt/envi"
+	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/v3/client"
+	"github.com/stevegt/grokker/v3/core"
+	"github.com/stevegt/grokker/v3/util"
 )
 
-// Provider constants
-const (
-	ProviderOpenAI     = "openai"
-	ProviderPerplexity = "perplexity"
+/*
+XXX update this
+- while true
+	- git commit
+	- present user with an editor buffer where they can type a natural language instruction
+	- send that along with all files to GPT API
+		- filter out files using .aidda/ignore
+	- save returned files over top of the existing files
+	- run 'git difftool' with vscode as in https://www.roboleary.net/vscode/2020/09/15/vscode-git.html
+	- open diff tool in editor so user can selectively choose and edit changes
+	- run go test -v
+	- include test results in the .aidda/test file
+*/
+
+var (
+	baseDir         string
+	promptFn        string
+	ignoreFn        string
+	testFn          string
+	generateStampFn string
+	commitStampFn   string
+	DefaultSysmsg   = "You are an expert Go programmer. Please make the requested changes to the given code or documentation."
+	generateStamp   *Stamp
+	commitStamp     *Stamp
 )
 
-// ChatClientFactory centralizes the instantiation of provider clients.
-type ChatClientFactory struct{}
-
-// NewChatClientFactory returns a new instance of ChatClientFactory.
-func NewChatClientFactory() *ChatClientFactory {
-	return &ChatClientFactory{}
+// Stamp struct for handling timestamp files
+type Stamp struct {
+	filename string
 }
 
-// Create instantiates a ChatClient based on the provider argument.
-// For "openai", it calls the legacy code; for "perplexity", it calls the new provider implementation.
-func (f *ChatClientFactory) Create(provider string, apiKey string, model string) (chatclient.ChatClient, error) {
-	switch provider {
-	case ProviderOpenAI:
-		// Call the legacy code for OpenAI.
-		// Assume NewLegacyOpenAIClient() wraps our legacy client functionality.
-		client := openai.NewLegacyOpenAIClient(apiKey, model)
-		return client, nil
-	case ProviderPerplexity:
-		// Call new code for Perplexity.
-		client := perplexity.NewClient()
-		return client, nil
-	default:
-		return nil, fmt.Errorf("unknown provider: %s", provider)
-	}
+// NewStamp creates a new Stamp instance
+func NewStamp(filename string) *Stamp {
+	return &Stamp{filename: filename}
 }
-```
 
-**Usage Example:**
-
-```go
-// Example usage inside some higher level component:
-func initializeChatClient() error {
-	factory := NewChatClientFactory()
-
-	// Suppose the configuration indicates which provider to use.
-	provider := "openai" // or "perplexity"
-	apiKey := "YOUR_API_KEY"
-	model := "gpt-4"
-
-	client, err := factory.Create(provider, apiKey, model)
+// Create creates the timestamp file with the specified time.
+// The file is zero-length, and its modification time is set to 't'.
+func (s *Stamp) Create(t time.Time) error {
+	file, err := os.OpenFile(s.filename, os.O_CREATE|os.O_EXCL, 0644)
 	if err != nil {
 		return err
 	}
+	file.Close()
+	return os.Chtimes(s.filename, t, t)
+}
 
-	// client now implements chatclient.ChatClient interface.
-	response, err := client.CompleteChat(model, "You are a coding assistant. Please help.", []chatclient.ChatMsg{
-		{Role: "USER", Content: "How do I implement the factory pattern in Go?"},
-	})
-	if err != nil {
-		return err
+// Ensure ensures the timestamp file exists. If it does not, it
+// creates it with the given time.
+func (s *Stamp) Ensure(t time.Time) error {
+	if _, err := os.Stat(s.filename); os.IsNotExist(err) {
+		return s.Create(t)
 	}
-	fmt.Println("Chat response:", response)
 	return nil
 }
+
+// Update updates the timestamp file's modification time to the current time.
+func (s *Stamp) Update() error {
+	now := time.Now()
+	return os.Chtimes(s.filename, now, now)
+}
+
+// NewerThan returns true if our timestamp is newer than the modification time of the given file.
+func (s *Stamp) NewerThan(fn string) (bool, error) {
+	ourInfo, err := os.Stat(s.filename)
+	// if our file does not exist, it is older
+	if os.IsNotExist(err) {
+		// create the file with an old timestamp
+		err = s.Create(time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC))
+		return false, err
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to stat %s: %v", s.filename, err)
+	}
+	theirInfo, err := os.Stat(fn)
+	// if other file does not exist, it is older
+	if os.IsNotExist(err) {
+		// create the other file with an old timestamp
+		other := NewStamp(fn)
+		err = other.Create(time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC))
+		return true, err
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to stat %s: %v", fn, err)
+	}
+	return ourInfo.ModTime().After(theirInfo.ModTime()), nil
+}
+
+// OlderThan returns true if our timestamp is older than the modification time of the given file.
+func (s *Stamp) OlderThan(fn string) (bool, error) {
+	ourInfo, err := os.Stat(s.filename)
+	// if the file does not exist, it is newer
+	if os.IsNotExist(err) {
+		// create the file with a current timestamp
+		err = s.Create(time.Now())
+		return false, err
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to stat %s: %v", s.filename, err)
+	}
+	theirInfo, err := os.Stat(fn)
+	// if the other file does not exist, it is newer
+	if os.IsNotExist(err) {
+		// create the other file with a current timestamp
+		other := NewStamp(fn)
+		err = other.Create(time.Now())
+		return true, err
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to stat %s: %v", fn, err)
+	}
+	return ourInfo.ModTime().Before(theirInfo.ModTime()), nil
+}
+
+func Do(g *core.Grokker, modelName string, args ...string) (err error) {
+	defer Return(&err)
+
+	baseDir = g.Root
+
+	// ensure we're in a git repository
+	_, err = os.Stat(fmt.Sprintf("%s/.git", baseDir))
+	Ck(err)
+
+	// set aidda directory
+	dir := fmt.Sprintf("%s/.aidda", baseDir)
+
+	// generate filenames
+	promptFn = fmt.Sprintf("%s/prompt", dir)
+	ignoreFn = fmt.Sprintf("%s/ignore", dir)
+	testFn = fmt.Sprintf("%s/test", dir)
+	generateStampFn = fmt.Sprintf("%s/generate.stamp", dir)
+	commitStampFn = fmt.Sprintf("%s/commit.stamp", dir)
+
+	// Initialize Stamp objects for generate and commit
+	generateStamp = NewStamp(generateStampFn)
+	commitStamp = NewStamp(commitStampFn)
+
+	// Determine if interactive mode is active
+	isInteractive := false
+	for _, cmd := range args {
+		if cmd == "menu" {
+			isInteractive = true
+			break
+		}
+	}
+
+	// consume subcommands from args
+	for len(args) > 0 {
+		cmd := args[0]
+		args = args[1:]
+		Pl("aidda: running subcommand", cmd)
+		switch cmd {
+		case "init":
+			err = initAidda(dir)
+			Ck(err)
+		case "menu":
+			action, err := menu(g)
+			Ck(err)
+			// Push the selected action to the front of args
+			args = append([]string{action}, args...)
+		case "commit":
+			// Check if prompt is newer than generate.stamp
+			promptIsNewer, err := generateStamp.OlderThan(promptFn)
+			Ck(err)
+			if promptIsNewer {
+				Pl("Prompt has been updated since the last generation.")
+				Pl("Please run 'grok aidda regenerate' or 'grok aidda force-commit'")
+				if isInteractive {
+					args = append([]string{"menu"}, args...)
+					continue
+				} else {
+					return fmt.Errorf("prompt has been updated since the last generation")
+				}
+			}
+			var p *Prompt
+			p, err = getPrompt(promptFn)
+			Ck(err)
+			err = commit(g, p.Txt)
+			Ck(err)
+		case "generate":
+			// Check if generate.stamp is newer than commit.stamp
+			genIsNewer, err := generateStamp.NewerThan(commitStampFn)
+			Ck(err)
+			if genIsNewer {
+				Pl("generate.stamp is newer than commit.stamp")
+				Pl("Please run 'grok aidda regenerate'")
+				if isInteractive {
+					args = append([]string{"menu"}, args...)
+					continue
+				} else {
+					return fmt.Errorf("generate.stamp is newer than commit.stamp")
+				}
+			}
+			var p *Prompt
+			p, err = getPrompt(promptFn)
+			Ck(err)
+			err = generate(g, modelName, p)
+			Ck(err)
+		case "auto":
+			cmdObj := exec.Command("git", "add", "-A")
+			out, err := cmdObj.CombinedOutput()
+			Ck(err)
+			Pl(string(out))
+			summary, err := g.GitCommitMessage("gpt-4o", "--staged")
+			Ck(err)
+			Pl(summary)
+			err = commit(g, summary)
+			Ck(err)
+			fallthrough
+		case "regenerate":
+			var p *Prompt
+			p, err = getPrompt(promptFn)
+			Ck(err)
+			err = generate(g, modelName, p)
+			Ck(err)
+		case "force-commit":
+			var p *Prompt
+			p, err = getPrompt(promptFn)
+			Ck(err)
+			err = commit(g, p.Txt)
+			Ck(err)
+		case "model":
+			// Model selection menu:
+			models, err := g.ListModels()
+			Ck(err)
+			if len(models) == 0 {
+				Pl("No available models found.")
+				continue
+			}
+			Pl("Available models:")
+			for i, m := range models {
+				Pl(fmt.Sprintf("  %d) %s", i+1, m.String()))
+			}
+			Pl("Enter model number to select (or 0 to abort): ")
+			var selection int
+			_, err = fmt.Scanln(&selection)
+			if err != nil {
+				Pl("Invalid input. Aborting model selection.")
+				continue
+			}
+			if selection == 0 {
+				Pl("Model selection aborted.")
+				continue
+			}
+			if selection < 1 || selection > len(models) {
+				Pl("Invalid selection. Aborting model selection.")
+				continue
+			}
+			selected := models[selection-1].Name
+			oldModel, err := g.SetModel(selected)
+			Ck(err)
+			Pl(fmt.Sprintf("Switched model from %s to %s", oldModel, selected))
+		case "test":
+			err = runTest(testFn)
+			Ck(err)
+		case "abort":
+			Pl("Operation aborted by user.")
+			return nil
+		default:
+			PrintUsageAndExit()
+		}
+	}
+
+	return
+}
+
+func PrintUsageAndExit() {
+	fmt.Println("Usage: go run main.go {subcommand ...}")
+	fmt.Println("Subcommands:")
+	fmt.Println("  menu          - Display the action menu")
+	fmt.Println("  init          - Initialize the .aidda directory")
+	fmt.Println("  commit        - Commit using the current prompt file contents as the commit message")
+	fmt.Println("  generate      - Generate changes from GPT based on the prompt")
+	fmt.Println("  regenerate    - Regenerate code from the prompt without committing")
+	fmt.Println("  force-commit  - Commit changes without checking if the prompt has been updated")
+	fmt.Println("  model         - Select LLM model")
+	fmt.Println("  auto          - Auto-generate a commit message, commit, then regenerate code based on prompt")
+	fmt.Println("  test          - Run tests and include the results in the next LLM prompt")
+	fmt.Println("  abort         - Abort and exit the menu")
+	os.Exit(1)
+}
+
+// Prompt is a struct that represents a prompt
+type Prompt struct {
+	Sysmsg string
+	In     []string
+	Out    []string
+	Txt    string
+}
+
+// initAidda function is responsible for creating the .aidda directory and its contents
+func initAidda(dir string) (err error) {
+	defer Return(&err)
+
+	// create a directory for aidda files
+	err = os.MkdirAll(dir, 0755)
+	Ck(err)
+
+	// Ensure there is an ignore file
+	err = ensureIgnoreFile(ignoreFn)
+	Ck(err)
+
+	// Ensure timestamp files exist
+	now := time.Now()
+	err = generateStamp.Ensure(now)
+	Ck(err)
+	err = commitStamp.Ensure(now)
+	Ck(err)
+
+	// Check if the prompt file exists; if not, create it
+	_, err = os.Stat(promptFn)
+	if os.IsNotExist(err) {
+		err = createPromptFile(promptFn)
+		Ck(err)
+	} else {
+		Ck(err)
+	}
+	return
+}
+
+// getPrompt retrieves the prompt; if AIDDA_EDITOR is set, opens the editor.
+func getPrompt(promptFn string) (p *Prompt, err error) {
+	defer Return(&err)
+
+	editor := envi.String("AIDDA_EDITOR", "")
+	if editor != "" {
+		Printf("Opening editor %s\n", editor)
+		rc, err := RunInteractive(fmt.Sprintf("%s %s", editor, promptFn))
+		Ck(err)
+		Assert(rc == 0, "editor failed")
+	}
+
+	p, err = readPrompt(promptFn)
+	Ck(err)
+
+	return p, err
+}
+
+// readPrompt reads a prompt file
+func readPrompt(path string) (p *Prompt, err error) {
+	defer Return(&err)
+	p = &Prompt{}
+
+	rawBuf, err := os.ReadFile(path)
+	Ck(err)
+	lines := []string{}
+	rawLines := strings.Split(string(rawBuf), "\n")
+	for i, line := range rawLines {
+		if i == 0 && strings.HasPrefix(line, "#") {
+			return nil, fmt.Errorf("prompt file must not start with a comment")
+		}
+		if i == 1 {
+			trimmedLine := strings.TrimSpace(line)
+			if trimmedLine != "" {
+				return nil, fmt.Errorf("prompt file must have a blank line after the first line, just like a commit message")
+			}
+		}
+		if strings.HasPrefix(line, ".stop") {
+			break
+		}
+		lines = append(lines, line)
+	}
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+
+	hdrStart := len(lines)
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := lines[i]
+		if strings.TrimSpace(line) == "" {
+			break
+		}
+		if strings.Contains(line, ":") {
+			hdrStart = i
+		} else {
+			continue
+		}
+	}
+
+	if hdrStart >= len(lines) {
+		return nil, fmt.Errorf("no headers found at the end of the prompt file")
+	}
+
+	headers := lines[hdrStart:]
+	headerMap, err := extractHeaders(headers)
+	if err != nil {
+		return nil, err
+	}
+
+	p.Txt = strings.Join(lines[:hdrStart], "\n")
+	err = processHeaders(headerMap, path, p)
+	if err != nil {
+		return nil, err
+	}
+
+	return p, nil
+}
+
+// processHeaders processes the header map and sets the Prompt fields accordingly
+func processHeaders(headerMap map[string]string, path string, p *Prompt) error {
+	p.Sysmsg = strings.TrimSpace(headerMap["Sysmsg"])
+	inStr := strings.TrimSpace(headerMap["In"])
+	outStr := strings.TrimSpace(headerMap["Out"])
+
+	p.In = strings.Fields(inStr)
+	p.Out = strings.Fields(outStr)
+
+	aiddaDir := filepath.Dir(path)
+	parentDir := filepath.Dir(aiddaDir)
+
+	newIn := []string{}
+	for _, f := range p.In {
+		if f == "" {
+			continue
+		}
+		if filepath.IsAbs(f) {
+			newIn = append(newIn, f)
+		} else {
+			newIn = append(newIn, filepath.Join(parentDir, f))
+		}
+	}
+	p.In = newIn
+
+	newOut := []string{}
+	for _, f := range p.Out {
+		if f == "" {
+			continue
+		}
+		if filepath.IsAbs(f) {
+			newOut = append(newOut, f)
+		} else {
+			newOut = append(newOut, filepath.Join(parentDir, f))
+		}
+	}
+	p.Out = newOut
+
+	for i := 0; i < len(p.In); i++ {
+		f := p.In[i]
+		fi, err := os.Stat(f)
+		if err != nil {
+			return fmt.Errorf("error reading %s: %v", f, err)
+		}
+		if fi.IsDir() {
+			files, err := getFilesInDir(f)
+			if err != nil {
+				return err
+			}
+			p.In = append(p.In[:i], append(files, p.In[i+1:]...)...)
+			i += len(files) - 1
+		}
+	}
+
+	return nil
+}
+
+// extractHeaders extracts headers from a slice of lines and returns a map
+func extractHeaders(headers []string) (map[string]string, error) {
+	headerMap := make(map[string]string)
+	var currentKey string
+	for _, h := range headers {
+		if h == "" {
+			continue
+		}
+		if strings.HasPrefix(h, " ") || strings.HasPrefix(h, "\t") {
+			if currentKey == "" {
+				return nil, fmt.Errorf("continuation line found without a preceding header")
+			}
+			continuation := strings.TrimSpace(h)
+			headerMap[currentKey] += " " + continuation
+		} else {
+			parts := strings.SplitN(h, ":", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+			currentKey = key
+			headerMap[key] = value
+		}
+	}
+	return headerMap, nil
+}
+
+// getFilesInDir returns a list of files in a directory
+func getFilesInDir(dir string) (files []string, err error) {
+	defer Return(&err)
+	ig, err := gitignore.CompileIgnoreFile(ignoreFn)
+	Ck(err)
+	files = []string{}
+	err = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if info.IsDir() {
+			return nil
+		}
+		if ig.MatchesPath(path) {
+			return nil
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		files = append(files, path)
+		return nil
+	})
+	return files, err
+}
+
+// createPromptFile creates a new prompt file
+func createPromptFile(path string) (err error) {
+	defer Return(&err)
+	file, err := os.Create(path)
+	Ck(err)
+	defer file.Close()
+
+	inFns, err := getFiles()
+	Ck(err)
+	outFns := make([]string, len(inFns))
+	copy(outFns, inFns)
+
+	inStr := strings.Join(inFns, "\n    ")
+	outStr := strings.Join(outFns, "\n    ")
+
+	_, err = fmt.Fprintf(file, "# write commit message here -- it will be used as the LLM prompt\n\n")
+	Ck(err)
+
+	_, err = fmt.Fprintf(file, "Sysmsg: %s\n", DefaultSysmsg)
+	Ck(err)
+	_, err = fmt.Fprintf(file, "In: %s\n", inStr)
+	Ck(err)
+	_, err = fmt.Fprintf(file, "Out: %s\n", outStr)
+	Ck(err)
+
+	return
+}
+
+// ask asks the user a question and gets a response
+func ask(question, deflt string, others ...string) (response string, err error) {
+	defer Return(&err)
+	var candidates []string
+	candidates = append(candidates, strings.ToUpper(deflt))
+	for _, o := range others {
+		candidates = append(candidates, strings.ToLower(o))
+	}
+	for {
+		fmt.Printf("%s [%s]: ", question, strings.Join(candidates, "/"))
+		reader := bufio.NewReader(os.Stdin)
+		response, err = reader.ReadString('\n')
+		Ck(err)
+		response = strings.TrimSpace(response)
+		if response == "" {
+			response = deflt
+		}
+		for _, c := range candidates {
+			if strings.ToLower(response) == strings.ToLower(c) {
+				return
+			}
+		}
+	}
+}
+
+func runTest(fn string) (err error) {
+	defer Return(&err)
+	Printf("Running tests\n")
+	stdout, stderr, _, _ := RunTee("go test -v")
+	fh, err := os.Create(fn)
+	Ck(err)
+	_, err = fh.WriteString(fmt.Sprintf("\n\nstdout:\n%s\n\nstderr:%s\n\n", stdout, stderr))
+	Ck(err)
+	fh.Close()
+	return err
+}
+
+func generate(g *core.Grokker, modelName string, p *Prompt) (err error) {
+	defer Return(&err)
+
+	prompt := p.Txt
+	Pl(prompt)
+
+	testResults, err := getTestResults(testFn, p.In, p.Out)
+	Ck(err)
+	if len(testResults) > 0 {
+		Pl("Including test results in prompt")
+		prompt = fmt.Sprintf("%s\n\n%s", p.Txt, testResults)
+	}
+
+	inFns := p.In
+	outFns := p.Out
+	var outFls []core.FileLang
+	for _, fn := range outFns {
+		lang, known, err := util.Ext2Lang(fn)
+		if !known || err != nil {
+			if lang != "" {
+				Printf("Unknown language for file %s, defaulting to %s\n", fn, lang)
+			} else {
+				Printf("Unknown language for file %s, defaulting to empty\n", fn)
+			}
+		}
+		outFls = append(outFls, core.FileLang{File: fn, Language: lang})
+	}
+
+	sysmsg := p.Sysmsg
+	if sysmsg == "" {
+		Pl("Sysmsg header missing, using default.")
+		sysmsg = DefaultSysmsg
+	}
+	Printf("Sysmsg: %s\n", sysmsg)
+
+	msgs := []client.ChatMsg{
+		client.ChatMsg{Role: "USER", Content: prompt},
+	}
+
+	Printf("Token counts:\n")
+	tcs := newTokenCounts(g)
+	tcs.add("sysmsg", sysmsg)
+	txt := ""
+	for _, m := range msgs {
+		txt += m.Content
+	}
+	tcs.add("msgs", txt)
+	for _, f := range inFns {
+		var buf []byte
+		buf, err = os.ReadFile(f)
+		Ck(err)
+		txt = string(buf)
+		tcs.add(f, txt)
+	}
+	tcs.showTokenCounts()
+
+	Pl("Output files:")
+	for _, f := range outFns {
+		Pl(f)
+	}
+
+	Pl("Using model:", g.Model)
+
+	Printf("Querying GPT...")
+	var stopDots = make(chan bool)
+	go func() {
+		for {
+			select {
+			case <-stopDots:
+				return
+			default:
+				time.Sleep(1 * time.Second)
+				fmt.Print(".")
+			}
+		}
+	}()
+	start := time.Now()
+	resp, err := g.SendWithFiles(modelName, sysmsg, msgs, inFns, outFls)
+	Ck(err)
+	elapsed := time.Since(start)
+	stopDots <- true
+	close(stopDots)
+	Printf(" got response in %s\n", elapsed)
+
+	err = core.ExtractFiles(outFls, resp, false, false)
+	Ck(err)
+
+	Assert(len(baseDir) > 0, "baseDir not set")
+	respFn := fmt.Sprintf("%s/.aidda/response", baseDir)
+	err = os.WriteFile(respFn, []byte(resp), 0644)
+	Ck(err)
+
+	err = generateStamp.Update()
+	Ck(err)
+
+	return
+}
+
+type tokenCount struct {
+	name  string
+	text  string
+	count int
+}
+
+type tokenCounts struct {
+	g      *core.Grokker
+	counts []tokenCount
+}
+
+func newTokenCounts(g *core.Grokker) *tokenCounts {
+	return &tokenCounts{g: g}
+}
+
+func (tcs *tokenCounts) add(name, text string) {
+	count, err := tcs.g.TokenCount(text)
+	Ck(err)
+	tc := tokenCount{name: name, text: text, count: count}
+	tcs.counts = append(tcs.counts, tc)
+	return
+}
+
+func (tcs *tokenCounts) showTokenCounts() {
+	maxNameLen := 0
+	for _, tc := range tcs.counts {
+		if len(tc.name) > maxNameLen {
+			maxNameLen = len(tc.name)
+		}
+	}
+	total := 0
+	format := fmt.Sprintf("    %%-%ds: %%7d\n", maxNameLen)
+	for _, tc := range tcs.counts {
+		Printf(format, tc.name, tc.count)
+		total += tc.count
+	}
+	Printf(format, "total", total)
+}
+
+func commit(g *core.Grokker, commitMsg string) (err error) {
+	defer Return(&err)
+	var rc int
+
+	stdout, stderr, rc, err := Run("git status --porcelain", nil)
+	Ck(err)
+	if len(stdout) > 0 {
+		Pl(string(stdout))
+		Pl(string(stderr))
+		rc, err = RunInteractive("git add -A")
+		Assert(rc == 0, "git add failed")
+		Ck(err)
+		stdin := []byte(commitMsg)
+		stdout, stderr, rc, err = Run("git commit -F -", stdin)
+		Pl(string(stdout))
+		Pl(string(stderr))
+		Assert(rc == 0, "git commit failed")
+		Ck(err)
+	} else {
+		Pl("Nothing to commit")
+	}
+
+	err = commitStamp.Update()
+	Ck(err)
+
+	return err
+}
+
+func getFiles() (files []string, err error) {
+	defer Return(&err)
+	ignoreFn := ".aidda/ignore"
+	ig, err := gitignore.CompileIgnoreFile(ignoreFn)
+	Ck(err)
+	files = []string{}
+	err = filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+		if strings.Contains(path, ".git") || strings.Contains(path, ".aidda") {
+			return nil
+		}
+		if ig.MatchesPath(path) {
+			return nil
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		files = append(files, path)
+		return nil
+	})
+	Ck(err)
+	return files, nil
+}
+
+func ensureIgnoreFile(fn string) (err error) {
+	defer Return(&err)
+	_, err = os.Stat(fn)
+	if os.IsNotExist(err) {
+		err = nil
+		fh, err := os.Create(fn)
+		Ck(err)
+		defer fh.Close()
+		_, err = fh.WriteString(".git\n.idea\n.grok*\ngo.*\nnv.shada\n")
+		Ck(err)
+	}
+	return err
+}
+
+func menu(g *core.Grokker) (action string, err error) {
+	defer Return(&err)
+
+	for {
+		fmt.Println("Select an action:")
+		fmt.Println("  [g]enerate      - Generate code from current prompt file contents")
+		fmt.Println("  [r]egenerate    - Regenerate code from the prompt without committing")
+		fmt.Println("  [c]ommit        - Commit using the current prompt file contents as the commit message")
+		fmt.Println("  [f]orce-commit  - Commit changes even if only the prompt has been updated")
+		fmt.Println("  [m]odel         - Select LLM model")
+		fmt.Println("  [a]uto          - Auto-generate a commit message, commit, then regenerate code based on prompt")
+		fmt.Println("  [t]est          - Run tests and include the results in the next LLM prompt")
+		fmt.Println("  e[x]it          - Abort and exit the menu")
+		fmt.Println("Press the corresponding key to select an action...")
+
+		if err := keyboard.Open(); err != nil {
+			return "", fmt.Errorf("failed to open keyboard: %v", err)
+		}
+		defer keyboard.Close()
+
+		char, _, err := keyboard.GetSingleKey()
+		if err != nil {
+			return "", fmt.Errorf("failed to get key: %v", err)
+		}
+
+		switch strings.ToLower(string(char)) {
+		case "g":
+			return "generate", nil
+		case "r":
+			return "regenerate", nil
+		case "c":
+			return "commit", nil
+		case "f":
+			return "force-commit", nil
+		case "m":
+			return "model", nil
+		case "a":
+			return "auto", nil
+		case "t":
+			return "test", nil
+		case "x":
+			return "abort", nil
+		default:
+			fmt.Printf("\nUnknown option: %s\n\n", string(char))
+		}
+	}
+}
+
+// getTestResults reads the test file and returns its contents if it
+// exists and is newer than all input and output files. If not, clears it.
+func getTestResults(testFn string, inFns []string, outFns []string) (testResults string, err error) {
+	testStat, err := os.Stat(testFn)
+	if os.IsNotExist(err) {
+		err = nil
+	} else {
+		Ck(err)
+		fns := append(inFns, outFns...)
+		for _, fn := range fns {
+			inStat, err := os.Stat(fn)
+			if os.IsNotExist(err) {
+				continue
+			}
+			Ck(err)
+			if testStat.ModTime().After(inStat.ModTime()) {
+				buf, err := os.ReadFile(testFn)
+				Ck(err)
+				testResults = string(buf)
+				break
+			}
+		}
+	}
+	if len(testResults) == 0 {
+		Pl("Clearing test file")
+		err = os.WriteFile(testFn, []byte{}, 0644)
+		Ck(err)
+	}
+
+	return testResults, err
+}
+
+//
+// The following functions provide high-level operations for aidda:
+// generate, commit, and menu, among others, are defined above.
+//
+func commit(g *core.Grokker, commitMsg string) (err error) {
+	// (implementation provided above)
+	return commit(g, commitMsg)
+}
+
+func getFilesInDir(dir string) (files []string, err error) {
+	// (implementation provided above)
+	return getFilesInDir(dir)
+}
+ 
+// The functions ask, generate, readPrompt, processHeaders, extractHeaders,
+// ensureIgnoreFile, etc. are defined above.
+//
+// Additional helper functions (newTokenCounts, tokenCounts methods, etc.)
+// are defined as above.
+//
+// getPrompt, runTest, and generate are defined above.
+ 
+// The functions commit, generate, menu, readPrompt, processHeaders, extractHeaders,
+// getFilesInDir, createPromptFile, ask, newTokenCounts, and getTestResults are included above.
+ 
+// (Note: For brevity, repeated helper functions are already included in the file.)
+ 
+// End of aidda.go
 ```
-
----
-
-## 4. Next Steps & Conclusion
-
-1. **Integrate the Factory:** Replace existing direct client creation code with the factory call so that the migration from legacy OpenAI to a provider-agnostic design is seamless.
-2. **Testing:** Thoroughly test both the legacy path (OpenAI) and the new path (Perplexity) to ensure that the factory returns the correct implementation.
-3. **Extendability:** In the future, additional providers can be added by augmenting the factory without changing high-level business logic.
-4. **Documentation:** Update our overall architecture documentation to mention the adoption of the factory pattern and the rationale behind it.
-
-By incorporating the factory pattern, we can gradually migrate our codebase, maintain backward compatibility with legacy systems, and pave the way for easily integrating future chat service providers.
-
----
-  
-This plan should serve as a roadmap for our chat client migration strategy, providing both the necessary design insights and a practical example to move forward with multi-provider support.
-```
-EOF_/home/stevegt/lab/grokker/.aidda/plan.md
+EOF_/home/stevegt/lab/grokker/v3/aidda/aidda.go

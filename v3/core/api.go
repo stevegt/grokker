@@ -486,12 +486,8 @@ func Load(newModel string, readonly bool) (g *Grokker, migrated bool, oldver, ne
 }
 
 // ListModels lists the available models.
-func (g *Grokker) ListModels() (models []*Model, err error) {
-	defer Return(&err)
-	for _, model := range g.models.Available {
-		models = append(models, model)
-	}
-	return
+func (g *Grokker) ListModels() (models []*Model) {
+	return g.models.ListModels()
 }
 
 // SetModel sets the default chat completion model for queries.

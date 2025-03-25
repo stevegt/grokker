@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"sort"
 
 	oai "github.com/sashabaranov/go-openai"
 	. "github.com/stevegt/goadapt"
@@ -89,6 +90,22 @@ func (models *Models) FindModel(model string) (name string, m *Model, err error)
 		return
 	}
 	name = model
+	return
+}
+
+// ListModels returns a list of available models sorted by provider
+// name and model name.
+func (models *Models) ListModels() (list []*Model) {
+	for _, m := range models.Available {
+		list = append(list, m)
+	}
+	// sort by provider name and model name
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].providerName == list[j].providerName {
+			return list[i].Name < list[j].Name
+		}
+		return list[i].providerName < list[j].providerName
+	})
 	return
 }
 

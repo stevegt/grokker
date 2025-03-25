@@ -1,25 +1,22 @@
-remove g.TokenLimit 
+add model selection to aidda menu 
 
-Replace all references to g.TokenLimit with g. in the codebase.
+Implement the [m]odel selection menu option in aidda.go.
+This option will:
+- show the user the list of models similar to that shown by the CLI
+  command `grok models`.
+- allow the user to select a model by number.  Include an abort option
+  to return to the main menu.
+- set the selected model using the same method as the CLI command
+  `grok model <model>`.
 
-
-.stop
-
-plan factory pattern for chat client migration
-
-Update plan.md to add example code for the factory pattern we could
-use in migrating from the legacy OpenAI-specific code to a more
-general design that can support multiple chat providers. 
-
-There is a partial implementation of the new chat client interface and
-the OpenAI and Perplexity in v3/client/chatclient.go,
-v3/openai/openai.go, and v3/perplexity/perplexity.go, but these are
-not yet used in the code and may not be the right design or even
-package structure.
-
-Have the factory call the legacy code for OpenAI and the new code for
-Perplexity. 
-
+Sysmsg:
+  You are an expert Go programmer. Please make the requested changes
+  to the given code or documentation. Please verify that the code
+  compiles and runs without errors -- do not hallucinate library
+  methods, structs, or functions that do not exist. Do not quote or
+  escape single backticks in the code -- Go uses backticks for raw
+  string literals.  Do not remove or alter comments unless they are
+  incorrect or misleading.  
 In: 
     .aidda/plan.md
     v3/util/util.go
@@ -34,7 +31,7 @@ In:
     v3/core/chat.go
     v3/core/migrate.go
     v3/core/grokker.go
-    v3/core/openai.go
+    v3/core/gateway.go
     v3/core/git.go
     v3/core/model.go
     v3/core/api.go
@@ -50,4 +47,4 @@ In:
     v3/perplexity/perplexity.go
     x/patterns.md
 Out:
-    .aidda/plan.md
+    v3/aidda/aidda.go
