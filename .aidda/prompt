@@ -9,14 +9,6 @@ This option will:
 - set the selected model using the same method as the CLI command
   `grok model <model>`.
 
-Sysmsg:
-  You are an expert Go programmer. Please make the requested changes
-  to the given code or documentation. Please verify that the code
-  compiles and runs without errors -- do not hallucinate library
-  methods, structs, or functions that do not exist. Do not quote or
-  escape single backticks in the code -- Go uses backticks for raw
-  string literals.  Do not remove or alter comments unless they are
-  incorrect or misleading.  
 In: 
     .aidda/plan.md
     v3/util/util.go

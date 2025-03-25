@@ -39,10 +39,19 @@ var (
 	testFn          string
 	generateStampFn string
 	commitStampFn   string
-	DefaultSysmsg   = "You are an expert Go programmer. Please make the requested changes to the given code or documentation."
 	generateStamp   *Stamp
 	commitStamp     *Stamp
 )
+
+var DefaultSysmsg = `
+  You are an expert Go programmer. Please make the requested changes
+  to the given code or documentation. Please verify that the code
+  compiles and runs without errors -- do not hallucinate library
+  methods, structs, or functions that do not exist. Do not quote or
+  escape single backticks in the code -- Go uses backticks for raw
+  string literals.  Do not remove or alter comments unless they are
+  incorrect or misleading.  
+  `
 
 // Stamp struct for handling timestamp files
 type Stamp struct {
