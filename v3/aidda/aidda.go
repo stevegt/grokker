@@ -210,6 +210,9 @@ func Do(g *core.Grokker, modelName string, args ...string) (err error) {
 			Ck(err)
 			err = commit(g, p.Txt)
 			Ck(err)
+			// set prompt file read-write to allow for further editing
+			err = os.Chmod(promptFn, 0644)
+			Ck(err)
 		case "generate":
 			// Check if generate.stamp is newer than commit.stamp
 			genIsNewer, err := generateStamp.NewerThan(commitStampFn)
@@ -231,6 +234,10 @@ func Do(g *core.Grokker, modelName string, args ...string) (err error) {
 			Ck(err)
 			err = generate(g, modelName, p)
 			Ck(err)
+			// set prompt file read-only to remind user to commit
+			// before generating again
+			err = os.Chmod(promptFn, 0444)
+			Ck(err)
 		case "auto":
 			// commit using the git diff to generate a commit message
 			// do a git add -A first
@@ -246,7 +253,13 @@ func Do(g *core.Grokker, modelName string, args ...string) (err error) {
 			err = commit(g, summary)
 			Ck(err)
 			// then regenerate
-			fallthrough
+			var p *Prompt
+			p, err = getPrompt(promptFn)
+			Ck(err)
+			err = generate(g, modelName, p)
+			Ck(err)
+			// don't need to set the prompt file read-only since we
+			// aren't using it to generate the commit message
 		case "regenerate":
 			// Regenerate code from the prompt without committing
 			var p *Prompt
@@ -254,12 +267,19 @@ func Do(g *core.Grokker, modelName string, args ...string) (err error) {
 			Ck(err)
 			err = generate(g, modelName, p)
 			Ck(err)
+			// set prompt file read-only to remind user to commit
+			// before generating again
+			err = os.Chmod(promptFn, 0444)
+			Ck(err)
 		case "force-commit":
 			// Commit using the current promptFn without checking
 			var p *Prompt
 			p, err = getPrompt(promptFn)
 			Ck(err)
 			err = commit(g, p.Txt)
+			Ck(err)
+			// set prompt file read-write to allow for further editing
+			err = os.Chmod(promptFn, 0644)
 			Ck(err)
 		case "model":
 			// run model selection menu

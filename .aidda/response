@@ -1,907 +1,174 @@
-File: /home/stevegt/lab/grokker/v3/aidda/aidda.go
+<think>
+Okay, let's try to figure out how to ensure that the aidda-generated code is committed before the prompt file is edited again. The user is having trouble remembering to commit after generating code, which leads to the prompt file being edited again without the commit, making it hard to retrieve the original prompt for the commit message.
+
+First, I need to understand the current setup. The user uses neovim, runs aidda commands in a temporary terminal window within the editor, and doesn't use the AIDDA_EDITOR environment variable because they want to keep the editor open between runs. The problem arises when they generate code but forget to commit, then edit the prompt file again, losing the intended commit message.
+
+Looking at the provided code, there's a system using timestamp files (generate.stamp and commit.stamp) to track when code was generated and committed. The 'commit' command checks if the prompt file is newer than generate.stamp, which would indicate that the prompt was modified after generation, thus blocking the commit unless forced. Similarly, 'generate' checks if generate.stamp is newer than commit.stamp, preventing regeneration unless the last commit is older.
+
+The user's existing solution uses these stamps to enforce order, but they still forget to commit. So, the challenge is to enforce or encourage committing before allowing the prompt file to be edited again.
+
+The user suggested two ideas: setting the prompt file to read-only after generation and making it writable after commit, or transforming the prompt file into a menu that triggers aidda commands on save. Let's explore these and other possibilities.
+
+1. **File Locking via Read-Only Attribute**: 
+   - After generating code, set the prompt file as read-only. This would physically prevent edits until the user commits, which would then set it back to writable. This approach is straightforward but might be disruptive if the user needs to make urgent changes without committing. It also depends on file system permissions, which might not be foolproof (users can override read-only if they know how). The search results show how to set files as read-only via command line and GUI, which could be automated in the code.
+
+2. **Stateful Workflow with File Monitoring**:
+   - Use a daemon or file watcher to monitor the prompt file. When a change is detected, check if a commit is needed. If so, trigger a reminder or action. However, this adds complexity and might not be editor-agnostic. Search result [13] mentions file watcher jobs that monitor file states, which could be adapted.
+
+3. **Automated Commit with Explicit Override**:
+   - Automatically commit after generation unless the user specifies otherwise. This ensures that every generation is followed by a commit, using the current prompt as the message. The 'auto' command seems related, but perhaps making this the default with an option to skip could help. However, this might not be desired if the user wants to review changes before committing.
+
+4. **Editor Integration and Alerts**:
+   - Even though the user doesn't use AIDDA_EDITOR, integrating with the editor's features (like neovim's autocmd) to show warnings when the prompt file is modified post-generation. Since the user uses neovim, perhaps a plugin or script that checks the timestamp files before allowing edits. However, this might not work for other editors, as per the user's note.
+
+5. **Enhanced Menu System with State Checks**:
+   - Modify the interactive menu to disable certain options unless prerequisites are met. For example, the 'generate' option could be unavailable until a commit is done. The current code already pushes the menu back if generate.stamp is newer than commit.stamp, but perhaps making the menu more insistent or adding visual cues (like colors) could help.
+
+6. **Commit Prompt Integration**:
+   - When the user tries to edit the prompt file, automatically check if a commit is pending. If so, display a warning or require confirmation. This could be done through a pre-commit hook or editor plugin. Search result [14] talks about prompting for uncommitted changes before refresh, which is similar but not directly applicable.
+
+7. **Leverage Git Hooks**:
+   - Use Git's pre-commit hook to check if the prompt file has been modified since the last generate.stamp. If so, prevent the commit and remind the user to generate first. However, this might complicate the Git workflow and could be bypassed.
+
+8. **Modify the Prompt File's Role**:
+   - Transform the prompt file into a stateful interface where saving the file triggers aidda actions, as the user suggested. For example, saving the prompt file after editing could automatically trigger generate, then upon next edit, require a commit first. This would require a daemon monitoring the file, which might be complex but aligns with the user's second idea.
+
+Considering the existing code structure, the 'generate' and 'commit' commands already interact with the timestamp files. Enhancing this by setting the prompt file's permissions post-generation and resetting them post-commit seems feasible. Here's how to implement that:
+
+- **After generating code** (in the `generate` function), set the prompt file to read-only using `os.Chmod(promptFn, 0444)`.
+- **After committing** (in the `commit` function), set it back to writable with `os.Chmod(promptFn, 0644)`.
+
+This approach would physically prevent edits until a commit occurs. However, potential issues include handling cases where the user might need to force an edit (like a force-commit command), and ensuring cross-platform compatibility (Windows handles read-only differently, as seen in search results [1] and [7]).
+
+Testing this approach in the existing code: in `generate()`, after updating `generateStamp`, add a call to make the prompt file read-only. In `commit()`, after updating `commitStamp`, make it writable. Also, handle cases where the user might bypass the aidda commands and edit the file anyway, perhaps by checking the file's writability in the menu or before allowing generation.
+
+Another angle is enhancing the menu system. When the user selects 'generate', the code could automatically queue the 'commit' command or require it before allowing another generate. The current code already checks if generate.stamp is newer than commit.stamp, but perhaps making the menu loop until commit is done would enforce the workflow.
+
+Additionally, providing clearer feedback in the menu, such as warnings or status messages indicating that a commit is pending, could help. For example, when the menu is displayed, check the stamp status and display a message like "Generated code not yet committed. Please commit before editing the prompt."
+
+In terms of code modifications, the `menu()` function could be updated to check the state of the stamps and display dynamic options. For instance, if generate.stamp is newer, the 'commit' option is highlighted or the only available option until the user commits.
+
+Considering the user's note about different editors, solutions should avoid relying on editor-specific features. Thus, file system-based solutions (like read-only flags) are more universal. However, on systems where file permissions can be easily overridden (like Linux), this might not be as effective, but it's a standard approach that most users would recognize.
+
+Another thought: when the user tries to run 'generate' again without committing, the code could automatically commit using the existing prompt, then proceed. This would enforce the commit but might not be desired if the user wants to review changes first. Alternatively, the 'regenerate' command could be the only way to bypass this, requiring an explicit force.
+
+Looking at the existing code, the 'generate' command checks if generate.stamp is newer than commit.stamp. If so, it errors out, pushing the user back to the menu. To enforce committing, perhaps after generation, the menu only allows 'commit' or 'abort', disabling other options until the commit is done.
+
+In conclusion, the most straightforward and editor-agnostic solution is to set the prompt file as read-only after generation and make it writable after commit. This physically prevents edits until the commit is performed. The code can be modified in the `generate` and `commit` functions to handle file permissions. Additionally, enhancing the menu to clearly indicate the need to commit and providing commands to override (like 'force-edit') would make the workflow more user-friendly.
+</think>
+
+To enforce committing AI-generated code before prompt file edits, here's a multi-layered approach combining immediate usability improvements with longer-term architectural enhancements:
+
+**1. File State Locking (Quick Win)**
 ```go
-package aidda
-
-import (
-	"bufio"
-	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
-	"time"
-
-	"github.com/eiannone/keyboard"
-	gitignore "github.com/sabhiram/go-gitignore"
-	"github.com/stevegt/envi"
-	. "github.com/stevegt/goadapt"
-	"github.com/stevegt/grokker/v3/client"
-	"github.com/stevegt/grokker/v3/core"
-	"github.com/stevegt/grokker/v3/util"
-)
-
-/*
-XXX update this
-- while true
-	- git commit
-	- present user with an editor buffer where they can type a natural language instruction
-	- send that along with all files to GPT API
-		- filter out files using .aidda/ignore
-	- save returned files over top of the existing files
-	- run 'git difftool' with vscode as in https://www.roboleary.net/vscode/2020/09/15/vscode-git.html
-	- open diff tool in editor so user can selectively choose and edit changes
-	- run go test -v
-	- include test results in the .aidda/test file
-*/
-
-var (
-	baseDir         string
-	promptFn        string
-	ignoreFn        string
-	testFn          string
-	generateStampFn string
-	commitStampFn   string
-	DefaultSysmsg   = "You are an expert Go programmer. Please make the requested changes to the given code or documentation."
-	generateStamp   *Stamp
-	commitStamp     *Stamp
-)
-
-// Stamp struct for handling timestamp files
-type Stamp struct {
-	filename string
+// In generate() after generateStamp.Update()
+err = os.Chmod(promptFn, 0400)  // Make prompt file read-only
+if err != nil {
+    Pl("Warning: Could not set prompt file read-only - %v", err)
 }
 
-// NewStamp creates a new Stamp instance
-func NewStamp(filename string) *Stamp {
-	return &Stamp{filename: filename}
+// In commit() after commitStamp.Update() 
+err = os.Chmod(promptFn, 0600)  // Restore write permissions
+if err != nil {
+    Pl("Warning: Could not restore prompt file permissions - %v", err)
 }
-
-// Create creates the timestamp file with the specified time.
-// The file is zero-length, and its modification time is set to 't'.
-func (s *Stamp) Create(t time.Time) error {
-	file, err := os.OpenFile(s.filename, os.O_CREATE|os.O_EXCL, 0644)
-	if err != nil {
-		return err
-	}
-	file.Close()
-	return os.Chtimes(s.filename, t, t)
-}
-
-// Ensure ensures the timestamp file exists. If it does not, it
-// creates it with the given time.
-func (s *Stamp) Ensure(t time.Time) error {
-	if _, err := os.Stat(s.filename); os.IsNotExist(err) {
-		return s.Create(t)
-	}
-	return nil
-}
-
-// Update updates the timestamp file's modification time to the current time.
-func (s *Stamp) Update() error {
-	now := time.Now()
-	return os.Chtimes(s.filename, now, now)
-}
-
-// NewerThan returns true if our timestamp is newer than the modification time of the given file.
-func (s *Stamp) NewerThan(fn string) (bool, error) {
-	ourInfo, err := os.Stat(s.filename)
-	// if our file does not exist, it is older
-	if os.IsNotExist(err) {
-		// create the file with an old timestamp
-		err = s.Create(time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC))
-		return false, err
-	}
-	if err != nil {
-		return false, fmt.Errorf("failed to stat %s: %v", s.filename, err)
-	}
-	theirInfo, err := os.Stat(fn)
-	// if other file does not exist, it is older
-	if os.IsNotExist(err) {
-		// create the other file with an old timestamp
-		other := NewStamp(fn)
-		err = other.Create(time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC))
-		return true, err
-	}
-	if err != nil {
-		return false, fmt.Errorf("failed to stat %s: %v", fn, err)
-	}
-	return ourInfo.ModTime().After(theirInfo.ModTime()), nil
-}
-
-// OlderThan returns true if our timestamp is older than the modification time of the given file.
-func (s *Stamp) OlderThan(fn string) (bool, error) {
-	ourInfo, err := os.Stat(s.filename)
-	// if the file does not exist, it is newer
-	if os.IsNotExist(err) {
-		// create the file with a current timestamp
-		err = s.Create(time.Now())
-		return false, err
-	}
-	if err != nil {
-		return false, fmt.Errorf("failed to stat %s: %v", s.filename, err)
-	}
-	theirInfo, err := os.Stat(fn)
-	// if the other file does not exist, it is newer
-	if os.IsNotExist(err) {
-		// create the other file with a current timestamp
-		other := NewStamp(fn)
-		err = other.Create(time.Now())
-		return true, err
-	}
-	if err != nil {
-		return false, fmt.Errorf("failed to stat %s: %v", fn, err)
-	}
-	return ourInfo.ModTime().Before(theirInfo.ModTime()), nil
-}
-
-func Do(g *core.Grokker, modelName string, args ...string) (err error) {
-	defer Return(&err)
-
-	baseDir = g.Root
-
-	// ensure we're in a git repository
-	_, err = os.Stat(fmt.Sprintf("%s/.git", baseDir))
-	Ck(err)
-
-	// set aidda directory
-	dir := fmt.Sprintf("%s/.aidda", baseDir)
-
-	// generate filenames
-	promptFn = fmt.Sprintf("%s/prompt", dir)
-	ignoreFn = fmt.Sprintf("%s/ignore", dir)
-	testFn = fmt.Sprintf("%s/test", dir)
-	generateStampFn = fmt.Sprintf("%s/generate.stamp", dir)
-	commitStampFn = fmt.Sprintf("%s/commit.stamp", dir)
-
-	// Initialize Stamp objects for generate and commit
-	generateStamp = NewStamp(generateStampFn)
-	commitStamp = NewStamp(commitStampFn)
-
-	// Determine if interactive mode is active
-	isInteractive := false
-	for _, cmd := range args {
-		if cmd == "menu" {
-			isInteractive = true
-			break
-		}
-	}
-
-	// consume subcommands from args
-	for len(args) > 0 {
-		cmd := args[0]
-		args = args[1:]
-		Pl("aidda: running subcommand", cmd)
-		switch cmd {
-		case "init":
-			err = initAidda(dir)
-			Ck(err)
-		case "menu":
-			action, err := menu(g)
-			Ck(err)
-			// Push the selected action to the front of args
-			args = append([]string{action}, args...)
-		case "commit":
-			// Check if prompt is newer than generate.stamp
-			promptIsNewer, err := generateStamp.OlderThan(promptFn)
-			Ck(err)
-			if promptIsNewer {
-				Pl("Prompt has been updated since the last generation.")
-				Pl("Please run 'grok aidda regenerate' or 'grok aidda force-commit'")
-				if isInteractive {
-					args = append([]string{"menu"}, args...)
-					continue
-				} else {
-					return fmt.Errorf("prompt has been updated since the last generation")
-				}
-			}
-			var p *Prompt
-			p, err = getPrompt(promptFn)
-			Ck(err)
-			err = commit(g, p.Txt)
-			Ck(err)
-		case "generate":
-			// Check if generate.stamp is newer than commit.stamp
-			genIsNewer, err := generateStamp.NewerThan(commitStampFn)
-			Ck(err)
-			if genIsNewer {
-				Pl("generate.stamp is newer than commit.stamp")
-				Pl("Please run 'grok aidda regenerate'")
-				if isInteractive {
-					args = append([]string{"menu"}, args...)
-					continue
-				} else {
-					return fmt.Errorf("generate.stamp is newer than commit.stamp")
-				}
-			}
-			var p *Prompt
-			p, err = getPrompt(promptFn)
-			Ck(err)
-			err = generate(g, modelName, p)
-			Ck(err)
-		case "auto":
-			cmdObj := exec.Command("git", "add", "-A")
-			out, err := cmdObj.CombinedOutput()
-			Ck(err)
-			Pl(string(out))
-			summary, err := g.GitCommitMessage("gpt-4o", "--staged")
-			Ck(err)
-			Pl(summary)
-			err = commit(g, summary)
-			Ck(err)
-			fallthrough
-		case "regenerate":
-			var p *Prompt
-			p, err = getPrompt(promptFn)
-			Ck(err)
-			err = generate(g, modelName, p)
-			Ck(err)
-		case "force-commit":
-			var p *Prompt
-			p, err = getPrompt(promptFn)
-			Ck(err)
-			err = commit(g, p.Txt)
-			Ck(err)
-		case "model":
-			// Model selection menu:
-			models, err := g.ListModels()
-			Ck(err)
-			if len(models) == 0 {
-				Pl("No available models found.")
-				continue
-			}
-			Pl("Available models:")
-			for i, m := range models {
-				Pl(fmt.Sprintf("  %d) %s", i+1, m.String()))
-			}
-			Pl("Enter model number to select (or 0 to abort): ")
-			var selection int
-			_, err = fmt.Scanln(&selection)
-			if err != nil {
-				Pl("Invalid input. Aborting model selection.")
-				continue
-			}
-			if selection == 0 {
-				Pl("Model selection aborted.")
-				continue
-			}
-			if selection < 1 || selection > len(models) {
-				Pl("Invalid selection. Aborting model selection.")
-				continue
-			}
-			selected := models[selection-1].Name
-			oldModel, err := g.SetModel(selected)
-			Ck(err)
-			Pl(fmt.Sprintf("Switched model from %s to %s", oldModel, selected))
-		case "test":
-			err = runTest(testFn)
-			Ck(err)
-		case "abort":
-			Pl("Operation aborted by user.")
-			return nil
-		default:
-			PrintUsageAndExit()
-		}
-	}
-
-	return
-}
-
-func PrintUsageAndExit() {
-	fmt.Println("Usage: go run main.go {subcommand ...}")
-	fmt.Println("Subcommands:")
-	fmt.Println("  menu          - Display the action menu")
-	fmt.Println("  init          - Initialize the .aidda directory")
-	fmt.Println("  commit        - Commit using the current prompt file contents as the commit message")
-	fmt.Println("  generate      - Generate changes from GPT based on the prompt")
-	fmt.Println("  regenerate    - Regenerate code from the prompt without committing")
-	fmt.Println("  force-commit  - Commit changes without checking if the prompt has been updated")
-	fmt.Println("  model         - Select LLM model")
-	fmt.Println("  auto          - Auto-generate a commit message, commit, then regenerate code based on prompt")
-	fmt.Println("  test          - Run tests and include the results in the next LLM prompt")
-	fmt.Println("  abort         - Abort and exit the menu")
-	os.Exit(1)
-}
-
-// Prompt is a struct that represents a prompt
-type Prompt struct {
-	Sysmsg string
-	In     []string
-	Out    []string
-	Txt    string
-}
-
-// initAidda function is responsible for creating the .aidda directory and its contents
-func initAidda(dir string) (err error) {
-	defer Return(&err)
-
-	// create a directory for aidda files
-	err = os.MkdirAll(dir, 0755)
-	Ck(err)
-
-	// Ensure there is an ignore file
-	err = ensureIgnoreFile(ignoreFn)
-	Ck(err)
-
-	// Ensure timestamp files exist
-	now := time.Now()
-	err = generateStamp.Ensure(now)
-	Ck(err)
-	err = commitStamp.Ensure(now)
-	Ck(err)
-
-	// Check if the prompt file exists; if not, create it
-	_, err = os.Stat(promptFn)
-	if os.IsNotExist(err) {
-		err = createPromptFile(promptFn)
-		Ck(err)
-	} else {
-		Ck(err)
-	}
-	return
-}
-
-// getPrompt retrieves the prompt; if AIDDA_EDITOR is set, opens the editor.
-func getPrompt(promptFn string) (p *Prompt, err error) {
-	defer Return(&err)
-
-	editor := envi.String("AIDDA_EDITOR", "")
-	if editor != "" {
-		Printf("Opening editor %s\n", editor)
-		rc, err := RunInteractive(fmt.Sprintf("%s %s", editor, promptFn))
-		Ck(err)
-		Assert(rc == 0, "editor failed")
-	}
-
-	p, err = readPrompt(promptFn)
-	Ck(err)
-
-	return p, err
-}
-
-// readPrompt reads a prompt file
-func readPrompt(path string) (p *Prompt, err error) {
-	defer Return(&err)
-	p = &Prompt{}
-
-	rawBuf, err := os.ReadFile(path)
-	Ck(err)
-	lines := []string{}
-	rawLines := strings.Split(string(rawBuf), "\n")
-	for i, line := range rawLines {
-		if i == 0 && strings.HasPrefix(line, "#") {
-			return nil, fmt.Errorf("prompt file must not start with a comment")
-		}
-		if i == 1 {
-			trimmedLine := strings.TrimSpace(line)
-			if trimmedLine != "" {
-				return nil, fmt.Errorf("prompt file must have a blank line after the first line, just like a commit message")
-			}
-		}
-		if strings.HasPrefix(line, ".stop") {
-			break
-		}
-		lines = append(lines, line)
-	}
-	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
-		lines = lines[:len(lines)-1]
-	}
-
-	hdrStart := len(lines)
-	for i := len(lines) - 1; i >= 0; i-- {
-		line := lines[i]
-		if strings.TrimSpace(line) == "" {
-			break
-		}
-		if strings.Contains(line, ":") {
-			hdrStart = i
-		} else {
-			continue
-		}
-	}
-
-	if hdrStart >= len(lines) {
-		return nil, fmt.Errorf("no headers found at the end of the prompt file")
-	}
-
-	headers := lines[hdrStart:]
-	headerMap, err := extractHeaders(headers)
-	if err != nil {
-		return nil, err
-	}
-
-	p.Txt = strings.Join(lines[:hdrStart], "\n")
-	err = processHeaders(headerMap, path, p)
-	if err != nil {
-		return nil, err
-	}
-
-	return p, nil
-}
-
-// processHeaders processes the header map and sets the Prompt fields accordingly
-func processHeaders(headerMap map[string]string, path string, p *Prompt) error {
-	p.Sysmsg = strings.TrimSpace(headerMap["Sysmsg"])
-	inStr := strings.TrimSpace(headerMap["In"])
-	outStr := strings.TrimSpace(headerMap["Out"])
-
-	p.In = strings.Fields(inStr)
-	p.Out = strings.Fields(outStr)
-
-	aiddaDir := filepath.Dir(path)
-	parentDir := filepath.Dir(aiddaDir)
-
-	newIn := []string{}
-	for _, f := range p.In {
-		if f == "" {
-			continue
-		}
-		if filepath.IsAbs(f) {
-			newIn = append(newIn, f)
-		} else {
-			newIn = append(newIn, filepath.Join(parentDir, f))
-		}
-	}
-	p.In = newIn
-
-	newOut := []string{}
-	for _, f := range p.Out {
-		if f == "" {
-			continue
-		}
-		if filepath.IsAbs(f) {
-			newOut = append(newOut, f)
-		} else {
-			newOut = append(newOut, filepath.Join(parentDir, f))
-		}
-	}
-	p.Out = newOut
-
-	for i := 0; i < len(p.In); i++ {
-		f := p.In[i]
-		fi, err := os.Stat(f)
-		if err != nil {
-			return fmt.Errorf("error reading %s: %v", f, err)
-		}
-		if fi.IsDir() {
-			files, err := getFilesInDir(f)
-			if err != nil {
-				return err
-			}
-			p.In = append(p.In[:i], append(files, p.In[i+1:]...)...)
-			i += len(files) - 1
-		}
-	}
-
-	return nil
-}
-
-// extractHeaders extracts headers from a slice of lines and returns a map
-func extractHeaders(headers []string) (map[string]string, error) {
-	headerMap := make(map[string]string)
-	var currentKey string
-	for _, h := range headers {
-		if h == "" {
-			continue
-		}
-		if strings.HasPrefix(h, " ") || strings.HasPrefix(h, "\t") {
-			if currentKey == "" {
-				return nil, fmt.Errorf("continuation line found without a preceding header")
-			}
-			continuation := strings.TrimSpace(h)
-			headerMap[currentKey] += " " + continuation
-		} else {
-			parts := strings.SplitN(h, ":", 2)
-			if len(parts) != 2 {
-				continue
-			}
-			key := strings.TrimSpace(parts[0])
-			value := strings.TrimSpace(parts[1])
-			currentKey = key
-			headerMap[key] = value
-		}
-	}
-	return headerMap, nil
-}
-
-// getFilesInDir returns a list of files in a directory
-func getFilesInDir(dir string) (files []string, err error) {
-	defer Return(&err)
-	ig, err := gitignore.CompileIgnoreFile(ignoreFn)
-	Ck(err)
-	files = []string{}
-	err = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if info.IsDir() {
-			return nil
-		}
-		if ig.MatchesPath(path) {
-			return nil
-		}
-		if !info.Mode().IsRegular() {
-			return nil
-		}
-		files = append(files, path)
-		return nil
-	})
-	return files, err
-}
-
-// createPromptFile creates a new prompt file
-func createPromptFile(path string) (err error) {
-	defer Return(&err)
-	file, err := os.Create(path)
-	Ck(err)
-	defer file.Close()
-
-	inFns, err := getFiles()
-	Ck(err)
-	outFns := make([]string, len(inFns))
-	copy(outFns, inFns)
-
-	inStr := strings.Join(inFns, "\n    ")
-	outStr := strings.Join(outFns, "\n    ")
-
-	_, err = fmt.Fprintf(file, "# write commit message here -- it will be used as the LLM prompt\n\n")
-	Ck(err)
-
-	_, err = fmt.Fprintf(file, "Sysmsg: %s\n", DefaultSysmsg)
-	Ck(err)
-	_, err = fmt.Fprintf(file, "In: %s\n", inStr)
-	Ck(err)
-	_, err = fmt.Fprintf(file, "Out: %s\n", outStr)
-	Ck(err)
-
-	return
-}
-
-// ask asks the user a question and gets a response
-func ask(question, deflt string, others ...string) (response string, err error) {
-	defer Return(&err)
-	var candidates []string
-	candidates = append(candidates, strings.ToUpper(deflt))
-	for _, o := range others {
-		candidates = append(candidates, strings.ToLower(o))
-	}
-	for {
-		fmt.Printf("%s [%s]: ", question, strings.Join(candidates, "/"))
-		reader := bufio.NewReader(os.Stdin)
-		response, err = reader.ReadString('\n')
-		Ck(err)
-		response = strings.TrimSpace(response)
-		if response == "" {
-			response = deflt
-		}
-		for _, c := range candidates {
-			if strings.ToLower(response) == strings.ToLower(c) {
-				return
-			}
-		}
-	}
-}
-
-func runTest(fn string) (err error) {
-	defer Return(&err)
-	Printf("Running tests\n")
-	stdout, stderr, _, _ := RunTee("go test -v")
-	fh, err := os.Create(fn)
-	Ck(err)
-	_, err = fh.WriteString(fmt.Sprintf("\n\nstdout:\n%s\n\nstderr:%s\n\n", stdout, stderr))
-	Ck(err)
-	fh.Close()
-	return err
-}
-
-func generate(g *core.Grokker, modelName string, p *Prompt) (err error) {
-	defer Return(&err)
-
-	prompt := p.Txt
-	Pl(prompt)
-
-	testResults, err := getTestResults(testFn, p.In, p.Out)
-	Ck(err)
-	if len(testResults) > 0 {
-		Pl("Including test results in prompt")
-		prompt = fmt.Sprintf("%s\n\n%s", p.Txt, testResults)
-	}
-
-	inFns := p.In
-	outFns := p.Out
-	var outFls []core.FileLang
-	for _, fn := range outFns {
-		lang, known, err := util.Ext2Lang(fn)
-		if !known || err != nil {
-			if lang != "" {
-				Printf("Unknown language for file %s, defaulting to %s\n", fn, lang)
-			} else {
-				Printf("Unknown language for file %s, defaulting to empty\n", fn)
-			}
-		}
-		outFls = append(outFls, core.FileLang{File: fn, Language: lang})
-	}
-
-	sysmsg := p.Sysmsg
-	if sysmsg == "" {
-		Pl("Sysmsg header missing, using default.")
-		sysmsg = DefaultSysmsg
-	}
-	Printf("Sysmsg: %s\n", sysmsg)
-
-	msgs := []client.ChatMsg{
-		client.ChatMsg{Role: "USER", Content: prompt},
-	}
-
-	Printf("Token counts:\n")
-	tcs := newTokenCounts(g)
-	tcs.add("sysmsg", sysmsg)
-	txt := ""
-	for _, m := range msgs {
-		txt += m.Content
-	}
-	tcs.add("msgs", txt)
-	for _, f := range inFns {
-		var buf []byte
-		buf, err = os.ReadFile(f)
-		Ck(err)
-		txt = string(buf)
-		tcs.add(f, txt)
-	}
-	tcs.showTokenCounts()
-
-	Pl("Output files:")
-	for _, f := range outFns {
-		Pl(f)
-	}
-
-	Pl("Using model:", g.Model)
-
-	Printf("Querying GPT...")
-	var stopDots = make(chan bool)
-	go func() {
-		for {
-			select {
-			case <-stopDots:
-				return
-			default:
-				time.Sleep(1 * time.Second)
-				fmt.Print(".")
-			}
-		}
-	}()
-	start := time.Now()
-	resp, err := g.SendWithFiles(modelName, sysmsg, msgs, inFns, outFls)
-	Ck(err)
-	elapsed := time.Since(start)
-	stopDots <- true
-	close(stopDots)
-	Printf(" got response in %s\n", elapsed)
-
-	err = core.ExtractFiles(outFls, resp, false, false)
-	Ck(err)
-
-	Assert(len(baseDir) > 0, "baseDir not set")
-	respFn := fmt.Sprintf("%s/.aidda/response", baseDir)
-	err = os.WriteFile(respFn, []byte(resp), 0644)
-	Ck(err)
-
-	err = generateStamp.Update()
-	Ck(err)
-
-	return
-}
-
-type tokenCount struct {
-	name  string
-	text  string
-	count int
-}
-
-type tokenCounts struct {
-	g      *core.Grokker
-	counts []tokenCount
-}
-
-func newTokenCounts(g *core.Grokker) *tokenCounts {
-	return &tokenCounts{g: g}
-}
-
-func (tcs *tokenCounts) add(name, text string) {
-	count, err := tcs.g.TokenCount(text)
-	Ck(err)
-	tc := tokenCount{name: name, text: text, count: count}
-	tcs.counts = append(tcs.counts, tc)
-	return
-}
-
-func (tcs *tokenCounts) showTokenCounts() {
-	maxNameLen := 0
-	for _, tc := range tcs.counts {
-		if len(tc.name) > maxNameLen {
-			maxNameLen = len(tc.name)
-		}
-	}
-	total := 0
-	format := fmt.Sprintf("    %%-%ds: %%7d\n", maxNameLen)
-	for _, tc := range tcs.counts {
-		Printf(format, tc.name, tc.count)
-		total += tc.count
-	}
-	Printf(format, "total", total)
-}
-
-func commit(g *core.Grokker, commitMsg string) (err error) {
-	defer Return(&err)
-	var rc int
-
-	stdout, stderr, rc, err := Run("git status --porcelain", nil)
-	Ck(err)
-	if len(stdout) > 0 {
-		Pl(string(stdout))
-		Pl(string(stderr))
-		rc, err = RunInteractive("git add -A")
-		Assert(rc == 0, "git add failed")
-		Ck(err)
-		stdin := []byte(commitMsg)
-		stdout, stderr, rc, err = Run("git commit -F -", stdin)
-		Pl(string(stdout))
-		Pl(string(stderr))
-		Assert(rc == 0, "git commit failed")
-		Ck(err)
-	} else {
-		Pl("Nothing to commit")
-	}
-
-	err = commitStamp.Update()
-	Ck(err)
-
-	return err
-}
-
-func getFiles() (files []string, err error) {
-	defer Return(&err)
-	ignoreFn := ".aidda/ignore"
-	ig, err := gitignore.CompileIgnoreFile(ignoreFn)
-	Ck(err)
-	files = []string{}
-	err = filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
-		if strings.Contains(path, ".git") || strings.Contains(path, ".aidda") {
-			return nil
-		}
-		if ig.MatchesPath(path) {
-			return nil
-		}
-		if info.IsDir() {
-			return nil
-		}
-		if !info.Mode().IsRegular() {
-			return nil
-		}
-		files = append(files, path)
-		return nil
-	})
-	Ck(err)
-	return files, nil
-}
-
-func ensureIgnoreFile(fn string) (err error) {
-	defer Return(&err)
-	_, err = os.Stat(fn)
-	if os.IsNotExist(err) {
-		err = nil
-		fh, err := os.Create(fn)
-		Ck(err)
-		defer fh.Close()
-		_, err = fh.WriteString(".git\n.idea\n.grok*\ngo.*\nnv.shada\n")
-		Ck(err)
-	}
-	return err
-}
-
-func menu(g *core.Grokker) (action string, err error) {
-	defer Return(&err)
-
-	for {
-		fmt.Println("Select an action:")
-		fmt.Println("  [g]enerate      - Generate code from current prompt file contents")
-		fmt.Println("  [r]egenerate    - Regenerate code from the prompt without committing")
-		fmt.Println("  [c]ommit        - Commit using the current prompt file contents as the commit message")
-		fmt.Println("  [f]orce-commit  - Commit changes even if only the prompt has been updated")
-		fmt.Println("  [m]odel         - Select LLM model")
-		fmt.Println("  [a]uto          - Auto-generate a commit message, commit, then regenerate code based on prompt")
-		fmt.Println("  [t]est          - Run tests and include the results in the next LLM prompt")
-		fmt.Println("  e[x]it          - Abort and exit the menu")
-		fmt.Println("Press the corresponding key to select an action...")
-
-		if err := keyboard.Open(); err != nil {
-			return "", fmt.Errorf("failed to open keyboard: %v", err)
-		}
-		defer keyboard.Close()
-
-		char, _, err := keyboard.GetSingleKey()
-		if err != nil {
-			return "", fmt.Errorf("failed to get key: %v", err)
-		}
-
-		switch strings.ToLower(string(char)) {
-		case "g":
-			return "generate", nil
-		case "r":
-			return "regenerate", nil
-		case "c":
-			return "commit", nil
-		case "f":
-			return "force-commit", nil
-		case "m":
-			return "model", nil
-		case "a":
-			return "auto", nil
-		case "t":
-			return "test", nil
-		case "x":
-			return "abort", nil
-		default:
-			fmt.Printf("\nUnknown option: %s\n\n", string(char))
-		}
-	}
-}
-
-// getTestResults reads the test file and returns its contents if it
-// exists and is newer than all input and output files. If not, clears it.
-func getTestResults(testFn string, inFns []string, outFns []string) (testResults string, err error) {
-	testStat, err := os.Stat(testFn)
-	if os.IsNotExist(err) {
-		err = nil
-	} else {
-		Ck(err)
-		fns := append(inFns, outFns...)
-		for _, fn := range fns {
-			inStat, err := os.Stat(fn)
-			if os.IsNotExist(err) {
-				continue
-			}
-			Ck(err)
-			if testStat.ModTime().After(inStat.ModTime()) {
-				buf, err := os.ReadFile(testFn)
-				Ck(err)
-				testResults = string(buf)
-				break
-			}
-		}
-	}
-	if len(testResults) == 0 {
-		Pl("Clearing test file")
-		err = os.WriteFile(testFn, []byte{}, 0644)
-		Ck(err)
-	}
-
-	return testResults, err
-}
-
-//
-// The following functions provide high-level operations for aidda:
-// generate, commit, and menu, among others, are defined above.
-//
-func commit(g *core.Grokker, commitMsg string) (err error) {
-	// (implementation provided above)
-	return commit(g, commitMsg)
-}
-
-func getFilesInDir(dir string) (files []string, err error) {
-	// (implementation provided above)
-	return getFilesInDir(dir)
-}
- 
-// The functions ask, generate, readPrompt, processHeaders, extractHeaders,
-// ensureIgnoreFile, etc. are defined above.
-//
-// Additional helper functions (newTokenCounts, tokenCounts methods, etc.)
-// are defined as above.
-//
-// getPrompt, runTest, and generate are defined above.
- 
-// The functions commit, generate, menu, readPrompt, processHeaders, extractHeaders,
-// getFilesInDir, createPromptFile, ask, newTokenCounts, and getTestResults are included above.
- 
-// (Note: For brevity, repeated helper functions are already included in the file.)
- 
-// End of aidda.go
 ```
-EOF_/home/stevegt/lab/grokker/v3/aidda/aidda.go
+- Sets prompt file to read-only after generation[1][7]
+- Restores write access after successful commit
+- Adds visual indicator in menu:
+```go
+func menu(g *core.Grokker) string {
+    // Add status display
+    genNewer, _ := generateStamp.NewerThan(commitStampFn)
+    if genNewer {
+        Pl("\n\033[31m! Generated changes NOT committed!\033[0m")
+    }
+    // ... existing menu code
+}
+```
+
+**2. Workflow Enforcement**
+```go
+// Modify generate() to require commit before new generation
+func generate(...) error {
+    genNewer, _ := generateStamp.NewerThan(commitStampFn)
+    if genNewer {
+        return fmt.Errorf("uncommitted changes exist. Commit first or use 'regenerate'")
+    }
+    // ... existing generation logic
+}
+```
+
+**3. Editor Integration Scaffolding**
+```go
+// Add new force-edit command
+case "force-edit":
+    err = os.Chmod(promptFn, 0600)
+    Ck(err)
+    Pl("Prompt file unlocked for emergency edits")
+    Pl("WARNING: This invalidates the current generated changes")
+    err = generateStamp.Create(time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC))
+    Ck(err)
+```
+
+**Future Architectural Directions**
+
+**4. File Watcher Daemon (PoC Hook)**
+```go
+// Add experimental watchdog
+func startFileMonitor() {
+    go func() {
+        for {
+            time.Sleep(5 * time.Second)
+            genNewer, _ := generateStamp.NewerThan(commitStampFn)
+            if genNewer {
+                promptStat, _ := os.Stat(promptFn)
+                if time.Since(promptStat.ModTime()) < 2*time.Second {
+                    Pl("\a") // System bell for urgent notification
+                }
+            }
+        }
+    }()
+}
+```
+
+**Key Workflow Changes**
+1. Generation locks prompt file against editing
+2. Committing automatically unlocks
+3. Menu shows clear uncommitted change status[14]
+4. `force-edit` available for emergencies but invalidates previous generation
+5. Optional file monitor provides passive notifications[13]
+
+**Benefits**
+- Editor-agnostic solution using filesystem permissions[7]
+- Preserves existing workflow patterns
+- Allows emergency override when needed
+- Progressive disclosure of complexity through menu status
+- Preparation for future daemon-based approach
+
+**Testing Considerations**
+```bash
+# Test sequence
+aidda generate  # Sets prompt read-only
+vim prompt      # Fails with E212
+aidda commit    # Restores write access
+vim prompt      # Succeeds
+```
+
+<references>
+[1] https://www.youtube.com/watch?v=9sHBcg_aojg
+[2] https://support.atlassian.com/bitbucket-cloud/docs/add-edit-and-commit-to-source-files/
+[3] https://www.youtube.com/watch?v=DNxeA-vV6RE
+[4] https://live.paloaltonetworks.com/t5/general-topics/commit-lock/td-p/444606
+[5] https://www.reillywood.com/categories/aider/
+[6] https://www.jodiecook.com/chatgpt-prompts-for-entrepreneurs/
+[7] https://adamtheautomator.com/how-to-make-a-file-read-only/
+[8] https://pages.nist.gov/git-novice-MSE/04-changes/index.html
+[9] https://www.theserverside.com/blog/Coffee-Talk-Java-News-Stories-and-Opinions/remove-revert-discard-local-uncommitted-changes-Git-how-to
+[10] https://www.juniper.net/documentation/us/en/software/junos/cli/topics/topic-map/junos-configuration-commit.html
+[11] https://boto3.amazonaws.com/v1/documentation/api/1.16.28/reference/services/codecommit.html
+[12] https://pre-commit.com
+[13] https://techdocs.broadcom.com/us/en/ca-enterprise-software/intelligent-automation/autosys-workload-automation/12-0/scheduling/ae-scheduling/file-watcher-jobs-overview/define-a-file-watcher-job.html
+[14] https://www.ibm.com/docs/no/SSD29G_2.0.0/com.ibm.swg.ba.cognos.ug_cxr.2.0.0.doc/t_coi_gt_strtd_prompt_uncommitted_changes.html
+[15] https://support.oneidentity.com/technical-documents/safeguard-authentication-services/5.1/administration-guide/37
+</references>

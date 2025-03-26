@@ -1,13 +1,40 @@
-add model selection to aidda menu 
+ensure aidda-generated code is committed before prompt file is edited again
 
-Implement the [m]odel selection menu option in aidda.go.
-This option will:
-- show the user the list of models similar to that shown by the CLI
-  command `grok models`.
-- allow the user to select a model by number.  Include an abort option
-  to return to the main menu.
-- set the selected model using the same method as the CLI command
-  `grok model <model>`.
+Brainstorm how I might ensure that the aidda-generated code is
+committed before the prompt file is edited again.  I keep forgetting
+to hit '[c]ommit' after '[g]enerate' and then I edit the prompt file
+again and the prompt file that should have been used as the commit
+message is no longer available without hitting undo a bunch of times
+in the editor.
+
+Understand that I keep the editor (neovim) open and run the aidda
+command in a temporary neovim terminal window.  I don't set the
+AIDDA_EDITOR environment variable to open the editor because I want to
+keep the editor open between aidda runs.  I don't see or run the aidda
+menu otherwise, so I can't see any warning or disabled menu selections in
+the aidda menu until after I've erroneously edited the prompt file
+and run the aidda menu command again.
+
+Also understand that other users might be using a different editor or
+might not be using a terminal-based editor at all, so I can't rely on
+neovim-specific features to solve this problem.
+
+In your brainstorming, consider these solutions but add your own ideas
+as well:
+
+- set the prompt file to read-only after generating code, then read-write
+  after committing
+- transform the role of the prompt file to be instead a menu itself;
+  get rid of the separate aidda menu, have aidda be a daemon that
+  watches the prompt file for changes and runs the appropriate command
+  when the prompt file is saved; have aidda modify the prompt file
+  as needed to indicate the state of the aidda-generated code and
+  commit status
+
+In:
+    v3/aidda/aidda.go
+
+.stop
 
 In: 
     .aidda/plan.md
@@ -38,5 +65,3 @@ In:
     v3/openai/openai.go
     v3/perplexity/perplexity.go
     x/patterns.md
-Out:
-    v3/aidda/aidda.go
