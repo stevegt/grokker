@@ -800,6 +800,14 @@ func generate(g *core.Grokker, modelName string, p *Prompt) (err error) {
 	err = generateStamp.Update()
 	Ck(err)
 
+	// Clear the test file
+	// XXX probably need some sort of timestamp chacking for whether
+	// to send the test file in the first place -- we mght not want to
+	// clear it if the test file is newer than the prompt, input, or output files
+	Pl("Clearing test file")
+	err = os.WriteFile(testFn, []byte{}, 0644)
+	Ck(err)
+
 	return
 }
 
