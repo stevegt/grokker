@@ -246,7 +246,7 @@ func Do(g *core.Grokker, modelName string, args ...string) (err error) {
 			Ck(err)
 			Pl(string(out))
 			// ...then generate the commit message
-			summary, err := g.GitCommitMessage("gpt-4o", "--staged")
+			summary, err := g.GitCommitMessage("o3-mini", "--staged")
 			Ck(err)
 			Pl(summary)
 			// ...then commit

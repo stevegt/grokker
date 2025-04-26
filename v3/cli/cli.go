@@ -612,7 +612,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		if len(cli.Commit.Diffargs) < 1 {
 			cli.Commit.Diffargs = []string{"--staged"}
 		}
-		gitModelName := "gpt-4o"
+		gitModelName := "o3-mini"
 		// call grokker
 		summary, err := grok.GitCommitMessage(gitModelName, cli.Commit.Diffargs...)
 		Ck(err)

@@ -12,6 +12,7 @@ import (
 
 	"github.com/gofrs/flock"
 	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/v3/client"
 	"github.com/stevegt/grokker/v3/util"
 	"github.com/stevegt/semver"
 	"github.com/tiktoken-go/tokenizer"
@@ -518,22 +519,49 @@ func (g *Grokker) GitCommitMessage(modelName string, args ...string) (msg string
 	Ck(err)
 	diff := string(out)
 
-	// summarize the diff
-	sumLines, msg, err := g.summarizeDiff(modelName, diff)
-	Ck(err)
+	if false {
+		// summarize the diff
+		sumLines, msg, err := g.summarizeDiff(modelName, diff)
+		Ck(err)
 
-	// summarize the sumLines to create the first line of the commit
-	// message
-	// resp, err := g.generate(SysMsgChat, GitSummaryPrompt, sumLines, false)
-	// Ck(err)
-	_ = sumLines
-	//
-	// summarize the entire commit message to create the first line
-	summary, err := g.AnswerWithRAG(modelName, SysMsgChat, GitSummaryPrompt, msg, false)
-	Ck(err)
+		// summarize the sumLines to create the first line of the commit
+		// message
+		// resp, err := g.generate(SysMsgChat, GitSummaryPrompt, sumLines, false)
+		// Ck(err)
+		_ = sumLines
+		//
+		// summarize the entire commit message to create the first line
+		summary, err := g.AnswerWithRAG(modelName, SysMsgChat, GitSummaryPrompt, msg, false)
+		Ck(err)
 
-	// glue it all together
-	msg = Spf("%s\n\n%s", summary, msg)
+		// glue it all together
+		msg = Spf("%s\n\n%s", summary, msg)
+	}
+
+	if true {
+		// experimental: take advantage of more modern models that have
+		// larger context windows and know what a commit message is
+		sysmsg := "Write a git commit message for the given diff."
+		/*
+			msgs := []client.ChatMsg{
+				client.ChatMsg{
+					Role:    "User",
+					Content: diff,
+				},
+			}
+		*/
+		userMsg := Spf("Write a git commit message for the following changes:\n\n%s", diff)
+		msgs := []client.ChatMsg{
+			client.ChatMsg{
+				Role:    "User",
+				Content: userMsg,
+			},
+		}
+
+		res, err := g.CompleteChat(modelName, sysmsg, msgs)
+		Ck(err)
+		msg = res
+	}
 
 	return
 }
