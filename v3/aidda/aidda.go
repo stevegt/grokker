@@ -285,8 +285,18 @@ func Do(g *core.Grokker, modelName string, args ...string) (err error) {
 			// run model selection menu
 			selectModel(g)
 		case "test":
-			err = runTest(testFn)
+			_, err := runTest(testFn)
 			Ck(err)
+		case "loop":
+			// Run tests and regenerate code until tests pass
+			rc, err := runTest(testFn)
+			Ck(err)
+			if rc == 0 {
+				continue
+			}
+			// push "regenerate" and "loop" to the front of args so we
+			// loop until the tests pass
+			args = append([]string{"regenerate", "loop"}, args...)
 		case "abort":
 			// Abort the current operation
 			Pl("Operation aborted by user.")
@@ -347,6 +357,7 @@ func PrintUsageAndExit() {
 	fmt.Println("  model         - Select LLM model")
 	fmt.Println("  autocommit    - Auto-generate a commit message, commit, then regenerate code based on prompt")
 	fmt.Println("  test          - Run tests and include the results in the next LLM prompt")
+	fmt.Println("  loop          - Run tests and regenerate code until tests pass")
 	fmt.Println("  abort         - Abort subcommand processing")
 	os.Exit(1)
 }
@@ -683,12 +694,12 @@ func ask(question, deflt string, others ...string) (response string, err error) 
 	}
 }
 
-func runTest(fn string) (err error) {
+func runTest(fn string) (rc int, err error) {
 	defer Return(&err)
 	Pf("Running tests\n")
 
 	// Run go test -v
-	stdout, stderr, _, _ := RunTee("go test -v")
+	stdout, stderr, rc, _ := RunTee("go test -v")
 
 	// Write test results to the file
 	fh, err := os.Create(fn)
@@ -696,7 +707,7 @@ func runTest(fn string) (err error) {
 	_, err = fh.WriteString(Spf("\n\nstdout:\n%s\n\nstderr:%s\n\n", stdout, stderr))
 	Ck(err)
 	fh.Close()
-	return err
+	return rc, err
 }
 
 func generate(g *core.Grokker, modelName string, p *Prompt) (err error) {
@@ -954,6 +965,7 @@ func menu(g *core.Grokker) (action string, err error) {
 		fmt.Println("  [m]odel         - Select LLM model")
 		fmt.Println("  [t]est          - Run tests and include the results in the next LLM prompt")
 		fmt.Println("  autoc[o]mmit    - Auto-generate a commit message, commit, then regenerate code based on prompt")
+		fmt.Println("  [l]oop          - Run tests and regenerate code until tests pass")
 		fmt.Println("  e[x]it          - Abort and exit the menu")
 		fmt.Println("Press the corresponding key to select an action...")
 
@@ -985,6 +997,8 @@ func menu(g *core.Grokker) (action string, err error) {
 			return "autocommit", nil
 		case "t":
 			return "test", nil
+		case "l":
+			return "loop", nil
 		case "x":
 			return "abort", nil
 		default:
