@@ -1,3 +1,22 @@
+support multiple paths
+
+Modify main.go to accept and include multiple directory paths on the
+command line.
+
+- set the prompt file to read-only after generating code, then read-write
+  after committing
+- transform the role of the prompt file to be instead a menu itself;
+  get rid of the separate aidda menu, have aidda be a daemon that
+  watches the prompt file for changes and runs the appropriate command
+  when the prompt file is saved; have aidda modify the prompt file
+  as needed to indicate the state of the aidda-generated code and
+  commit status
+
+In:
+    x/tokencount/main.go
+
+.stop
+
 ensure aidda-generated code is committed before prompt file is edited again
 
 Brainstorm how I might ensure that the aidda-generated code is

@@ -50,8 +50,7 @@ var DefaultSysmsg = `
   methods, structs, or functions that do not exist. Do not quote or
   escape single backticks in the code -- Go uses backticks for raw
   string literals.  Do not remove or alter comments unless they are
-  incorrect or misleading.  
-  `
+  incorrect or misleading.`
 
 // Stamp struct for handling timestamp files
 type Stamp struct {
@@ -241,25 +240,23 @@ func Do(g *core.Grokker, modelName string, args ...string) (err error) {
 		case "autocommit":
 			// commit using the git diff to generate a commit message
 			// do a git add -A first
+			Pl("git add -A")
 			cmd := exec.Command("git", "add", "-A")
 			out, err := cmd.CombinedOutput()
 			Ck(err)
 			Pl(string(out))
 			// ...then generate the commit message
+			Pf("Generating commit message...\n")
 			summary, err := g.GitCommitMessage("o3-mini", "--staged")
 			Ck(err)
 			Pl(summary)
 			// ...then commit
+			Pl("git commit")
 			err = commit(g, summary)
 			Ck(err)
-			// then regenerate
-			var p *Prompt
-			p, err = getPrompt(promptFn)
+			// set prompt file read-write to allow for further editing
+			err = os.Chmod(promptFn, 0644)
 			Ck(err)
-			err = generate(g, modelName, p)
-			Ck(err)
-			// don't need to set the prompt file read-only since we
-			// aren't using it to generate the commit message
 		case "regenerate":
 			// Regenerate code from the prompt without committing
 			var p *Prompt
@@ -291,6 +288,7 @@ func Do(g *core.Grokker, modelName string, args ...string) (err error) {
 			// Run tests and regenerate code until tests pass
 			rc, err := runTest(testFn)
 			Ck(err)
+			Pl("rc:", rc)
 			if rc == 0 {
 				continue
 			}
@@ -770,7 +768,7 @@ func generate(g *core.Grokker, modelName string, p *Prompt) (err error) {
 
 	Pl("Output files:")
 	for _, f := range outFns {
-		Pl(f)
+		Pf("    %s\n", f)
 	}
 
 	Pl("Using model:", g.Model)
@@ -964,7 +962,7 @@ func menu(g *core.Grokker) (action string, err error) {
 		fmt.Println("  [f]orce-commit  - Commit changes even if only the prompt has been updated")
 		fmt.Println("  [m]odel         - Select LLM model")
 		fmt.Println("  [t]est          - Run tests and include the results in the next LLM prompt")
-		fmt.Println("  autoc[o]mmit    - Auto-generate a commit message, commit, then regenerate code based on prompt")
+		fmt.Println("  [a]utocommit    - Auto-generate a commit message and then commit")
 		fmt.Println("  [l]oop          - Run tests and regenerate code until tests pass")
 		fmt.Println("  e[x]it          - Abort and exit the menu")
 		fmt.Println("Press the corresponding key to select an action...")
@@ -993,7 +991,7 @@ func menu(g *core.Grokker) (action string, err error) {
 			return "force-commit", nil
 		case "m":
 			return "model", nil
-		case "o":
+		case "a":
 			return "autocommit", nil
 		case "t":
 			return "test", nil

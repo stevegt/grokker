@@ -541,7 +541,7 @@ func (g *Grokker) GitCommitMessage(modelName string, args ...string) (msg string
 	if true {
 		// experimental: take advantage of more modern models that have
 		// larger context windows and know what a commit message is
-		sysmsg := "Write a git commit message for the given diff. Use present tense, active, imperative statements as if giving directions.  Do not use extra adjectives or marketing hype.  The first line of the commit message must be a summary of 60 characters or less, followed by a blank line, followed by bullet-pointed details."
+		sysmsg := "Write a git commit message for the given diff. Use present tense, active, imperative statements as if giving directions.  Do not use extra adjectives or marketing hype.  The first line of the commit message must be a summary of 60 characters or less, followed by a blank line, followed by bullet-pointed details.  Make a separate bullet list for each changed file."
 
 		// Yes, we're giving the model the instructions twice -- once in the
 		// sysmsg and once in the prompt.
