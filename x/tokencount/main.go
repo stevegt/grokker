@@ -12,9 +12,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/gabriel-vasile/mimetype"
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker/v3/core"
-	"github.com/gabriel-vasile/mimetype"
 )
 
 func main() {
@@ -23,16 +23,22 @@ func main() {
 	listFiles := flag.Bool("l", false, "List all countable files")
 	flag.Parse()
 
-	// Determine the directory to process
-	directory := "."
-	args := flag.Args()
-	if len(args) > 0 {
-		directory = args[0]
+	// Determine the directories to process
+	directories := flag.Args()
+	if len(directories) == 0 {
+		directories = []string{"."}
 	}
 
-	fileLangMap, err := getFileLanguages(directory)
-	if err != nil {
-		log.Fatalf("Error getting file languages: %v", err)
+	fileLangMap := make(map[string]string)
+	// Process each directory and merge file language mappings
+	for _, dir := range directories {
+		mapping, err := getFileLanguages(dir)
+		if err != nil {
+			log.Fatalf("Error getting file languages from directory %s: %v", dir, err)
+		}
+		for file, lang := range mapping {
+			fileLangMap[file] = lang
+		}
 	}
 
 	// If -l flag is set, list all countable files and exit
@@ -50,7 +56,7 @@ func main() {
 
 	// Initialize Tokenizer
 	var grok *core.Grokker
-	err = core.InitTokenizer()
+	err := core.InitTokenizer()
 	Ck(err)
 
 	// Prepare slice for individual file stats if -i flag is set
@@ -131,7 +137,7 @@ func main() {
 	}
 }
 
-// getFileLanguages runs `ohcount -d <root>` and parses its output to map files to languages
+// getFileLanguages runs ohcount -d <root> and parses its output to map files to languages
 func getFileLanguages(root string) (map[string]string, error) {
 	cmd := exec.Command("ohcount", "-d", root)
 	var out bytes.Buffer
@@ -194,6 +200,5 @@ func countTokens(grok *core.Grokker, file string) (count int, err error) {
 	content = strings.TrimSpace(content)
 
 	count, err = grok.TokenCount(content)
-
 	return
 }
