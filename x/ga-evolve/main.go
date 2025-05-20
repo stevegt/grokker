@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -400,6 +401,20 @@ func childNameComma(mom, dad string) string {
 	return child
 }
 
+// childNameHash creates a new file name for the child by concatenating the two
+// parents, hashing the result, and adding the extension of the first parent
+func childNameHash(mom, dad string) string {
+	ext := filepath.Ext(mom)
+	// hash the two parents
+	hash := sha256.New()
+	hash.Write([]byte(mom + dad))
+	// get the digest
+	digest := hash.Sum(nil)
+	// convert the digest to a hex string and add the extension
+	child := fmt.Sprintf("%x%s", digest, ext)
+	return child
+}
+
 // merge combines two files using the LLM
 func merge(g *core.Grokker, mom, dad string, fitnessCriteria string, model *core.Model) (err error) {
 	defer Return(&err)
@@ -410,12 +425,15 @@ func merge(g *core.Grokker, mom, dad string, fitnessCriteria string, model *core
 	// create a new file name for the child
 	ext := filepath.Ext(mom)
 
-	child := childNameComma(mom, dad)
+	child := childNameHash(mom, dad)
 
 	// if the child file already exists, return with no error
-	if _, err := os.Stat(child); err == nil {
+	_, err = os.Stat(child)
+	if err == nil {
+		Pf("Child file %s already exists, skipping merge\n", child)
 		return nil
 	}
+	Pf("Creating child file %s: %v\n", child, err)
 
 	extNoDot := strings.TrimPrefix(ext, ".")
 
