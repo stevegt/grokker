@@ -1,10 +1,16 @@
-support multiple paths
+fitness function takes two files
 
-Modify main.go to accept and include multiple directory paths on the
-command line.
+Modify the fitness() function and the fitnessPromptTmpl to take two
+files as input, score them according to the fitness criteria, and
+return the two scores.  The two scores must not be equal; the higher
+score must be for the file that is more fit.
+
+Modify the calling code accordingly.
 
 In:
-    x/tokencount/main.go
+    x/ga-evolve/main.go
+Out:
+    x/ga-evolve/main.go
 
 .stop
 

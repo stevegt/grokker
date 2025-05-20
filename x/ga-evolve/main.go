@@ -55,7 +55,7 @@ var commitPrompt = "Write a git commit message summarizing the following file. U
 
 var mergePromptTmpl = "Create a new file combining the best parts of the following two files while improving the result to meet the fitness criteria specified below.  The new file must be a valid file of the same type as the first two files.  The fitness criteria are:\n\n%s\n\n"
 
-var fitnessPromptTmpl = `Provide a fitness score for the %s file.  The fitness score should be based on the criteria in the fitnessCriteria file.  The files are delimited by XML tags.  The fitness score should be a number between 1 and some higher number, with 1 being the worst.  You response must match the regular expression 'fitness=(\d+)' `
+var fitnessPromptTmpl = `Provide fitness scores for the two files. The first file is delimited by <file1> and the second file is delimited by <file2>. Include the fitness criteria found between <fitnessCriteria> tags below. Your response must include two scores in the format 'fitness1=<number>' and 'fitness2=<number>'. Ensure that the scores are not equal, both are greater than zero, and that the higher score corresponds to the file that better meets the fitness criteria.`
 
 func main() {
 	// Define and parse command-line flags
@@ -222,26 +222,31 @@ func generation(g *core.Grokker, gen int, dir string, fitnessCriteria string, mo
 		break
 	}
 
-	// score each file
+	// Evaluate unscored files
+	unscored := []string{}
+	scored := []string{}
 	for _, file := range files {
-		// check if the file has a score
-		_, ok := scores.Fitness[file]
-		if ok {
-			// if the file has a score, skip it
+		if _, ok := scores.Fitness[file]; !ok {
+			unscored = append(unscored, file)
+		} else {
+			scored = append(scored, file)
+		}
+	}
+
+	// Process unscored files, comparing each to a randomly selected
+	// scored file
+	for i := 0; i+1 < len(unscored); i += 2 {
+		file1 := unscored[i]
+		file2 := scored[rand.Intn(len(scored))]
+		score1, score2, err := fitness(g, file1, file2, fitnessCriteria, model)
+		if err != nil || score1 <= 0 || score2 <= 0 {
+			log.Printf("Error calculating fitness for files %s and %s: scores %d and %d, %v", file1, file2, score1, score2, err)
 			continue
 		}
-		// if the file doesn't have a score, call the fitness function
-		fitnessScore, err := fitness(g, file, fitnessCriteria, model)
-		// if the fitness function fails, skip the file
-		if err != nil || fitnessScore <= 0 {
-			log.Printf("Error calculating fitness for file %s: fitness %d, %v", file, fitnessScore, err)
-			// remove the file from the fitness map
-			delete(scores.Fitness, file)
-			continue
-		}
-		// add the fitness score to the scores map
-		scores.Fitness[file] = fitnessScore
-		// write the fitness score to the .scores file
+		scores.Fitness[file1] = score1
+		scores.Fitness[file2] = score2
+
+		// write the fitness scores to the .scores file after each pair
 		scoresBytes, err := json.Marshal(scores)
 		Ck(err)
 		err = ioutil.WriteFile(scoresFn, scoresBytes, 0644)
@@ -301,25 +306,30 @@ func generation(g *core.Grokker, gen int, dir string, fitnessCriteria string, mo
 	return
 }
 
-// fitness calculates the fitness score of a file
-func fitness(g *core.Grokker, file string, fitnessCriteria string, model *core.Model) (int, error) {
+// fitness calculates the fitness scores for two files
+// It returns two scores (score1 and score2) corresponding to file1 and file2 respectively.
+func fitness(g *core.Grokker, file1, file2 string, fitnessCriteria string, model *core.Model) (int, int, error) {
 	defer Return(nil)
 
-	Pf("Calculating fitness for %s ... ", file)
+	Pf("Calculating fitness for %s and %s ...\n", file1, file2)
 
-	// get the file content
-	buf, err := ioutil.ReadFile(file)
+	// get the contents of both files
+	buf1, err := ioutil.ReadFile(file1)
 	Ck(err)
-	txt := string(buf)
+	txt1 := string(buf1)
 
-	// create the fitness prompt by wrapping the file and fitness criteria in XML tags
-	fitnessPrompt := fmt.Sprintf(fitnessPromptTmpl, file)
-	prompt := fmt.Sprintf("%s\n\n<fitnessCriteria>%s</fitnessCriteria>\n\n<file>%s</file>",
-		fitnessPrompt, fitnessCriteria, txt)
+	buf2, err := ioutil.ReadFile(file2)
+	Ck(err)
+	txt2 := string(buf2)
+
+	// create the fitness prompt by wrapping the files and fitness criteria in XML tags
+	fitnessPrompt := fmt.Sprintf(fitnessPromptTmpl)
+	prompt := fmt.Sprintf("%s\n\n<fitnessCriteria>%s</fitnessCriteria>\n\n<file1>%s</file1>\n\n<file2>%s</file2>",
+		fitnessPrompt, fitnessCriteria, txt1, txt2)
 
 	// call the LLM with the fitness prompt
 	msgs := []client.ChatMsg{
-		client.ChatMsg{
+		{
 			Role:    "User",
 			Content: prompt,
 		},
@@ -327,22 +337,37 @@ func fitness(g *core.Grokker, file string, fitnessCriteria string, model *core.M
 	res, err := g.CompleteChat(model.Name, fitnessPrompt, msgs)
 	Ck(err)
 
-	// find the fitness={score} in the response
-	re := regexp.MustCompile(`fitness=(\d+)`)
-	m := re.FindStringSubmatch(res)
-	if len(m) < 2 {
-		return 0, fmt.Errorf("fitness score not found in response: %s", res)
+	// find fitness1 and fitness2 in the response
+	re1 := regexp.MustCompile(`fitness1=(\d+)`)
+	m1 := re1.FindStringSubmatch(res)
+	if len(m1) < 2 {
+		return 0, 0, fmt.Errorf("fitness1 not found in response: %s", res)
 	}
-	// convert the score to an int
-	// the score is in the second element of the match
-	fitnessScore, err := strconv.Atoi(m[1])
+	re2 := regexp.MustCompile(`fitness2=(\d+)`)
+	m2 := re2.FindStringSubmatch(res)
+	if len(m2) < 2 {
+		return 0, 0, fmt.Errorf("fitness2 not found in response: %s", res)
+	}
+
+	// convert the scores to ints
+	score1, err := strconv.Atoi(m1[1])
 	if err != nil {
-		return 0, err
+		return 0, 0, err
+	}
+	score2, err := strconv.Atoi(m2[1])
+	if err != nil {
+		return 0, 0, err
 	}
 
-	Pf("%d\n", fitnessScore)
+	// Ensure the scores are not equal; if they are, adjust slightly.
+	if score1 == score2 {
+		score2 = score1 + 1
+	}
 
-	return fitnessScore, nil
+	Pf("    %s: %d\n", file1, score1)
+	Pf("    %s: %d\n", file2, score2)
+
+	return score1, score2, nil
 }
 
 // countTokens counts the number of tokens (words) in a file
@@ -439,7 +464,7 @@ func merge(g *core.Grokker, mom, dad string, fitnessCriteria string, model *core
 
 	inFns := []string{mom, dad}
 	outFls := []core.FileLang{
-		core.FileLang{
+		{
 			File:     child,
 			Language: extNoDot,
 		},
@@ -480,7 +505,7 @@ func merge(g *core.Grokker, mom, dad string, fitnessCriteria string, model *core
 	mergePrompt := fmt.Sprintf(mergePromptTmpl, fitnessCriteria)
 
 	msgs := []client.ChatMsg{
-		client.ChatMsg{
+		{
 			Role:    "User",
 			Content: mergePrompt,
 		},
