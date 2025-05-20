@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/sha256"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -26,19 +25,20 @@ import (
 This program evolves a set of files using a genetic algorithm using the following procedure:
 
 - read a file containing fitness criteria
-- open a directory and find all files
+- open a directory and find all files (each file’s name is its fitness score)
 - for N generations:
-	- for each file:
-		- check the .scores file in the same directory for a fitness score
-		- if there is no score found:
-			- provide the file and the fitness criteria to an LLM, returning a fitness score
-			- add the fitness score to the .scores file
-	- sort the files by fitness score
-	- remove the files with the lowest fitness scores and remove their entries from the .scores file
+	- for each file that does not have a numeric filename (i.e. unscored):
+			- calculate its fitness by comparing it with a randomly chosen scored file (or another unscored file if none exists)
+			- if the computed fitness score is already used by another file, increment the score until it is unique
+			- rename the file with its unique numeric fitness score, preserving its extension
+	- sort the files by fitness score; if a filename is non-numeric, sort alphanumerically instead of numerically
+	- remove the files with the lowest fitness scores to reduce the population to half the desired size
+		- do not remove files that are unscored
 	- repopulate the directory by recombining the remaining files using the following procedure:
-		- pick two files
-		- provide the two files to an LLM, returning a new file
-- git commit
+		- pick two different files at random (parents)
+		- provide the two files to an LLM, returning a new file (child)
+		- immediately compute the fitness of the child relative to one parent and rename both files with their new unique scores
+	- git commit
 
 */
 
@@ -63,8 +63,8 @@ func main() {
 	// file that contains fitness criteria
 	fitnessFn := flag.String("f", "", "File containing fitness criteria")
 
-	// directory containing individuals and .scores file
-	dir := flag.String("d", "", "Directory containing individuals and .scores file")
+	// directory containing individuals (files are named by their fitness scores)
+	dir := flag.String("d", "", "Directory containing individuals")
 
 	// LLM model
 	modelName := flag.String("m", "", "LLM model")
@@ -135,27 +135,16 @@ func main() {
 
 // showAll prints the name and fitness score of each file
 func showAll(dir string) {
-	scoresFn := dir + "/.scores"
-	scores := &Scores{}
-	// read the .scores file
-	scoresBytes, err := ioutil.ReadFile(scoresFn)
+	individuals, err := allIndividuals(dir)
 	Ck(err)
-	// unmarshal the .scores file
-	err = json.Unmarshal(scoresBytes, scores)
-	Ck(err)
-
-	// sort the scores by fitness score
-	sortedScores := make([]string, 0, len(scores.Fitness))
-	for file := range scores.Fitness {
-		sortedScores = append(sortedScores, file)
-	}
-	sort.Slice(sortedScores, func(i, j int) bool {
-		return scores.Fitness[sortedScores[i]] > scores.Fitness[sortedScores[j]]
-	})
-
-	for _, file := range sortedScores {
-		score := scores.Fitness[file]
-		fmt.Printf("%d %s\n", score, file)
+	sortedFiles := sortIndividuals(individuals)
+	for _, file := range sortedFiles {
+		score, ok := parseFitnessFromFilename(file)
+		if ok {
+			fmt.Printf("%d %s\n", score, file)
+		} else {
+			fmt.Printf("%s\n", file)
+		}
 	}
 }
 
@@ -178,9 +167,55 @@ func allIndividuals(dir string) ([]string, error) {
 	return individuals, nil
 }
 
-// Scores is a map that holds the fitness scores for each file
-type Scores struct {
-	Fitness map[string]int `json:"fitness"`
+// parseFitnessFromFilename attempts to parse the score from a file's name.
+// It strips the extension and tries to convert the rest to an int.
+func parseFitnessFromFilename(filename string) (int, bool) {
+	base := strings.TrimSuffix(filename, filepath.Ext(filename))
+	score, err := strconv.Atoi(base)
+	if err != nil {
+		return 0, false
+	}
+	return score, true
+}
+
+// updateFitness renames the given file to have the provided newScore as its base name,
+// ensuring that no two files have the same score. It returns the new filename.
+func updateFitness(file string, newScore int) (string, error) {
+	ext := filepath.Ext(file)
+	candidate := strconv.Itoa(newScore) + ext
+	for {
+		if candidate != file {
+			if _, err := os.Stat(candidate); err == nil {
+				newScore++
+				candidate = strconv.Itoa(newScore) + ext
+				continue
+			}
+		}
+		break
+	}
+	if file != candidate {
+		err := os.Rename(file, candidate)
+		if err != nil {
+			return "", err
+		}
+		Pf("Renamed %s to %s\n", file, candidate)
+	}
+	return candidate, nil
+}
+
+// sortIndividuals sorts a list of filenames. If both filenames have numeric bases,
+// they are sorted in descending numerical order; otherwise, they are sorted in descending
+// lexicographical order.
+func sortIndividuals(files []string) []string {
+	sort.Slice(files, func(i, j int) bool {
+		scoreI, ok1 := parseFitnessFromFilename(files[i])
+		scoreJ, ok2 := parseFitnessFromFilename(files[j])
+		if ok1 && ok2 {
+			return scoreI > scoreJ
+		}
+		return files[i] > files[j]
+	})
+	return files
 }
 
 // generation runs a single generation of the genetic algorithm
@@ -189,118 +224,108 @@ func generation(g *core.Grokker, gen int, dir string, fitnessCriteria string, mo
 
 	Pf("Generation %d\n", gen)
 
-	// Open the directory and find all files
-	files, err := allIndividuals(dir)
+	// Get all individuals (files) in the directory
+	individuals, err := allIndividuals(dir)
 	Ck(err)
+	Assert(len(individuals) > 1, "Need at least two individuals to breed")
 
-	// read the .scores file
-	scoresFn := dir + "/.scores"
-	scores := &Scores{}
-	// unmarshal or create the .scores file
-	for {
-		// see if the .scores file exists
-		if _, err := os.Stat(scoresFn); os.IsNotExist(err) {
-			// create the .scores file if it doesn't exist
-			scores.Fitness = make(map[string]int)
-			scoresBytes, err := json.Marshal(scores)
-			Ck(err)
-			err = ioutil.WriteFile(scoresFn, scoresBytes, 0644)
-			Ck(err)
-		}
-		// read the .scores file
-		scoresBytes, err := ioutil.ReadFile(scoresFn)
-		Ck(err)
-		// unmarshal the .scores file
-		err = json.Unmarshal(scoresBytes, scores)
-		if err != nil {
-			// bad .scores file, delete it and try again
-			err = os.Remove(scoresFn)
-			Ck(err)
-			continue
-		}
-		// good .scores file, break out of the loop
-		break
-	}
-
-	// Evaluate unscored files
-	unscored := []string{}
-	scored := []string{}
-	for _, file := range files {
-		if _, ok := scores.Fitness[file]; !ok {
-			unscored = append(unscored, file)
+	scored := make(map[string]bool)
+	unscored := make(map[string]bool)
+	for _, file := range individuals {
+		if _, ok := parseFitnessFromFilename(file); ok {
+			scored[file] = true
 		} else {
-			scored = append(scored, file)
+			unscored[file] = true
 		}
 	}
 
-	// Process unscored files, comparing each to a randomly selected
-	// scored file
-	for i := 0; i+1 < len(unscored); i += 2 {
-		file1 := unscored[i]
-		file2 := scored[rand.Intn(len(scored))]
-		score1, score2, err := fitness(g, file1, file2, fitnessCriteria, model)
+	// Process unscored files by comparing each to a scored file if available;
+	// otherwise, pair up unscored files.
+	for len(unscored) > 0 {
+		// pick a random unscored file
+		file1 := randMapKey(unscored)
+		// pick a reference file
+		ref := ""
+		if len(scored) > 0 {
+			// pick a random scored file
+			ref = randMapKey(scored)
+		} else {
+			// pick a random unscored file
+			ref = randMapKey(unscored)
+		}
+		// if the reference file is the same as the unscored file, pick another
+		if file1 == ref {
+			continue
+		}
+
+		// calculate the fitness of the unscored file relative to the reference file
+		score1, score2, err := fitness(g, file1, ref, fitnessCriteria, model)
 		if err != nil || score1 <= 0 || score2 <= 0 {
-			log.Printf("Error calculating fitness for files %s and %s: scores %d and %d, %v", file1, file2, score1, score2, err)
+			log.Printf("Error calculating fitness for files %s and %s: scores %d and %d, %v", file1, ref, score1, score2, err)
 			continue
 		}
-		scores.Fitness[file1] = score1
-		scores.Fitness[file2] = score2
 
-		// write the fitness scores to the .scores file after each pair
-		scoresBytes, err := json.Marshal(scores)
+		// update the unscored file with its new fitness score
+		newName, err := updateFitness(file1, score1)
 		Ck(err)
-		err = ioutil.WriteFile(scoresFn, scoresBytes, 0644)
+		// update the reference file with its new fitness score
+		newRefName, err := updateFitness(ref, score2)
 		Ck(err)
-	}
 
-	// sort the files by fitness score
-	sortedFiles := make([]string, 0, len(scores.Fitness))
-	for file := range scores.Fitness {
-		sortedFiles = append(sortedFiles, file)
-	}
-	sort.Slice(sortedFiles, func(i, j int) bool {
-		// sort in descending order
-		return scores.Fitness[sortedFiles[i]] > scores.Fitness[sortedFiles[j]]
-	})
+		// update the maps
+		delete(unscored, file1)
+		delete(unscored, ref)
+		delete(scored, file1)
+		delete(scored, ref)
+		scored[newName] = true
+		scored[newRefName] = true
 
-	// remove the files with the lowest fitness scores
-	for i := len(sortedFiles) - 1; i >= populationSize/2; i-- {
-		// remove the file from the scores map
-		delete(scores.Fitness, sortedFiles[i])
-		// remove the file from the directory
-		err = os.Remove(dir + "/" + sortedFiles[i])
-		if err != nil {
-			log.Printf("Error removing file %s: %v", sortedFiles[i], err)
-			continue
+	}
+	// Refresh the list of individuals after scoring
+	individuals, err = allIndividuals(dir)
+	Ck(err)
+	sortedFiles := sortIndividuals(individuals)
+
+	// Remove the files with the lowest fitness scores so that only the top half remain.
+	if len(sortedFiles) > populationSize/2 {
+		for i := populationSize / 2; i < len(sortedFiles); i++ {
+			err = os.Remove(sortedFiles[i])
+			Ck(err)
 		}
 	}
-	// write the scores map to the .scores file
-	scoresBytes, err := json.Marshal(scores)
-	Ck(err)
-	err = ioutil.WriteFile(scoresFn, scoresBytes, 0644)
-	Ck(err)
 
-	// repopulate the directory by recombining the remaining files
+	// Repopulate the directory by recombining the remaining files until populationSize is reached.
 	for {
-		// count the number of files in the directory
 		survivors, err := allIndividuals(dir)
 		Ck(err)
 		if len(survivors) >= populationSize {
 			break
 		}
-
-		// pick two files at random
+		// pick two random survivors
+		if len(survivors) < 2 {
+			break
+		}
 		mom := survivors[rand.Intn(len(survivors))]
 		dad := survivors[rand.Intn(len(survivors))]
-
-		// check if the files are the same
 		if mom == dad {
 			continue
 		}
-
-		// provide the two files to an LLM, creating a new file
-		err = merge(g, mom, dad, fitnessCriteria, model)
+		// Merge the two files. The merge function now returns the child's filename.
+		child, err := merge(g, mom, dad, fitnessCriteria, model)
 		Ck(err)
+		// Always calculate the fitness of a child after generating it.
+		// Calculate the fitness of the new child relative to one parent (mom).
+		scoreMom, scoreChild, err := fitness(g, mom, child, fitnessCriteria, model)
+		if err != nil || scoreMom <= 0 || scoreChild <= 0 {
+			log.Printf("Error calculating fitness for files %s and %s: scores %d and %d, %v", mom, child, scoreMom, scoreChild, err)
+			continue
+		}
+		newMom, err := updateFitness(mom, scoreMom)
+		Ck(err)
+		newChild, err := updateFitness(child, scoreChild)
+		Ck(err)
+		_ = newMom
+		_ = newChild
 	}
 
 	return
@@ -335,7 +360,9 @@ func fitness(g *core.Grokker, file1, file2 string, fitnessCriteria string, model
 		},
 	}
 	res, err := g.CompleteChat(model.Name, fitnessPrompt, msgs)
-	Ck(err)
+	if err != nil {
+		return 0, 0, fmt.Errorf("error calculating fitness: %v", err)
+	}
 
 	// find fitness1 and fitness2 in the response
 	re1 := regexp.MustCompile(`fitness1=(\d+)`)
@@ -440,26 +467,26 @@ func childNameHash(mom, dad string) string {
 	return child
 }
 
-// merge combines two files using the LLM
-func merge(g *core.Grokker, mom, dad string, fitnessCriteria string, model *core.Model) (err error) {
+// merge combines two files using the LLM.
+// It returns the filename of the newly created child file.
+func merge(g *core.Grokker, mom, dad string, fitnessCriteria string, model *core.Model) (child string, err error) {
 	defer Return(&err)
 
 	Pl()
 	Pf("Merging %s and %s...\n", mom, dad)
 
-	// create a new file name for the child
-	ext := filepath.Ext(mom)
+	// create a new file name for the child using a hash of the parents
+	child = childNameHash(mom, dad)
 
-	child := childNameHash(mom, dad)
-
-	// if the child file already exists, return with no error
+	// if the child file already exists, skip merge
 	_, err = os.Stat(child)
 	if err == nil {
 		Pf("Child file %s already exists, skipping merge\n", child)
-		return nil
+		return child, nil
 	}
-	Pf("Creating child file %s: %v\n", child, err)
+	Pf("Creating child file %s\n", child)
 
+	ext := filepath.Ext(mom)
 	extNoDot := strings.TrimPrefix(ext, ".")
 
 	inFns := []string{mom, dad}
@@ -513,7 +540,7 @@ func merge(g *core.Grokker, mom, dad string, fitnessCriteria string, model *core
 
 	res, err := g.SendWithFiles(model.Name, mergePrompt, msgs, inFns, outFls)
 	if err != nil {
-		return fmt.Errorf("error merging files: %v", err)
+		return "", fmt.Errorf("error merging files: %v", err)
 	}
 
 	elapsed := time.Since(start)
@@ -521,15 +548,14 @@ func merge(g *core.Grokker, mom, dad string, fitnessCriteria string, model *core
 	close(stopDots)
 	Pf(" got response in %s\n", elapsed)
 
-	// ExtractFiles(outFls, promptFrag, dryrun, extractToStdout)
 	err = core.ExtractFiles(outFls, res, false, false)
 	if err != nil {
-		return fmt.Errorf("error extracting merged output: %v", err)
+		return "", fmt.Errorf("error extracting merged output: %v", err)
 	}
 
 	Pl()
 
-	return
+	return child, nil
 }
 
 // randString generates a random string of the specified length
@@ -540,4 +566,20 @@ func randString(n int) string {
 		b[i] = letters[rand.Intn(len(letters))]
 	}
 	return string(b)
+}
+
+// randMapKey returns a random key from the map without having to
+// first build a slice of keys
+func randMapKey(m map[string]bool) string {
+	Assert(len(m) > 0, "randMapKey: map is empty")
+	j := rand.Intn(len(m))
+	i := 0
+	for key := range m {
+		if i == j {
+			return key
+		}
+		i++
+	}
+	Assert(false, "randMapKey: no key found")
+	return "" // should never happen
 }

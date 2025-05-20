@@ -1,11 +1,16 @@
-fitness function takes two files
+use scores as filenames
 
-Modify the fitness() function and the fitnessPromptTmpl to take two
-files as input, score them according to the fitness criteria, and
-return the two scores.  The two scores must not be equal; the higher
-score must be for the file that is more fit.
-
-Modify the calling code accordingly.
+- instead of using a .scores file, use the scores as filenames
+- no two files can have the same score
+- if a fitness calculation produces the same score as an existing file,
+  increment the new file's score by 1 until it is unique
+- always calculate the fitness of a child after generating it
+- calculate the fitness of a new child relative to either parent
+- when recalculating the fitness of a file, use the new fitness to
+  rename the file
+- when sorting, if either file has a non-numeric name, sort
+  alphanumerically instead of numerically
+- move the sorting code to a separate function to avoid code duplication
 
 In:
     x/ga-evolve/main.go
