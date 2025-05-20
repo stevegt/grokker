@@ -4,7 +4,6 @@ package main
 
 import (
 	"crypto/sha256"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -36,6 +35,7 @@ This program evolves a set of files using a genetic algorithm using the followin
 			- rename the file with its unique numeric fitness score, preserving its extension
 	- sort the files by fitness score; if a filename is non-numeric, sort alphanumerically instead of numerically
 	- remove the files with the lowest fitness scores to reduce the population to half the desired size
+		- do not remove files that are unscored
 	- repopulate the directory by recombining the remaining files using the following procedure:
 		- pick two different files at random (parents)
 		- provide the two files to an LLM, returning a new file (child)
@@ -95,13 +95,8 @@ func main() {
 		log.Fatalf("Model %s is not available", *modelName)
 	}
 
-	// Read the fitness criteria from the file
-	fitnessCriteriaBuf, err := ioutil.ReadFile(*fitnessFn)
-	Ck(err)
-	fitnessCriteria := string(fitnessCriteriaBuf)
-
 	// change to the specified directory
-	err = os.Chdir(*dir)
+	err := os.Chdir(*dir)
 	Ck(err)
 
 	// initialize grokker
@@ -115,6 +110,11 @@ func main() {
 	Ck(err)
 
 	for i := 0; i < *generations; i++ {
+		// Re-read the fitness criteria from file before each generation step.
+		fitnessCriteriaBuf, err := ioutil.ReadFile(*fitnessFn)
+		Ck(err)
+		fitnessCriteria := string(fitnessCriteriaBuf)
+
 		generation(g, i, *dir, fitnessCriteria, model, *populationSize)
 		// print the name and fitness score of each file
 		showAll(*dir)
@@ -200,6 +200,7 @@ func updateFitness(file string, newScore int) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		Pf("Renamed %s to %s\n", file, candidate)
 	}
 	return candidate, nil
 }
@@ -228,50 +229,59 @@ func generation(g *core.Grokker, gen int, dir string, fitnessCriteria string, mo
 	// Get all individuals (files) in the directory
 	individuals, err := allIndividuals(dir)
 	Ck(err)
+	Assert(len(individuals) > 1, "Need at least two individuals to breed")
 
-	var scored []string
-	var unscored []string
+	scored := make(map[string]bool)
+	unscored := make(map[string]bool)
 	for _, file := range individuals {
 		if _, ok := parseFitnessFromFilename(file); ok {
-			scored = append(scored, file)
+			scored[file] = true
 		} else {
-			unscored = append(unscored, file)
+			unscored[file] = true
 		}
 	}
 
 	// Process unscored files by comparing each to a scored file if available;
 	// otherwise, pair up unscored files.
-	for i := 0; i < len(unscored); i++ {
-		var ref string
-		// Choose a reference file: if there is any scored file, pick one at random;
-		// otherwise, if there is a next unscored file, use that.
+	for len(unscored) > 0 {
+		// pick a random unscored file
+		file1 := randMapKey(unscored)
+		// pick a reference file
+		ref := ""
 		if len(scored) > 0 {
-			ref = scored[rand.Intn(len(scored))]
-		} else if i+1 < len(unscored) {
-			ref = unscored[i+1]
+			// pick a random scored file
+			ref = randMapKey(scored)
 		} else {
-			// No available pair; break.
-			break
+			// pick a random unscored file
+			ref = randMapKey(unscored)
 		}
-		score1, score2, err := fitness(g, unscored[i], ref, fitnessCriteria, model)
-		if err != nil || score1 <= 0 || score2 <= 0 {
-			log.Printf("Error calculating fitness for files %s and %s: scores %d and %d, %v", unscored[i], ref, score1, score2, err)
+		// if the reference file is the same as the unscored file, pick another
+		if file1 == ref {
 			continue
 		}
-		newName, err := updateFitness(unscored[i], score1)
-		Ck(err)
-		// If the reference file is unscored, update its fitness as well.
-		// If it is already scored, this recalculation refreshes its score.
-		_, refIsScored := parseFitnessFromFilename(ref)
-		if refIsScored {
-			_, err = updateFitness(ref, score2)
-			Ck(err)
-		} else {
-			_, err = updateFitness(ref, score2)
-			Ck(err)
+
+		// calculate the fitness of the unscored file relative to the reference file
+		score1, score2, err := fitness(g, file1, ref, fitnessCriteria, model)
+		if err != nil || score1 <= 0 || score2 <= 0 {
+			log.Printf("Error calculating fitness for files %s and %s: scores %d and %d, %v", file1, ref, score1, score2, err)
+			continue
 		}
-		// Update the scored list
-		scored = append(scored, newName)
+
+		// update the unscored file with its new fitness score
+		newName, err := updateFitness(file1, score1)
+		Ck(err)
+		// update the reference file with its new fitness score
+		newRefName, err := updateFitness(ref, score2)
+		Ck(err)
+
+		// update the maps
+		delete(unscored, file1)
+		delete(unscored, ref)
+		delete(scored, file1)
+		delete(scored, ref)
+		scored[newName] = true
+		scored[newRefName] = true
+
 	}
 	// Refresh the list of individuals after scoring
 	individuals, err = allIndividuals(dir)
@@ -281,11 +291,8 @@ func generation(g *core.Grokker, gen int, dir string, fitnessCriteria string, mo
 	// Remove the files with the lowest fitness scores so that only the top half remain.
 	if len(sortedFiles) > populationSize/2 {
 		for i := populationSize / 2; i < len(sortedFiles); i++ {
-			err = os.Remove(dir + "/" + sortedFiles[i])
-			if err != nil {
-				log.Printf("Error removing file %s: %v", sortedFiles[i], err)
-				continue
-			}
+			err = os.Remove(sortedFiles[i])
+			Ck(err)
 		}
 	}
 
@@ -319,7 +326,6 @@ func generation(g *core.Grokker, gen int, dir string, fitnessCriteria string, mo
 		Ck(err)
 		newChild, err := updateFitness(child, scoreChild)
 		Ck(err)
-		// Update the survivors list with the new names.
 		_ = newMom
 		_ = newChild
 	}
@@ -356,7 +362,9 @@ func fitness(g *core.Grokker, file1, file2 string, fitnessCriteria string, model
 		},
 	}
 	res, err := g.CompleteChat(model.Name, fitnessPrompt, msgs)
-	Ck(err)
+	if err != nil {
+		return 0, 0, fmt.Errorf("error calculating fitness: %v", err)
+	}
 
 	// find fitness1 and fitness2 in the response
 	re1 := regexp.MustCompile(`fitness1=(\d+)`)
@@ -560,6 +568,22 @@ func randString(n int) string {
 		b[i] = letters[rand.Intn(len(letters))]
 	}
 	return string(b)
+}
+
+// randMapKey returns a random key from the map without having to
+// first build a slice of keys
+func randMapKey(m map[string]bool) string {
+	Assert(len(m) > 0, "randMapKey: map is empty")
+	j := rand.Intn(len(m))
+	i := 0
+	for key := range m {
+		if i == j {
+			return key
+		}
+		i++
+	}
+	Assert(false, "randMapKey: no key found")
+	return "" // should never happen
 }
 ```
 EOF_/home/stevegt/lab/grokker/x/ga-evolve/main.go

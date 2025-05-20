@@ -93,13 +93,8 @@ func main() {
 		log.Fatalf("Model %s is not available", *modelName)
 	}
 
-	// Read the fitness criteria from the file
-	fitnessCriteriaBuf, err := ioutil.ReadFile(*fitnessFn)
-	Ck(err)
-	fitnessCriteria := string(fitnessCriteriaBuf)
-
 	// change to the specified directory
-	err = os.Chdir(*dir)
+	err := os.Chdir(*dir)
 	Ck(err)
 
 	// initialize grokker
@@ -113,6 +108,11 @@ func main() {
 	Ck(err)
 
 	for i := 0; i < *generations; i++ {
+		// Re-read the fitness criteria from file before each generation step.
+		fitnessCriteriaBuf, err := ioutil.ReadFile(*fitnessFn)
+		Ck(err)
+		fitnessCriteria := string(fitnessCriteriaBuf)
+
 		generation(g, i, *dir, fitnessCriteria, model, *populationSize)
 		// print the name and fitness score of each file
 		showAll(*dir)

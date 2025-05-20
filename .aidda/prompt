@@ -1,16 +1,7 @@
-use scores as filenames
+reread criteria before each generation step
 
-- instead of using a .scores file, use the scores as filenames
-- no two files can have the same score
-- if a fitness calculation produces the same score as an existing file,
-  increment the new file's score by 1 until it is unique
-- always calculate the fitness of a child after generating it
-- calculate the fitness of a new child relative to either parent
-- when recalculating the fitness of a file, use the new fitness to
-  rename the file
-- when sorting, if either file has a non-numeric name, sort
-  alphanumerically instead of numerically
-- move the sorting code to a separate function to avoid code duplication
+Re-read the fitness criteria file before each generation step to ensure that the
+criteria are up to date. 
 
 In:
     x/ga-evolve/main.go
