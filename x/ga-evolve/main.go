@@ -1,0 +1,470 @@
+package main
+
+import (
+	"encoding/json"
+	"flag"
+	"fmt"
+	"io/ioutil"
+	"log"
+	"math/rand"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/v3/client"
+	"github.com/stevegt/grokker/v3/core"
+)
+
+/*
+
+This program evolves a set of files using a genetic algorithm using the following procedure:
+
+- read a file containing fitness criteria
+- open a directory and find all files
+- for N generations:
+	- for each file:
+		- check the .scores file in the same directory for a fitness score
+		- if there is no score found:
+			- provide the file and the fitness criteria to an LLM, returning a fitness score
+			- add the fitness score to the .scores file
+	- sort the files by fitness score
+	- remove the files with the lowest fitness scores and remove their entries from the .scores file
+	- repopulate the directory by recombining the remaining files using the following procedure:
+		- pick two files
+		- provide the two files to an LLM, returning a new file
+- git commit
+
+*/
+
+func usage(models *core.Models) {
+	fmt.Println("Usage: go run main.go -f <fitnessFn> -d <dir> -m <model> -g <generations> -p <populationSize>")
+	// list models
+	fmt.Println("Available models:")
+	for _, m := range models.ListModels() {
+		fmt.Printf("  %s\n", m.String())
+	}
+}
+
+var commitPrompt = "Write a git commit message summarizing the following file. Use present tense, active, imperative statements as if giving directions.  Do not use extra adjectives or marketing hype.  The first line of the commit message must be a summary of 60 characters or less, followed by a blank line, followed by bullet-pointed details."
+
+var mergePromptTmpl = "Create a new file combining the best parts of the following two files.  The files are delimied in XML tags.  The first file is %s and the second file is %s.  The new file should be a combination of the two files, with the best parts of each.  The new file should be a valid file of the same type as the first two files.  The new file must be named %s and must be delimited by <%s> and </%s> XML tags."
+
+var fitnessPromptTmpl = "Provide a fitness score from 1 to 100 for the %s file.  The fitness score should be based on the criteria in the fitnessCriteria file.  The files are delimited by XML tags.  The fitness score should be a number between 1 and 1000, with 1 being the worst and 1000 being the best.  You reponse must be only the fitness score integer, with no other characters."
+
+func main() {
+	// Define and parse command-line flags
+
+	// file that contains fitness criteria
+	fitnessFn := flag.String("f", "", "File containing fitness criteria")
+
+	// directory containing individuals and .scores file
+	dir := flag.String("d", "", "Directory containing individuals and .scores file")
+
+	// LLM model
+	modelName := flag.String("m", "", "LLM model")
+
+	// number of generations
+	generations := flag.Int("g", 0, "Number of generations")
+
+	// population size
+	populationSize := flag.Int("p", 0, "Population size")
+
+	// parse the flags
+	flag.Parse()
+
+	models := core.NewModels()
+
+	// if any flag is missing, print usage and exit
+	if *fitnessFn == "" || *dir == "" || *modelName == "" || *generations == 0 || *populationSize == 0 {
+		usage(models)
+		os.Exit(1)
+	}
+
+	// Check if the specified model is available
+	model, ok := models.Available[*modelName]
+	if !ok {
+		usage(models)
+		log.Fatalf("Model %s is not available", *modelName)
+	}
+
+	// Read the fitness criteria from the file
+	fitnessCriteriaBuf, err := ioutil.ReadFile(*fitnessFn)
+	Ck(err)
+	fitnessCriteria := string(fitnessCriteriaBuf)
+
+	// change to the specified directory
+	err = os.Chdir(*dir)
+	Ck(err)
+
+	// initialize grokker
+	err = core.InitTokenizer()
+	Ck(err)
+	g := &core.Grokker{
+		Root:    *dir,
+		Version: core.Version,
+	}
+	err = g.Setup(*modelName)
+	Ck(err)
+
+	for i := 0; i < *generations; i++ {
+		generation(g, i, *dir, fitnessCriteria, model, *populationSize)
+		// print the name and fitness score of each file
+		showAll(*dir)
+	}
+
+	// generate a commit message using the content of the fittest file
+	// and the commitPrompt
+	// XXX
+
+	// git commit the changes
+	cmd := exec.Command("git", "add", *dir)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	Ck(err)
+
+}
+
+// showAll prints the name and fitness score of each file
+func showAll(dir string) {
+	scoresFn := dir + "/.scores"
+	scores := &Scores{}
+	// read the .scores file
+	scoresBytes, err := ioutil.ReadFile(scoresFn)
+	Ck(err)
+	// unmarshal the .scores file
+	err = json.Unmarshal(scoresBytes, scores)
+	Ck(err)
+
+	// sort the scores by fitness score
+	sortedScores := make([]string, 0, len(scores.Fitness))
+	for file := range scores.Fitness {
+		sortedScores = append(sortedScores, file)
+	}
+	sort.Slice(sortedScores, func(i, j int) bool {
+		return scores.Fitness[sortedScores[i]] > scores.Fitness[sortedScores[j]]
+	})
+
+	for _, file := range sortedScores {
+		score := scores.Fitness[file]
+		fmt.Printf("%d %s\n", score, file)
+	}
+}
+
+// allIndividuals returns a list of all individuals in the directory
+func allIndividuals(dir string) ([]string, error) {
+	files, err := ioutil.ReadDir(".")
+	if err != nil {
+		return nil, err
+	}
+	individuals := make([]string, 0)
+	for _, file := range files {
+		if strings.HasPrefix(file.Name(), ".") {
+			continue
+		}
+		if file.IsDir() {
+			continue
+		}
+		individuals = append(individuals, file.Name())
+	}
+	return individuals, nil
+}
+
+// Scores is a map that holds the fitness scores for each file
+type Scores struct {
+	Fitness map[string]int `json:"fitness"`
+}
+
+// generation runs a single generation of the genetic algorithm
+func generation(g *core.Grokker, gen int, dir string, fitnessCriteria string, model *core.Model, populationSize int) {
+	defer Return(nil)
+
+	Pf("Generation %d\n", gen)
+
+	// Open the directory and find all files
+	files, err := allIndividuals(dir)
+	Ck(err)
+
+	// read the .scores file
+	scoresFn := dir + "/.scores"
+	scores := &Scores{}
+	// unmarshal or create the .scores file
+	for {
+		// see if the .scores file exists
+		if _, err := os.Stat(scoresFn); os.IsNotExist(err) {
+			// create the .scores file if it doesn't exist
+			scores.Fitness = make(map[string]int)
+			scoresBytes, err := json.Marshal(scores)
+			Ck(err)
+			err = ioutil.WriteFile(scoresFn, scoresBytes, 0644)
+			Ck(err)
+		}
+		// read the .scores file
+		scoresBytes, err := ioutil.ReadFile(scoresFn)
+		Ck(err)
+		// unmarshal the .scores file
+		err = json.Unmarshal(scoresBytes, scores)
+		if err != nil {
+			// bad .scores file, delete it and try again
+			err = os.Remove(scoresFn)
+			Ck(err)
+			continue
+		}
+		// good .scores file, break out of the loop
+		break
+	}
+
+	// score each file
+	for _, file := range files {
+		// check if the file has a score
+		_, ok := scores.Fitness[file]
+		if ok {
+			// if the file has a score, skip it
+			continue
+		}
+		// if the file doesn't have a score, call the fitness function
+		fitnessScore, err := fitness(g, file, fitnessCriteria, model)
+		// if the fitness function fails, skip the file
+		if err != nil || fitnessScore <= 0 {
+			log.Printf("Error calculating fitness for file %s: fitness %d, %v", file, fitnessScore, err)
+			// remove the file from the fitness map
+			delete(scores.Fitness, file)
+			continue
+		}
+		// add the fitness score to the scores map
+		scores.Fitness[file] = fitnessScore
+		// write the fitness score to the .scores file
+		scoresBytes, err := json.Marshal(scores)
+		Ck(err)
+		err = ioutil.WriteFile(scoresFn, scoresBytes, 0644)
+		Ck(err)
+	}
+
+	// sort the files by fitness score
+	sortedFiles := make([]string, 0, len(scores.Fitness))
+	for file := range scores.Fitness {
+		sortedFiles = append(sortedFiles, file)
+	}
+	sort.Slice(sortedFiles, func(i, j int) bool {
+		// sort in descending order
+		return scores.Fitness[sortedFiles[i]] > scores.Fitness[sortedFiles[j]]
+	})
+
+	// remove the files with the lowest fitness scores
+	for i := len(sortedFiles) - 1; i >= populationSize/2; i-- {
+		// remove the file from the scores map
+		delete(scores.Fitness, sortedFiles[i])
+		// remove the file from the directory
+		err = os.Remove(dir + "/" + sortedFiles[i])
+		if err != nil {
+			log.Printf("Error removing file %s: %v", sortedFiles[i], err)
+			continue
+		}
+	}
+	// write the scores map to the .scores file
+	scoresBytes, err := json.Marshal(scores)
+	Ck(err)
+	err = ioutil.WriteFile(scoresFn, scoresBytes, 0644)
+	Ck(err)
+
+	// repopulate the directory by recombining the remaining files
+	for {
+		// count the number of files in the directory
+		survivors, err := allIndividuals(dir)
+		Ck(err)
+		if len(survivors) >= populationSize {
+			break
+		}
+
+		// pick two files at random
+		mom := survivors[rand.Intn(len(survivors))]
+		dad := survivors[rand.Intn(len(survivors))]
+
+		// check if the files are the same
+		if mom == dad {
+			continue
+		}
+
+		// provide the two files to an LLM, creating a new file
+		err = merge(g, mom, dad, fitnessCriteria, model)
+		Ck(err)
+	}
+
+	return
+}
+
+// fitness calculates the fitness score of a file
+func fitness(g *core.Grokker, file string, fitnessCriteria string, model *core.Model) (int, error) {
+	defer Return(nil)
+
+	Pf("Calculating fitness for %s... ", file)
+
+	// get the file content
+	buf, err := ioutil.ReadFile(file)
+	Ck(err)
+	txt := string(buf)
+
+	// create the fitness prompt by wrapping the file and fitness criteria in XML tags
+	fitnessPrompt := fmt.Sprintf(fitnessPromptTmpl, file)
+	prompt := fmt.Sprintf("%s\n\n<fitnessCriteria>%s</fitnessCriteria>\n\n<file>%s</file>",
+		fitnessPrompt, fitnessCriteria, txt)
+
+	// call the LLM with the fitness prompt
+	msgs := []client.ChatMsg{
+		client.ChatMsg{
+			Role:    "User",
+			Content: prompt,
+		},
+	}
+	res, err := g.CompleteChat(model.Name, fitnessPrompt, msgs)
+	Ck(err)
+
+	// parse the response to get the fitness score
+	fitnessScore, err := strconv.Atoi(strings.TrimSpace(res))
+	if err != nil {
+		return 0, err
+	}
+
+	Pf("%d\n", fitnessScore)
+
+	return fitnessScore, nil
+}
+
+// countTokens counts the number of tokens (words) in a file
+func countTokens(g *core.Grokker, file string) (count int, err error) {
+	// Open the file
+	f, err := os.Open(file)
+	if err != nil {
+		return 0, fmt.Errorf("failed to open file %s: %v", file, err)
+	}
+	defer f.Close()
+
+	// Read the file content
+	buf, err := ioutil.ReadAll(f)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read file %s: %v", file, err)
+	}
+	content := string(buf)
+	content = strings.TrimSpace(content)
+
+	count, err = g.TokenCount(content)
+	return
+}
+
+// Prompt is a struct that represents a prompt
+type Prompt struct {
+	Sysmsg string
+	In     []string
+	Out    []string
+	Txt    string
+}
+
+// merge combines two files using the LLM
+func merge(g *core.Grokker, mom, dad string, fitnessCriteria string, model *core.Model) (err error) {
+	defer Return(&err)
+
+	Pf("Merging %s and %s...\n", mom, dad)
+
+	// create a new file name for the child by stripping off the
+	// extension from both parents and adding a + sign
+	// and the extension of the first parent
+	ext := filepath.Ext(mom)
+	momBase := strings.TrimSuffix(mom, ext)
+	dadBase := strings.TrimSuffix(dad, ext)
+	// create a new file name for the child
+	// by combining the names of the parents with a + sign
+	// and the extension of the first parent
+	child := fmt.Sprintf("%s+%s%s", momBase, dadBase, ext)
+	// if the child file already exists, return with no error
+	if _, err := os.Stat(child); err == nil {
+		return nil
+	}
+
+	momContent, err := ioutil.ReadFile(mom)
+	Ck(err)
+	dadContent, err := ioutil.ReadFile(dad)
+	Ck(err)
+
+	// build the prompt by wrapping the files in XML tags and
+	// prepending the merge prompt
+	mergePrompt := fmt.Sprintf(mergePromptTmpl, mom, dad, child, child, child)
+	prompt := fmt.Sprintf("%s\n\n<%s>%s</%s>\n\n<%s>%s</%s>",
+		mergePrompt, mom, momContent, mom, dad, dadContent, dad)
+
+	Pf("Prompt:\n%s\n", prompt)
+
+	inFns := []string{mom, dad}
+	outFns := []string{child}
+
+	// Count tokens
+	Pf("Token counts:\n")
+	total := 0
+	for _, f := range inFns {
+		count, err := countTokens(g, f)
+		Ck(err)
+		Pf("    %s: %d\n", f, count)
+		total += count
+	}
+	Pf("    Total: %d\n", total)
+
+	Pl("Output files:")
+	for _, f := range outFns {
+		Pf("    %s\n", f)
+	}
+
+	Pf("Querying GPT...")
+	// Start a goroutine to print dots while waiting for the response
+	var stopDots = make(chan bool)
+	go func() {
+		for {
+			select {
+			case <-stopDots:
+				return
+			default:
+				time.Sleep(1 * time.Second)
+				fmt.Print(".")
+			}
+		}
+	}()
+	start := time.Now()
+
+	msgs := []client.ChatMsg{
+		client.ChatMsg{
+			Role:    "User",
+			Content: prompt,
+		},
+	}
+	res, err := g.CompleteChat(model.Name, mergePrompt, msgs)
+	Ck(err)
+
+	elapsed := time.Since(start)
+	stopDots <- true
+	close(stopDots)
+	Pf(" got response in %s\n", elapsed)
+
+	// extract the child file from the response
+	// - the child file is the content between the child XML tags
+	openTag := fmt.Sprintf("<%s>", child)
+	closeTag := fmt.Sprintf("</%s>", child)
+	startIdx := strings.Index(res, openTag)
+	endIdx := strings.Index(res, closeTag)
+	if startIdx == -1 || endIdx == -1 {
+		// save the entire response to the child file
+		err = os.WriteFile(child, []byte(res), 0644)
+		Ck(err)
+	} else {
+		// extract the child file content
+		startIdx += len(openTag)
+		substr := res[startIdx:endIdx]
+		// save the child file
+		err = os.WriteFile(child, []byte(substr), 0644)
+		Ck(err)
+	}
+
+	return
+}
