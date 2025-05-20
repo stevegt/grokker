@@ -373,24 +373,15 @@ type Prompt struct {
 	Txt    string
 }
 
-// merge combines two files using the LLM
-func merge(g *core.Grokker, mom, dad string, fitnessCriteria string, model *core.Model) (err error) {
-	defer Return(&err)
-
-	Pl()
-	Pf("Merging %s and %s...\n", mom, dad)
-
-	// create a new file name for the child by stripping off the
-	// extension from both parents and adding a + sign
-	// and the extension of the first parent
+// childNameComma creates a new file name for the child by concatenating the two
+// parents, splitting on commas, removing duplicates, then joining
+// the parts with a comma and adding a random string and the extension of the first
+// parent
+func childNameComma(mom, dad string) string {
 	ext := filepath.Ext(mom)
 	momBase := strings.TrimSuffix(mom, ext)
 	dadBase := strings.TrimSuffix(dad, ext)
 
-	// create a new file name for the child by contatenating the two
-	// parents, splitting on commas, removing duplicates, then joining
-	// the parts with a comma and adding the extension of the first
-	// parent
 	parts := strings.Split(momBase, ",")
 	parts = append(parts, strings.Split(dadBase, ",")...)
 	// remove duplicates
@@ -405,6 +396,22 @@ func merge(g *core.Grokker, mom, dad string, fitnessCriteria string, model *core
 	}
 	childBase := strings.Join(parts, ",")
 	child := fmt.Sprintf("%s,%s%s", childBase, randString(4), ext)
+
+	return child
+}
+
+// merge combines two files using the LLM
+func merge(g *core.Grokker, mom, dad string, fitnessCriteria string, model *core.Model) (err error) {
+	defer Return(&err)
+
+	Pl()
+	Pf("Merging %s and %s...\n", mom, dad)
+
+	// create a new file name for the child
+	ext := filepath.Ext(mom)
+
+	child := childNameComma(mom, dad)
+
 	// if the child file already exists, return with no error
 	if _, err := os.Stat(child); err == nil {
 		return nil
