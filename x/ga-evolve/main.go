@@ -8,8 +8,8 @@ import (
 	"log"
 	"math/rand"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -52,9 +52,9 @@ func usage(models *core.Models) {
 
 var commitPrompt = "Write a git commit message summarizing the following file. Use present tense, active, imperative statements as if giving directions.  Do not use extra adjectives or marketing hype.  The first line of the commit message must be a summary of 60 characters or less, followed by a blank line, followed by bullet-pointed details."
 
-var mergePromptTmpl = "Create a new file combining the best parts of the following two files.  The files are delimied in XML tags.  The first file is %s and the second file is %s.  The new file should be a combination of the two files, with the best parts of each.  The new file should be a valid file of the same type as the first two files.  The new file must be named %s and must be delimited by <%s> and </%s> XML tags."
+var mergePromptTmpl = "Create a new file combining the best parts of the following two files while improving the result to meet the fitness criteria specified below.  The new file must be a valid file of the same type as the first two files.  The fitness criteria are:\n\n%s\n\n"
 
-var fitnessPromptTmpl = "Provide a fitness score from 1 to 100 for the %s file.  The fitness score should be based on the criteria in the fitnessCriteria file.  The files are delimited by XML tags.  The fitness score should be a number between 1 and 1000, with 1 being the worst and 1000 being the best.  You reponse must be only the fitness score integer, with no other characters."
+var fitnessPromptTmpl = `Provide a fitness score for the %s file.  The fitness score should be based on the criteria in the fitnessCriteria file.  The files are delimited by XML tags.  The fitness score should be a number between 1 and some higher number, with 1 being the worst.  You response must match the regular expression 'fitness=(\d+)' `
 
 func main() {
 	// Define and parse command-line flags
@@ -117,16 +117,18 @@ func main() {
 		showAll(*dir)
 	}
 
-	// generate a commit message using the content of the fittest file
-	// and the commitPrompt
-	// XXX
+	/*
+		// generate a commit message using the content of the fittest file
+		// and the commitPrompt
+		// XXX
 
-	// git commit the changes
-	cmd := exec.Command("git", "add", *dir)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	err = cmd.Run()
-	Ck(err)
+		// git commit the changes
+		cmd := exec.Command("git", "add", *dir)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		err = cmd.Run()
+		Ck(err)
+	*/
 
 }
 
@@ -302,7 +304,7 @@ func generation(g *core.Grokker, gen int, dir string, fitnessCriteria string, mo
 func fitness(g *core.Grokker, file string, fitnessCriteria string, model *core.Model) (int, error) {
 	defer Return(nil)
 
-	Pf("Calculating fitness for %s... ", file)
+	Pf("Calculating fitness for %s ... ", file)
 
 	// get the file content
 	buf, err := ioutil.ReadFile(file)
@@ -324,8 +326,15 @@ func fitness(g *core.Grokker, file string, fitnessCriteria string, model *core.M
 	res, err := g.CompleteChat(model.Name, fitnessPrompt, msgs)
 	Ck(err)
 
-	// parse the response to get the fitness score
-	fitnessScore, err := strconv.Atoi(strings.TrimSpace(res))
+	// find the fitness={score} in the response
+	re := regexp.MustCompile(`fitness=(\d+)`)
+	m := re.FindStringSubmatch(res)
+	if len(m) < 2 {
+		return 0, fmt.Errorf("fitness score not found in response: %s", res)
+	}
+	// convert the score to an int
+	// the score is in the second element of the match
+	fitnessScore, err := strconv.Atoi(m[1])
 	if err != nil {
 		return 0, err
 	}
@@ -368,6 +377,7 @@ type Prompt struct {
 func merge(g *core.Grokker, mom, dad string, fitnessCriteria string, model *core.Model) (err error) {
 	defer Return(&err)
 
+	Pl()
 	Pf("Merging %s and %s...\n", mom, dad)
 
 	// create a new file name for the child by stripping off the
@@ -376,30 +386,39 @@ func merge(g *core.Grokker, mom, dad string, fitnessCriteria string, model *core
 	ext := filepath.Ext(mom)
 	momBase := strings.TrimSuffix(mom, ext)
 	dadBase := strings.TrimSuffix(dad, ext)
-	// create a new file name for the child
-	// by combining the names of the parents with a + sign
-	// and the extension of the first parent
-	child := fmt.Sprintf("%s+%s%s", momBase, dadBase, ext)
+
+	// create a new file name for the child by contatenating the two
+	// parents, splitting on commas, removing duplicates, then joining
+	// the parts with a comma and adding the extension of the first
+	// parent
+	parts := strings.Split(momBase, ",")
+	parts = append(parts, strings.Split(dadBase, ",")...)
+	// remove duplicates
+	partsMap := make(map[string]bool)
+	for _, part := range parts {
+		partsMap[part] = true
+	}
+	// create a new slice with the unique parts
+	parts = make([]string, 0, len(partsMap))
+	for part := range partsMap {
+		parts = append(parts, part)
+	}
+	childBase := strings.Join(parts, ",")
+	child := fmt.Sprintf("%s,%s%s", childBase, randString(4), ext)
 	// if the child file already exists, return with no error
 	if _, err := os.Stat(child); err == nil {
 		return nil
 	}
 
-	momContent, err := ioutil.ReadFile(mom)
-	Ck(err)
-	dadContent, err := ioutil.ReadFile(dad)
-	Ck(err)
-
-	// build the prompt by wrapping the files in XML tags and
-	// prepending the merge prompt
-	mergePrompt := fmt.Sprintf(mergePromptTmpl, mom, dad, child, child, child)
-	prompt := fmt.Sprintf("%s\n\n<%s>%s</%s>\n\n<%s>%s</%s>",
-		mergePrompt, mom, momContent, mom, dad, dadContent, dad)
-
-	Pf("Prompt:\n%s\n", prompt)
+	extNoDot := strings.TrimPrefix(ext, ".")
 
 	inFns := []string{mom, dad}
-	outFns := []string{child}
+	outFls := []core.FileLang{
+		core.FileLang{
+			File:     child,
+			Language: extNoDot,
+		},
+	}
 
 	// Count tokens
 	Pf("Token counts:\n")
@@ -413,8 +432,8 @@ func merge(g *core.Grokker, mom, dad string, fitnessCriteria string, model *core
 	Pf("    Total: %d\n", total)
 
 	Pl("Output files:")
-	for _, f := range outFns {
-		Pf("    %s\n", f)
+	for _, f := range outFls {
+		Pf("    %s\n", f.File)
 	}
 
 	Pf("Querying GPT...")
@@ -433,38 +452,42 @@ func merge(g *core.Grokker, mom, dad string, fitnessCriteria string, model *core
 	}()
 	start := time.Now()
 
+	mergePrompt := fmt.Sprintf(mergePromptTmpl, fitnessCriteria)
+
 	msgs := []client.ChatMsg{
 		client.ChatMsg{
 			Role:    "User",
-			Content: prompt,
+			Content: mergePrompt,
 		},
 	}
-	res, err := g.CompleteChat(model.Name, mergePrompt, msgs)
-	Ck(err)
+
+	res, err := g.SendWithFiles(model.Name, mergePrompt, msgs, inFns, outFls)
+	if err != nil {
+		return fmt.Errorf("error merging files: %v", err)
+	}
 
 	elapsed := time.Since(start)
 	stopDots <- true
 	close(stopDots)
 	Pf(" got response in %s\n", elapsed)
 
-	// extract the child file from the response
-	// - the child file is the content between the child XML tags
-	openTag := fmt.Sprintf("<%s>", child)
-	closeTag := fmt.Sprintf("</%s>", child)
-	startIdx := strings.Index(res, openTag)
-	endIdx := strings.Index(res, closeTag)
-	if startIdx == -1 || endIdx == -1 {
-		// save the entire response to the child file
-		err = os.WriteFile(child, []byte(res), 0644)
-		Ck(err)
-	} else {
-		// extract the child file content
-		startIdx += len(openTag)
-		substr := res[startIdx:endIdx]
-		// save the child file
-		err = os.WriteFile(child, []byte(substr), 0644)
-		Ck(err)
+	// ExtractFiles(outFls, promptFrag, dryrun, extractToStdout)
+	err = core.ExtractFiles(outFls, res, false, false)
+	if err != nil {
+		return fmt.Errorf("error extracting merged output: %v", err)
 	}
 
+	Pl()
+
 	return
+}
+
+// randString generates a random string of the specified length
+func randString(n int) string {
+	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = letters[rand.Intn(len(letters))]
+	}
+	return string(b)
 }
