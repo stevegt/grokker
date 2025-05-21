@@ -289,6 +289,7 @@ func generation(g *core.Grokker, gen int, dir string, fitnessCriteria string, mo
 	// Remove the files with the lowest fitness scores so that only the top half remain.
 	if len(sortedFiles) > populationSize/2 {
 		for i := populationSize / 2; i < len(sortedFiles); i++ {
+			Pf("Removing %s\n", sortedFiles[i])
 			err = os.Remove(sortedFiles[i])
 			Ck(err)
 		}
