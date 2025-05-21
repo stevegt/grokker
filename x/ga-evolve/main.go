@@ -340,11 +340,15 @@ func fitness(g *core.Grokker, file1, file2 string, fitnessCriteria string, model
 
 	// get the contents of both files
 	buf1, err := ioutil.ReadFile(file1)
-	Ck(err)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to read file %s: %v", file1, err)
+	}
 	txt1 := string(buf1)
 
 	buf2, err := ioutil.ReadFile(file2)
-	Ck(err)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to read file %s: %v", file2, err)
+	}
 	txt2 := string(buf2)
 
 	// create the fitness prompt by wrapping the files and fitness criteria in XML tags
