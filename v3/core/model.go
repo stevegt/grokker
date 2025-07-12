@@ -65,7 +65,7 @@ func NewModels() (models *Models) {
 	add("o1-preview", 128000, "openai", oai.O1Preview)
 	add("o1-mini", 128000, "openai", oai.O1Mini)
 	add("o1", 128000, "openai", oai.O1Preview)
-	add("o3", 200000, "openai", oai.O3)
+	// add("o3", 200000, "openai", oai.O3)
 	add("o3-mini", 200000, "openai", oai.O3Mini)
 
 	// XXX perplexity input token limits are not published?
