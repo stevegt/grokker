@@ -543,20 +543,50 @@ func merge(g *core.Grokker, mom, dad string, fitnessCriteria string, model *core
 		},
 	}
 
-	res, err := g.SendWithFiles(model.Name, mergePrompt, msgs, inFns, outFls)
-	if err != nil {
-		return "", fmt.Errorf("error merging files: %v", err)
+	prompt := mergePrompt
+	for {
+
+		res, err := g.SendWithFiles(model.Name, prompt, msgs, inFns, outFls)
+		if err != nil {
+			return "", fmt.Errorf("error merging files: %v", err)
+		}
+
+		err = core.ExtractFiles(outFls, res, false, false)
+		if err != nil {
+			Pf("Error extracting merged output: %v\n", err)
+		}
+
+		// Check if the child file was created
+		// XXX move this logic to ExtractFiles
+		_, err = os.Stat(child)
+		if err == nil {
+			break // child file created successfully
+		}
+
+		Pf("Child file %s not created, trying again...\n", child)
+
+		// If the child file was not created, it means the LLM did not
+		// return a properly delimited file.
+		prompt := fmt.Sprintf("I'm not able to parse the file %s from your response.  I'm attaching the response so you can see what I received.  Please follow the instructions and ensure the output is properly delimited so I can extract the file.", child)
+		msgs = []client.ChatMsg{
+			{
+				Role:    "User",
+				Content: prompt,
+			},
+		}
+		// write the response to a temporary file
+		tmpFile, err := ioutil.TempFile("", "ga-evolve-merge-response-*.txt")
+		err = ioutil.WriteFile(tmpFile.Name(), []byte(res), 0644)
+		Ck(err)
+		// use the temporary file as input
+		inFns = []string{tmpFile.Name()}
+
 	}
 
 	elapsed := time.Since(start)
 	stopDots <- true
 	close(stopDots)
 	Pf(" got response in %s\n", elapsed)
-
-	err = core.ExtractFiles(outFls, res, false, false)
-	if err != nil {
-		return "", fmt.Errorf("error extracting merged output: %v", err)
-	}
 
 	Pl()
 
