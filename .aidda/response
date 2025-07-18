@@ -1,589 +1,110 @@
-File: /home/stevegt/lab/grokker/x/ga-evolve/main.go
-```go
-package main
+Below is a discussion of one proposed approach (using XML‐style delimiters) along with some alternatives, along with an outline of which files you might need to change.
 
-import (
-	"crypto/sha256"
-	"flag"
-	"fmt"
-	"io/ioutil"
-	"log"
-	"math/rand"
-	"os"
-	"path/filepath"
-	"regexp"
-	"sort"
-	"strconv"
-	"strings"
-	"time"
+────────────────────────────
+Proposed XML file delimiters
 
-	. "github.com/stevegt/goadapt"
-	"github.com/stevegt/grokker/v3/client"
-	"github.com/stevegt/grokker/v3/core"
-)
+One idea is to mark the start and end of each file with unique XML tags. For example, for each file you could have something like:
+  
+  <File name="net.go" language="go">
+   … file text …
+  </File>
 
-/*
+This format is very structured and, if included verbatim in your system prompt or response, leaves little room for ambiguity. The LLM is more likely to leave the XML tags intact (as long as you explain that they are required delimiters). You could adjust your system prompt to say “Return your output embedded in XML tags exactly like …” so that the LLM returns the file codes without extra text.
 
-This program evolves a set of files using a genetic algorithm using the following procedure:
+Pros:
+ • Clearly defined boundaries using open/close tags.
+ • Can embed attributes (like file name and language) in a standard way.
+ • Many XML parsers exist if you eventually need to post‑process the output.
 
-- read a file containing fitness criteria
-- open a directory and find all files (each file’s name is its fitness score)
-- for N generations:
-	- for each file that does not have a numeric filename (i.e. unscored):
-			- calculate its fitness by comparing it with a randomly chosen scored file (or another unscored file if none exists)
-			- if the computed fitness score is already used by another file, increment the score until it is unique
-			- rename the file with its unique numeric fitness score, preserving its extension
-	- sort the files by fitness score; if a filename is non-numeric, sort alphanumerically instead of numerically
-	- remove the files with the lowest fitness scores to reduce the population to half the desired size
-		- do not remove files that are unscored
-	- repopulate the directory by recombining the remaining files using the following procedure:
-		- pick two different files at random (parents)
-		- provide the two files to an LLM, returning a new file (child)
-		- immediately compute the fitness of the child relative to one parent and rename both files with their new unique scores
-	- git commit
+Cons:
+ • XML syntax is somewhat verbose.
+ • Some LLM completions may reformat or “explain” the XML rather than returning a raw XML block unless explicitly instructed.
+ • If your users (or test code) are accustomed to the current regex‐based extraction from code fences, you will need to change not only the system prompt but also the extraction logic.
 
-*/
+────────────────────────────
+Alternative delimiters
 
-func usage(models *core.Models) {
-	fmt.Println("Usage: go run main.go -f <fitnessFn> -d <dir> -m <model> -g <generations> -p <populationSize>")
-	// list models
-	fmt.Println("Available models:")
-	for _, m := range models.ListModels() {
-		fmt.Printf("  %s\n", m.String())
-	}
-}
+1. JSON objects
 
-var commitPrompt = "Write a git commit message summarizing the following file. Use present tense, active, imperative statements as if giving directions.  Do not use extra adjectives or marketing hype.  The first line of the commit message must be a summary of 60 characters or less, followed by a blank line, followed by bullet-pointed details."
+You could have the LLM return a JSON object where each file is described as an element in an array. For example:
+  
+  {
+   "files": [
+    {"name": "net.go", "language": "go", "content": "… file text …"},
+    …
+   ]
+  }
 
-var mergePromptTmpl = "Create a new file combining the best parts of the following two files while improving the result to meet the fitness criteria specified below.  The new file must be a valid file of the same type as the first two files.  The fitness criteria are:\n\n%s\n\n"
+Pros:
+ • JSON is ubiquitous and many languages (including Go) have good JSON decoders.
+ • The structure is clear.
+ • The output is very likely to be valid JSON if you provide clear instructions.
 
-var fitnessPromptTmpl = `Provide fitness scores for the two files. The first file is delimited by <file1> and the second file is delimited by <file2>. Include the fitness criteria found between <fitnessCriteria> tags below. Your response must include two scores in the format 'fitness1=<number>' and 'fitness2=<number>'. Ensure that the scores are not equal, both are greater than zero, and that the higher score corresponds to the file that better meets the fitness criteria.`
+Cons:
+ • LLMs sometimes “explain” JSON rather than return a pure JSON object.
+ • It may be a bit too much if you only have one file in many cases.
+ • The formatting might be inconsistent if the number of files is variable.
 
-func main() {
-	// Define and parse command-line flags
+2. Markdown-style Code Fences with Clear Headers
 
-	// file that contains fitness criteria
-	fitnessFn := flag.String("f", "", "File containing fitness criteria")
+You could keep using markdown code fences but add an explicit file header. For example:
 
-	// directory containing individuals (files are named by their fitness scores)
-	dir := flag.String("d", "", "Directory containing individuals")
+  File: net.go  
+  ```go
+  … file text …
+  ```  
+  EOF_net.go
 
-	// LLM model
-	modelName := flag.String("m", "", "LLM model")
+Pros:
+ • This is already close to your current approach.
+ • It leverages a common markdown convention.
+ • Many LLMs are already trained on code fences so they may follow them quite naturally.
 
-	// number of generations
-	generations := flag.Int("g", 0, "Number of generations")
+Cons:
+ • Ambiguity sometimes remains if the LLM “edits” the fence formatting.
+ • If your extraction regex is not robust or if the instructions are not absolute, slight deviations in punctuation might cause matching failures.
 
-	// population size
-	populationSize := flag.Int("p", 0, "Population size")
+3. Custom non‑XML delimiters (for example, unique tokens)
 
-	// parse the flags
-	flag.Parse()
+For instance, you could define a “start marker” and “stop marker” that are unlikely to occur naturally (e.g. “<<<START-FILE:net.go:go>>>” and “<<<END-FILE:net.go>>>”). A clear instruction in your system prompt is critical.
 
-	models := core.NewModels()
+Pros:
+ • Unique tokens lower the chance of misinterpretation.
+ • They can be as terse as you want.
 
-	// if any flag is missing, print usage and exit
-	if *fitnessFn == "" || *dir == "" || *modelName == "" || *generations == 0 || *populationSize == 0 {
-		usage(models)
-		os.Exit(1)
-	}
+Cons:
+ • They are “ad hoc” and nobody in the ecosystem uses them (so you’re reinventing the wheel).
+ • You must update your extraction logic to search for these custom markers.
 
-	// Check if the specified model is available
-	model, ok := models.Available[*modelName]
-	if !ok {
-		usage(models)
-		log.Fatalf("Model %s is not available", *modelName)
-	}
+────────────────────────────
+Discussion of Files to Change
 
-	// change to the specified directory
-	err := os.Chdir(*dir)
-	Ck(err)
+In your Grokker codebase the delimiters are currently defined and used by regular expressions. To switch from regexes based on code fences to XML file delimiters, you would need to modify code in (at least) the following areas:
 
-	// initialize grokker
-	err = core.InitTokenizer()
-	Ck(err)
-	g := &core.Grokker{
-		Root:    *dir,
-		Version: core.Version,
-	}
-	err = g.Setup(*modelName)
-	Ck(err)
+1. In core/chat.go:
+ • The function OutfilesRegex – currently it builds a regex that looks for “File:” headers plus code fences with backticks. You would change this so that it builds a regex expecting something like:
+   <File name="…" language="…">((?s:.*?))</File>
+ • Similarly, in ExtractFiles you would update the regex used to find the file blocks in the LLM output so that it now matches XML tags.
 
-	for i := 0; i < *generations; i++ {
-		// Re-read the fitness criteria from file before each generation step.
-		fitnessCriteriaBuf, err := ioutil.ReadFile(*fitnessFn)
-		Ck(err)
-		fitnessCriteria := string(fitnessCriteriaBuf)
+2. In cli/cli.go:
+ • In the “chat” subcommand block, there is a portion that checks if cli.Chat.OutputFilesRegex is true and then calls regexp.MustCompile(core.OutfilesRegex(nil)). This logic would need to be updated so that it expects XML delimiters rather than the current format.
 
-		generation(g, i, *dir, fitnessCriteria, model, *populationSize)
-		// print the name and fitness score of each file
-		showAll(*dir)
-	}
+3. In any unit tests:
+ • The tests in cli/cli_test.go (and possibly in migration_test.go etc.) that look for expected output in the extracted files or that compare against a regex will need to be updated to accommodate the new XML delimiters rather than the previous pattern.
 
-	/*
-		// generate a commit message using the content of the fittest file
-		// and the commitPrompt
-		// XXX
+4. In any system prompt instructions:
+ • The prompts given to the LLM (including in system messages in cli/cli.go and in the OpenAI chat client in openai/openai.go) must be updated from “return files enclosed in your current regex format” to “return each file as an XML element such as …”. Make sure that the instructions do not get “edited away” by the LLM too.
 
-		// git commit the changes
-		cmd := exec.Command("git", "add", *dir)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		err = cmd.Run()
-		Ck(err)
-	*/
+5. Possibly in the aidda package:
+ • If aidda extracts code snippets from chat responses, then those functions must be updated as well.
 
-}
+────────────────────────────
+Summary
 
-// showAll prints the name and fitness score of each file
-func showAll(dir string) {
-	individuals, err := allIndividuals(dir)
-	Ck(err)
-	sortedFiles := sortIndividuals(individuals)
-	for _, file := range sortedFiles {
-		score, ok := parseFitnessFromFilename(file)
-		if ok {
-			fmt.Printf("%d %s\n", score, file)
-		} else {
-			fmt.Printf("%s\n", file)
-		}
-	}
-}
+Using XML file delimiters has the advantage of being highly structured and explicit. Alternatives such as JSON output or custom unique tokens (or even refined code fence formats) might also work. The tradeoffs come down to the likelihood that the LLM will adhere strictly to a given format versus the ease of implementing a robust parser on the Go side.
 
-// allIndividuals returns a list of all individuals in the directory
-func allIndividuals(dir string) ([]string, error) {
-	files, err := ioutil.ReadDir(".")
-	if err != nil {
-		return nil, err
-	}
-	individuals := make([]string, 0)
-	for _, file := range files {
-		if strings.HasPrefix(file.Name(), ".") {
-			continue
-		}
-		if file.IsDir() {
-			continue
-		}
-		individuals = append(individuals, file.Name())
-	}
-	return individuals, nil
-}
+If you decide to refactor to XML delimiters, you would primarily modify functions that create and parse the file boundaries (for example, OutfilesRegex and ExtractFiles in the core/chat.go file), the cli subcommand handling (cli/cli.go), and update your unit tests in cli/cli_test.go (and others) so that they accept the new XML format.
 
-// parseFitnessFromFilename attempts to parse the score from a file's name.
-// It strips the extension and tries to convert the rest to an int.
-func parseFitnessFromFilename(filename string) (int, bool) {
-	base := strings.TrimSuffix(filename, filepath.Ext(filename))
-	score, err := strconv.Atoi(base)
-	if err != nil {
-		return 0, false
-	}
-	return score, true
-}
+Each alternative requires a similar update in the parsing/extraction routines and changes to the LLM prompt instructions. Choose the one that best balances structure with ease-of-implementation and that your LLM best “learns” to follow.
 
-// updateFitness renames the given file to have the provided newScore as its base name,
-// ensuring that no two files have the same score. It returns the new filename.
-func updateFitness(file string, newScore int) (string, error) {
-	ext := filepath.Ext(file)
-	candidate := strconv.Itoa(newScore) + ext
-	for {
-		if candidate != file {
-			if _, err := os.Stat(candidate); err == nil {
-				newScore++
-				candidate = strconv.Itoa(newScore) + ext
-				continue
-			}
-		}
-		break
-	}
-	if file != candidate {
-		err := os.Rename(file, candidate)
-		if err != nil {
-			return "", err
-		}
-		Pf("Renamed %s to %s\n", file, candidate)
-	}
-	return candidate, nil
-}
-
-// sortIndividuals sorts a list of filenames. If both filenames have numeric bases,
-// they are sorted in descending numerical order; otherwise, they are sorted in descending
-// lexicographical order.
-func sortIndividuals(files []string) []string {
-	sort.Slice(files, func(i, j int) bool {
-		scoreI, ok1 := parseFitnessFromFilename(files[i])
-		scoreJ, ok2 := parseFitnessFromFilename(files[j])
-		if ok1 && ok2 {
-			return scoreI > scoreJ
-		}
-		return files[i] > files[j]
-	})
-	return files
-}
-
-// generation runs a single generation of the genetic algorithm
-func generation(g *core.Grokker, gen int, dir string, fitnessCriteria string, model *core.Model, populationSize int) {
-	defer Return(nil)
-
-	Pf("Generation %d\n", gen)
-
-	// Get all individuals (files) in the directory
-	individuals, err := allIndividuals(dir)
-	Ck(err)
-	Assert(len(individuals) > 1, "Need at least two individuals to breed")
-
-	scored := make(map[string]bool)
-	unscored := make(map[string]bool)
-	for _, file := range individuals {
-		if _, ok := parseFitnessFromFilename(file); ok {
-			scored[file] = true
-		} else {
-			unscored[file] = true
-		}
-	}
-
-	// Process unscored files by comparing each to a scored file if available;
-	// otherwise, pair up unscored files.
-	for len(unscored) > 0 {
-		// pick a random unscored file
-		file1 := randMapKey(unscored)
-		// pick a reference file
-		ref := ""
-		if len(scored) > 0 {
-			// pick a random scored file
-			ref = randMapKey(scored)
-		} else {
-			// pick a random unscored file
-			ref = randMapKey(unscored)
-		}
-		// if the reference file is the same as the unscored file, pick another
-		if file1 == ref {
-			continue
-		}
-
-		// calculate the fitness of the unscored file relative to the reference file
-		score1, score2, err := fitness(g, file1, ref, fitnessCriteria, model)
-		if err != nil || score1 <= 0 || score2 <= 0 {
-			log.Printf("Error calculating fitness for files %s and %s: scores %d and %d, %v", file1, ref, score1, score2, err)
-			continue
-		}
-
-		// update the unscored file with its new fitness score
-		newName, err := updateFitness(file1, score1)
-		Ck(err)
-		// update the reference file with its new fitness score
-		newRefName, err := updateFitness(ref, score2)
-		Ck(err)
-
-		// update the maps
-		delete(unscored, file1)
-		delete(unscored, ref)
-		delete(scored, file1)
-		delete(scored, ref)
-		scored[newName] = true
-		scored[newRefName] = true
-
-	}
-	// Refresh the list of individuals after scoring
-	individuals, err = allIndividuals(dir)
-	Ck(err)
-	sortedFiles := sortIndividuals(individuals)
-
-	// Remove the files with the lowest fitness scores so that only the top half remain.
-	if len(sortedFiles) > populationSize/2 {
-		for i := populationSize / 2; i < len(sortedFiles); i++ {
-			err = os.Remove(sortedFiles[i])
-			Ck(err)
-		}
-	}
-
-	// Repopulate the directory by recombining the remaining files until populationSize is reached.
-	for {
-		survivors, err := allIndividuals(dir)
-		Ck(err)
-		if len(survivors) >= populationSize {
-			break
-		}
-		// pick two random survivors
-		if len(survivors) < 2 {
-			break
-		}
-		mom := survivors[rand.Intn(len(survivors))]
-		dad := survivors[rand.Intn(len(survivors))]
-		if mom == dad {
-			continue
-		}
-		// Merge the two files. The merge function now returns the child's filename.
-		child, err := merge(g, mom, dad, fitnessCriteria, model)
-		Ck(err)
-		// Always calculate the fitness of a child after generating it.
-		// Calculate the fitness of the new child relative to one parent (mom).
-		scoreMom, scoreChild, err := fitness(g, mom, child, fitnessCriteria, model)
-		if err != nil || scoreMom <= 0 || scoreChild <= 0 {
-			log.Printf("Error calculating fitness for files %s and %s: scores %d and %d, %v", mom, child, scoreMom, scoreChild, err)
-			continue
-		}
-		newMom, err := updateFitness(mom, scoreMom)
-		Ck(err)
-		newChild, err := updateFitness(child, scoreChild)
-		Ck(err)
-		_ = newMom
-		_ = newChild
-	}
-
-	return
-}
-
-// fitness calculates the fitness scores for two files
-// It returns two scores (score1 and score2) corresponding to file1 and file2 respectively.
-func fitness(g *core.Grokker, file1, file2 string, fitnessCriteria string, model *core.Model) (int, int, error) {
-	defer Return(nil)
-
-	Pf("Calculating fitness for %s and %s ...\n", file1, file2)
-
-	// get the contents of both files
-	buf1, err := ioutil.ReadFile(file1)
-	Ck(err)
-	txt1 := string(buf1)
-
-	buf2, err := ioutil.ReadFile(file2)
-	Ck(err)
-	txt2 := string(buf2)
-
-	// create the fitness prompt by wrapping the files and fitness criteria in XML tags
-	fitnessPrompt := fmt.Sprintf(fitnessPromptTmpl)
-	prompt := fmt.Sprintf("%s\n\n<fitnessCriteria>%s</fitnessCriteria>\n\n<file1>%s</file1>\n\n<file2>%s</file2>",
-		fitnessPrompt, fitnessCriteria, txt1, txt2)
-
-	// call the LLM with the fitness prompt
-	msgs := []client.ChatMsg{
-		{
-			Role:    "User",
-			Content: prompt,
-		},
-	}
-	res, err := g.CompleteChat(model.Name, fitnessPrompt, msgs)
-	if err != nil {
-		return 0, 0, fmt.Errorf("error calculating fitness: %v", err)
-	}
-
-	// find fitness1 and fitness2 in the response
-	re1 := regexp.MustCompile(`fitness1=(\d+)`)
-	m1 := re1.FindStringSubmatch(res)
-	if len(m1) < 2 {
-		return 0, 0, fmt.Errorf("fitness1 not found in response: %s", res)
-	}
-	re2 := regexp.MustCompile(`fitness2=(\d+)`)
-	m2 := re2.FindStringSubmatch(res)
-	if len(m2) < 2 {
-		return 0, 0, fmt.Errorf("fitness2 not found in response: %s", res)
-	}
-
-	// convert the scores to ints
-	score1, err := strconv.Atoi(m1[1])
-	if err != nil {
-		return 0, 0, err
-	}
-	score2, err := strconv.Atoi(m2[1])
-	if err != nil {
-		return 0, 0, err
-	}
-
-	// Ensure the scores are not equal; if they are, adjust slightly.
-	if score1 == score2 {
-		score2 = score1 + 1
-	}
-
-	Pf("    %s: %d\n", file1, score1)
-	Pf("    %s: %d\n", file2, score2)
-
-	return score1, score2, nil
-}
-
-// countTokens counts the number of tokens (words) in a file
-func countTokens(g *core.Grokker, file string) (count int, err error) {
-	// Open the file
-	f, err := os.Open(file)
-	if err != nil {
-		return 0, fmt.Errorf("failed to open file %s: %v", file, err)
-	}
-	defer f.Close()
-
-	// Read the file content
-	buf, err := ioutil.ReadAll(f)
-	if err != nil {
-		return 0, fmt.Errorf("failed to read file %s: %v", file, err)
-	}
-	content := string(buf)
-	content = strings.TrimSpace(content)
-
-	count, err = g.TokenCount(content)
-	return
-}
-
-// Prompt is a struct that represents a prompt
-type Prompt struct {
-	Sysmsg string
-	In     []string
-	Out    []string
-	Txt    string
-}
-
-// childNameComma creates a new file name for the child by concatenating the two
-// parents, splitting on commas, removing duplicates, then joining
-// the parts with a comma and adding a random string and the extension of the first
-// parent
-func childNameComma(mom, dad string) string {
-	ext := filepath.Ext(mom)
-	momBase := strings.TrimSuffix(mom, ext)
-	dadBase := strings.TrimSuffix(dad, ext)
-
-	parts := strings.Split(momBase, ",")
-	parts = append(parts, strings.Split(dadBase, ",")...)
-	// remove duplicates
-	partsMap := make(map[string]bool)
-	for _, part := range parts {
-		partsMap[part] = true
-	}
-	// create a new slice with the unique parts
-	parts = make([]string, 0, len(partsMap))
-	for part := range partsMap {
-		parts = append(parts, part)
-	}
-	childBase := strings.Join(parts, ",")
-	child := fmt.Sprintf("%s,%s%s", childBase, randString(4), ext)
-
-	return child
-}
-
-// childNameHash creates a new file name for the child by concatenating the two
-// parents, hashing the result, and adding the extension of the first parent
-func childNameHash(mom, dad string) string {
-	ext := filepath.Ext(mom)
-	// hash the two parents
-	hash := sha256.New()
-	hash.Write([]byte(mom + dad))
-	// get the digest
-	digest := hash.Sum(nil)
-	// convert the digest to a hex string and add the extension
-	child := fmt.Sprintf("%x%s", digest, ext)
-	return child
-}
-
-// merge combines two files using the LLM.
-// It returns the filename of the newly created child file.
-func merge(g *core.Grokker, mom, dad string, fitnessCriteria string, model *core.Model) (child string, err error) {
-	defer Return(&err)
-
-	Pl()
-	Pf("Merging %s and %s...\n", mom, dad)
-
-	// create a new file name for the child using a hash of the parents
-	child = childNameHash(mom, dad)
-
-	// if the child file already exists, skip merge
-	_, err = os.Stat(child)
-	if err == nil {
-		Pf("Child file %s already exists, skipping merge\n", child)
-		return child, nil
-	}
-	Pf("Creating child file %s\n", child)
-
-	ext := filepath.Ext(mom)
-	extNoDot := strings.TrimPrefix(ext, ".")
-
-	inFns := []string{mom, dad}
-	outFls := []core.FileLang{
-		{
-			File:     child,
-			Language: extNoDot,
-		},
-	}
-
-	// Count tokens
-	Pf("Token counts:\n")
-	total := 0
-	for _, f := range inFns {
-		count, err := countTokens(g, f)
-		Ck(err)
-		Pf("    %s: %d\n", f, count)
-		total += count
-	}
-	Pf("    Total: %d\n", total)
-
-	Pl("Output files:")
-	for _, f := range outFls {
-		Pf("    %s\n", f.File)
-	}
-
-	Pf("Querying GPT...")
-	// Start a goroutine to print dots while waiting for the response
-	var stopDots = make(chan bool)
-	go func() {
-		for {
-			select {
-			case <-stopDots:
-				return
-			default:
-				time.Sleep(1 * time.Second)
-				fmt.Print(".")
-			}
-		}
-	}()
-	start := time.Now()
-
-	mergePrompt := fmt.Sprintf(mergePromptTmpl, fitnessCriteria)
-
-	msgs := []client.ChatMsg{
-		{
-			Role:    "User",
-			Content: mergePrompt,
-		},
-	}
-
-	res, err := g.SendWithFiles(model.Name, mergePrompt, msgs, inFns, outFls)
-	if err != nil {
-		return "", fmt.Errorf("error merging files: %v", err)
-	}
-
-	elapsed := time.Since(start)
-	stopDots <- true
-	close(stopDots)
-	Pf(" got response in %s\n", elapsed)
-
-	err = core.ExtractFiles(outFls, res, false, false)
-	if err != nil {
-		return "", fmt.Errorf("error extracting merged output: %v", err)
-	}
-
-	Pl()
-
-	return child, nil
-}
-
-// randString generates a random string of the specified length
-func randString(n int) string {
-	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	b := make([]byte, n)
-	for i := range b {
-		b[i] = letters[rand.Intn(len(letters))]
-	}
-	return string(b)
-}
-
-// randMapKey returns a random key from the map without having to
-// first build a slice of keys
-func randMapKey(m map[string]bool) string {
-	Assert(len(m) > 0, "randMapKey: map is empty")
-	j := rand.Intn(len(m))
-	i := 0
-	for key := range m {
-		if i == j {
-			return key
-		}
-		i++
-	}
-	Assert(false, "randMapKey: no key found")
-	return "" // should never happen
-}
-```
-EOF_/home/stevegt/lab/grokker/x/ga-evolve/main.go
+That is the high‑level evaluation and proposed changes for this refactor.

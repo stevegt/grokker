@@ -248,7 +248,10 @@ func generation(g *core.Grokker, gen int, dir string, fitnessCriteria string, mo
 		ref := ""
 		if len(scored) > 0 {
 			// pick a random scored file
-			ref = randMapKey(scored)
+			// ref = randMapKey(scored)
+			// use the highest scored file as the reference
+			sortedFiles := sortIndividuals(individuals)
+			ref = sortedFiles[0] // the first file in the sorted list is the highest scored
 		} else {
 			// pick a random unscored file
 			ref = randMapKey(unscored)
@@ -281,32 +284,38 @@ func generation(g *core.Grokker, gen int, dir string, fitnessCriteria string, mo
 		scored[newRefName] = true
 
 	}
-	// Refresh the list of individuals after scoring
-	individuals, err = allIndividuals(dir)
-	Ck(err)
-	sortedFiles := sortIndividuals(individuals)
 
-	// Remove the files with the lowest fitness scores so that only the top half remain.
-	if len(sortedFiles) > populationSize/2 {
-		for i := populationSize / 2; i < len(sortedFiles); i++ {
-			Pf("Removing %s\n", sortedFiles[i])
-			err = os.Remove(sortedFiles[i])
-			Ck(err)
+	// Remove file(s) with the lowest fitness scores to reduce the population size.
+	for {
+		// Refresh the list of individuals after scoring
+		individuals, err = allIndividuals(dir)
+		Ck(err)
+		sortedFiles := sortIndividuals(individuals)
+		if len(sortedFiles) < populationSize {
+			break
 		}
+		// remove the lowest scoring file
+		fn := sortedFiles[len(sortedFiles)-1]
+		Pf("Removing %s\n", fn)
+		err = os.Remove(fn)
+		Ck(err)
 	}
 
 	// Repopulate the directory by recombining the remaining files until populationSize is reached.
 	for {
 		survivors, err := allIndividuals(dir)
 		Ck(err)
+		survivors = sortIndividuals(survivors)
 		if len(survivors) >= populationSize {
 			break
 		}
-		// pick two random survivors
 		if len(survivors) < 2 {
 			break
 		}
-		mom := survivors[rand.Intn(len(survivors))]
+		// pick two random survivors
+		// mom := survivors[rand.Intn(len(survivors))]
+		// pick the fittest survivor as mom and a random survivor as dad
+		mom := survivors[0]
 		dad := survivors[rand.Intn(len(survivors))]
 		if mom == dad {
 			continue
@@ -544,44 +553,54 @@ func merge(g *core.Grokker, mom, dad string, fitnessCriteria string, model *core
 	}
 
 	prompt := mergePrompt
-	for {
 
-		res, err := g.SendWithFiles(model.Name, prompt, msgs, inFns, outFls)
-		if err != nil {
-			return "", fmt.Errorf("error merging files: %v", err)
-		}
+	// for {
 
-		err = core.ExtractFiles(outFls, res, false, false)
-		if err != nil {
-			Pf("Error extracting merged output: %v\n", err)
-		}
-
-		// Check if the child file was created
-		// XXX move this logic to ExtractFiles
-		_, err = os.Stat(child)
-		if err == nil {
-			break // child file created successfully
-		}
-
-		Pf("Child file %s not created, trying again...\n", child)
-
-		// If the child file was not created, it means the LLM did not
-		// return a properly delimited file.
-		prompt := fmt.Sprintf("I'm not able to parse the file %s from your response.  I'm attaching the response so you can see what I received.  Please follow the instructions and ensure the output is properly delimited so I can extract the file.", child)
-		msgs = []client.ChatMsg{
-			{
-				Role:    "User",
-				Content: prompt,
-			},
-		}
-		// write the response to a temporary file
-		tmpFile, err := ioutil.TempFile("", "ga-evolve-merge-response-*.txt")
-		err = ioutil.WriteFile(tmpFile.Name(), []byte(res), 0644)
-		Ck(err)
-		// use the temporary file as input
-		inFns = []string{tmpFile.Name()}
-
+	res, err := g.SendWithFiles(model.Name, prompt, msgs, inFns, outFls)
+	if err != nil {
+		return "", fmt.Errorf("error merging files: %v", err)
 	}
+
+	// rather than extracting the file from the response, we will
+	// simply use the whole response as the content of the child file
+
+	err = ioutil.WriteFile(child, []byte(res), 0644)
+	Ck(err)
+
+	/*
+
+			err = core.ExtractFiles(outFls, res, false, false)
+			if err != nil {
+				Pf("Error extracting merged output: %v\n", err)
+			}
+
+			// Check if the child file was created
+			// XXX move this logic to ExtractFiles
+			_, err = os.Stat(child)
+			if err == nil {
+				break // child file created successfully
+			}
+
+			Pf("Child file %s not created, trying again...\n", child)
+
+			// If the child file was not created, it means the LLM did not
+			// return a properly delimited file.
+			prompt := fmt.Sprintf("I'm not able to parse the file %s from your response.  I'm attaching the response so you can see what I received.  Please follow the instructions and ensure the output is properly delimited so I can extract the file.", child)
+			msgs = []client.ChatMsg{
+				{
+					Role:    "User",
+					Content: prompt,
+				},
+			}
+			// write the response to a temporary file
+			tmpFile, err := ioutil.TempFile("", "ga-evolve-merge-response-*.txt")
+			err = ioutil.WriteFile(tmpFile.Name(), []byte(res), 0644)
+			Ck(err)
+			// use the temporary file as input
+			inFns = []string{tmpFile.Name()}
+
+		}
+	*/
 
 	elapsed := time.Since(start)
 	stopDots <- true
