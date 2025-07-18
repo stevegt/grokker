@@ -608,7 +608,12 @@ func OutfilesRegex(files []FileLang) string {
 		// multiple files, known names and languages
 		for _, fileLang := range files {
 			header = Spf(headerTmpl, fileLang.File)
-			openCodeBlock := Spf(openCodeBlockTmpl, fileLang.Language)
+			// openCodeBlock := Spf(openCodeBlockTmpl, fileLang.Language)
+			// XXX perplexity deep research has started saying
+			// 'markdown' instead of 'md' for the language, so let's
+			// just use \w+ for the language until we switch to using
+			// structured output
+			openCodeBlock = Spf(openCodeBlockTmpl, `\w+`)
 			closeCodeBlock := Spf(closeCodeBlockTmpl, fileLang.File)
 			out += Spf(`%s%s%s%s`, header, openCodeBlock, text, closeCodeBlock)
 		}

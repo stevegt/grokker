@@ -1,22 +1,22 @@
-evaluate refactor to use XML file delimiters
+write llm-file-io package
 
-I'm considering changing from using regexes to using XML file
-delimiters for the files sent to the LLM in the prompt, and for the
-files returned from the LLM.  I'm considering this because I am
-starting to see inconsistent results when using regexes -- they use to
-work better, but recent LLMs aren't honoring the regex sysmsg as much
-as they used to, and I think the XML file delimiters will be more
-reliable.  
+I need more flexibility in how I read and write files to various LLM
+models, so I want to create a new package called llm-file-io that
+will handle reading and writing files using either regexes, text
+delimiters, XML, or JSON.  This package will be used by the
+existing code, replacing the current regex-based file handling.
 
-Recommend other alternatives to XML file delimiters if you have any,
-and discuss the pros and cons of using XML file delimiters and the
-other alternatives you recommend.  
+See the llm-file-io/discussion.md file for more details on the
+design and implementation of this package.
 
-Discuss the files that would need to be changed in order to implement
-this refactor.
+The API for the new package should be similar to:
+
+- func (g *Grokker) SendWithFiles(callback func(modelName, sysmsg, msgs) (resp string, err error), modelName, sysmsg string, msgs []client.ChatMsg, infiles []string, outfiles []string) (resp string, err error) 
+
 
 
 In:
+    v3/llm-file-io/discussion.md
     v3/util/util.go
     v3/cli/chat_test.go
     v3/cli/cli.go
