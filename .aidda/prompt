@@ -1,18 +1,10 @@
-write llm-file-io package
+convert to using structured I/O for files
 
-I need more flexibility in how I read and write files to various LLM
-models, so I want to create a new package called llm-file-io that
-will handle reading and writing files using either regexes, text
-delimiters, XML, or JSON.  This package will be used by the
-existing code, replacing the current regex-based file handling.
+We need to replace the existing regex-based file I/O by using the
+OpenAI and Perplexity APIs to read and write files in a structured
+way.
 
-See the llm-file-io/discussion.md file for more details on the
-design and implementation of this package.
-
-The API for the new package should be similar to:
-
-- func (g *Grokker) SendWithFiles(callback func(modelName, sysmsg, msgs) (resp string, err error), modelName, sysmsg string, msgs []client.ChatMsg, infiles []string, outfiles []string) (resp string, err error) 
-
+For now, just list the files that need to be modified.
 
 In:
     v3/llm-file-io/discussion.md
@@ -42,6 +34,7 @@ In:
     v3/aidda/run.go
     v3/aidda/aidda.go
     v3/perplexity/perplexity.go
+
 
 .stop
 
