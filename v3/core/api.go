@@ -554,7 +554,7 @@ func (g *Grokker) GitCommitMessage(modelName string, args ...string) (msg string
 			},
 		}
 
-		res, err := g.CompleteChat(modelName, sysmsg, msgs)
+		res, _, err := g.CompleteChat(modelName, sysmsg, msgs)
 		Ck(err)
 		msg = res
 	}

@@ -14,7 +14,6 @@ The API for the new package should be similar to:
 - func (g *Grokker) SendWithFiles(callback func(modelName, sysmsg, msgs) (resp string, err error), modelName, sysmsg string, msgs []client.ChatMsg, infiles []string, outfiles []string) (resp string, err error) 
 
 
-
 In:
     v3/llm-file-io/discussion.md
     v3/util/util.go

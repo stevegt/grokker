@@ -24,7 +24,7 @@ var SysMsgContinue = "You are an expert knowledgable in the provided context.  I
 // CompleteChat uses the openai API to complete a chat.  It converts the
 // role in the ChatMsg slice to the appropriate openai.ChatMessageRole
 // value.
-func (g *Grokker) CompleteChat(modelName, sysmsg string, msgs []client.ChatMsg) (response string, err error) {
+func (g *Grokker) CompleteChat(modelName, sysmsg string, msgs []client.ChatMsg) (response string, references []string, err error) {
 	defer Return(&err)
 
 	Debug("msgs: %s", Spprint(msgs))
@@ -44,15 +44,16 @@ func (g *Grokker) CompleteChat(modelName, sysmsg string, msgs []client.ChatMsg) 
 		})
 	}
 
-	Debug("sending to OpenAI: %s", Spprint(omsgs))
+	Debug("sending to LLM: %s", Spprint(omsgs))
 
 	results, err := g.gateway(modelName, omsgs)
 	Ck(err)
 
-	Debug("response from OpenAI: %#v", results)
+	Debug("response from LLM: %#v", results)
 
 	response = results.Body
 	if results.Citations != nil {
+		references = append(references, results.Citations...)
 		response += Spf("\n\n<references>\n")
 		for i, citation := range results.Citations {
 			response += Spf("[%d] %s\n", i+1, citation)

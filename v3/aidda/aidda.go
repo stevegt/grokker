@@ -362,10 +362,11 @@ func PrintUsageAndExit() {
 
 // Prompt is a struct that represents a prompt
 type Prompt struct {
-	Sysmsg string
-	In     []string
-	Out    []string
-	Txt    string
+	Sysmsg     string
+	In         []string
+	Out        []string
+	References string // output file containing references
+	Txt        string
 }
 
 // initAidda function is responsible for creating the .aidda directory and its contents
@@ -513,10 +514,12 @@ func processHeaders(headerMap map[string]string, path string, p *Prompt) error {
 	p.Sysmsg = strings.TrimSpace(headerMap["Sysmsg"])
 	inStr := strings.TrimSpace(headerMap["In"])
 	outStr := strings.TrimSpace(headerMap["Out"])
+	refStr := strings.TrimSpace(headerMap["References"])
 
 	// Filenames are space-separated
 	p.In = strings.Fields(inStr)
 	p.Out = strings.Fields(outStr)
+	p.References = refStr
 
 	// Files are relative to the parent of the .aidda directory
 	// unless they are absolute paths
@@ -550,6 +553,15 @@ func processHeaders(headerMap map[string]string, path string, p *Prompt) error {
 		}
 	}
 	p.Out = newOut
+
+	// If references file is specified, convert it to an absolute path
+	if refStr != "" {
+		if filepath.IsAbs(refStr) {
+			p.References = refStr
+		} else {
+			p.References = filepath.Join(parentDir, refStr)
+		}
+	}
 
 	// If any input path is a directory, then replace it with the
 	// list of files in that directory
@@ -724,6 +736,7 @@ func generate(g *core.Grokker, modelName string, p *Prompt) (err error) {
 
 	inFns := p.In
 	outFns := p.Out
+	refFn := p.References
 	var outFls []core.FileLang
 	for _, fn := range outFns {
 		lang, known, err := util.Ext2Lang(fn)
@@ -788,12 +801,27 @@ func generate(g *core.Grokker, modelName string, p *Prompt) (err error) {
 		}
 	}()
 	start := time.Now()
-	resp, err := g.SendWithFiles(modelName, sysmsg, msgs, inFns, outFls)
+	resp, ref, err := g.SendWithFiles(modelName, sysmsg, msgs, inFns, outFls)
 	Ck(err)
 	elapsed := time.Since(start)
 	stopDots <- true
 	close(stopDots)
 	Pf(" got response in %s\n", elapsed)
+
+	if len(ref) > 0 && refFn != "" {
+		// join references into a single string, with each reference
+		// on a new line preceeded by "[%d] "
+		var refsWithTags strings.Builder
+		for i, r := range ref {
+			// Use fmt.Fprintf to format the reference
+			fmt.Fprintf(&refsWithTags, "[%d] %s\n", i+1, r)
+		}
+		refStr := refsWithTags.String()
+		// write references file
+		err = os.WriteFile(refFn, []byte(refStr), 0644)
+		Ck(err)
+		Pl("Wrote references to", refFn)
+	}
 
 	// ExtractFiles(outFls, promptFrag, dryrun, extractToStdout)
 	err = core.ExtractFiles(outFls, resp, false, false)

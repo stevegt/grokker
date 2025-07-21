@@ -195,7 +195,7 @@ func (history *ChatHistory) ContinueChat(modelName, prompt string, contextLevel 
 	Fpf(os.Stderr, "Sending %d tokens to OpenAI...\n", finalCount)
 
 	// generate the response
-	resp, err = g.SendWithFiles(modelName, history.Sysmsg, msgs, infiles, outfiles)
+	resp, _, err = g.SendWithFiles(modelName, history.Sysmsg, msgs, infiles, outfiles)
 	Ck(err)
 
 	// append the prompt and response to the stored messages
@@ -215,7 +215,7 @@ func (history *ChatHistory) ContinueChat(modelName, prompt string, contextLevel 
 // prompt.  The msgs are the chat history up to the prompt.  The
 // infiles are the input files that are included in the prompt.  The
 // outfiles are the output files that are required in the response.
-func (g *Grokker) SendWithFiles(modelName, sysmsg string, msgs []client.ChatMsg, infiles []string, outfiles []FileLang) (resp string, err error) {
+func (g *Grokker) SendWithFiles(modelName, sysmsg string, msgs []client.ChatMsg, infiles []string, outfiles []FileLang) (resp string, ref []string, err error) {
 	defer Return(&err)
 
 	if len(infiles) > 0 {
@@ -239,7 +239,7 @@ func (g *Grokker) SendWithFiles(modelName, sysmsg string, msgs []client.ChatMsg,
 	}
 	Debug("sysmsg %s", sysmsg)
 
-	resp, err = g.CompleteChat(modelName, sysmsg, msgs)
+	resp, ref, err = g.CompleteChat(modelName, sysmsg, msgs)
 	Ck(err)
 	return
 }
