@@ -4,7 +4,26 @@ We need to replace the existing regex-based file I/O by using the
 OpenAI and Perplexity APIs to read and write files in a structured
 way.
 
-For now, just list the files that need to be modified.
+Below is a list of some of the files that currently contain the regex‐based
+I/O logic (or tests that expect it) and that would need to be modified
+when switching to structured file I/O via the OpenAI and Perplexity
+APIs:
+
+• /home/stevegt/lab/grokker/v3/llm-file-io/discussion.md  
+  – Contains the documentation and discussion of the proposed new file delimiters/structured I/O.
+
+• /home/stevegt/lab/grokker/v3/cli/cli.go  
+  – In the “chat” subcommand, the code builds and applies a regular expression (via core.OutfilesRegex) to extract output files from LLM responses. This logic will need to be changed to use structured output.
+
+• / home/stevegt/lab/grokker/v3/core/chat.go  
+  – This file defines functions such as OutfilesRegex and ExtractFiles that perform regex-based extraction of file blocks. These functions will have to be refactored to handle structured I/O instead.
+
+• / home/stevegt/lab/grokker/v3/cli/cli_test.go  
+  – Some unit tests are verifying the behavior of file extraction (using the expected regex patterns). These tests will need to be updated once the extraction mechanism becomes structured.
+
+Finish this list -- in particular, look at the gateway and openai.go
+and perplexity.go files to see if they need to be modified to
+support structured I/O.  Check aidda as well.
 
 In:
     v3/llm-file-io/discussion.md
