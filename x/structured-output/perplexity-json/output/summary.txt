@@ -1,0 +1,30 @@
+The PromiseGrid system architecture design outlines a novel
+distributed computing framework based on security capability tokens
+functioning as promises for future computation. These tokens create a
+creditor-debtor relationship between issuer and recipient, secured
+cryptographically and managed via kernel-mediated Mach-like receive
+ports. The system employs a global hypergraph—a directed acyclic graph
+(DAG)—to represent transactions and system states, enabling
+speculative execution through parallel transaction paths. The economic
+model is token-based, with atomic swaps ensuring balanced value
+exchanges and reputation incentives for reliable performance. Nodes
+represent state symbols rather than computation results, and token
+redemption involves creating new hyperedges with reply tokens to
+return computation results. The design aligns well with the specified
+requirements, including token mechanics, kernel interaction,
+hypergraph structure, speculative execution, and economic incentives.
+However, a key discrepancy exists regarding the hashing scheme: while
+hyperedges include hashes of predecessor nodes, the design does not
+explicitly state that nodes include hashes of the hyperedges that
+created them, which is critical for maintaining an immutable chain of
+custody. Additional gaps include limited detail on CWT token
+standardization, reputation system sophistication, conflict resolution
+in speculative execution, and liability enforcement during token
+redemption. The open questions section in the design document already
+addresses many challenges, such as conflict resolution, reputation
+measurement, garbage collection, and token expiration policies.
+Overall, the PromiseGrid design presents a comprehensive and
+innovative approach to decentralized, economically incentivized
+distributed computation but requires refinement in cryptographic
+linkage and economic enforcement mechanisms to fully meet the
+specification.

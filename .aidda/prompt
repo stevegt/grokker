@@ -1,3 +1,33 @@
+allow caller to specify output filenames
+
+We need to allow the caller to specify the output filenames for the
+structured API output.  
+
+- move the creation of the inFileData slice from inside ProcessFiles
+  to the caller.
+- add an argument to ProcessFiles that takes a slice of FileData,
+  which is the list of output files to be created.
+- use the outFileData slice to specify the output filenames in the
+  json schema we send in the API request -- see output-filenames.md
+  for ideas on how to do this.
+
+Sysmsg: 
+  You are an expert Go programmer. Please make the requested changes
+  to the given code or documentation. Please verify that the code
+  compiles and runs without errors -- do not hallucinate library
+  methods, structs, or functions that do not exist. Do not quote or
+  escape single backticks in the code -- Go uses backticks for raw
+  string literals.  Do not remove or alter comments unless they are
+  incorrect or misleading.
+In: 
+  x/structured-output/perplexity-json/main.go
+  x/structured-output/perplexity-json/output-filenames.md
+Out: 
+  main.go
+
+
+.stop
+
 convert to using structured I/O for files
 
 We need to replace the existing regex-based file I/O by using the
