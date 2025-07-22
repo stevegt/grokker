@@ -20,7 +20,7 @@ In:
   x/structured-output/perplexity-json/main.go
   x/structured-output/perplexity-json/output-filenames.md
 Out: 
-  main.go
+  x/structured-output/perplexity-json/main.go
 
 
 .stop
