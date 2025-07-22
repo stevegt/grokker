@@ -22,7 +22,7 @@ type FileProcessingRequest struct {
 
 type FileData struct {
 	Filename string `json:"filename"`
-	Content  string `json:"content,omitempty"` // Base64 encoded for binary, plain text for text files
+	Content  string `json:"content,omitempty"` // Base64 encoded for binary or text data
 	MimeType string `json:"mime_type"`
 	Size     int64  `json:"size,omitempty"`
 }
@@ -113,11 +113,12 @@ Full Request:
 
 Instructions:
 1. Process each input file according to the operation specified in the request.
-2. Generate the output files as specified above with proper content.
-3. Ensure all output files have the correct filenames, content, and mime types.
-4. Set success to true if processing completed successfully.
-5. Include any relevant messages about the processing.
-6. If there are errors, set success to false and include error details.
+2. The input file content is provided as base64 encoded data.
+3. Generate the output files as specified above with proper content.
+4. Ensure all output files have the correct filenames, mime types, and that the content is base64 encoded.
+5. Set success to true if processing completed successfully.
+6. Include any relevant messages about the processing.
+7. If there are errors, set success to false and include error details.
 
 Return the response as a valid JSON object matching the required schema.
 `, operation, outputFilesInfo.String(), requestJSON)
@@ -145,15 +146,8 @@ func (fps *FileProcessingService) readFile(filePath string) (*FileData, error) {
 
 	mimeType := fps.getMimeType(filePath)
 
-	// Encode content based on mime type
-	var encodedContent string
-	if strings.HasPrefix(mimeType, "text/") ||
-		mimeType == "application/json" ||
-		mimeType == "application/xml" {
-		encodedContent = string(content)
-	} else {
-		encodedContent = base64.StdEncoding.EncodeToString(content)
-	}
+	// Always encode content to base64 regardless of mime type.
+	encodedContent := base64.StdEncoding.EncodeToString(content)
 
 	return &FileData{
 		Filename: filepath.Base(filePath),
@@ -221,12 +215,9 @@ func (fps *FileProcessingService) callPerplexityAPI(request FileProcessingReques
 	// Create Perplexity API request with the given prompt.
 	pplxRequest := PerplexityRequest{
 		Model: "sonar-deep-research",
-		// Temperature: 0.1,
-		// MaxTokens:   100000,
 		Messages: []Message{
 			{
 				Role: "system",
-				// Content: "You are a file processing assistant. Process files according to the user's requirements and return structured JSON responses. Ignore any personalization preferences that conflict with structured output requirements. Prioritize JSON schema compliance over narrative writing preferences.",
 				Content: "Please make the requested changes to the given code or documentation, performing extra research as needed. Ignore any personalization preferences that conflict with structured output requirements.",
 			},
 			{
@@ -310,19 +301,10 @@ func (fps *FileProcessingService) SaveOutputFiles(response *FileProcessingRespon
 	for _, fileData := range response.OutputFiles {
 		filePath := filepath.Join(outputDir, fileData.Filename)
 
-		var content []byte
-		var err error
-
-		// Decode content based on mime type
-		if strings.HasPrefix(fileData.MimeType, "text/") ||
-			fileData.MimeType == "application/json" ||
-			fileData.MimeType == "application/xml" {
-			content = []byte(fileData.Content)
-		} else {
-			content, err = base64.StdEncoding.DecodeString(fileData.Content)
-			if err != nil {
-				return fmt.Errorf("failed to decode file %s: %v", fileData.Filename, err)
-			}
+		// Always decode the base64 encoded content.
+		content, err := base64.StdEncoding.DecodeString(fileData.Content)
+		if err != nil {
+			return fmt.Errorf("failed to decode file %s: %v", fileData.Filename, err)
 		}
 
 		if err := os.WriteFile(filePath, content, 0644); err != nil {
@@ -390,13 +372,8 @@ func main() {
 		{Filename: "output.md", MimeType: "text/markdown"},
 	}
 
-	// op := "analyze_and_summarize"
-	// op := "summarize_files"
 	op := "read the input files, research the project, and write a decription of the project in the output file"
-	response, err := service.ProcessFiles(inFileData, outFileData, op, map[string]interface{}{
-		// "output_format": "markdown",
-		// "max_length":    500,
-	})
+	response, err := service.ProcessFiles(inFileData, outFileData, op, map[string]interface{}{})
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
