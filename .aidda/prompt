@@ -3,13 +3,10 @@ allow caller to specify output filenames
 We need to allow the caller to specify the output filenames for the
 structured API output.  
 
-- move the creation of the inFileData slice from inside ProcessFiles
-  to the caller.
-- add an argument to ProcessFiles that takes a slice of FileData,
-  which is the list of output files to be created.
-- use the outFileData slice to specify the output filenames in the
-  json schema we send in the API request -- see output-filenames.md
-  for ideas on how to do this.
+- modify the json schema sent as part of the API request: use the
+  outFileData slice to specify the output filenames in the json schema
+  we send in the API request -- see output-filenames.md for how to do
+  this for perplexity's API.
 
 Sysmsg: 
   You are an expert Go programmer. Please make the requested changes

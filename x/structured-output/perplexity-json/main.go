@@ -206,6 +206,18 @@ func (fps *FileProcessingService) callPerplexityAPI(request FileProcessingReques
 		"required": []string{"success"},
 	}
 
+	// Modify the JSON schema to include allowed output filenames as defined in caller provided outFileData.
+	allowedFilenames := []string{}
+	for _, file := range request.OutputFiles {
+		allowedFilenames = append(allowedFilenames, file.Filename)
+	}
+	properties := schema["properties"].(map[string]interface{})
+	outputFilesSchema := properties["output_files"].(map[string]interface{})
+	itemsSchema := outputFilesSchema["items"].(map[string]interface{})
+	itemProps := itemsSchema["properties"].(map[string]interface{})
+	filenameProp := itemProps["filename"].(map[string]interface{})
+	filenameProp["enum"] = allowedFilenames
+
 	// Create Perplexity API request with the given prompt.
 	pplxRequest := PerplexityRequest{
 		Model:       "sonar-deep-research",
@@ -273,7 +285,15 @@ func (fps *FileProcessingService) callPerplexityAPI(request FileProcessingReques
 
 	// Parse the structured FileProcessingResponse.
 	var response FileProcessingResponse
-	if err := json.Unmarshal([]byte(pplxResp.Choices[0].Message.Content), &response); err != nil {
+	content := pplxResp.Choices[0].Message.Content
+	err = json.Unmarshal([]byte(content), &response)
+	if err != nil {
+		// save response content for debugging
+		debugFile := "/tmp/debug_response.txt"
+		fmt.Printf("Failed to parse structured response, saving content to %s\n", debugFile)
+		if err := os.WriteFile(debugFile, []byte(content), 0644); err != nil {
+			return nil, fmt.Errorf("failed to write debug response to %s: %v", debugFile, err)
+		}
 		return nil, fmt.Errorf("failed to parse structured response: %v", err)
 	}
 
@@ -366,13 +386,12 @@ func main() {
 
 	// Caller specifies output file details.
 	outFileData := []FileData{
-		{Filename: "output1.md", MimeType: "text/markdown"},
-		{Filename: "output2.md", MimeType: "text/markdown"},
+		{Filename: "summary.md", MimeType: "text/markdown"},
 	}
 
 	response, err := service.ProcessFiles(inFileData, outFileData, "analyze_and_summarize", map[string]interface{}{
-		"output_format": "markdown",
-		"max_length":    500,
+		// "output_format": "markdown",
+		// "max_length":    500,
 	})
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
