@@ -1,12 +1,12 @@
-allow caller to specify output filenames
+base64 encode the input and output files
 
-We need to allow the caller to specify the output filenames for the
-structured API output.  
+We need to allow for binary data or other non-text data to be included
+in the input and output files of the structured API.  To do this,
+we will base64 encode the input files before sending them to the
+API, we will ask the API to base64 encode the output files, and we
+will decode the output files after receiving them from the API.
 
-- modify the json schema sent as part of the API request: use the
-  outFileData slice to specify the output filenames in the json schema
-  we send in the API request -- see output-filenames.md for how to do
-  this for perplexity's API.
+Make the changes to the code.
 
 Sysmsg: 
   You are an expert Go programmer. Please make the requested changes
@@ -18,7 +18,6 @@ Sysmsg:
   incorrect or misleading.
 In: 
   x/structured-output/perplexity-json/main.go
-  x/structured-output/perplexity-json/output-filenames.md
 Out: 
   x/structured-output/perplexity-json/main.go
 

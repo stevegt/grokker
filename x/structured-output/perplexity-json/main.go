@@ -16,7 +16,7 @@ import (
 type FileProcessingRequest struct {
 	InputFiles  []FileData             `json:"input_files"`
 	OutputFiles []FileData             `json:"output_files"`
-	Operation   string                 `json:"operation"`
+	Operation   string                 `json:"operation,omitempty"`
 	Parameters  map[string]interface{} `json:"parameters,omitempty"`
 }
 
@@ -225,8 +225,9 @@ func (fps *FileProcessingService) callPerplexityAPI(request FileProcessingReques
 		// MaxTokens:   100000,
 		Messages: []Message{
 			{
-				Role:    "system",
-				Content: "You are a file processing assistant. Process files according to the user's requirements and return structured JSON responses.",
+				Role: "system",
+				// Content: "You are a file processing assistant. Process files according to the user's requirements and return structured JSON responses. Ignore any personalization preferences that conflict with structured output requirements. Prioritize JSON schema compliance over narrative writing preferences.",
+				Content: "Please make the requested changes to the given code or documentation, performing extra research as needed. Ignore any personalization preferences that conflict with structured output requirements.",
 			},
 			{
 				Role:    "user",
@@ -391,7 +392,7 @@ func main() {
 
 	// op := "analyze_and_summarize"
 	// op := "summarize_files"
-	op := "describe the given files"
+	op := "read the input files, research the project, and write a decription of the project in the output file"
 	response, err := service.ProcessFiles(inFileData, outFileData, op, map[string]interface{}{
 		// "output_format": "markdown",
 		// "max_length":    500,
