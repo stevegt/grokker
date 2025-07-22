@@ -1,14 +1,5 @@
-Below is one example of converting the output‐file “extraction” and “inclusion” routines from looking for our old “File:” header plus code‐fence output to instead use our new custom delimited format. In our new scheme every file block will be embedded as follows:
-
-  ---FILE-START filename="exact_filename.ext"---
-  [content here]
-  ---FILE-END filename="exact_filename.ext"---
-
-In the code below we change two functions in core/chat.go. First we update OutfilesRegex() so that it returns a regex that (using dot‑all mode) finds a file block where the only capturing group is the file’s content. Second, we update IncludeFiles() so that when the input files are included in the prompt the text is wrapped in our new delimiters.
-
-Modify the file /home/stevegt/lab/grokker/v3/core/chat.go as follows (only the functions we update are shown):
-
---------------------------------------------------
+File: /home/stevegt/lab/grokker/v3/core/chat.go
+```go
 package core
 
 import (
@@ -25,25 +16,607 @@ import (
 	"github.com/stevegt/grokker/v3/util"
 )
 
-// … existing types and functions …
-
-// OutfilesRegex now returns a regex that looks for file blocks using custom delimiters.
-// The regex uses dot‑all mode (?s) so that the file content (captured in group 1)
-// spans multiple lines.
-func OutfilesRegex(files []FileLang) string {
-	// This pattern matches:
-	// ---FILE-START filename="(any non-quote characters)"---
-	//    (capture any text non-greedily)
-	// ---FILE-END filename="(same filename)"---
-	// (We ignore the filename inside the delimiters here.)
-	return `(?s)---FILE-START filename="[^"]+"---\s*(.*?)\s*---FILE-END filename="[^"]+"---`
+type ChatHistory struct {
+	Sysmsg  string
+	Version string
+	relPath string
+	msgs    []client.ChatMsg
+	g       *Grokker
 }
 
-// IncludeFiles returns a prompt fragment with each input file embedded using our new custom delimiters.
-// Instead of the old “File:” header plus code fence format, we now use:
-// ---FILE-START filename="exact_filename.ext"---
-// <file text>
-// ---FILE-END filename="exact_filename.ext"---
+type ChatMsg struct {
+	Role    string
+	Content string
+}
+
+const (
+	RoleSystem = "SYSTEM"
+	RoleUser   = "USER"
+	RoleAI     = "AI"
+)
+
+var SysMsgSummarizeChat = `You are an editor.  Rewrite the chat
+history to make it about half as long, focusing on the following
+topic.  Your answer must be in the same chat format.  Please include
+the AI: and USER: headers in your response.
+	
+Topic:
+%s
+`
+
+// OpenChatHistory opens a chat history file and returns a ChatHistory
+// object.  The chat history file is a special format that is amenable
+// to context chunking and summarization.  The first line of the file
+// is a json string that contains a ChatHistory struct.  The rest of
+// the file is a chat history in the following format:
+//
+// <role>:\n<message>\n\n
+//
+// ...where <role> is either "USER" or "AI", and <message> is the text
+// of the message.  The last message in the file is the most recent
+// message.
+func (g *Grokker) OpenChatHistory(sysmsg, relPath string) (history *ChatHistory, err error) {
+	defer Return(&err)
+	Assert(relPath != "", "relPath is required")
+	// path := filepath.Join(g.Root, relPath)
+	path := relPath
+	_, err = os.Stat(path)
+	if err != nil {
+		// file does not exist
+		// XXX move sysmsg into SYSMSG headings in the file so we can
+		// track changes to the sysmsg
+		history = &ChatHistory{relPath: relPath,
+			Sysmsg:  sysmsg,
+			msgs:    make([]client.ChatMsg, 0),
+			Version: Version}
+		err = nil
+	} else {
+		// file exists
+		fh, err := os.Open(path)
+		Ck(err)
+		defer fh.Close()
+		// the first line of the file is the ChatHistory struct; load
+		// that into a ChatHistory object using json.Unmarshal
+		history = &ChatHistory{}
+		buf, err := ioutil.ReadAll(fh)
+		Ck(err)
+		// get first line
+		lines := strings.Split(string(buf), "\n")
+		// unmarshal first line
+		err = json.Unmarshal([]byte(lines[0]), history)
+		Ck(err)
+		// the rest of the file is the chat history; load that into
+		// the chat history object using parseChat
+		history.msgs = history.parseChat(strings.Join(lines[1:], "\n"))
+	}
+	// if a sysmsg is provided, replace the one in the file
+	if sysmsg != "" {
+		history.Sysmsg = sysmsg
+	}
+	// if there is no sysmsg, use a default
+	if history.Sysmsg == "" {
+		history.Sysmsg = "You are a helpful assistant."
+	}
+
+	// set relPath
+	history.relPath = relPath
+
+	// set grokker
+	history.g = g
+
+	return
+}
+
+// ContinueChat continues a chat history.  The debug map contains
+// interesting statistics about the process, for testing and debugging
+// purposes.
+func (history *ChatHistory) ContinueChat(modelName, prompt string, contextLevel util.ContextLevel, infiles []string, outfiles []FileLang, promptTokenLimit int, edit bool) (resp string, debug map[string]int, err error) {
+	defer Return(&err)
+	g := history.g
+
+	Debug("continueChat: context level=%s", contextLevel)
+
+	// create a temporary slice of messages to work with
+	var msgs []client.ChatMsg
+
+	// add context
+	getContext := false
+	appendMsgs := false
+	var files []string
+	switch contextLevel {
+	case util.ContextNone:
+		// no context
+	case util.ContextRecent:
+		// get context only from the most recent messages
+		appendMsgs = true
+	case util.ContextChat:
+		// get context from the entire chat history file
+		files = []string{history.relPath}
+		getContext = true
+		appendMsgs = true
+	case util.ContextAll:
+		// get context from all files in the knowledge base -- this
+		// includes the chat history file itself, because it is a
+		// document in the knowledge base
+		files = nil
+		getContext = true
+		appendMsgs = true
+	default:
+		Assert(false, "invalid context level: %s", contextLevel)
+	}
+
+	if getContext {
+		maxTokens := int(float64(g.ModelObj.TokenLimit) * 0.5)
+		if promptTokenLimit > 0 {
+			maxTokens = promptTokenLimit
+		}
+		var context string
+		context, err = g.getContext(prompt, maxTokens, false, false, files)
+		Ck(err)
+		if context != "" {
+			// make context look like a message exchange
+			msgs = []client.ChatMsg{
+				client.ChatMsg{Role: "USER", Content: context},
+				client.ChatMsg{Role: "AI", Content: "I understand the context."},
+			}
+		}
+		Debug("continueChat: context len=%d", len(context))
+	}
+
+	if appendMsgs {
+		// append the most recent messages to the context
+		msgs = append(msgs, history.msgs...)
+	}
+
+	if edit {
+		// get the prompt from the most recent message
+		Assert(len(prompt) == 0, "edit mode expects an empty prompt")
+		prompt = history.msgs[len(history.msgs)-1].Content
+	} else {
+		// append the prompt to the context
+		msgs = append(msgs, client.ChatMsg{Role: "USER", Content: prompt})
+	}
+
+	peakCount, err := history.tokenCount(msgs)
+	Ck(err)
+
+	// summarize
+	promptTc, err := g.TokenCount(prompt)
+	Debug("continueChat: promptTc=%d", promptTc)
+	Ck(err)
+	maxTokens := g.ModelObj.TokenLimit / 2
+	if promptTokenLimit > 0 {
+		maxTokens = promptTokenLimit
+	}
+	msgs, err = history.summarize(modelName, prompt, msgs, maxTokens, contextLevel)
+	Ck(err)
+
+	finalCount, err := history.tokenCount(msgs)
+	Ck(err)
+
+	debug = map[string]int{
+		"peakCount":  peakCount,
+		"finalCount": finalCount,
+	}
+	Fpf(os.Stderr, "Sending %d tokens to OpenAI...\n", finalCount)
+
+	// generate the response
+	resp, _, err = g.SendWithFiles(modelName, history.Sysmsg, msgs, infiles, outfiles)
+	Ck(err)
+
+	// append the prompt and response to the stored messages
+	history.msgs = append(history.msgs, client.ChatMsg{Role: "USER", Content: prompt})
+	history.msgs = append(history.msgs, client.ChatMsg{Role: "AI", Content: resp})
+
+	// save the output files
+	err = ExtractFiles(outfiles, resp, false, false)
+	Ck(err)
+
+	return
+}
+
+// SendWithFiles sends a chat to GPT-4 and returns the
+// response.  It assumes the prompt is the last message in the
+// history.  The sysmsg is a message that is sent to GPT-4 before the
+// prompt.  The msgs are the chat history up to the prompt.  The
+// infiles are the input files that are included in the prompt.  The
+// outfiles are the output files that are required in the response.
+func (g *Grokker) SendWithFiles(modelName, sysmsg string, msgs []client.ChatMsg, infiles []string, outfiles []FileLang) (resp string, ref []string, err error) {
+	defer Return(&err)
+
+	if len(infiles) > 0 {
+		// include the input files in the prompt
+		promptFrag, err := IncludeFiles(infiles)
+		Ck(err)
+		// append the prompt fragment to the last message
+		msgs[len(msgs)-1].Content += promptFrag
+	}
+
+	if len(outfiles) > 0 {
+		// require the output files in the response
+		var fns []string
+		for _, fn := range outfiles {
+			fns = append(fns, fn.File)
+		}
+		sysmsg += Spf("\nYour response must include the following complete files: '%s'", strings.Join(fns, "', '"))
+		sysmsg += "\nReturn complete files only.  Do not return file fragments."
+		sysmsg += Spf("\nYour response must match this regular expression: '%s'", OutfilesRegex(outfiles))
+		sysmsg += "\n...where each file is in the format:\n\n---FILE-START filename=\"<filename>\"---\n<text>\n---FILE-END filename=\"<filename>\"---"
+	}
+	Debug("sysmsg %s", sysmsg)
+
+	resp, ref, err = g.CompleteChat(modelName, sysmsg, msgs)
+	Ck(err)
+	return
+}
+
+// summarize summarizes a chat history until it is within
+// maxTokens.  It always leaves the last message intact.
+func (history *ChatHistory) summarize(modelName, prompt string, msgs []client.ChatMsg, maxTokens int, contextLevel util.ContextLevel) (summarized []client.ChatMsg, err error) {
+	defer Return(&err)
+	g := history.g
+
+	// count tokens
+	msgsCount, err := history.tokenCount(msgs)
+	Ck(err)
+
+	Debug("summarize: msgsCount=%d, maxTokens=%d", msgsCount, maxTokens)
+	// Debug("summarize: msgsBefore=%v", Spprint(msgs))
+
+	minTokens := g.ModelObj.TokenLimit / 10
+	Assert(maxTokens > minTokens, "maxTokens must be greater than %d", minTokens)
+
+	// if we are already within the limit, return
+	if msgsCount <= maxTokens {
+		summarized = msgs
+		Debug("summarize: done")
+		return
+	}
+
+	var sysmsg string
+	if contextLevel > util.ContextRecent {
+		Fpf(os.Stderr, "Summarizing %d tokens...\n", msgsCount)
+		// generate a sysmsg that includes a short summary of the prompt
+		topic, err := g.Msg(modelName, "Summarize the topic in one sentence.", prompt)
+		Ck(err)
+		sysmsg = Spf(SysMsgSummarizeChat, topic)
+	}
+	sysmsgTc, err := g.TokenCount(sysmsg)
+	Ck(err)
+	Debug("summarize: sysmsgTc=%d", sysmsgTc)
+
+	/*
+		// find the middle message, where "middle" is defined as
+		// either maxTokens from the start or maxTokens from the end,
+		// whichever comes first
+		endStop := msgsCount - maxTokens - sysmsgTc*2
+		Debug("endstop=%d", endStop)
+		var middleI int
+		// total token count of the first half of the messages
+		var firstHalfCount int
+		for i, msg := range msgs {
+			// count tokens
+			count, err := g.TokenCount(msg.Txt)
+			Ck(err)
+			if firstHalfCount+count > endStop {
+				// we are nearing maxTokens from the end
+				middleI = i
+				break
+			}
+			if firstHalfCount+count > maxTokens {
+				// we are nearing maxTokens from the start
+				middleI = i
+				break
+			}
+			firstHalfCount += count
+		}
+	*/
+
+	// find the middle message, where "middle" is defined as
+	// either maxTokens from the start or msgsCount/2, whichever
+	// comes first
+	var middleI int
+	// total token count of the first half of the messages
+	var firstHalfCount int
+	for i, msg := range msgs {
+		// count tokens
+		count, err := g.TokenCount(msg.Content)
+		Ck(err)
+		if firstHalfCount+count > msgsCount/2 {
+			// we are nearing msgsCount/2
+			middleI = i
+			break
+		}
+		if firstHalfCount+count > maxTokens {
+			// we are nearing maxTokens from the start
+			middleI = i
+			break
+		}
+		firstHalfCount += count
+	}
+
+	// define a variable that shows where the second half of the messages
+	// will begin
+	secondHalfI := middleI + 1
+
+	// Rewrite the middle message by splitting it into two messages
+	// from the same role, such that the first message when added to
+	// the first half of the messages will cause firstHalfCount to be
+	// maxTokens.  We go to all this trouble because the middle
+	// message might be longer than maxTokens.
+	middleMsg := msgs[middleI]
+	txt1, txt2 := g.splitAt(middleMsg.Content, maxTokens-firstHalfCount)
+	// create two new messages
+	msg1 := client.ChatMsg{Role: middleMsg.Role, Content: txt1}
+	msg2 := client.ChatMsg{Role: middleMsg.Role, Content: txt2}
+	// replace the middle message with the first new message
+	msgs[middleI] = msg1
+	// append a new message to the end of the slice as a placeholder
+	msgs = append(msgs, client.ChatMsg{})
+	// shift the second half of the messages right by one
+	// - this copies over the placeholder
+	copy(msgs[secondHalfI+1:], msgs[secondHalfI:])
+	// insert the second new message as the first message in the
+	// second half of the messages
+	msgs[secondHalfI] = msg2
+
+	if contextLevel > util.ContextRecent {
+		for len(summarized) == 0 {
+			// summarize the first half of the messages by converting them to
+			// a text format that GPT-4 can understand, sending them to GPT-4,
+			// and then converting the response back to a slice of messages.
+			// The format is the same as the chat history file format.
+			txt := history.chat2txt(msgs[:secondHalfI])
+			// send to GPT-4
+			resp, err := g.Msg(modelName, sysmsg, txt)
+			Ck(err)
+			// convert the response back to a slice of messages
+			// Debug("summarize: resp=%s", resp)
+			summarized = history.parseChat(resp)
+		}
+	}
+
+	// append the second half of the messages to the summarized messages
+	summarized = append(summarized, msgs[secondHalfI:]...)
+
+	// recurse
+	return history.summarize(modelName, prompt, summarized, maxTokens, contextLevel)
+}
+
+// chat2txt returns the given history messages as a text string.
+func (history *ChatHistory) chat2txt(msgs []client.ChatMsg) (txt string) {
+	for _, msg := range msgs {
+		if strings.TrimSpace(msg.Content) == "" {
+			continue
+		}
+		txt += Spf("%s:\n%s\n\n", msg.Role, msg.Content)
+	}
+	return
+}
+
+// parseChat parses a chat history from a string.  See summarize for
+// the format.
+func (history *ChatHistory) parseChat(txt string) (msgs []client.ChatMsg) {
+	// split into lines
+	lines := strings.Split(txt, "\n")
+	// the first line of each message is the role followed by a colon
+	// and an optional line of text
+	pattern := `^([A-Z]+):(.*$)`
+	re := regexp.MustCompile(pattern)
+	var msg *client.ChatMsg
+	// parse each line
+	for _, line := range lines {
+		// look for a role
+		m := re.FindStringSubmatch(line)
+		if len(m) > 0 {
+			if msg != nil {
+				// add the previous message to the slice
+				msgs = append(msgs, *msg)
+			}
+			role := history.fixRole(m[1])
+			txt := strings.TrimSpace(m[2])
+			// create a new message
+			msg = &client.ChatMsg{Role: role, Content: txt}
+			continue
+		}
+		if msg == nil {
+			// we are in some sort of preamble -- credit it to the user
+			msg = &client.ChatMsg{Role: "USER"}
+		}
+		// if we get here, we are in the middle of a message
+		msg.Content += line + "\n"
+	}
+	// add the last message to the slice
+	if msg != nil {
+		msgs = append(msgs, *msg)
+	}
+	return
+}
+
+// fixRole fixes the role in a chat history file.  This might be
+// necessary if GPT-4 changes the role names.
+func (history *ChatHistory) fixRole(role string) (fixed string) {
+	role = strings.TrimSpace(role)
+	role = strings.ToUpper(role)
+	switch role {
+	case "USER":
+		fallthrough
+	case "AI":
+		fixed = role
+	default:
+		// default to AI for now, might need more sophisticated
+		// logic later
+		fixed = "AI"
+	}
+	return
+}
+
+// Save saves the chat history file.
+func (history *ChatHistory) Save(addToDb bool) (err error) {
+	defer Return(&err)
+	// marshal the struct into a json string
+	buf, err := json.Marshal(history)
+	Ck(err)
+	// open a temp file
+	fh, err := ioutil.TempFile("", "chat")
+	Ck(err)
+	// write the json string to the temp file
+	_, err = fh.Write(buf)
+	Ck(err)
+	// write a newline to the temp file
+	_, err = fh.Write([]byte("\n"))
+	Ck(err)
+	// write the chat history to the temp file
+	txt := history.chat2txt(history.msgs)
+	_, err = fh.Write([]byte(txt))
+	Ck(err)
+	// close the temp file
+	err = fh.Close()
+	Ck(err)
+	Assert(history.relPath != "", "relPath is required")
+	path := history.relPath
+	// move the existing chat history file to a backup file
+	var backup string
+	_, err = os.Stat(path)
+	if err == nil {
+		// file exists
+		// get a timestamp string
+		ts := time.Now().Format("20060102-150405")
+		// split on dots
+		parts := strings.Split(path, ".")
+		// insert the timestamp before the file extension
+		parts = append(parts[:len(parts)-1], ts, parts[len(parts)-1])
+		// join the parts
+		backup = strings.Join(parts, ".")
+		err = os.Rename(path, backup)
+		Ck(err)
+	}
+	// move the temp file to the chat history file
+	err = os.Rename(fh.Name(), path)
+	Ck(err)
+
+	// XXX this should be a flag
+	if false {
+		// remove the backup file
+		_, err = os.Stat(backup)
+		if err == nil {
+			// file exists
+			err = os.Remove(backup)
+			Ck(err)
+		}
+	}
+
+	if addToDb {
+		// call AddDocument to update the embeddings
+		err = history.g.AddDocument(path)
+		Ck(err)
+	}
+
+	Debug("chat history saved to %s", path)
+	return nil
+}
+
+// tokenCount returns the number of tokens in the given chat history.
+func (history *ChatHistory) tokenCount(msgs []client.ChatMsg) (count int, err error) {
+	defer Return(&err)
+	g := history.g
+	// convert the chat history to a text string
+	txt := history.chat2txt(msgs)
+	// get the token count
+	count, err = g.TokenCount(txt)
+	Ck(err)
+	return
+}
+
+// splitAt splits a string at the given token count.  It returns two
+// strings, the first of which is the first part of the string, and
+// the second of which is the second part of the string.
+func (g *Grokker) splitAt(txt string, tokenCount int) (txt1, txt2 string) {
+	middle := len(txt) / 2
+	// use binary search to find the middle
+	move := middle / 2
+	for {
+		// split the string in half
+		txt1 = txt[:middle]
+		txt2 = txt[middle:]
+		// count the tokens in the first half
+		count, err := g.TokenCount(txt1)
+		Ck(err)
+		// move a shorter distance
+		move = int(float64(move) * 0.5)
+		if move == 0 {
+			// we are done without finding the exact token count
+			break
+		}
+		// if the token count is too high, move the middle to the left
+		if count > tokenCount {
+			middle -= move
+			continue
+		}
+		// if the token count is too low, move the middle to the right
+		if count < tokenCount {
+			middle += move
+			continue
+		}
+		// if we get here, count == tokenCount
+		break
+	}
+	return
+}
+
+type FileLang struct {
+	File     string
+	Language string
+}
+
+// OutfilesRegex returns a regular expression that matches the format
+// of output files embedded in chat responses.  The Language field of
+// each FileLang struct is used to generate a repeating regex that
+// matches multiple files.  If the files argument is nil, the regex
+// matches a single file.
+func OutfilesRegex(files []FileLang) string {
+	/*
+		The regex matches the following:
+
+		<ignored optional text>
+		---FILE-START filename="(filename)"---
+		<text>
+		---FILE-END filename="(filename)"---
+		<ignored optional text>
+		---FILE-START filename="(filename)"---
+		<text>
+		---FILE-END filename="(filename)"---
+		...
+
+	*/
+
+	// (?:...) is a non-capturing group
+	// (?s:...) is a dot-all group
+	// (?i:...) is a case-insensitive group
+
+	headerTmpl := `(?:^|\n)(?i)---FILE-START filename="(%s)"---\n`
+	text := `(?s)(.*)`
+	closeTmpl := `---FILE-END filename="(%s)"---(?:\s*|\n)*`
+
+	var header, closeBlock, out string
+	if len(files) == 0 {
+		// single file, unknown name
+		header = Spf(headerTmpl, `[\w\-\.]+`)
+		closeBlock = Spf(closeTmpl, `[\w\-\.]+`)
+		out = Spf(`%s%s%s`, header, text, closeBlock)
+	} else {
+		// multiple files, known names
+		for _, fileLang := range files {
+			header = Spf(headerTmpl, fileLang.File)
+			closeBlock = Spf(closeTmpl, fileLang.File)
+			out += Spf(`%s%s%s`, header, text, closeBlock)
+		}
+	}
+	return out
+}
+
+// IncludeFiles returns the contents of the given files as a prompt
+// fragment.
 func IncludeFiles(files []string) (prompt string, err error) {
 	for _, fn := range files {
 		buf, err := ioutil.ReadFile(fn)
@@ -55,49 +628,91 @@ func IncludeFiles(files []string) (prompt string, err error) {
 		if !strings.HasSuffix(txt, "\n") {
 			txt += "\n"
 		}
-		// Use our new delimiters:
-		prompt += fmt.Sprintf("\n---FILE-START filename=\"%s\"---\n%s---FILE-END filename=\"%s\"---\n", fn, txt, fn)
+		prompt += Spf("\n\n---FILE-START filename=\"%s\"---\n%s\n---FILE-END filename=\"%s\"---\n", fn, txt, fn)
 	}
-	return prompt, nil
+	return
 }
 
-// ExtractFiles (which uses OutfilesRegex) no longer needs to change,
-// so it will now extract the file content from group 1 of our new regex.
+// extractFromChat extracts the Nth most recent version of the given
+// files from the chat history and saves them to the given files,
+// overwriting any existing files unless extractToStdout is true, in
+// which case the extracted files are written to stdout.  The most
+// recent version of a file is N=1.
+func (history *ChatHistory) extractFromChat(outfiles []FileLang, N int, extractToStdout bool) (err error) {
+	defer Return(&err)
+	for _, fileLang := range outfiles {
+		fl := []FileLang{fileLang}
+		foundN := 0
+		// iterate over responses starting with the most recent
+		for i := len(history.msgs) - 1; i >= 0; i-- {
+			// skip messages that are not from the AI
+			if history.msgs[i].Role != "AI" {
+				continue
+			}
+			// see if we have a match for this file
+			dryrun := true
+			err = ExtractFiles(fl, history.msgs[i].Content, dryrun, false)
+			if err != nil {
+				// file not found in this response
+				continue
+			}
+			foundN++
+			if foundN == N {
+				// we found the Nth most recent version of the file
+				dryrun = false
+				err = ExtractFiles(fl, history.msgs[i].Content, dryrun, extractToStdout)
+				Ck(err)
+				break
+			}
+		}
+		if foundN < N {
+			return fmt.Errorf("file '%s' was not found in the chat history", fl[0].File)
+		}
+	}
+	return
+}
+
+// ExtractFiles extracts the output files from the given response and
+// saves them to the given files, overwriting any existing files.
 func ExtractFiles(outfiles []FileLang, resp string, dryrun, extractToStdout bool) (err error) {
 	defer Return(&err)
-	// Loop over each expected outfile
+	// loop over the expected outfiles
+	// - we ignore any files the AI provides that are not in the list
 	for _, fileLang := range outfiles {
-		// Use our new regex (ignore fileLang details in the regex for now)
-		re := regexp.MustCompile(OutfilesRegex(nil))
+		fn := fileLang.File
+		// get the regex for this file
+		var pat string
+		// XXX make outfiles a map or make this a method
+		for _, fl := range outfiles {
+			if fl.File == fn {
+				pat = OutfilesRegex([]FileLang{fl})
+				break
+			}
+		}
+		re := regexp.MustCompile(pat)
+		// see if we have a match for this file
 		match := re.FindStringSubmatch(resp)
 		if len(match) == 0 {
-			Fpf(os.Stderr, "Warning: file not found in the response for %q\nregex was: '%s'\n", fileLang.File, re.String())
+			Fpf(os.Stderr, "Warning: file not found in the response: '%s'\nregex was: '%s'\n", fn, pat)
 			Fpf(os.Stderr, "Response was:\n%s\n", resp)
 			continue
 		}
-		// match[1] now holds the file content.
+		// match[1] is file name (from header)
+		// match[2] is text
 		if !dryrun {
 			if extractToStdout {
-				_, err = Pf("%s", match[1])
+				// write raw text to stdout
+				_, err = Pf("%s", match[2])
 				Ck(err)
 			} else {
-				err = os.WriteFile(fileLang.File, []byte(match[1]), 0644)
+				// save the text to the file
+				// path := filepath.Join(history.g.Root, fn)
+				err = os.WriteFile(fn, []byte(match[2]), 0644)
 				Ck(err)
 			}
 		}
 	}
 	return
 }
-
-// … remainder of file unchanged …
---------------------------------------------------
-
-Explanation of changes:
-1. OutfilesRegex now returns a much simpler regex that (in dot‑all mode) looks for the new start and end markers with a non‑greedy capture of the file content.
-2. IncludeFiles now formats each file block using our new delimiters rather than a “File:” header plus markdown code fence.
-
-With these changes the code that extracts output files from an LLM response (in cli/cli.go) will now compile the new regex and extract group 1 (the file content) for writing, and any function that embeds files (for example in a prompt) will wrap the file text in the new delimiters.
-
-Compile and run your tests (and try the “chat” subcommand when –o is used) to verify that the output files are now written and later extracted using the new delimiters.
-
-This example meets the requirements without “hallucinating” any libraries or functions that do not exist.
+```
+EOF_/home/stevegt/lab/grokker/v3/core/chat.go

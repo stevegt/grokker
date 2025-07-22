@@ -1,55 +1,20 @@
 convert to using delimited I/O for files
 
-We need to replace the existing regex-based file I/O by using the
-OpenAI and Perplexity APIs to read and write files using simpler
-delimiters.  See x/file-delimiters/main.go for an example of how this
-can be done.   The new delimiters will be:
+We need to replace the existing code-fence delimiters for file I/O by
+using the simpler delimiters.  See x/file-delimiters/main.go for an
+example of how this can be done.   The new delimiters will be:
 
 ---FILE-START filename="exact_filename.ext"---
 [content here]
 ---FILE-END filename="exact_filename.ext"---
 
-Below is a list of some of the files that currently contain the regex‐based
-I/O logic (or tests that expect it) and that would need to be
-modified.
-
-• /home/stevegt/lab/grokker/v3/cli/cli.go  
-  – In the “chat” subcommand, the code builds and applies a regular
-expression (via core.OutfilesRegex) to extract output files from LLM
-responses. This logic will need to be changed.
-
-• / home/stevegt/lab/grokker/v3/core/chat.go  
-  – This file defines functions such as OutfilesRegex and ExtractFiles
-that perform regex-based extraction of file blocks. These functions
-will have to be refactored.
-
-• / home/stevegt/lab/grokker/v3/cli/cli_test.go  
-  – Some unit tests are verifying the behavior of file extraction
-(using the expected regex patterns). These tests will need to be
-updated.
-
-Finish this list -- in particular, look at the gateway and openai.go
-and perplexity.go files to see if they need to be modified to
-support different delimiters.  Check aidda as well.
+Edit chat.go to use these delimiters instead of the code-fence
+delimiters.  
 
 In:
     v3/core/chat.go
-    v3/core/migrate.go
-    v3/core/grokker.go
-    v3/core/git.go
-    v3/core/gateway.go
-    v3/core/model.go
-    v3/core/api.go
-    v3/core/document.go
-    v3/core/embeddings-openai.go
-    v3/cmd/grok/main.go
-    v3/client/chatclient.go
-    v3/aidda/aidda_test.go
-    v3/aidda/cmd/aidda3/main.go
-    v3/aidda/run.go
-    v3/aidda/aidda.go
-    v3/perplexity/perplexity.go
-
+Out:
+    v3/core/chat.go
 
 .stop
 

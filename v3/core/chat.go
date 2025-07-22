@@ -210,7 +210,7 @@ func (history *ChatHistory) ContinueChat(modelName, prompt string, contextLevel 
 }
 
 // SendWithFiles sends a chat to GPT-4 and returns the
-// response.  If assumes the prompt is the last message in the
+// response.  It assumes the prompt is the last message in the
 // history.  The sysmsg is a message that is sent to GPT-4 before the
 // prompt.  The msgs are the chat history up to the prompt.  The
 // infiles are the input files that are included in the prompt.  The
@@ -235,7 +235,7 @@ func (g *Grokker) SendWithFiles(modelName, sysmsg string, msgs []client.ChatMsg,
 		sysmsg += Spf("\nYour response must include the following complete files: '%s'", strings.Join(fns, "', '"))
 		sysmsg += Spf("\nReturn complete files only.  Do not return file fragments.")
 		sysmsg += Spf("\nYour response must match this regular expression: '%s'", OutfilesRegex(outfiles))
-		sysmsg += Spf("\n...where each file is in the format:\n\n<blank line>\nFile: <filename>\n```<language>\n<text>\n```\nEOF_<filename>")
+		sysmsg += "\n...where each file is in the format:\n\n---FILE-START filename=\"<filename>\"---\n[file content]\n---FILE-END filename=\"<filename>\"---"
 	}
 	Debug("sysmsg %s", sysmsg)
 
@@ -573,16 +573,14 @@ func OutfilesRegex(files []FileLang) string {
 		The regex matches the following:
 
 		<ignored optional text>
-		File: <filename>
-		```foo
-		<text>
-		```
-		<ignored optional text>
-		File: <filename>
-		```foo
-		<text>
-		```
-		<ignored optional text>
+		---FILE-START filename="(filename)"---
+		[file content]
+		---FILE-END filename="(filename)"---
+		[ignored optional text]
+		---FILE-START filename="(filename)"---
+		[file content]
+		---FILE-END filename="(filename)"---
+		[ignored optional text]
 		...
 
 	*/
@@ -591,31 +589,22 @@ func OutfilesRegex(files []FileLang) string {
 	// (?s:...) is a dot-all group
 	// (?i:...) is a case-insensitive group
 
-	headerTmpl := `(?:^|\n)(?i)File:\s*(%s)\s*\n`
-	// zeroOrMoreBlankLines := `(?:\s*\n)*`
-	openCodeBlockTmpl := "```" + `(%s|)\n`
+	headerTmpl := `(?:^|\n)(?i)---FILE-START filename="(%s)"---\n`
 	text := `(?s)(.*)`
-	closeCodeBlockTmpl := "```" + `\nEOF_%s(?:\s*|\n)*`
+	closeTmpl := `---FILE-END filename="(%s)"---(?:\s*|\n)*`
 
-	var header, openCodeBlock, closeCodeBlock, out string
+	var header, closeBlock, out string
 	if len(files) == 0 {
-		// single file, unknown name or language
+		// single file, unknown name
 		header = Spf(headerTmpl, `[\w\-\.]+`)
-		openCodeBlock = Spf(openCodeBlockTmpl, `\w+`)
-		closeCodeBlock = Spf(closeCodeBlockTmpl, `\S+`)
-		out = Spf(`%s%s%s%s`, header, openCodeBlock, text, closeCodeBlock)
+		closeBlock = Spf(closeTmpl, `[\w\-\.]+`)
+		out = Spf(`%s%s%s`, header, text, closeBlock)
 	} else {
-		// multiple files, known names and languages
+		// multiple files, known names
 		for _, fileLang := range files {
 			header = Spf(headerTmpl, fileLang.File)
-			// openCodeBlock := Spf(openCodeBlockTmpl, fileLang.Language)
-			// XXX perplexity deep research has started saying
-			// 'markdown' instead of 'md' for the language, so let's
-			// just use \w+ for the language until we switch to using
-			// structured output
-			openCodeBlock = Spf(openCodeBlockTmpl, `\w+`)
-			closeCodeBlock := Spf(closeCodeBlockTmpl, fileLang.File)
-			out += Spf(`%s%s%s%s`, header, openCodeBlock, text, closeCodeBlock)
+			closeBlock = Spf(closeTmpl, fileLang.File)
+			out += Spf(`%s%s%s`, header, text, closeBlock)
 		}
 	}
 	return out
@@ -634,7 +623,7 @@ func IncludeFiles(files []string) (prompt string, err error) {
 		if !strings.HasSuffix(txt, "\n") {
 			txt += "\n"
 		}
-		prompt += Spf("\n\nFile: %s\n```\n%s```\nEOF_%s\n", fn, txt, fn)
+		prompt += Spf("\n\n---FILE-START filename=\"%s\"---\n%s\n---FILE-END filename=\"%s\"---\n", fn, txt, fn)
 	}
 	return
 }
@@ -703,18 +692,17 @@ func ExtractFiles(outfiles []FileLang, resp string, dryrun, extractToStdout bool
 			Fpf(os.Stderr, "Response was:\n%s\n", resp)
 			continue
 		}
-		// match[1] is file name
-		// match[2] is language
-		// match[3] is text
+		// match[1] is file name (from header)
+		// match[2] is text
 		if !dryrun {
 			if extractToStdout {
 				// write raw text to stdout
-				_, err = Pf("%s", match[3])
+				_, err = Pf("%s", match[2])
 				Ck(err)
 			} else {
 				// save the text to the file
 				// path := filepath.Join(history.g.Root, fn)
-				err = os.WriteFile(fn, []byte(match[3]), 0644)
+				err = os.WriteFile(fn, []byte(match[2]), 0644)
 				Ck(err)
 			}
 		}
