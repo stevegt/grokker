@@ -178,6 +178,12 @@ func (fps *FileProcessingService) callPerplexityAPIWithDelimiters(prompt string)
 		return nil, err
 	}
 
+	// write raw response to a file for debugging
+	debugFile := "/tmp/raw_response.txt"
+	if err := os.WriteFile(debugFile, []byte(rawResponse), 0644); err != nil {
+		return nil, fmt.Errorf("failed to write raw response to debug file: %v", err)
+	}
+
 	// Parse the delimiter-based response
 	return fps.parseDelimiterResponse(rawResponse)
 }

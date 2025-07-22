@@ -1,68 +1,38 @@
-base64 encode the input and output files
-
-We need to allow for binary data or other non-text data to be included
-in the input and output files of the structured API.  To do this,
-we will base64 encode the input files before sending them to the
-API, we will ask the API to base64 encode the output files, and we
-will decode the output files after receiving them from the API.
-
-Make the changes to the code.
-
-Sysmsg: 
-  You are an expert Go programmer. Please make the requested changes
-  to the given code or documentation. Please verify that the code
-  compiles and runs without errors -- do not hallucinate library
-  methods, structs, or functions that do not exist. Do not quote or
-  escape single backticks in the code -- Go uses backticks for raw
-  string literals.  Do not remove or alter comments unless they are
-  incorrect or misleading.
-In: 
-  x/structured-output/perplexity-json/main.go
-Out: 
-  x/structured-output/perplexity-json/main.go
-
-
-.stop
-
-convert to using structured I/O for files
+convert to using delimited I/O for files
 
 We need to replace the existing regex-based file I/O by using the
-OpenAI and Perplexity APIs to read and write files in a structured
-way.
+OpenAI and Perplexity APIs to read and write files using simpler
+delimiters.  See x/file-delimiters/main.go for an example of how this
+can be done.   The new delimiters will be:
+
+---FILE-START filename="exact_filename.ext"---
+[content here]
+---FILE-END filename="exact_filename.ext"---
 
 Below is a list of some of the files that currently contain the regex‐based
-I/O logic (or tests that expect it) and that would need to be modified
-when switching to structured file I/O via the OpenAI and Perplexity
-APIs:
-
-• /home/stevegt/lab/grokker/v3/llm-file-io/discussion.md  
-  – Contains the documentation and discussion of the proposed new file delimiters/structured I/O.
+I/O logic (or tests that expect it) and that would need to be
+modified.
 
 • /home/stevegt/lab/grokker/v3/cli/cli.go  
-  – In the “chat” subcommand, the code builds and applies a regular expression (via core.OutfilesRegex) to extract output files from LLM responses. This logic will need to be changed to use structured output.
+  – In the “chat” subcommand, the code builds and applies a regular
+expression (via core.OutfilesRegex) to extract output files from LLM
+responses. This logic will need to be changed.
 
 • / home/stevegt/lab/grokker/v3/core/chat.go  
-  – This file defines functions such as OutfilesRegex and ExtractFiles that perform regex-based extraction of file blocks. These functions will have to be refactored to handle structured I/O instead.
+  – This file defines functions such as OutfilesRegex and ExtractFiles
+that perform regex-based extraction of file blocks. These functions
+will have to be refactored.
 
 • / home/stevegt/lab/grokker/v3/cli/cli_test.go  
-  – Some unit tests are verifying the behavior of file extraction (using the expected regex patterns). These tests will need to be updated once the extraction mechanism becomes structured.
+  – Some unit tests are verifying the behavior of file extraction
+(using the expected regex patterns). These tests will need to be
+updated.
 
 Finish this list -- in particular, look at the gateway and openai.go
 and perplexity.go files to see if they need to be modified to
-support structured I/O.  Check aidda as well.
+support different delimiters.  Check aidda as well.
 
 In:
-    v3/llm-file-io/discussion.md
-    v3/util/util.go
-    v3/cli/chat_test.go
-    v3/cli/cli.go
-    v3/cli/cli_test.go
-    v3/cli/migration_test.go
-    v3/openai/openai.go
-    v3/lang/go/split.go
-    v3/lang/go/split_test.go
-    v3/core/grokker_test.go
-    v3/core/chunk.go
     v3/core/chat.go
     v3/core/migrate.go
     v3/core/grokker.go
