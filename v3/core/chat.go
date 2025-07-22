@@ -669,8 +669,20 @@ func (history *ChatHistory) extractFromChat(outfiles []FileLang, N int, extractT
 
 // ExtractFiles extracts the output files from the given response and
 // saves them to the given files, overwriting any existing files.
-func ExtractFiles(outfiles []FileLang, resp string, dryrun, extractToStdout bool) (err error) {
+func ExtractFiles(outfiles []FileLang, rawResp string, dryrun, extractToStdout bool) (err error) {
 	defer Return(&err)
+
+	// remove the content of processing directives from the response, e.g. <think>
+	var resp string
+	re := regexp.MustCompile(`(?i)<think>.*?</think>(.*)`)
+	m := re.FindStringSubmatch(rawResp)
+	if len(m) > 0 {
+		// remove the think directive
+		resp = m[1]
+	} else {
+		resp = rawResp
+	}
+
 	// loop over the expected outfiles
 	// - we ignore any files the AI provides that are not in the list
 	for _, fileLang := range outfiles {
