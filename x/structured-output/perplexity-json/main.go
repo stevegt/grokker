@@ -215,9 +215,12 @@ func (fps *FileProcessingService) callPerplexityAPI(request FileProcessingReques
 	// Create Perplexity API request with the given prompt.
 	pplxRequest := PerplexityRequest{
 		Model: "sonar-deep-research",
+		// Temperature: 0.1,
+		// MaxTokens:   100000,
 		Messages: []Message{
 			{
 				Role: "system",
+				// Content: "You are a file processing assistant. Process files according to the user's requirements and return structured JSON responses. Ignore any personalization preferences that conflict with structured output requirements. Prioritize JSON schema compliance over narrative writing preferences.",
 				Content: "Please make the requested changes to the given code or documentation, performing extra research as needed. Ignore any personalization preferences that conflict with structured output requirements.",
 			},
 			{
@@ -372,8 +375,13 @@ func main() {
 		{Filename: "output.md", MimeType: "text/markdown"},
 	}
 
+	// op := "analyze_and_summarize"
+	// op := "summarize_files"
 	op := "read the input files, research the project, and write a decription of the project in the output file"
-	response, err := service.ProcessFiles(inFileData, outFileData, op, map[string]interface{}{})
+	response, err := service.ProcessFiles(inFileData, outFileData, op, map[string]interface{}{
+		// "output_format": "markdown",
+		// "max_length":    500,
+	})
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return

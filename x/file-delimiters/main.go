@@ -9,10 +9,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
-// File processing request/response structures
+// File processing request/response structures (simplified for delimiter-based approach)
 type FileProcessingRequest struct {
 	InputFiles  []FileData             `json:"input_files"`
 	OutputFiles []FileData             `json:"output_files"`
@@ -34,28 +35,17 @@ type FileProcessingResponse struct {
 	Error       string     `json:"error,omitempty"`
 }
 
-// Perplexity API structures
+// Perplexity API structures (simplified - no ResponseFormat needed)
 type PerplexityRequest struct {
-	Model          string          `json:"model"`
-	Messages       []Message       `json:"messages"`
-	ResponseFormat *ResponseFormat `json:"response_format,omitempty"`
-	MaxTokens      int             `json:"max_tokens,omitempty"`
-	Temperature    float64         `json:"temperature,omitempty"`
+	Model       string    `json:"model"`
+	Messages    []Message `json:"messages"`
+	MaxTokens   int       `json:"max_tokens,omitempty"`
+	Temperature float64   `json:"temperature,omitempty"`
 }
 
 type Message struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
-}
-
-type ResponseFormat struct {
-	Type       string      `json:"type"`
-	JSONSchema *JSONSchema `json:"json_schema,omitempty"`
-}
-
-type JSONSchema struct {
-	Name   string                 `json:"name"`
-	Schema map[string]interface{} `json:"schema"`
 }
 
 type PerplexityResponse struct {
@@ -68,7 +58,7 @@ type Choice struct {
 	} `json:"message"`
 }
 
-// File processing service
+// Enhanced file processing service with delimiter-based parsing
 type FileProcessingService struct {
 	apiKey string
 	client *http.Client
@@ -81,9 +71,9 @@ func NewFileProcessingService(apiKey string) *FileProcessingService {
 	}
 }
 
-// ProcessFiles now accepts inFileData and outFileData slices provided by the caller.
+// ProcessFiles now uses delimiter-based output instead of JSON structured output
 func (fps *FileProcessingService) ProcessFiles(inFileData []FileData, outFileData []FileData, operation string, params map[string]interface{}) (*FileProcessingResponse, error) {
-	// Prepare the processing request using caller provided input and output file data.
+	// Prepare the processing request
 	request := FileProcessingRequest{
 		InputFiles:  inFileData,
 		OutputFiles: outFileData,
@@ -91,42 +81,329 @@ func (fps *FileProcessingService) ProcessFiles(inFileData []FileData, outFileDat
 		Parameters:  params,
 	}
 
-	// Build output file specification info for the prompt.
+	// Build output file specification for the prompt
 	var outputFilesInfo strings.Builder
 	for _, file := range outFileData {
 		outputFilesInfo.WriteString(fmt.Sprintf("Filename: %s, MimeType: %s\n", file.Filename, file.MimeType))
 	}
 
-	requestJSON, _ := json.MarshalIndent(request, "", "  ")
+	// Create delimiter-based prompt (NO JSON Schema)
+	prompt := fps.buildDelimiterBasedPrompt(request, outputFilesInfo.String())
+
+	// Process via Perplexity API using standard text output
+	response, err := fps.callPerplexityAPIWithDelimiters(prompt)
+	if err != nil {
+		return &FileProcessingResponse{
+			Success: false,
+			Error:   fmt.Sprintf("API call failed: %v", err),
+		}, err
+	}
+
+	return response, nil
+}
+
+// Build delimiter-based prompt that instructs the AI to use your single-line delimiter format
+func (fps *FileProcessingService) buildDelimiterBasedPrompt(request FileProcessingRequest, outputFilesInfo string) string {
+	// Build detailed prompt with your single-line delimiter specification
 	prompt := fmt.Sprintf(`
-Process the following files according to the specified operation.
-Analyze the input files and generate appropriate output files based on the operation requested.
+Process the following files according to the specified operation and generate output files using EXACTLY the delimiter format specified below.
 
-Requested operation:
-%s
-
+Operation: %s
 Output files specification:
 %s
 
-Full Request:
-%s
+CRITICAL OUTPUT FORMAT REQUIREMENTS:
+You MUST use this EXACT delimiter format for each output file:
 
-Instructions:
-1. Process each input file according to the operation specified in the request.
-2. The input file content is provided as base64 encoded data.
-3. Generate the output files as specified above with proper content.
-4. Ensure all output files have the correct filenames, mime types, and that the content is base64 encoded.
-5. Set success to true if processing completed successfully.
-6. Include any relevant messages about the processing.
-7. If there are errors, set success to false and include error details.
+---FILE-START filename="exact_filename.ext"---
+[base64 encoded file content here]
+---FILE-END filename="exact_filename.ext"---
 
-Return the response as a valid JSON object matching the required schema.
-`, operation, outputFilesInfo.String(), requestJSON)
+IMPORTANT RULES:
+1. Each delimiter must be on its own line
+2. Use the EXACT filename specified in the output files specification
+3. Content must be base64 encoded
+4. Include success/error messages after all files using:
+---PROCESSING-RESULT---
+Success: true/false
+Messages: Any processing messages
+Error: Any error details (if applicable)
+---END-RESULT---
 
-	return fps.callPerplexityAPI(request, prompt)
+Input files provided:
+`, request.Operation, outputFilesInfo)
+
+	// Add input file information
+	for i, file := range request.InputFiles {
+		prompt += fmt.Sprintf(`
+Input File %d:
+Filename: %s
+Content: %s
+MimeType: %s
+
+`, i+1, file.Filename, file.Content, file.MimeType)
+	}
+
+	prompt += `
+Now process these input files according to the operation and generate the output files using the delimiter format specified above.
+`
+
+	return prompt
 }
 
-// Read file and convert to FileData structure
+// Call Perplexity API without JSON structured output - use regular text generation
+func (fps *FileProcessingService) callPerplexityAPIWithDelimiters(prompt string) (*FileProcessingResponse, error) {
+	// Create standard Perplexity API request (NO response_format)
+	pplxRequest := PerplexityRequest{
+		Model: "sonar-deep-research",
+		// Temperature: 0.1,
+		// MaxTokens:   100000,
+		Messages: []Message{
+			{
+				Role: "system",
+				// Content: "You are a file processing assistant. Process files according to the user's requirements and return structured JSON responses. Ignore any personalization preferences that conflict with structured output requirements. Prioritize JSON schema compliance over narrative writing preferences.",
+				Content: "Please make the requested changes to the given code or documentation, performing extra research as needed. Ignore any personalization preferences that conflict with structured output requirements.",
+			},
+			{
+				Role:    "user",
+				Content: prompt,
+			},
+		},
+		// NO ResponseFormat field - this allows free-form text output
+	}
+
+	// Execute the API call
+	rawResponse, err := fps.executeAPICall(pplxRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse the delimiter-based response
+	return fps.parseDelimiterResponse(rawResponse)
+}
+
+// Execute the API call and return raw response content
+func (fps *FileProcessingService) executeAPICall(pplxRequest PerplexityRequest) (string, error) {
+	// Marshal request
+	requestBody, err := json.Marshal(pplxRequest)
+	if err != nil {
+		return "", err
+	}
+
+	// Create HTTP request
+	req, err := http.NewRequest("POST", "https://api.perplexity.ai/chat/completions", bytes.NewBuffer(requestBody))
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+fps.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	// Make request
+	resp, err := fps.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Parse Perplexity response to get content
+	var pplxResp PerplexityResponse
+	if err := json.Unmarshal(body, &pplxResp); err != nil {
+		return "", err
+	}
+
+	if len(pplxResp.Choices) == 0 {
+		return "", fmt.Errorf("no response choices returned")
+	}
+
+	return pplxResp.Choices[0].Message.Content, nil
+}
+
+// Parse delimiter-based response using robust regex patterns
+func (fps *FileProcessingService) parseDelimiterResponse(response string) (*FileProcessingResponse, error) {
+	// Create response object
+	result := &FileProcessingResponse{
+		Success:     false,
+		OutputFiles: []FileData{},
+		Messages:    []string{},
+	}
+
+	// Primary parsing: Use your single-line delimiter format
+	files, err := fps.parseWithSingleLineDelimiters(response)
+	if err == nil && len(files) > 0 {
+		result.OutputFiles = files
+		result.Success = true
+		return result, nil
+	}
+
+	// Fallback parsing: Try to parse any delimiter-like patterns
+	files, err = fps.parseWithFallbackDelimiters(response)
+	if err == nil && len(files) > 0 {
+		result.OutputFiles = files
+		result.Success = true
+		result.Messages = append(result.Messages, "Used fallback delimiter parsing")
+		return result, nil
+	}
+
+	// Last resort: Try to extract any base64-like content
+	files, err = fps.parseWithContentExtraction(response)
+	if err == nil && len(files) > 0 {
+		result.OutputFiles = files
+		result.Success = true
+		result.Messages = append(result.Messages, "Used content extraction parsing")
+		return result, nil
+	}
+
+	// If all parsing methods fail
+	result.Error = "Failed to parse any files from response"
+	// Save raw response for debugging
+	debugFile := "/tmp/unparseable_response.txt"
+	os.WriteFile(debugFile, []byte(response), 0644)
+	result.Messages = append(result.Messages, fmt.Sprintf("Raw response saved to %s for debugging", debugFile))
+
+	return result, fmt.Errorf("could not parse response using any method")
+}
+
+// Parse using your specified single-line delimiter format
+func (fps *FileProcessingService) parseWithSingleLineDelimiters(response string) ([]FileData, error) {
+	var files []FileData
+
+	// Regex pattern for your single-line delimiter format
+	// Pattern: ---FILE-START filename="filename.ext"---\ncontent\n---FILE-END filename="filename.ext"---
+	pattern := regexp.MustCompile(`---FILE-START filename="([^"]+)"---\s*\n(.*?)\n---FILE-END filename="[^"]+?"---`)
+
+	matches := pattern.FindAllStringSubmatch(response, -1)
+
+	for _, match := range matches {
+		if len(match) >= 3 {
+			filename := match[1]
+			content := strings.TrimSpace(match[2])
+
+			// Validate that content looks like base64
+			if fps.isValidBase64(content) {
+				file := FileData{
+					Filename: filename,
+					Content:  content,
+					MimeType: fps.getMimeType(filename),
+					Size:     int64(len(content)),
+				}
+				files = append(files, file)
+			}
+		}
+	}
+
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no files found with single-line delimiter pattern")
+	}
+
+	return files, nil
+}
+
+// Fallback parsing for various delimiter patterns
+func (fps *FileProcessingService) parseWithFallbackDelimiters(response string) ([]FileData, error) {
+	var files []FileData
+
+	// Try multiple delimiter patterns
+	patterns := []string{
+		// Alternative delimiter patterns
+		`===FILE_START===\s*FILENAME:\s*([^\n]+)\s*CONTENT:\s*(.*?)\s*===FILE_END===`,
+		`\*\*\*FILE:\s*([^\*]+)\*\*\*\s*(.*?)\s*\*\*\*END\*\*\*`,
+		`FILE:\s*([^\n]+)\n(.*?)\nEND_FILE`,
+		// More flexible pattern
+		`(?i)file[_\s]*(?:start|begin)[^\n]*?([^\n\r]+)\n(.*?)(?i)(?:end|finish)`,
+	}
+
+	for _, patternStr := range patterns {
+		pattern := regexp.MustCompile(patternStr)
+		matches := pattern.FindAllStringSubmatch(response, -1)
+
+		for _, match := range matches {
+			if len(match) >= 3 {
+				filename := strings.TrimSpace(match[1])
+				content := strings.TrimSpace(match[2])
+
+				if fps.isValidBase64(content) && filename != "" {
+					file := FileData{
+						Filename: filename,
+						Content:  content,
+						MimeType: fps.getMimeType(filename),
+						Size:     int64(len(content)),
+					}
+					files = append(files, file)
+				}
+			}
+		}
+
+		if len(files) > 0 {
+			return files, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no files found with fallback delimiter patterns")
+}
+
+// Last resort: extract any base64-like content and try to determine filenames
+func (fps *FileProcessingService) parseWithContentExtraction(response string) ([]FileData, error) {
+	var files []FileData
+
+	// Look for base64-like content blocks
+	base64Pattern := regexp.MustCompile(`([A-Za-z0-9+/]{20,}={0,2})`)
+	base64Matches := base64Pattern.FindAllStringSubmatch(response, -1)
+
+	// Look for potential filenames
+	filenamePattern := regexp.MustCompile(`([a-zA-Z0-9_\-\.]+\.[a-zA-Z]{2,4})`)
+	filenameMatches := filenamePattern.FindAllStringSubmatch(response, -1)
+
+	// Try to pair filenames with base64 content
+	for i, base64Match := range base64Matches {
+		content := base64Match[1]
+		if fps.isValidBase64(content) {
+			filename := "extracted_file.txt" // default filename
+
+			// Try to find a corresponding filename
+			if i < len(filenameMatches) {
+				filename = filenameMatches[i][1]
+			}
+
+			file := FileData{
+				Filename: filename,
+				Content:  content,
+				MimeType: fps.getMimeType(filename),
+				Size:     int64(len(content)),
+			}
+			files = append(files, file)
+		}
+	}
+
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no extractable content found")
+	}
+
+	return files, nil
+}
+
+// Validate if a string is valid base64
+func (fps *FileProcessingService) isValidBase64(s string) bool {
+	// Basic validation: check length and character set
+	if len(s) < 4 || len(s)%4 != 0 {
+		return false
+	}
+
+	// Try to decode to validate
+	_, err := base64.StdEncoding.DecodeString(s)
+	return err == nil
+}
+
+// Read file and convert to FileData structure (unchanged)
 func (fps *FileProcessingService) readFile(filePath string) (*FileData, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -145,8 +422,7 @@ func (fps *FileProcessingService) readFile(filePath string) (*FileData, error) {
 	}
 
 	mimeType := fps.getMimeType(filePath)
-
-	// Always encode content to base64 regardless of mime type.
+	// Always encode content to base64
 	encodedContent := base64.StdEncoding.EncodeToString(content)
 
 	return &FileData{
@@ -157,145 +433,7 @@ func (fps *FileProcessingService) readFile(filePath string) (*FileData, error) {
 	}, nil
 }
 
-// callPerplexityAPI now takes a prompt string constructed by ProcessFiles.
-func (fps *FileProcessingService) callPerplexityAPI(request FileProcessingRequest, prompt string) (*FileProcessingResponse, error) {
-	// Create the schema for file processing response
-	schema := map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"success": map[string]interface{}{
-				"type": "boolean",
-			},
-			"output_files": map[string]interface{}{
-				"type": "array",
-				"items": map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"filename": map[string]interface{}{
-							"type": "string",
-						},
-						"content": map[string]interface{}{
-							"type": "string",
-						},
-						"mime_type": map[string]interface{}{
-							"type": "string",
-						},
-						"size": map[string]interface{}{
-							"type": "integer",
-						},
-					},
-					"required": []string{"filename", "content", "mime_type"},
-				},
-			},
-			"messages": map[string]interface{}{
-				"type": "array",
-				"items": map[string]interface{}{
-					"type": "string",
-				},
-			},
-			"error": map[string]interface{}{
-				"type": "string",
-			},
-		},
-		"required": []string{"success"},
-	}
-
-	// Modify the JSON schema to include allowed output filenames as defined in caller provided outFileData.
-	allowedFilenames := []string{}
-	for _, file := range request.OutputFiles {
-		allowedFilenames = append(allowedFilenames, file.Filename)
-	}
-	properties := schema["properties"].(map[string]interface{})
-	outputFilesSchema := properties["output_files"].(map[string]interface{})
-	itemsSchema := outputFilesSchema["items"].(map[string]interface{})
-	itemProps := itemsSchema["properties"].(map[string]interface{})
-	filenameProp := itemProps["filename"].(map[string]interface{})
-	filenameProp["enum"] = allowedFilenames
-
-	// Create Perplexity API request with the given prompt.
-	pplxRequest := PerplexityRequest{
-		Model: "sonar-deep-research",
-		// Temperature: 0.1,
-		// MaxTokens:   100000,
-		Messages: []Message{
-			{
-				Role: "system",
-				// Content: "You are a file processing assistant. Process files according to the user's requirements and return structured JSON responses. Ignore any personalization preferences that conflict with structured output requirements. Prioritize JSON schema compliance over narrative writing preferences.",
-				Content: "Please make the requested changes to the given code or documentation, performing extra research as needed. Ignore any personalization preferences that conflict with structured output requirements.",
-			},
-			{
-				Role:    "user",
-				Content: prompt,
-			},
-		},
-		ResponseFormat: &ResponseFormat{
-			Type: "json_schema",
-			JSONSchema: &JSONSchema{
-				Name:   "file_processing_response",
-				Schema: schema,
-			},
-		},
-	}
-
-	// Marshal the Perplexity request.
-	requestBody, err := json.Marshal(pplxRequest)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create HTTP POST request to Perplexity API.
-	req, err := http.NewRequest("POST", "https://api.perplexity.ai/chat/completions", bytes.NewBuffer(requestBody))
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", "Bearer "+fps.apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	// Perform the HTTP request.
-	resp, err := fps.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
-	}
-
-	// Parse Perplexity API response.
-	var pplxResp PerplexityResponse
-	if err := json.Unmarshal(body, &pplxResp); err != nil {
-		return nil, err
-	}
-
-	if len(pplxResp.Choices) == 0 {
-		return nil, fmt.Errorf("no response choices returned")
-	}
-
-	// Parse the structured FileProcessingResponse.
-	var response FileProcessingResponse
-	content := pplxResp.Choices[0].Message.Content
-	err = json.Unmarshal([]byte(content), &response)
-	if err != nil {
-		// save response content for debugging
-		debugFile := "/tmp/debug_response.txt"
-		fmt.Printf("Failed to parse structured response, saving content to %s\n", debugFile)
-		if err := os.WriteFile(debugFile, []byte(content), 0644); err != nil {
-			return nil, fmt.Errorf("failed to write debug response to %s: %v", debugFile, err)
-		}
-		return nil, fmt.Errorf("failed to parse structured response: %v", err)
-	}
-
-	return &response, nil
-}
-
-// Save processed files to disk
+// Save processed files to disk (unchanged)
 func (fps *FileProcessingService) SaveOutputFiles(response *FileProcessingResponse, outputDir string) error {
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return err
@@ -304,7 +442,7 @@ func (fps *FileProcessingService) SaveOutputFiles(response *FileProcessingRespon
 	for _, fileData := range response.OutputFiles {
 		filePath := filepath.Join(outputDir, fileData.Filename)
 
-		// Always decode the base64 encoded content.
+		// Always decode the base64 encoded content
 		content, err := base64.StdEncoding.DecodeString(fileData.Content)
 		if err != nil {
 			return fmt.Errorf("failed to decode file %s: %v", fileData.Filename, err)
@@ -318,7 +456,7 @@ func (fps *FileProcessingService) SaveOutputFiles(response *FileProcessingRespon
 	return nil
 }
 
-// Helper function to determine MIME type
+// Helper function to determine MIME type (unchanged)
 func (fps *FileProcessingService) getMimeType(filePath string) string {
 	ext := strings.ToLower(filepath.Ext(filePath))
 	switch ext {
@@ -345,7 +483,7 @@ func (fps *FileProcessingService) getMimeType(filePath string) string {
 	}
 }
 
-// Example usage functions
+// Example usage with delimiter-based approach
 func main() {
 	apiKey := os.Getenv("PPLX_API_KEY")
 	if apiKey == "" {
@@ -355,12 +493,12 @@ func main() {
 
 	service := NewFileProcessingService(apiKey)
 
-	// Example 1: Process text files
-	fmt.Println("=== Processing Text Files ===")
+	// Example: Process text files using delimiter-based output
+	fmt.Println("=== Processing Text Files with Delimiter-Based Output ===")
 	inputPaths := []string{"input1.md", "input2.md"}
 	var inFileData []FileData
 
-	// Caller reads and provides input files data.
+	// Read input files
 	for _, filePath := range inputPaths {
 		data, err := service.readFile(filePath)
 		if err != nil {
@@ -370,7 +508,7 @@ func main() {
 		inFileData = append(inFileData, *data)
 	}
 
-	// Caller specifies output file details.
+	// Specify output file details
 	outFileData := []FileData{
 		{Filename: "output.md", MimeType: "text/markdown"},
 	}
@@ -394,7 +532,7 @@ func main() {
 		if err := service.SaveOutputFiles(response, "output"); err != nil {
 			fmt.Printf("Error saving files: %v\n", err)
 		} else {
-			fmt.Println("Output files saved to ./output directory")
+			fmt.Println("✓ Output files saved to ./output directory")
 		}
 
 		// Print messages
