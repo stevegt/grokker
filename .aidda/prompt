@@ -1,10 +1,6 @@
-each agent logs messages, uses LLM to compose messages
+each agent uses LLM to compose messages
 
-An agent should keep a log of the messages it has sent and received.
-This log should be stored in a file named "messages.log" in the agent's
-subdirectory. 
-
-Before an agent sends a message, it should compose the message by
+Before an agent sends a message, it MUST compose the message by
 sending its goal.md, pseudocode.md, and messages.log files to the
 Grokker API at the given model using the SendWithFiles function. The
 Grokker API will then generate a message based on the agent's current
@@ -12,6 +8,17 @@ state and the communication protocols it has learned, and the agent
 will extract the message from the API response using the ExtractFiles
 function. The agent will then send this message to the intended
 recipient via the main goroutine.
+
+DO NOT simulate the Grokker API calls except for testing -- you may
+use mock or other method for testing.  You MUST create an actual
+Grokker object, and you MUST call SendWithFiles and ExtractFiles in
+the agent code when gnerating messages.  You MUST refer to cli.go for
+how to create a Grokker object, and you MUST refer to aidda.go for how
+to use the Grokker API to send files and extract messages.
+
+If you are unable to meet these requirements, please add a comment in the
+code explaining why you cannot meet the requirements and what you
+need from me to help you meet the requirements.
 
 Other requirements are in requirements.md.
 
@@ -35,8 +42,9 @@ Sysmsg:
   wrapped at 70 characters.  
 In:
   x/adaptive-communication/requirements.md
-  v3/core/chat.go
+  v3/cli/cli.go
   v3/aidda/aidda.go
+  v3/core/chat.go
   x/adaptive-communication/main.go
   x/adaptive-communication/main_test.go
 Out:
