@@ -39,12 +39,18 @@ func createAgentDir(root, agentID string) error {
 	if err != nil {
 		return err
 	}
-	// Create dummy goal.md and pseudocode.md files.
-	ioutil.WriteFile(filepath.Join(agentDir, "goal.md"),
-		[]byte("Agent goal content."), 0644)
-	ioutil.WriteFile(filepath.Join(agentDir, "pseudocode.md"),
-		[]byte("Initial pseudocode."), 0644)
-	return nil
+	// Create dummy goal.md, pseudocode.md and messages.log files.
+	if err := ioutil.WriteFile(filepath.Join(agentDir, "goal.md"),
+		[]byte("Agent goal content."), 0644); err != nil {
+		return err
+	}
+	if err := ioutil.WriteFile(filepath.Join(agentDir, "pseudocode.md"),
+		[]byte("Initial pseudocode."), 0644); err != nil {
+		return err
+	}
+	// Initialize an empty messages.log file.
+	return ioutil.WriteFile(filepath.Join(agentDir, "messages.log"),
+		[]byte{}, 0644)
 }
 
 // TestSimulation verifies that agents can be loaded from a temporary

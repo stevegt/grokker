@@ -29,11 +29,13 @@ type Message struct {
 }
 
 // Agent represents an agent in the simulation.
-// Each agent holds its configuration, channels for incoming and outgoing
-// messages, a stop channel, and its current pseudocode (as an adaptive
-// communication protocol).
+// Each agent holds its configuration and its directory path,
+// channels for incoming and outgoing messages, a stop channel,
+// and its current pseudocode (as an adaptive communication protocol).
+// Each agent also logs its messages to "messages.log" in its subdirectory.
 type Agent struct {
 	ID         string
+	Dir        string
 	Config     AgentConfig
 	Incoming   chan Message
 	Outgoing   chan Message
@@ -49,13 +51,11 @@ func NewAgent(id, dir string) (*Agent, error) {
 	configPath := filepath.Join(dir, "config.json")
 	data, err := ioutil.ReadFile(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("error reading config file for agent %s: %v",
-			id, err)
+		return nil, fmt.Errorf("error reading config file for agent %s: %v", id, err)
 	}
 	var cfg AgentConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("error unmarshaling config for agent %s: %v",
-			id, err)
+		return nil, fmt.Errorf("error unmarshaling config for agent %s: %v", id, err)
 	}
 	// Load initial pseudocode from the pseudocode file.
 	pseudoPath := filepath.Join(dir, cfg.PseudocodeFile)
@@ -66,6 +66,7 @@ func NewAgent(id, dir string) (*Agent, error) {
 	}
 	agent := &Agent{
 		ID:         id,
+		Dir:        dir,
 		Config:     cfg,
 		Incoming:   make(chan Message, 10),
 		Outgoing:   make(chan Message, 10),
@@ -73,6 +74,53 @@ func NewAgent(id, dir string) (*Agent, error) {
 		Pseudocode: string(pseudoData),
 	}
 	return agent, nil
+}
+
+// logMessage appends a message log entry to the agent's messages.log file.
+func (a *Agent) logMessage(prefix string, msg Message) {
+	logFile := filepath.Join(a.Dir, "messages.log")
+	entry := fmt.Sprintf("%s | %s -> %s at %s: %s\n", prefix, msg.SrcID,
+		msg.DestID, msg.Timestamp.Format(time.RFC3339), msg.Content)
+	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Printf("Agent %s failed to open log file: %v", a.ID, err)
+		return
+	}
+	defer f.Close()
+	_, err = f.WriteString(entry)
+	if err != nil {
+		log.Printf("Agent %s failed to write to log file: %v", a.ID, err)
+	}
+}
+
+// composeMessage simulates composing a message using the agent's current
+// goal.md, pseudocode.md, and messages.log files. In a realistic system,
+// these files would be sent to an LLM API via SendWithFiles and the
+// message would be extracted via ExtractFiles.
+func (a *Agent) composeMessage() string {
+	goalPath := filepath.Join(a.Dir, a.Config.GoalFile)
+	pseudoPath := filepath.Join(a.Dir, a.Config.PseudocodeFile)
+	logPath := filepath.Join(a.Dir, "messages.log")
+
+	goalData, err := ioutil.ReadFile(goalPath)
+	if err != nil {
+		goalData = []byte("default goal")
+	}
+	pseudoData, err := ioutil.ReadFile(pseudoPath)
+	if err != nil {
+		pseudoData = []byte("default pseudocode")
+	}
+	logData, err := ioutil.ReadFile(logPath)
+	if err != nil {
+		logData = []byte("no previous messages")
+	}
+
+	// Simulate Grokker API call by simply combining the files.
+	composed := fmt.Sprintf("LLM composed message for agent %s at %s\nGoal:\n%s\nPseudocode:\n%s\nHistory:\n%s",
+		a.ID, time.Now().Format(time.RFC3339), string(goalData),
+		string(pseudoData), string(logData))
+	// In a real scenario, you would call SendWithFiles and ExtractFiles here.
+	return composed
 }
 
 // Run starts the agent's main loop. The agent processes incoming messages
@@ -85,11 +133,10 @@ func (a *Agent) Run(allAgents map[string]*Agent, wg *sync.WaitGroup) {
 	for {
 		select {
 		case msg := <-a.Incoming:
-			log.Printf("Agent %s received message from %s: %s",
-				a.ID, msg.SrcID, msg.Content)
+			log.Printf("Agent %s received message from %s.", a.ID, msg.SrcID)
+			a.logMessage("RECV", msg)
 			a.adaptProtocol(msg)
-		case <-time.After(time.Duration(rand.Intn(3000)+1000) *
-			time.Millisecond):
+		case <-time.After(time.Duration(rand.Intn(3000)+1000) * time.Millisecond):
 			a.sendMessage(allAgents)
 		case <-a.Stop:
 			log.Printf("Agent %s stopping.", a.ID)
@@ -98,7 +145,7 @@ func (a *Agent) Run(allAgents map[string]*Agent, wg *sync.WaitGroup) {
 	}
 }
 
-// sendMessage constructs a message using the agent's current pseudocode and
+// sendMessage composes a message using the LLM (simulated here) and
 // sends it to a randomly selected peer.
 func (a *Agent) sendMessage(allAgents map[string]*Agent) {
 	// Skip sending if there is only one agent.
@@ -112,11 +159,8 @@ func (a *Agent) sendMessage(allAgents map[string]*Agent) {
 		}
 	}
 	destID := recipientIDs[rand.Intn(len(recipientIDs))]
-	a.PseudoMux.Lock()
-	baseProto := a.Pseudocode
-	a.PseudoMux.Unlock()
-	content := fmt.Sprintf("Protocol v* [%s] message at %s",
-		baseProto, time.Now().Format(time.RFC3339))
+	// Compose the message using goal.md, pseudocode.md, and messages.log.
+	content := a.composeMessage()
 	msg := Message{
 		SrcID:     a.ID,
 		DestID:    destID,
@@ -125,7 +169,8 @@ func (a *Agent) sendMessage(allAgents map[string]*Agent) {
 	}
 	// Send the constructed message to the broker via the outgoing channel.
 	a.Outgoing <- msg
-	log.Printf("Agent %s sent message to %s.", a.ID, destID)
+	log.Printf("Agent %s sent a message to %s.", a.ID, destID)
+	a.logMessage("SEND", msg)
 	a.adaptAfterSending(msg)
 }
 
@@ -137,8 +182,7 @@ func (a *Agent) adaptProtocol(msg Message) {
 	update := fmt.Sprintf(" | adapted on receive from %s", msg.SrcID)
 	a.Pseudocode += update
 	// Write the updated pseudocode back to the pseudocode file.
-	pseudoFile := filepath.Join(filepath.Dir(a.Config.PseudocodeFile),
-		a.Config.PseudocodeFile)
+	pseudoFile := filepath.Join(a.Dir, a.Config.PseudocodeFile)
 	err := ioutil.WriteFile(pseudoFile, []byte(a.Pseudocode), 0644)
 	if err != nil {
 		log.Printf("Agent %s failed to write pseudocode: %v", a.ID, err)
@@ -150,11 +194,9 @@ func (a *Agent) adaptProtocol(msg Message) {
 func (a *Agent) adaptAfterSending(msg Message) {
 	a.PseudoMux.Lock()
 	defer a.PseudoMux.Unlock()
-	update := fmt.Sprintf(" | sent update at %s", time.Now().Format(
-		time.RFC3339))
+	update := fmt.Sprintf(" | sent update at %s", time.Now().Format(time.RFC3339))
 	a.Pseudocode += update
-	pseudoFile := filepath.Join(filepath.Dir(a.Config.PseudocodeFile),
-		a.Config.PseudocodeFile)
+	pseudoFile := filepath.Join(a.Dir, a.Config.PseudocodeFile)
 	err := ioutil.WriteFile(pseudoFile, []byte(a.Pseudocode), 0644)
 	if err != nil {
 		log.Printf("Agent %s failed to write pseudocode: %v", a.ID, err)
@@ -163,9 +205,8 @@ func (a *Agent) adaptAfterSending(msg Message) {
 
 // Broker routes messages from agents to their intended recipients.
 // It listens on a central broker channel and delivers messages to agents'
- // incoming channels.
-func Broker(agents map[string]*Agent, brokerCh chan Message,
-	stopCh chan bool, wg *sync.WaitGroup) {
+// incoming channels.
+func Broker(agents map[string]*Agent, brokerCh chan Message, stopCh chan bool, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for {
 		select {
@@ -227,7 +268,7 @@ func main() {
 	wg.Add(1)
 	go Broker(agents, brokerCh, brokerStop, &wg)
 
-	// Start each agent's goroutine and forward its outgoing messages
+	// Start each agent's goroutine and forward its outgoing messages.
 	for _, agent := range agents {
 		go func(a *Agent) {
 			for msg := range a.Outgoing {
