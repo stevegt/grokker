@@ -42,9 +42,11 @@ var tmpl = template.Must(template.New("index").Parse(`
     <button id="sendBtn">Send</button>
   </div>
   <script>
-    // Append a new message to the chat view.
+    // Append a new message to the chat view without scrolling the page.
     function appendMessage(content) {
       var chat = document.getElementById("chat");
+      // Save the current scroll position so that new content doesn't force a scroll.
+      var currentScroll = chat.scrollTop;
       var messageDiv = document.createElement("div");
       messageDiv.className = "message";
       messageDiv.innerHTML = content;
@@ -60,7 +62,8 @@ var tmpl = template.Must(template.New("index").Parse(`
         }
       });
       chat.appendChild(messageDiv);
-      chat.scrollTop = chat.scrollHeight;
+      // Restore previous scroll position to prevent auto-scrolling.
+      chat.scrollTop = currentScroll;
     }
 
     // Send query or comment to the /query endpoint.

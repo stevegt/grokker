@@ -21,10 +21,16 @@ The application should:
   and are added at the bottom
 - maintain a text box at the bottom of the page for the user to
   enter new queries or comments on the same page
+- use goldmark or similar to render the markdown response to HTML
 
 New requirements:
 
-- use goldmark or similar to render the markdown response to HTML
+- do not scroll the page when new content is added at the bottom of
+  the page, so the user can continue reading and commenting on the
+  existing content without interruption -- do we need to somehow save
+  the page location, then scroll to it, or is there a browser API
+  that allows us to hold the page still when content is added?
+
 
 In:
   x/storm/main.go

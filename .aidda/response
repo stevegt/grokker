@@ -43,9 +43,11 @@ var tmpl = template.Must(template.New("index").Parse(`
     <button id="sendBtn">Send</button>
   </div>
   <script>
-    // Append a new message to the chat view.
+    // Append a new message to the chat view without scrolling the page.
     function appendMessage(content) {
       var chat = document.getElementById("chat");
+      // Save the current scroll position so that new content doesn't force a scroll.
+      var currentScroll = chat.scrollTop;
       var messageDiv = document.createElement("div");
       messageDiv.className = "message";
       messageDiv.innerHTML = content;
@@ -61,7 +63,8 @@ var tmpl = template.Must(template.New("index").Parse(`
         }
       });
       chat.appendChild(messageDiv);
-      chat.scrollTop = chat.scrollHeight;
+      // Restore previous scroll position to prevent auto-scrolling.
+      chat.scrollTop = currentScroll;
     }
 
     // Send query or comment to the /query endpoint.
@@ -169,13 +172,13 @@ func sendQueryToLLM(query string, llm string, context string) string {
 	var inputFiles []string
 	var outFiles []core.FileLang
 
-	fmt.Printf("Sending query to LLM '%s'", llm)
+	fmt.Printf("Sending query to LLM '%s'\n", llm)
 	response, _, err := grok.SendWithFiles(llm, sysmsg, msgs, inputFiles, outFiles)
 	if err != nil {
 		log.Printf("SendWithFiles error: %v", err)
 		return fmt.Sprintf("Error sending query: %v", err)
 	}
-	fmt.Printf("Received response from LLM '%s'", llm)
+	fmt.Printf("Received response from LLM '%s'\n", llm)
 	if context != "" {
 		return fmt.Sprintf("Response for comment on '%s': %s [via %s]: %s", context, query, llm, response)
 	}
