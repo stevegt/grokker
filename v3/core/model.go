@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	oai "github.com/sashabaranov/go-openai"
+	oai "github.com/stevegt/go-openai"
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker/v3/client"
 )
