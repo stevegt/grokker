@@ -15,11 +15,13 @@ github.com/sashabaranov/go-openai v1.29.2 h1:jYpp1wktFoOvxHnum24f/w4+DFzUdJnu83t
 github.com/sashabaranov/go-openai v1.29.2/go.mod h1:lj5b/K+zjTSFxVLijLSTDZuP7adOgerWeFyZLUhAKRg=
 github.com/stevegt/envi v0.2.0 h1:QIaNQz///ueqH/57ldwGQy0yRgaYr/d7JLBQfjg+RXs=
 github.com/stevegt/envi v0.2.0/go.mod h1:Z8w7bE5V9Ce3H02CWNTEYkW3zWE8ulgfROtEt6ydDoY=
+github.com/stevegt/go-openai v0.0.0-20250731211715-61bacff90751 h1:E+j7yp7Q1VHfwBt8qL3x80+8xroGmPBcCUQuOUl9LGw=
+github.com/stevegt/go-openai v0.0.0-20250731211715-61bacff90751/go.mod h1:ilG070nctSQa/4ovo4fnLopUeATpgeMJbadN289XHKE=
 github.com/stevegt/goadapt v0.0.13/go.mod h1:BWNnTsXdIxaseRo0W/MoVgDeLNf+6L4S4fPhyAsBTi0=
 github.com/stevegt/goadapt v0.7.0 h1:brUmaaA4mr3hqQfglDAQh7/MVSWak52mEAOzfbSoMDg=
 github.com/stevegt/goadapt v0.7.0/go.mod h1:vquRbAl0Ek4iJHCvFUEDxziTsETR2HOT7r64NolhDKs=
-github.com/stevegt/grokker/v3 v3.0.34 h1:ip5kfQQGQpMhF3UzvBxWeHGLvDEk9TjAEgPfO6PgbBo=
-github.com/stevegt/grokker/v3 v3.0.34/go.mod h1:Lf4oaAj2dGAkgzuiP+x3OocFE0QTKwfCTdoMKdNSbjE=
+github.com/stevegt/grokker/v3 v3.0.35 h1:ZLX/JUdGbnxw/cgv+KdjjoDAbXa293M175TGaR+uT5c=
+github.com/stevegt/grokker/v3 v3.0.35/go.mod h1:m1CYVbAC3KSq/36v6Z9/RAuDXQaFqZfT4bJ1sM45fVA=
 github.com/stevegt/semver v0.0.0-20240217000820-5913d1a31c26 h1:z1tzm2Q22jtCN87NlApplnTx/EPQQ4zyZaDgNvw3wg8=
 github.com/stevegt/semver v0.0.0-20240217000820-5913d1a31c26/go.mod h1:Jm8NvUiaWMGzaCtI0Ja7Vy7/7ZESxEMWYGswGyqW1+A=
 github.com/tiktoken-go/tokenizer v0.1.0 h1:c1fXriHSR/NmhMDTwUDLGiNhHwTV+ElABGvqhCWLRvY=
