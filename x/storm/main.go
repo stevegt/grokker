@@ -7,7 +7,9 @@ import (
 	"html/template"
 	"log"
 	"net/http"
-	"time"
+
+	"github.com/stevegt/grokker/v3/client"
+	"github.com/stevegt/grokker/v3/core"
 )
 
 var tmpl = template.Must(template.New("index").Parse(`
@@ -31,8 +33,8 @@ var tmpl = template.Must(template.New("index").Parse(`
   </div>
   <div id="input-area">
     <select id="llmSelect">
-      <option value="LLM1">LLM1</option>
-      <option value="LLM2">LLM2</option>
+      <option value="sonar-deep-research">sonar-deep-research</option>
+      <option value="o3-mini">o3-mini</option>
     </select>
     <textarea id="userInput" placeholder="Enter your query or comment"></textarea>
     <button id="sendBtn">Send</button>
@@ -48,12 +50,10 @@ var tmpl = template.Must(template.New("index").Parse(`
       messageDiv.addEventListener("mouseup", function(e) {
         var selection = window.getSelection().toString().trim();
         if(selection.length > 0) {
-          if(confirm("Would you like to comment on: " + selection + "?")) {
-            var comment = prompt("Enter your comment:");
-            if(comment) {
-              // When commenting, send the comment along with the context (selected text).
-              sendQuery(comment, document.getElementById("llmSelect").value, selection);
-            }
+          var comment = prompt("Enter your comment:");
+          if(comment) {
+            // When commenting, send the comment along with the context (selected text).
+            sendQuery(comment, document.getElementById("llmSelect").value, selection);
           }
         }
       });
@@ -136,7 +136,7 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Call the simulated Grokker API LLM service.
+	// Call the LLM via grokker
 	responseText := sendQueryToLLM(req.Query, req.LLM, req.Context)
 
 	resp := QueryResponse{
@@ -146,15 +146,37 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-// sendQueryToLLM simulates calling the Grokker API to obtain a markdown-formatted text.
-// In a production system, this would make an HTTP request to the Grokker API.
+// sendQueryToLLM calls the Grokker API to obtain a markdown-formatted text.
 func sendQueryToLLM(query string, llm string, context string) string {
-	// Simulate processing delay.
-	time.Sleep(1 * time.Second)
-	if context != "" {
-		return fmt.Sprintf("Response for comment on '%s': %s [via %s]", context, query, llm)
+	grok, _, _, _, lock, err := core.Load(llm, true)
+	if err != nil {
+		log.Printf("failed to load Grokker: %v", err)
+		return fmt.Sprintf("failed to load Grokker: %v", err)
 	}
-	return fmt.Sprintf("Response from %s: %s", llm, query)
+	defer lock.Unlock()
+
+	sysmsg := fmt.Sprintf("You are a helpful assistant. Respond to the query: %s", query)
+
+	prompt := fmt.Sprintf("Query: %s\nContext: %s", query, context)
+
+	msgs := []client.ChatMsg{
+		{Role: "USER", Content: prompt},
+	}
+
+	var inputFiles []string
+	var outFiles []core.FileLang
+
+	fmt.Printf("Sending query to LLM '%s'", llm)
+	response, _, err := grok.SendWithFiles(llm, sysmsg, msgs, inputFiles, outFiles)
+	if err != nil {
+		log.Printf("SendWithFiles error: %v", err)
+		return fmt.Sprintf("Error sending query: %v", err)
+	}
+	fmt.Printf("Received response from LLM '%s'", llm)
+	if context != "" {
+		return fmt.Sprintf("Response for comment on '%s': %s [via %s]: %s", context, query, llm, response)
+	}
+	return fmt.Sprintf("Response from %s: %s: %s", llm, query, response)
 }
 
 // markdownToHTML converts markdown text to HTML.
