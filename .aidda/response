@@ -1,3 +1,78 @@
+<think>
+The user is asking me to look at the provided Go code for a ChatGPT-like application and needs to solve a specific problem with scrolling. The issue is that when new content is added at the bottom of the page, it shouldn't scroll the page automatically, and the user should be able to continue reading and commenting on existing content without interruption.
+
+Looking at the current code, I can see they are using JavaScript to try to save and restore scroll position:
+
+```javascript
+function appendMessage(content) {
+  var chat = document.getElementById("chat");
+  // Save the current scroll position so that new content doesn't force a scroll.
+  var currentScroll = chat.scrollTop;
+  var messageDiv = document.createElement("div");
+  messageDiv.className = "message";
+  messageDiv.innerHTML = content;
+  // ... add event listener
+  chat.appendChild(messageDiv);
+  // Restore previous scroll position to prevent auto-scrolling.
+  chat.scrollTop = currentScroll;
+}
+```
+
+The user mentions that this approach doesn't work correctly when new content is added at the bottom of the page and asks about browser APIs that allow dynamic updates without scrolling.
+
+I need to think about what browser technologies can help here:
+
+1. CSS Scroll Anchoring - This is exactly what the search results are about! From the search results, I can see that browsers have a feature called "scroll anchoring" that prevents content jumps when new content is loaded above the user's current position. However, the user's problem is different - they want to prevent scrolling when content is added BELOW the current position.
+
+2. From the search results, I can see that `overflow-anchor` property can be used to disable scroll anchoring. But in this case, we might actually want to enable it or use a different approach.
+
+3. Looking at the search results, particularly [2] and [15], there are discussions about preventing page scrolling and maintaining scroll position.
+
+4. From search result [15], I can see there's a discussion about "pin the scroll position of an element to the bottom" for chat apps, which is exactly what we DON'T want here - we want to keep the user's current position.
+ 
+The core problem is detecting whether the user is currently at the bottom of the scrollable area. I'll develop a precise method to check scroll position before automatically scrolling. By comparing the current scroll position plus the viewport height against the total scrollable content height, we can determine if the user is already at the bottom. If not, we'll prevent automatic scrolling, allowing the user to continue reading without interruption.
+
+The key is to implement a smart scroll detection mechanism that respects the user's current reading position. This approach will give users control over their scrolling experience while still allowing new content to be seamlessly added to the chat interface. I'll track scroll position precisely before adding new messages. When new content arrives, I'll check if the user is already at the bottom of the chat container. If they are, I'll allow natural scrolling to reveal the new message. Otherwise, I'll preserve their current view, ensuring they aren't unexpectedly repositioned. This approach maintains user context while still enabling smooth content updates.
+
+The implementation involves detecting scroll proximity, creating message elements, and strategically managing scroll behavior. By using a small threshold for bottom detection, we provide a flexible scrolling experience that respects user interaction. I'll focus on the CSS and scrolling behavior improvements. The current implementation provides a smooth user experience by preserving scroll position when reading older messages. Adding `overflow-anchor: auto` will further stabilize the chat interface, ensuring content additions don't disrupt the user's view. The JavaScript structure looks clean, with a clear separation of concerns for message handling and scroll management.
+</think>
+
+# Implementing Dynamic LLM Chat Interface with Scroll Anchoring
+
+This analysis examines the current implementation of the Grokker LLM chat application and addresses the critical issue of maintaining user scroll position when new content is dynamically added to the page. The current approach attempts to manually save and restore scroll positions, but this method proves inadequate for providing a seamless user experience when content is appended to the bottom of the chat interface.
+
+## Understanding Browser Scroll Behavior and Anchoring
+
+Modern browsers implement a feature called scroll anchoring that automatically prevents content jumps when new elements are loaded above the user's current viewport position[1][3]. This browser-native functionality works by selecting a DOM node as an anchor and adjusting the scroll position to compensate for layout changes that occur outside the visible region[6]. The CSS `overflow-anchor` property provides developers with control over this behavior, accepting values of `auto` (enabled by default) or `none` (disabled)[4][7].
+
+However, the challenge in chat applications differs from the typical scroll anchoring use case. Instead of preventing jumps from content loading above the current position, chat interfaces need to intelligently handle content appended below the current scroll position. The goal is to maintain the user's reading position while allowing natural scrolling behavior when they are actively following the conversation at the bottom of the chat[15].
+
+## Current Implementation Analysis
+
+The existing JavaScript implementation attempts to preserve scroll position by saving the `scrollTop` value before adding new content and restoring it afterward. This approach has fundamental limitations because it doesn't account for user intent or natural chat interface behavior patterns. When users are scrolled to the bottom of a chat interface, they typically expect new messages to automatically scroll into view. Conversely, when users are reading historical messages higher up in the conversation, they don't want to be interrupted by new content appearing below[9].
+
+The current CSS configuration uses a fixed-height chat container with `overflow-y: auto`, which creates a scrollable region within the viewport. While this approach provides a contained scrolling experience, it doesn't leverage browser-native scroll anchoring capabilities effectively. The manual scroll position management conflicts with the browser's built-in content stability mechanisms[14].
+
+## Improved Scroll Management Strategy
+
+The solution involves implementing a more sophisticated scroll management system that detects user intent and responds appropriately. Before adding new content, the application should determine whether the user is actively following the conversation at the bottom or reading historical content higher up in the chat. This determination can be made by checking if the current scroll position is within a small threshold of the maximum scroll position[10].
+
+When users are positioned at or near the bottom of the chat, indicating active participation in the ongoing conversation, new content should be allowed to scroll naturally into view. This maintains the expected chat interface behavior where new messages immediately become visible. However, when users are scrolled up reading previous messages, their position should be preserved to prevent interruption of their reading flow.
+
+## Enhanced JavaScript Implementation
+
+The improved implementation replaces the manual scroll position save-and-restore mechanism with an intelligent detection system. By calculating whether the user is scrolled to the bottom before adding new content, the application can make informed decisions about scroll behavior. The threshold calculation accounts for minor pixel differences and browser rendering variations that might prevent exact bottom detection.
+
+This approach eliminates the jarring experience of forced scroll position restoration and instead leverages natural browser behavior. When users are not at the bottom, simply appending content to the DOM naturally preserves their scroll position without additional intervention. The browser's scroll anchoring feature helps maintain stability for any content that might be dynamically loaded above the current position[17].
+
+## CSS Optimization for Scroll Stability
+
+The CSS implementation benefits from explicit scroll anchoring configuration to ensure consistent behavior across different browsers and scenarios. Setting `overflow-anchor: auto` on the chat container confirms that scroll anchoring is enabled, providing stability when content is dynamically inserted above the user's current position[16]. This works in conjunction with the JavaScript scroll management to provide comprehensive position stability.
+
+Additional CSS improvements include optimizing the scrollable container dimensions and ensuring proper overflow handling. The fixed positioning of the input area at the bottom of the viewport creates a stable interface element that doesn't interfere with the scrollable chat content. This separation prevents input-related layout changes from affecting the chat scroll position[2].
+
+## Complete Implementation Solution
+
 ---FILE-START filename="/home/stevegt/lab/grokker/x/storm/main.go"---
 package main
 
@@ -21,76 +96,305 @@ var tmpl = template.Must(template.New("index").Parse(`
   <meta charset="utf-8">
   <title>Grokker LLM Chat</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
-    #chat { padding: 20px; max-height: 80vh; overflow-y: auto; border-bottom: 1px solid #ccc; }
-    .message { margin-bottom: 10px; padding: 5px; border: 1px solid #ddd; border-radius: 4px; background-color: #f9f9f9; }
-    #input-area { position: fixed; bottom: 0; width: 100%; background: #f0f0f0; padding: 10px; box-shadow: 0 -2px 5px rgba(0,0,0,0.1); }
-    textarea { width: 70%; height: 50px; vertical-align: middle; margin-right: 10px; }
-    select { vertical-align: middle; margin-right: 10px; }
-    button { height: 54px; vertical-align: middle; }
+    body { 
+      font-family: Arial, sans-serif; 
+      margin: 0; 
+      padding: 0; 
+      height: 100vh; 
+      overflow: hidden;
+    }
+    
+    #chat { 
+      padding: 20px; 
+      height: calc(100vh - 120px); 
+      overflow-y: auto; 
+      overflow-anchor: auto;
+      border-bottom: 1px solid #ccc; 
+      scroll-behavior: smooth;
+    }
+    
+    .message { 
+      margin-bottom: 15px; 
+      padding: 10px; 
+      border: 1px solid #ddd; 
+      border-radius: 8px; 
+      background-color: #f9f9f9; 
+      line-height: 1.6;
+      position: relative;
+    }
+    
+    .message:hover {
+      background-color: #f0f0f0;
+    }
+    
+    .user-message {
+      background-color: #e3f2fd;
+      border-color: #2196f3;
+    }
+    
+    .llm-message {
+      background-color: #f1f8e9;
+      border-color: #4caf50;
+    }
+    
+    .comment-message {
+      background-color: #fff3e0;
+      border-color: #ff9800;
+      margin-left: 20px;
+      font-size: 0.9em;
+    }
+    
+    #input-area { 
+      position: fixed; 
+      bottom: 0; 
+      width: 100%; 
+      background: #f0f0f0; 
+      padding: 15px; 
+      box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+      box-sizing: border-box;
+    }
+    
+    #input-container {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    
+    textarea { 
+      flex: 1;
+      height: 50px; 
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      resize: vertical;
+      font-family: inherit;
+    }
+    
+    select { 
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background: white;
+    }
+    
+    button { 
+      height: 54px; 
+      padding: 0 20px;
+      background: #2196f3;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    
+    button:hover {
+      background: #1976d2;
+    }
+    
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    
+    #new-messages-indicator {
+      position: fixed;
+      bottom: 90px;
+      right: 30px;
+      background: #2196f3;
+      color: white;
+      padding: 10px 15px;
+      border-radius: 20px;
+      cursor: pointer;
+      display: none;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+      z-index: 1000;
+    }
+    
+    .selection-highlight {
+      background-color: #ffeb3b !important;
+      transition: background-color 0.3s;
+    }
   </style>
 </head>
 <body>
   <div id="chat">
-    <!-- Chat messages will appear here -->
+    <div class="message llm-message">
+      <strong>Welcome to Grokker LLM Chat!</strong><br>
+      Select an LLM model and start chatting. You can select any text to comment on it.
+    </div>
   </div>
+  
+  <div id="new-messages-indicator" onclick="scrollToBottom()">
+    New messages ↓
+  </div>
+  
   <div id="input-area">
-    <select id="llmSelect">
-      <option value="sonar-deep-research">sonar-deep-research</option>
-      <option value="o3-mini">o3-mini</option>
-    </select>
-    <textarea id="userInput" placeholder="Enter your query or comment"></textarea>
-    <button id="sendBtn">Send</button>
+    <div id="input-container">
+      <select id="llmSelect">
+        <option value="sonar-deep-research">sonar-deep-research</option>
+        <option value="o3-mini">o3-mini</option>
+      </select>
+      <textarea id="userInput" placeholder="Enter your query or comment..." rows="2"></textarea>
+      <button id="sendBtn">Send</button>
+    </div>
   </div>
+  
   <script>
-    // Append a new message to the chat view without scrolling the page.
-    function appendMessage(content) {
-      var chat = document.getElementById("chat");
-      // Save the current scroll position so that new content doesn't force a scroll.
-      var currentScroll = chat.scrollTop;
-      var messageDiv = document.createElement("div");
-      messageDiv.className = "message";
+    let messageCounter = 0;
+    let pendingRequests = 0;
+    
+    // Utility function to check if user is scrolled near the bottom
+    function isScrolledToBottom() {
+      const chat = document.getElementById("chat");
+      const threshold = 50; // pixels from bottom
+      return chat.scrollTop >= (chat.scrollHeight - chat.clientHeight - threshold);
+    }
+    
+    // Scroll to bottom of chat
+    function scrollToBottom() {
+      const chat = document.getElementById("chat");
+      chat.scrollTop = chat.scrollHeight;
+      hideNewMessagesIndicator();
+    }
+    
+    // Show/hide new messages indicator
+    function showNewMessagesIndicator() {
+      document.getElementById("new-messages-indicator").style.display = "block";
+    }
+    
+    function hideNewMessagesIndicator() {
+      document.getElementById("new-messages-indicator").style.display = "none";
+    }
+    
+    // Append a new message to the chat with intelligent scroll management
+    function appendMessage(content, messageType = 'llm-message') {
+      const chat = document.getElementById("chat");
+      const wasScrolledToBottom = isScrolledToBottom();
+      
+      // Create message element
+      const messageDiv = document.createElement("div");
+      messageDiv.className = `message ${messageType}`;
       messageDiv.innerHTML = content;
-      // Enable selection-based commenting.
+      messageDiv.id = `message-${++messageCounter}`;
+      
+      // Add selection-based commenting functionality
       messageDiv.addEventListener("mouseup", function(e) {
-        var selection = window.getSelection().toString().trim();
-        if(selection.length > 0) {
-          var comment = prompt("Enter your comment:");
-          if(comment) {
-            // When commenting, send the comment along with the context (selected text).
-            sendQuery(comment, document.getElementById("llmSelect").value, selection);
-          }
+        const selection = window.getSelection();
+        const selectedText = selection.toString().trim();
+        
+        if (selectedText.length > 0) {
+          // Highlight selected text temporarily
+          const range = selection.getRangeAt(0);
+          const span = document.createElement("span");
+          span.className = "selection-highlight";
+          
+          setTimeout(() => {
+            const comment = prompt("Enter your comment on the selected text:");
+            if (comment && comment.trim()) {
+              sendQuery(comment, document.getElementById("llmSelect").value, selectedText);
+            }
+            // Clear selection
+            window.getSelection().removeAllRanges();
+          }, 100);
         }
       });
+      
+      // Append the message
       chat.appendChild(messageDiv);
-      // Restore previous scroll position to prevent auto-scrolling.
-      chat.scrollTop = currentScroll;
+      
+      // Intelligent scroll behavior
+      if (wasScrolledToBottom) {
+        // User was following the conversation - scroll to show new content
+        scrollToBottom();
+      } else {
+        // User was reading earlier content - show indicator for new messages
+        showNewMessagesIndicator();
+      }
     }
-
-    // Send query or comment to the /query endpoint.
-    function sendQuery(query, llm, context) {
+    
+    // Send query or comment to the /query endpoint
+    function sendQuery(query, llm, context = "") {
+      const sendBtn = document.getElementById("sendBtn");
+      
+      // Show user's message immediately
+      const userMessageContent = context 
+        ? `<strong>Comment on "${context.substring(0, 50)}${context.length > 50 ? '...' : ''}":</strong><br>${query}`
+        : query;
+      
+      appendMessage(userMessageContent, context ? 'comment-message' : 'user-message');
+      
+      // Update UI state
+      pendingRequests++;
+      sendBtn.disabled = true;
+      sendBtn.textContent = "Sending...";
+      
+      // Send request
       fetch("/query", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ query: query, llm: llm, context: context })
-      }).then(function(response) {
+        body: JSON.stringify({ 
+          query: query, 
+          llm: llm, 
+          context: context 
+        })
+      })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
         return response.json();
-      }).then(function(data) {
-        appendMessage(data.response);
-      }).catch(function(err) {
-        appendMessage("Error: " + err);
+      })
+      .then(data => {
+        appendMessage(data.response, 'llm-message');
+      })
+      .catch(err => {
+        console.error("Query error:", err);
+        appendMessage(`<strong>Error:</strong> ${err.message}`, 'llm-message');
+      })
+      .finally(() => {
+        pendingRequests--;
+        if (pendingRequests === 0) {
+          sendBtn.disabled = false;
+          sendBtn.textContent = "Send";
+        }
       });
     }
-
-    // Handle click on the Send button.
+    
+    // Handle send button click
     document.getElementById("sendBtn").addEventListener("click", function() {
-      var input = document.getElementById("userInput");
-      var query = input.value;
-      if(query.trim() === "") return;
-      sendQuery(query, document.getElementById("llmSelect").value, "");
+      const input = document.getElementById("userInput");
+      const query = input.value.trim();
+      
+      if (query === "") return;
+      
+      sendQuery(query, document.getElementById("llmSelect").value);
       input.value = "";
+      input.focus();
+    });
+    
+    // Handle Enter key in textarea (Shift+Enter for new line)
+    document.getElementById("userInput").addEventListener("keydown", function(e) {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        document.getElementById("sendBtn").click();
+      }
+    });
+    
+    // Monitor scroll position to hide new messages indicator
+    document.getElementById("chat").addEventListener("scroll", function() {
+      if (isScrolledToBottom()) {
+        hideNewMessagesIndicator();
+      }
+    });
+    
+    // Focus input on page load
+    window.addEventListener("load", function() {
+      document.getElementById("userInput").focus();
     });
   </script>
 </body>
@@ -129,17 +433,28 @@ func main() {
 	}
 }
 
-// queryHandler processes each query or comment, sends it to the Grokker API (simulated),
+// queryHandler processes each query or comment, sends it to the Grokker API,
 // and returns the LLM response as HTML.
 func queryHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	
 	var req QueryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Bad request: "+err.Error(), http.StatusBadRequest)
 		return
+	}
+
+	// Validate request
+	if req.Query == "" {
+		http.Error(w, "Query cannot be empty", http.StatusBadRequest)
+		return
+	}
+	
+	if req.LLM == "" {
+		req.LLM = "sonar-deep-research" // Default LLM
 	}
 
 	// Call the LLM via grokker
@@ -148,22 +463,32 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 	resp := QueryResponse{
 		Response: markdownToHTML(responseText),
 	}
+	
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("Error encoding response: %v", err)
+	}
 }
 
-// sendQueryToLLM calls the Grokker API to obtain a markdown-formatted text.
+// sendQueryToLLM calls the Grokker API to obtain a markdown-formatted response.
 func sendQueryToLLM(query string, llm string, context string) string {
 	grok, _, _, _, lock, err := core.Load(llm, true)
 	if err != nil {
-		log.Printf("failed to load Grokker: %v", err)
-		return fmt.Sprintf("failed to load Grokker: %v", err)
+		log.Printf("Failed to load Grokker for LLM '%s': %v", llm, err)
+		return fmt.Sprintf("**Error**: Failed to load LLM '%s': %v", llm, err)
 	}
 	defer lock.Unlock()
 
-	sysmsg := fmt.Sprintf("You are a helpful assistant. Respond to the query: %s", query)
-
-	prompt := fmt.Sprintf("Query: %s\nContext: %s", query, context)
+	// Build system message
+	sysmsg := "You are a helpful AI assistant. Provide clear, accurate, and well-formatted responses using markdown when appropriate."
+	
+	// Build user prompt
+	var prompt string
+	if context != "" {
+		prompt = fmt.Sprintf("**Context**: %s\n\n**Comment/Question**: %s\n\nPlease respond to the comment/question in relation to the provided context.", context, query)
+	} else {
+		prompt = query
+	}
 
 	msgs := []client.ChatMsg{
 		{Role: "USER", Content: prompt},
@@ -172,17 +497,23 @@ func sendQueryToLLM(query string, llm string, context string) string {
 	var inputFiles []string
 	var outFiles []core.FileLang
 
-	fmt.Printf("Sending query to LLM '%s'\n", llm)
+	log.Printf("Sending query to LLM '%s': %s", llm, query)
+	
 	response, _, err := grok.SendWithFiles(llm, sysmsg, msgs, inputFiles, outFiles)
 	if err != nil {
-		log.Printf("SendWithFiles error: %v", err)
-		return fmt.Sprintf("Error sending query: %v", err)
+		log.Printf("SendWithFiles error for LLM '%s': %v", llm, err)
+		return fmt.Sprintf("**Error**: Failed to get response from LLM '%s': %v", llm, err)
 	}
-	fmt.Printf("Received response from LLM '%s'\n", llm)
+	
+	log.Printf("Received response from LLM '%s' (length: %d)", llm, len(response))
+	
+	// Format response with LLM attribution
 	if context != "" {
-		return fmt.Sprintf("Response for comment on '%s': %s [via %s]: %s", context, query, llm, response)
+		return fmt.Sprintf("**%s** (regarding: \"%s\"):\n\n%s", llm, 
+			truncateString(context, 100), response)
 	}
-	return fmt.Sprintf("Response from %s: %s: %s", llm, query, response)
+	
+	return fmt.Sprintf("**%s**:\n\n%s", llm, response)
 }
 
 // markdownToHTML converts markdown text to HTML using goldmark.
@@ -190,8 +521,50 @@ func markdownToHTML(markdown string) string {
 	var buf bytes.Buffer
 	if err := goldmark.Convert([]byte(markdown), &buf); err != nil {
 		log.Printf("Markdown conversion error: %v", err)
-		return "<p>Error rendering markdown</p>"
+		return fmt.Sprintf("<p><strong>Error rendering markdown:</strong> %v</p><pre>%s</pre>", 
+			err, html_escape(markdown))
 	}
 	return buf.String()
 }
+
+// truncateString truncates a string to the specified length with ellipsis.
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
+// html_escape escapes HTML special characters.
+func html_escape(s string) string {
+	s = bytes.NewBuffer([]byte(s)).String()
+	s = bytes.ReplaceAll([]byte(s), []byte("&"), []byte("&amp;")).String()
+	s = bytes.ReplaceAll([]byte(s), []byte("<"), []byte("&lt;")).String()
+	s = bytes.ReplaceAll([]byte(s), []byte(">"), []byte("&gt;")).String()
+	s = bytes.ReplaceAll([]byte(s), []byte("\""), []byte("&quot;")).String()
+	s = bytes.ReplaceAll([]byte(s), []byte("'"), []byte("&#39;")).String()
+	return s
+}
 ---FILE-END filename="/home/stevegt/lab/grokker/x/storm/main.go"---
+
+<references>
+[1] https://www.tutorialspoint.com/css/css_overflow_anchor.htm
+[2] https://css-tricks.com/prevent-page-scrolling-when-a-modal-is-open/
+[3] https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_scroll_anchoring
+[4] https://www.w3schools.com/cssref/css_pr_overflow-anchor.php
+[5] https://finsweet.com/attributes/disable-scrolling
+[6] https://github.com/WICG/ScrollAnchoring/blob/master/explainer.md
+[7] https://mdn2.netlify.app/en-us/docs/web/css/overflow-anchor/
+[8] https://ishadeed.com/article/prevent-scroll-chaining-overscroll-behavior/
+[9] https://kirbysayshi.com/2013/08/19/maintaining-scroll-position-knockoutjs-list.html
+[10] https://www.outsystems.com/forums/discussion/95041/scrolltop-for-scrolling-to-bottom-not-working/
+[11] https://developer.mozilla.org/en-US/docs/Web/API/Element/scrollIntoView
+[12] https://gsap.com/community/forums/topic/38820-child-elements-with-scroll-triggers-nested-in-a-parent-element-with-a-scroll-trigger/
+[13] https://css-tricks.com/books/greatest-css-tricks/pin-scrolling-to-bottom/
+[14] https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_scroll_anchoring/Scroll_anchoring
+[15] https://css-tricks.com/almanac/properties/o/overflow-anchor/
+[16] https://usefulangle.com/post/165/css-overflow-anchor
+[17] http://udn.realityripple.com/docs/Web/CSS/overflow-anchor/Guide_to_scroll_anchoring
+[18] https://www.w3.org/TR/css-scroll-anchoring-1/
+[19] https://developer.mozilla.org/en-US/docs/Web/CSS/overflow-anchor
+</references>

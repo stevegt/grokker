@@ -25,11 +25,17 @@ The application should:
 
 New requirements:
 
-- do not scroll the page when new content is added at the bottom of
-  the page, so the user can continue reading and commenting on the
-  existing content without interruption -- do we need to somehow save
-  the page location, then scroll to it, or is there a browser API
-  that allows us to hold the page still when content is added?
+- Do not scroll the page when new content is added at the bottom of
+  the page.  The user MUST be able to continue reading and commenting
+  on the existing content without interruption. The current code
+  attempts to save the scroll position, but this does not work
+  correctly when new content is added at the bottom of the page. Isn't
+  there some browser API that allows the page to be dynamically
+  updated without scrolling the page?  Make ONLY this change.  Do NOT
+  make any additional changes to the code, the page layout, or the
+  styling.  Do NOT delete or reformat any existing comments. Do NOT
+  rewrap any existing lines. Do NOT change the HTML structure of the
+  page.
 
 
 In:
