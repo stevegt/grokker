@@ -21,7 +21,7 @@ var tmpl = template.Must(template.New("index").Parse(`
   <title>Grokker LLM Chat</title>
   <style>
     body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
-    #chat { padding: 20px; max-height: 80vh; overflow-y: auto; border-bottom: 1px solid #ccc; overflow-anchor: none; }
+    #chat { padding: 20px; max-height: 80vh; overflow-y: auto; border-bottom: 1px solid #ccc; overflow-anchor: auto; }
     .message { margin-bottom: 10px; padding: 5px; border: 1px solid #ddd; border-radius: 4px; background-color: #f9f9f9; }
     #input-area { position: fixed; bottom: 0; width: 100%; background: #f0f0f0; padding: 10px; box-shadow: 0 -2px 5px rgba(0,0,0,0.1); }
     textarea { width: 70%; height: 50px; vertical-align: middle; margin-right: 10px; }
@@ -189,4 +189,5 @@ func markdownToHTML(markdown string) string {
 	}
 	return buf.String()
 }
+
 
