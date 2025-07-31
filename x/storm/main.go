@@ -1,4 +1,3 @@
----FILE-START filename="/home/stevegt/lab/grokker/x/storm/main.go"---
 package main
 
 import (
@@ -164,4 +163,3 @@ func sendQueryToLLM(query string, llm string, context string) string {
 func markdownToHTML(markdown string) string {
 	return "<p>" + template.HTMLEscapeString(markdown) + "</p>"
 }
----FILE-END filename="/home/stevegt/lab/grokker/x/storm/main.go"---

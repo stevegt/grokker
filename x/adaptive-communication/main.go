@@ -107,14 +107,11 @@ func (a *Agent) composeMessage() string {
 	// subdirectory.
 	sysmsgPath := filepath.Join(a.Dir, "sysmsg.md")
 	sysmsgBytes, err := ioutil.ReadFile(sysmsgPath)
-	var sysmsg string
 	if err != nil {
-		// XXX return error
-		// Fallback if sysmsg.md is not found.
-		sysmsg = "Compose message for agent " + a.ID
-	} else {
-		sysmsg = string(sysmsgBytes)
+		log.Printf("Agent %s failed to read sysmsg.md: %v", a.ID, err)
+		return fmt.Sprintf("Error reading sysmsg.md for agent %s: %v", a.ID, err)
 	}
+	sysmsg := string(sysmsgBytes)
 
 	goalPath := filepath.Join(a.Dir, a.Config.GoalFile)
 	pseudoPath := filepath.Join(a.Dir, a.Config.PseudocodeFile)
@@ -122,10 +119,19 @@ func (a *Agent) composeMessage() string {
 	// List of input files.
 	inputFiles := []string{goalPath, pseudoPath, logPath}
 
+	// use goal.md as prompt
+	promptBuf, err := ioutil.ReadFile(goalPath)
+	if err != nil {
+		log.Printf("Agent %s failed to read goal file %s: %v", a.ID, goalPath, err)
+		return fmt.Sprintf("Error reading goal file for agent %s: %v", a.ID, err)
+	}
+	prompt := string(promptBuf)
+
 	// Build minimal chat context for the API call.
+	// XXX alternative would be to use the message log itself as the
+	// XXX chat history (maybe try that in a different sim)
 	msgs := []client.ChatMsg{
-		// XXX use goal.md for prompt
-		{Role: "USER", Content: "Generate adaptive communication message based on the provided files."},
+		{Role: "USER", Content: prompt},
 	}
 	// Specify an output file so that the API returns the generated message.
 	// The file is created in the agent's directory.
@@ -149,18 +155,14 @@ func (a *Agent) composeMessage() string {
 		return fmt.Sprintf("Error composing message for agent %s: %v", a.ID, err)
 	}
 
-	// Now extract the composed message by reading the output file.
-	// XXX no, call ExtractFiles to parse message.md out of the
-	// response
-	msgBytes, err := ioutil.ReadFile(outFilePath)
+	// call ExtractFiles to parse the response and extract message.md
+	// and pseudocode.md
+	err := core.ExtractFiles(outFiles, response, false, false)
 	if err != nil {
-		log.Printf("Agent %s failed to extract message via ExtractFiles: %v", a.ID, err)
-		// Fall back to the raw composed output if extraction fails.
-		return composed
+		log.Printf("Agent %s failed to extract files: %v", a.ID, err)
+		return fmt.Sprintf("Error extracting files for agent %s: %v", a.ID, err)
 	}
-	extractedMsg := string(msgBytes)
-	// Optionally remove the temporary output file.
-	_ = os.Remove(outFilePath)
+
 	return extractedMsg
 }
 
@@ -188,6 +190,7 @@ func (a *Agent) Run(allAgents map[string]*Agent, wg *sync.WaitGroup) {
 
 // sendMessage composes a message using the LLM (via the Grokker API) and
 // sends it to a randomly selected peer.
+// XXX no, not randomly selected -- use pseudocode to select a peer
 func (a *Agent) sendMessage(allAgents map[string]*Agent) {
 	// Skip sending if there is only one agent.
 	if len(allAgents) <= 1 {
@@ -199,9 +202,21 @@ func (a *Agent) sendMessage(allAgents map[string]*Agent) {
 			recipientIDs = append(recipientIDs, id)
 		}
 	}
-	destID := recipientIDs[rand.Intn(len(recipientIDs))]
+
 	// Compose the message using the agent's goal.md, pseudocode.md, and messages.log.
 	content := a.composeMessage()
+	// get the message content from message.md
+	contentBuf, err := ioutil.ReadFile(filepath.Join(a.Dir, "message.md"))
+	content := string(messageBuf)
+
+	// XXX get the destination ID from to.txt
+	// XXX no, see below
+	destID := recipientIDs[rand.Intn(len(recipientIDs))]
+
+	// assemble the message to send.
+	// XXX the router is an agent and needs to parse
+	// XXX the message using its own pseudocode to
+	// XXX determine the destination.
 	msg := Message{
 		SrcID:     a.ID,
 		DestID:    destID,

@@ -1,3 +1,33 @@
+write x/storm
+
+Write an application that allows a more dynamic, asynchronous, rapid
+interaction with one or more LLMs, similar to the ChatGPT or
+Perplexity UI, but with faster, more granular, continuous interaction
+rather than the slower, synchronous behavior of existing LLM chat UIs.
+The application should:
+
+- start an HTTP server listening on a port given on the command line
+- return a web page that is similar to the UI of ChatGPT or Perplexity
+- allow the user to select a LLM and enter a query
+- send the query to the LLM via the Grokker API, asking for markdown
+  formatted text
+- format the response from the LLM as HTML
+- add javascript to the HTML page to allow the user to select
+  any block of text and comment on it, similar to Google Doc comments
+- return the HTML to the user's browser
+- accept each individual comment as a separate query to the LLM
+- append the comments to the page, allowing the user to continue
+  commenting and scrolling as the replies come back from the LLMs 
+  and are added at the bottom
+- maintain a text box at the bottom of the page for the user to
+  enter new queries or comments on the same page
+
+Out:
+  x/storm/main.go
+
+
+.stop
+
 each agent uses LLM to compose messages
 
 Modify main.go and main_test.go to implement the following
