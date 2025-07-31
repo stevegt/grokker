@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/stevegt/grokker/v3/client"
 	"github.com/stevegt/grokker/v3/core"
+	"github.com/yuin/goldmark"
 )
 
 var tmpl = template.Must(template.New("index").Parse(`
@@ -166,22 +168,25 @@ func sendQueryToLLM(query string, llm string, context string) string {
 	var inputFiles []string
 	var outFiles []core.FileLang
 
-	fmt.Printf("Sending query to LLM '%s'", llm)
+	fmt.Printf("Sending query to LLM '%s'\n", llm)
 	response, _, err := grok.SendWithFiles(llm, sysmsg, msgs, inputFiles, outFiles)
 	if err != nil {
 		log.Printf("SendWithFiles error: %v", err)
 		return fmt.Sprintf("Error sending query: %v", err)
 	}
-	fmt.Printf("Received response from LLM '%s'", llm)
+	fmt.Printf("Received response from LLM '%s'\n", llm)
 	if context != "" {
 		return fmt.Sprintf("Response for comment on '%s': %s [via %s]: %s", context, query, llm, response)
 	}
 	return fmt.Sprintf("Response from %s: %s: %s", llm, query, response)
 }
 
-// markdownToHTML converts markdown text to HTML.
-// For simplicity, this function wraps the escaped markdown in a paragraph.
-// A production system might use a full-featured markdown parser.
+// markdownToHTML converts markdown text to HTML using goldmark.
 func markdownToHTML(markdown string) string {
-	return "<p>" + template.HTMLEscapeString(markdown) + "</p>"
+	var buf bytes.Buffer
+	if err := goldmark.Convert([]byte(markdown), &buf); err != nil {
+		log.Printf("Markdown conversion error: %v", err)
+		return "<p>Error rendering markdown</p>"
+	}
+	return buf.String()
 }

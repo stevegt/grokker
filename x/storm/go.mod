@@ -2,7 +2,10 @@ module storm
 
 go 1.24.0
 
-require github.com/stevegt/grokker/v3 v3.0.34
+require (
+	github.com/stevegt/grokker/v3 v3.0.34
+	github.com/yuin/goldmark v1.7.13
+)
 
 require (
 	github.com/dlclark/regexp2 v1.9.0 // indirect

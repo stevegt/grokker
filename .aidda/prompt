@@ -22,6 +22,12 @@ The application should:
 - maintain a text box at the bottom of the page for the user to
   enter new queries or comments on the same page
 
+New requirements:
+
+- use goldmark or similar to render the markdown response to HTML
+
+In:
+  x/storm/main.go
 Out:
   x/storm/main.go
 
