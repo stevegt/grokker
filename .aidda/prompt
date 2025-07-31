@@ -1,20 +1,22 @@
 each agent uses LLM to compose messages
 
+Modify main.go and main_test.go to implement the following
+requirements:
+
 Before an agent sends a message, it MUST compose the message by
 sending its goal.md, pseudocode.md, and messages.log files to the
 Grokker API at the given model using the SendWithFiles function. The
 Grokker API will then generate a message based on the agent's current
 state and the communication protocols it has learned, and the agent
-will extract the message from the API response using the ExtractFiles
+MUST extract the message from the API response using the ExtractFiles
 function. The agent will then send this message to the intended
 recipient via the main goroutine.
 
-DO NOT simulate the Grokker API calls except for testing -- you may
-use mock or other method for testing.  You MUST create an actual
-Grokker object, and you MUST call SendWithFiles and ExtractFiles in
-the agent code when gnerating messages.  You MUST refer to cli.go for
-how to create a Grokker object, and you MUST refer to aidda.go for how
-to use the Grokker API to send files and extract messages.
+The agent subdirectory MUST also contain a sysmsg.md file that contains
+the system message that the agent will use to generate its messages.
+The content of this file MUST be used to set the system message for
+the Grokker API. See example-agent-sysmsg.md for an example of an
+sysmsg.md file.
 
 If you are unable to meet these requirements, please add a comment in the
 code explaining why you cannot meet the requirements and what you
@@ -42,6 +44,7 @@ Sysmsg:
   wrapped at 70 characters.  
 In:
   x/adaptive-communication/requirements.md
+  x/adaptive-communication/example-agent-sysmsg.md
   v3/cli/cli.go
   v3/aidda/aidda.go
   v3/core/chat.go

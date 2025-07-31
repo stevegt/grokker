@@ -100,45 +100,67 @@ func (a *Agent) logMessage(prefix string, msg Message) {
 // composeMessage composes a message by sending the agent's goal.md,
 // pseudocode.md, and messages.log files to the Grokker API using the
 // SendWithFiles function and then extracting the message via ExtractFiles.
-// In a real system, this would call the LLM to generate the message based
-// on the agent's current state. For testing, errors are handled by using
-// a fallback message.
+// Before sending a message, it reads the system message from the agent's
+// "sysmsg.md" file (if present). The output message is expected to be
+// written to an output file, which is then read and returned.
 func (a *Agent) composeMessage() string {
+	// Attempt to read the system message from "sysmsg.md" in the agent's
+	// subdirectory.
+	sysmsgPath := filepath.Join(a.Dir, "sysmsg.md")
+	sysmsgBytes, err := ioutil.ReadFile(sysmsgPath)
+	var sysmsg string
+	if err != nil {
+		// Fallback if sysmsg.md is not found.
+		sysmsg = "Compose message for agent " + a.ID
+	} else {
+		sysmsg = string(sysmsgBytes)
+	}
+
 	goalPath := filepath.Join(a.Dir, a.Config.GoalFile)
 	pseudoPath := filepath.Join(a.Dir, a.Config.PseudocodeFile)
 	logPath := filepath.Join(a.Dir, "messages.log")
 	// List of input files.
 	inputFiles := []string{goalPath, pseudoPath, logPath}
 
-	// Compose a system message for the API.
-	sysmsg := "Compose message for agent " + a.ID
-
 	// Build minimal chat context for the API call.
 	msgs := []client.ChatMsg{
-		{Role: "USER", Content: "Please generate an adaptive communication message based on the provided files."},
+		{Role: "USER", Content: "Generate adaptive communication message based on the provided files."},
 	}
-	// No output files are required in this call.
-	var outFiles []core.FileLang
+	// Specify an output file so that the API returns the generated message.
+	// The file is created in the agent's directory.
+	outFilePath := filepath.Join(a.Dir, "message.txt")
+	outFiles := []core.FileLang{
+		{File: outFilePath, Language: "txt"},
+	}
 
 	// Create a Grokker object using the agent's configured brain/model.
-	// The second parameter 'true' indicates a read-only load.
 	grok, _, _, _, lock, err := core.Load(a.Config.Brain, true)
 	if err != nil {
-		// If an error occurs, log it and return a fallback message.
 		log.Printf("Agent %s failed to load Grokker: %v", a.ID, err)
 		return fmt.Sprintf("Fallback message for agent %s", a.ID)
 	}
 	defer lock.Unlock()
 
-	// Call SendWithFiles to simulate the LLM API call.
+	// Call SendWithFiles to execute the LLM API call. This call will
+	// internally invoke ExtractFiles to embed the output in the expected
+	// file format.
 	composed, _, err := grok.SendWithFiles(a.Config.Brain, sysmsg, msgs, inputFiles, outFiles)
 	if err != nil {
 		log.Printf("Agent %s SendWithFiles error: %v", a.ID, err)
 		return fmt.Sprintf("Error composing message for agent %s: %v", a.ID, err)
 	}
-	// In a real system, ExtractFiles would be used to extract the message,
-	// but SendWithFiles is assumed to handle extraction as per requirements.
-	return composed
+
+	// Now extract the composed message by reading the output file.
+	msgBytes, err := ioutil.ReadFile(outFilePath)
+	if err != nil {
+		log.Printf("Agent %s failed to extract message via ExtractFiles: %v", a.ID, err)
+		// Fall back to the raw composed output if extraction fails.
+		return composed
+	}
+	extractedMsg := string(msgBytes)
+	// Optionally remove the temporary output file.
+	_ = os.Remove(outFilePath)
+	return extractedMsg
 }
 
 // Run starts the agent's main loop. The agent processes incoming messages
