@@ -21,8 +21,23 @@ var tmpl = template.Must(template.New("index").Parse(`
   <title>Grokker LLM Chat</title>
   <style>
     body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
-    #chat { padding: 20px; max-height: 80vh; overflow-y: auto; border-bottom: 1px solid #ccc; overflow-anchor: auto; }
+    #chat { padding: 20px; max-height: 80vh; overflow-y: auto; border-bottom: 1px solid #ccc; overflow-anchor: none; }
     .message { margin-bottom: 10px; padding: 5px; border: 1px solid #ddd; border-radius: 4px; background-color: #f9f9f9; }
+    #spinner-area { padding: 10px; text-align: center; }
+    .spinner {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #3498db;
+      border-radius: 50%;
+      width: 10px;
+      height: 10px;
+      animation: spin 1s linear infinite;
+      display: inline-block;
+      margin-right: 5px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
     #input-area { position: fixed; bottom: 0; width: 100%; background: #f0f0f0; padding: 10px; box-shadow: 0 -2px 5px rgba(0,0,0,0.1); }
     textarea { width: 70%; height: 50px; vertical-align: middle; margin-right: 10px; }
     select { vertical-align: middle; margin-right: 10px; }
@@ -32,6 +47,9 @@ var tmpl = template.Must(template.New("index").Parse(`
 <body>
   <div id="chat">
     <!-- Chat messages will appear here -->
+  </div>
+  <div id="spinner-area">
+    <!-- Progress spinners will appear here -->
   </div>
   <div id="input-area">
     <select id="llmSelect">
@@ -64,6 +82,11 @@ var tmpl = template.Must(template.New("index").Parse(`
 
     // Send query or comment to the /query endpoint.
     function sendQuery(query, llm, context) {
+      // Add a spinner to indicate progress.
+      var spinner = document.createElement("div");
+      spinner.className = "spinner";
+      document.getElementById("spinner-area").appendChild(spinner);
+
       fetch("/query", {
         method: "POST",
         headers: {
@@ -73,8 +96,11 @@ var tmpl = template.Must(template.New("index").Parse(`
       }).then(function(response) {
         return response.json();
       }).then(function(data) {
+        // Remove the spinner once the response is received.
+        spinner.remove();
         appendMessage(data.response);
       }).catch(function(err) {
+        spinner.remove();
         appendMessage("Error: " + err);
       });
     }
@@ -189,5 +215,3 @@ func markdownToHTML(markdown string) string {
 	}
 	return buf.String()
 }
-
-

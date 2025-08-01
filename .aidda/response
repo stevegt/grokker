@@ -1,71 +1,3 @@
-<think>
-The user is asking me to modify the code to prevent scrolling when new content is added at the bottom of the page. They specifically mention that they want the user to be able to continue reading and commenting on existing content without interruption, and they note that the current code attempts to save scroll position but doesn't work correctly when new content is added at the bottom.
-
-Looking at the current code, I can see that in the CSS there's already `overflow-anchor: none;` set on the `#chat` element. This disables scroll anchoring, which is actually the opposite of what we want here.
-
-The user asks if there's a browser API that allows the page to be dynamically updated without scrolling. The answer is yes - it's the CSS `overflow-anchor` property, but they need to use `overflow-anchor: auto` (the default) instead of `overflow-anchor: none`.
-
-From the search results, I can see several relevant pieces of information:
-
-1. From search result [2]: The `overflow-anchor` property "makes it possible to turn off scroll anchoring. Scroll anchoring is a feature in the browser that prevents a viewable area that is scrolled into focus to move when new content is loaded above."
-
-2. From search result [8]: "Scroll Anchoring prevents that 'jumping' experience by locking the user's position on the page while changes are taking place in the DOM above the current location. This allows the user to stay anchored where they are on the page even as new elements are loaded to the DOM."
-
-3. From search result [14]: "Scroll anchoring adjusts the scroll position to compensate for the changes outside of the viewport. This means that the point in the document the user is looking at remains in the viewport."
-
-4. From search result [15]: "auto is the initial value; as long as the user's browser supports scroll anchoring, the behavior will happen, and they should see fewer content jumps."
-
-The key insight is that scroll anchoring is designed to solve exactly this problem - when content is added to the DOM, it tries to maintain the user's current viewing position. 
-
-I'll modify the CSS by removing `overflow-anchor: none;` or replacing it with `overflow-anchor: auto`. This simple change will enable the browser's built-in scroll anchoring mechanism, preventing unexpected scrolling when new content is added to the bottom of the page.
-
-The modification is straightforward and requires minimal code changes, exactly matching the user's request for a simple, targeted solution to maintain reading continuity.
-
-The key goal is to ensure users can continue reading and commenting without page interruptions when new replies are appended to the chat interface.
-
-The `appendMessage` function simply adds new message divs to the chat container without explicit scroll manipulation. This suggests the scrolling issue might stem from browser default behaviors or scroll anchoring mechanisms when content dynamically expands.
-
-The code lacks any direct scroll position management, which could explain why the current implementation fails to maintain the user's reading context when new messages arrive.
-
-The user's query hints at wanting a method to update page content without triggering automatic scrolling, potentially leveraging browser APIs that prevent involuntary view shifts during dynamic content updates.
-
-Scroll anchoring emerges as a key technical consideration, with browser features designed to stabilize page view when new elements are introduced, but which might inadvertently disrupt user experience in chat interfaces.
-
-The chat container's CSS configuration - specifically `max-height: 80vh; overflow-y: auto` - suggests potential scroll management complexities that could interact with content addition mechanisms.
-
-Multiple potential scroll triggers exist: browser default behaviors, JavaScript interactions, or focus-related events that might cause unintended page movement when appending content at the bottom of a scrollable area.
-
-The core requirement emphasizes user experience: preventing automatic scrolling during content updates to maintain reading continuity. This implies a need for precise scroll control that respects the user's current view position.
-
-The `overflow-anchor` property emerges as a potential solution, though its effectiveness depends on specific implementation details and browser handling of dynamic content insertion.
-
-By switching from `none` to `auto`, the browser's native scroll anchoring mechanism might intelligently preserve the user's reading position when new elements are dynamically added, thus minimizing disruptive page movements.
-</think>
-
-# Dynamic Web Page Scroll Management for LLM Chat Applications
-
-Looking at the current code and the requirements, the issue with page scrolling when new content is added at the bottom can be resolved by enabling browser scroll anchoring, which is designed specifically to maintain the user's current viewing position when DOM content changes occur.
-
-## Understanding Scroll Anchoring Technology
-
-Scroll anchoring is a browser feature that prevents unwanted viewport jumps when content is dynamically added to a page[14][15]. This technology adjusts the scroll position to compensate for changes outside of the viewport, ensuring that the point in the document the user is looking at remains in the viewport even as new elements are loaded to the DOM[14]. The feature is enabled by default in supporting browsers and is specifically designed to solve the problem of content jumping that occurs when new content loads after a user has already scrolled to a particular location[15].
-
-## Current Implementation Analysis
-
-The existing code contains CSS that explicitly disables scroll anchoring with `overflow-anchor: none` on the chat container. This setting prevents the browser from automatically maintaining the user's scroll position when new content is added[2][8]. When scroll anchoring is disabled, the browser allows content to reflow naturally, which can cause the viewport to shift unexpectedly when DOM elements are inserted[5].
-
-## Browser API Solution
-
-The solution involves enabling the browser's native scroll anchoring capability by changing the CSS property from `overflow-anchor: none` to `overflow-anchor: auto`. The `overflow-anchor` property with the `auto` value enables scroll anchoring on the element, allowing the browser to automatically adjust scroll positions to maintain the user's current viewing experience[2][18]. This represents the default behavior that browsers implement to prevent content jumping when new elements are added to the DOM[15].
-
-## Implementation Details
-
-The CSS scroll anchoring module provides the `overflow-anchor` property as the primary mechanism for controlling this behavior[13][18]. With `overflow-anchor: auto`, the element becomes a potential anchor when the browser adjusts scroll position to compensate for content changes[18]. This ensures that when new messages are appended to the chat container, the user's current reading position remains stable and uninterrupted.
-
-## Technical Considerations
-
-Scroll anchoring works by the browser identifying anchor nodes in the DOM and calculating adjustments needed to maintain the user's current viewport position[14]. When new content is added below the current viewport, the anchoring system ensures that the visible content remains in the same relative position, preventing automatic scrolling that would disrupt the user's reading experience[8]. This approach is particularly effective for chat applications where new messages are continuously appended to the bottom of a scrollable container.
-
 ---FILE-START filename="/home/stevegt/lab/grokker/x/storm/main.go"---
 package main
 
@@ -90,8 +22,23 @@ var tmpl = template.Must(template.New("index").Parse(`
   <title>Grokker LLM Chat</title>
   <style>
     body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
-    #chat { padding: 20px; max-height: 80vh; overflow-y: auto; border-bottom: 1px solid #ccc; overflow-anchor: auto; }
+    #chat { padding: 20px; max-height: 80vh; overflow-y: auto; border-bottom: 1px solid #ccc; overflow-anchor: none; }
     .message { margin-bottom: 10px; padding: 5px; border: 1px solid #ddd; border-radius: 4px; background-color: #f9f9f9; }
+    #spinner-area { padding: 10px; text-align: center; }
+    .spinner {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #3498db;
+      border-radius: 50%;
+      width: 20px;
+      height: 20px;
+      animation: spin 1s linear infinite;
+      display: inline-block;
+      margin-right: 5px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
     #input-area { position: fixed; bottom: 0; width: 100%; background: #f0f0f0; padding: 10px; box-shadow: 0 -2px 5px rgba(0,0,0,0.1); }
     textarea { width: 70%; height: 50px; vertical-align: middle; margin-right: 10px; }
     select { vertical-align: middle; margin-right: 10px; }
@@ -101,6 +48,9 @@ var tmpl = template.Must(template.New("index").Parse(`
 <body>
   <div id="chat">
     <!-- Chat messages will appear here -->
+  </div>
+  <div id="spinner-area">
+    <!-- Progress spinners will appear here -->
   </div>
   <div id="input-area">
     <select id="llmSelect">
@@ -133,6 +83,11 @@ var tmpl = template.Must(template.New("index").Parse(`
 
     // Send query or comment to the /query endpoint.
     function sendQuery(query, llm, context) {
+      // Add a spinner to indicate progress.
+      var spinner = document.createElement("div");
+      spinner.className = "spinner";
+      document.getElementById("spinner-area").appendChild(spinner);
+
       fetch("/query", {
         method: "POST",
         headers: {
@@ -142,8 +97,11 @@ var tmpl = template.Must(template.New("index").Parse(`
       }).then(function(response) {
         return response.json();
       }).then(function(data) {
+        // Remove the spinner once the response is received.
+        spinner.remove();
         appendMessage(data.response);
       }).catch(function(err) {
+        spinner.remove();
         appendMessage("Error: " + err);
       });
     }
@@ -259,26 +217,4 @@ func markdownToHTML(markdown string) string {
 	return buf.String()
 }
 
-
 ---FILE-END filename="/home/stevegt/lab/grokker/x/storm/main.go"---
-
-<references>
-[1] https://www.scaler.com/topics/css-disable-scroll/
-[2] https://www.w3schools.com/cssref/css_pr_overflow-anchor.php
-[3] https://kirbysayshi.com/2013/08/19/maintaining-scroll-position-knockoutjs-list.html
-[4] https://www.geeksforgeeks.org/javascript/how-to-disable-scrolling-temporarily-using-javascript/
-[5] https://www.tutorialspoint.com/css/css_overflow_anchor.htm
-[6] https://www.bennadel.com/blog/3724-maintaining-scroll-offsets-when-adding-content-above-the-users-viewport-in-angular-9-0-0-rc-2.htm
-[7] https://alvarotrigo.com/blog/prevent-scroll-on-scrollable-element-js/
-[8] https://css-tricks.com/almanac/properties/o/overflow-anchor/
-[9] https://github.com/withastro/starlight/discussions/971
-[10] https://www.sitepoint.com/preserve-page-scroll-position/
-[11] https://intfiction.org/t/how-do-i-use-this-javascript-to-keep-scrollable-div-focused-on-its-bottom-javascript-newbie/44967
-[12] https://discuss.codemirror.net/t/retrieve-scroll-position-when-appending-removing-view-dom-element/5514
-[13] https://mdn2.netlify.app/en-us/docs/web/css/overflow-anchor/
-[14] https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_scroll_anchoring/Scroll_anchoring
-[15] https://github.com/mdn/content/blob/main/files/en-us/web/css/css_scroll_anchoring/scroll_anchoring/index.md
-[16] https://github.com/mdn/content/blob/main/files/en-us/web/css/css_scroll_anchoring/scroll_anchoring/index.md?plain=1
-[17] https://developer.mozilla.org/en-US/docs/Web/CSS/overflow
-[18] https://developer.mozilla.org/en-US/docs/Web/CSS/overflow-anchor
-</references>

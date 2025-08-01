@@ -22,9 +22,6 @@ The application should:
 - maintain a text box at the bottom of the page for the user to
   enter new queries or comments on the same page
 - use goldmark or similar to render the markdown response to HTML
-
-New requirements:
-
 - Do not scroll the page when new content is added at the bottom of
   the page.  The user MUST be able to continue reading and commenting
   on the existing content without interruption. The current code
@@ -36,6 +33,14 @@ New requirements:
   styling.  Do NOT delete or reformat any existing comments. Do NOT
   rewrap any existing lines. Do NOT change the HTML structure of the
   page.
+
+New requirements:
+
+- Add a series of progress spinners on the bottom of the page that
+  show the progress of each LLM query.  The spinners should be added
+  immediately after the user submits a query or comment, and they
+  should be removed when the LLM response is received and displayed on
+  the page.  
 
 
 In:
