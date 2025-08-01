@@ -280,6 +280,7 @@ func main() {
 	chat = NewChat(*filePtr)
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Received request for %s", r.URL.Path)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		chatContent := chat.getHistory()
 		data := struct {
@@ -304,12 +305,15 @@ func main() {
 // queryHandler processes each query, sends it to the Grokker API (simulated),
 // updates the markdown file with the current chat state, and returns the LLM response as HTML.
 func queryHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Received query request: %s", r.URL.Path)
 	if r.Method != "POST" {
+		log.Printf("Method not allowed: %s", r.Method)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	var req QueryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("error decoding request body: %v", err)
 		http.Error(w, "Bad request: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -317,6 +321,8 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 	chat.addQuery(req.Query, req.Context)
 	if err := chat.updateMarkdown(); err != nil {
 		log.Printf("error updating markdown: %v", err)
+		http.Error(w, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	// Call the LLM via grokker.
