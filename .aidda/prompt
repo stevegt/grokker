@@ -51,13 +51,16 @@ The application should:
 New requirements:
 
 - Queries appear to be being queued -- i.e. a long-running query
-  blocks the next query from being sent until the first query is
-  completed.  See if you can figure out why.
+  blocks the next response from being written until the first response is
+  completed.  See if you can figure out why.  Hint: it doesn't have to
+  do with the grok lock.  It's likely the ChatRound mutex.
 
 
 
 In:
   x/storm/main.go
+.stop
+
 Out:
   x/storm/main.go
 

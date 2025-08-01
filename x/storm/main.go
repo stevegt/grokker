@@ -12,6 +12,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/gofrs/flock"
 	"github.com/stevegt/grokker/v3/client"
 	"github.com/stevegt/grokker/v3/core"
 	"github.com/yuin/goldmark"
@@ -272,6 +273,7 @@ func (c *Chat) getHistory(lock bool) string {
 }
 
 var chat *Chat
+var grok *core.Grokker
 
 func main() {
 	port := flag.Int("port", 8080, "port to listen on")
@@ -280,6 +282,14 @@ func main() {
 	if *filePtr == "" {
 		log.Fatal("must provide a markdown filename with -file")
 	}
+
+	var err error
+	var lock *flock.Flock
+	grok, _, _, _, lock, err = core.Load("", true)
+	if err != nil {
+		log.Fatalf("failed to load Grokker: %v", err)
+	}
+	defer lock.Unlock()
 
 	chat = NewChat(*filePtr)
 
@@ -306,7 +316,7 @@ func main() {
 	}
 }
 
-// queryHandler processes each query, sends it to the Grokker API (simulated),
+// queryHandler processes each query, sends it to the Grokker API,
 // updates the markdown file with the current chat state, and returns the LLM response as HTML.
 func queryHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Received query request: %s", r.URL.Path)
@@ -346,13 +356,6 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 
 // sendQueryToLLM calls the Grokker API to obtain a markdown-formatted text.
 func sendQueryToLLM(query string, llm string, context string) string {
-	grok, _, _, _, lock, err := core.Load(llm, true)
-	if err != nil {
-		log.Printf("failed to load Grokker: %v", err)
-		return fmt.Sprintf("failed to load Grokker: %v", err)
-	}
-	defer lock.Unlock()
-
 	sysmsg := fmt.Sprintf("You are a helpful assistant. Respond to the query: %s", query)
 
 	prompt := fmt.Sprintf("Query: %s\nContext: %s", query, context)
