@@ -50,10 +50,8 @@ The application should:
 
 New requirements:
 
-- Change the design:  Add in-progress queries to the page, but do not
-  add either the query or the response to the markdown until after the
-  response is received.  Keep the addQuery and updateMarkdown
-  functions and continue to use them as needed.
+- When a response comes back from the LLM, when adding the response to
+  the page, move the query/response div to the bottom of the page.
 
 In:
   x/storm/main.go

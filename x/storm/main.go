@@ -162,14 +162,14 @@ type ChatRound struct {
 // Chat encapsulates chat history and synchronization.
 type Chat struct {
 	mutex    sync.Mutex
-	history  []ChatRound
+	history  []*ChatRound
 	filename string
 }
 
 // NewChat creates a new Chat instance using the given markdown filename.
 // If the file exists, its content is loaded as the initial chat history.
 func NewChat(filename string) *Chat {
-	var history []ChatRound
+	var history []*ChatRound
 	if _, err := os.Stat(filename); err == nil {
 		content, err := ioutil.ReadFile(filename)
 		if err != nil {
@@ -177,7 +177,7 @@ func NewChat(filename string) *Chat {
 		} else {
 			// Since the file stores the chat history as markdown,
 			// we load it as a single ChatMessage with an empty query.
-			history = append(history, ChatRound{Response: string(content)})
+			history = append(history, &ChatRound{Response: string(content)})
 		}
 	}
 	return &Chat{
@@ -229,13 +229,12 @@ func (c *Chat) _updateMarkdown() error {
 	return nil
 }
 
-// AddRound adds a new chat round with the given query, context, and
-// response.  It updates the markdown file with the new chat state.
-func (c *Chat) AddRound(query, context, response string) error {
+// StartRound initializes a new chat round with a query and and empty response.
+func (c *Chat) StartRound(query, context string) (r *ChatRound) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
-	round := ChatRound{}
+	round := &ChatRound{}
 
 	// add the query and context
 	q := query
@@ -244,9 +243,23 @@ func (c *Chat) AddRound(query, context, response string) error {
 	}
 
 	round.Query = q
-	round.Response = response
-
 	c.history = append(c.history, round)
+
+	log.Printf("started chat round: %s", query)
+	return round
+}
+
+// FinishRound finalizes the current chat round with a response.
+func (c *Chat) FinishRound(r *ChatRound, response string) error {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	if r == nil {
+		return fmt.Errorf("cannot finish a nil chat round")
+	}
+
+	// update the response
+	r.Response = response
 
 	err := c._updateMarkdown()
 	if err != nil {
@@ -254,7 +267,7 @@ func (c *Chat) AddRound(query, context, response string) error {
 		return fmt.Errorf("error updating markdown: %w", err)
 	}
 
-	log.Printf("added chat round: %s", query)
+	log.Printf("finished chat round: %s", r.Query)
 	return nil
 }
 
@@ -266,12 +279,15 @@ func (c *Chat) getHistory(lock bool) string {
 	}
 	var result string
 	for _, msg := range c.history {
+		// skip rounds with empty responses -- they're still pending.
+		if msg.Response == "" {
+			continue
+		}
+
 		if msg.Query != "" {
 			result += fmt.Sprintf("\n\n**You:** %s\n", msg.Query)
 		}
-		if msg.Response != "" {
-			result += fmt.Sprintf("\n\n**Response:** %s\n", msg.Response)
-		}
+		result += fmt.Sprintf("\n\n**Response:** %s\n", msg.Response)
 	}
 	return result
 }
@@ -336,11 +352,9 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	round := chat.StartRound(req.Query, req.Context)
 	responseText := sendQueryToLLM(req.Query, req.LLM, req.Context)
-
-	// add the query and response to the chat history and update the
-	// markdown file.
-	err := chat.AddRound(req.Query, req.Context, responseText)
+	err := chat.FinishRound(round, responseText)
 	if err != nil {
 		http.Error(w, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
