@@ -53,17 +53,17 @@ var tmpl = template.Must(template.New("index").Parse(`
   </div>
   <div id="input-area">
     <select id="llmSelect">
-      <option value="sonar-deep-research">sonar-deep-research</option>
       <option value="o3-mini">o3-mini</option>
+      <option value="sonar-deep-research">sonar-deep-research</option>
     </select>
     <textarea id="userInput" placeholder="Enter your query or comment"></textarea>
     <button id="sendBtn">Send</button>
+    <button id="saveBtn">Save</button>
   </div>
   <script>
     // Append a new message to the chat view without scrolling the page.
     function appendMessage(content) {
       var chat = document.getElementById("chat");
-      var scrollPos = chat.scrollTop;
       var messageDiv = document.createElement("div");
       messageDiv.className = "message";
       messageDiv.innerHTML = content;
@@ -79,7 +79,6 @@ var tmpl = template.Must(template.New("index").Parse(`
         }
       });
       chat.appendChild(messageDiv);
-      chat.scrollTop = scrollPos;
     }
 
     // Send query or comment to the /query endpoint.
@@ -87,7 +86,6 @@ var tmpl = template.Must(template.New("index").Parse(`
     // When the LLM response is received the spinner is removed and replaced by the response.
     function sendQuery(query, llm, context) {
       var chat = document.getElementById("chat");
-      var scrollPos = chat.scrollTop;
       var messageDiv = document.createElement("div");
       messageDiv.className = "message";
       if(context && context.trim() !== "") {
@@ -101,7 +99,6 @@ var tmpl = template.Must(template.New("index").Parse(`
       spinner.style.marginLeft = "10px";
       messageDiv.appendChild(spinner);
       chat.appendChild(messageDiv);
-      chat.scrollTop = scrollPos;
 
       fetch("/query", {
         method: "POST",
@@ -132,6 +129,20 @@ var tmpl = template.Must(template.New("index").Parse(`
       if(query.trim() === "") return;
       sendQuery(query, document.getElementById("llmSelect").value, "");
       input.value = "";
+    });
+
+    // Handle click on the Save button.
+    document.getElementById("saveBtn").addEventListener("click", function() {
+      var chatContent = document.getElementById("chat").innerText;
+      var blob = new Blob([chatContent], { type: "text/markdown" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = "chat.md";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     });
   </script>
 </body>
@@ -235,4 +246,3 @@ func markdownToHTML(markdown string) string {
 	}
 	return buf.String()
 }
-

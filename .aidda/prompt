@@ -40,9 +40,6 @@ The application should:
   immediately after the user submits a query or comment, and they
   should be removed when the LLM response is received and displayed on
   the page.  
-
-New requirements:
-
 - Each query should be added to the bottom of the page as soon as it's
   entered, without waiting for the LLM response. There should be a
   progress spinner next to each query while the query is waiting for a
@@ -50,6 +47,14 @@ New requirements:
   similar to the one used in the existing code.  The spinner should
   go away when the LLM response is received, to be replaced by the
   response text.  
+
+New requirements:
+
+- Add a "Save" button to the right of the "Send" button.  When the
+  user hits the "Save" button, the current state of the page should 
+  be downloaded as a markdown file. Bring up a file save dialog
+  that allows the user to save the file with a name of their choice.
+
 
 In:
   x/storm/main.go
