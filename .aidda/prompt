@@ -50,8 +50,17 @@ The application should:
 
 New requirements:
 
-- When a response comes back from the LLM, when adding the response to
-  the page, move the query/response div to the bottom of the page.
+- Add a status box to the bottom right corner of the page, to the
+  right of the "Send" button. The status box should display the
+  "Token Count:" label and the number of tokens in the current
+  conversation. The token count should be updated dynamically as the
+  conversation progresses. The token count should be calculated
+  using the `TokenCount` function in the `Grokker` struct. The
+  signature of the `TokenCount` function is as follows:
+
+```go
+func (g *Grokker) TokenCount(text string) (count int, err error) 
+```
 
 In:
   x/storm/main.go

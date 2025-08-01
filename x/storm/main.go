@@ -47,6 +47,7 @@ var tmpl = template.Must(template.New("index").Parse(`
     textarea { width: 70%; height: 50px; vertical-align: middle; margin-right: 10px; }
     select { vertical-align: middle; margin-right: 10px; }
     button { height: 54px; vertical-align: middle; }
+    #statusBox { display: inline-block; margin-left: 10px; vertical-align: middle; font-size: 9px; }
   </style>
 </head>
 <body>
@@ -64,6 +65,7 @@ var tmpl = template.Must(template.New("index").Parse(`
     </select>
     <textarea id="userInput" placeholder="Enter query"></textarea>
     <button id="sendBtn">Send</button>
+    <span id="statusBox">Token Count: 0</span>
   </div>
   <script>
     // Append a new message to the chat view without scrolling the page.
@@ -80,11 +82,15 @@ var tmpl = template.Must(template.New("index").Parse(`
     // Send query to the /query endpoint.
     // Each query is immediately added to the chat with a 10px spinner.
     // When the LLM response is received the spinner is removed and replaced by the response.
-    function sendQuery(query, llm, context) {
+    function sendQuery(query, llm, selection) {
       var chat = document.getElementById("chat");
       var messageDiv = document.createElement("div");
       messageDiv.className = "message";
-      messageDiv.innerHTML = "<strong>" + query + "</strong>";
+	  if (selection === "") {
+		  messageDiv.innerHTML = "<strong>" + query + "</strong>";
+	  } else {
+		  messageDiv.innerHTML = "<strong>" + query + " [" + selection + "]</strong>";
+	  }
       // Create a spinner element next to the query.
       var spinner = document.createElement("span");
       spinner.className = "spinner";
@@ -97,7 +103,7 @@ var tmpl = template.Must(template.New("index").Parse(`
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ query: query, llm: llm, context: context })
+        body: JSON.stringify({ query: query, llm: llm, selection: selection })
       }).then(function(response) {
         return response.json();
       }).then(function(data) {
@@ -106,6 +112,7 @@ var tmpl = template.Must(template.New("index").Parse(`
         var responseDiv = document.createElement("div");
         responseDiv.innerHTML = data.response;
         messageDiv.appendChild(responseDiv);
+		updateTokenCount();
       }).catch(function(err) {
         spinner.remove();
         var errorDiv = document.createElement("div");
@@ -113,6 +120,21 @@ var tmpl = template.Must(template.New("index").Parse(`
         messageDiv.appendChild(errorDiv);
       });
     }
+
+    // Poll the /tokencount endpoint to update the token count.
+    function updateTokenCount() {
+      fetch("/tokencount")
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+          var statusBox = document.getElementById("statusBox");
+          statusBox.textContent = "Token Count: " + data.tokens;
+        })
+        .catch(function(err) {
+          console.error("Error fetching token count:", err);
+        });
+    }
+
+	updateTokenCount(); // Initial token count fetch
 
     // Handle click on the Send button.
     document.getElementById("sendBtn").addEventListener("click", function() {
@@ -131,7 +153,7 @@ var tmpl = template.Must(template.New("index").Parse(`
         console.log("Selected text: " + selection);
         var query = prompt("Enter your query:");
         if(!query) {
-			query = "Expand: [" + selection + "]";
+			query = "Expand:";
 		}
 	    sendQuery(query, document.getElementById("llmSelect").value, selection);
       }
@@ -144,9 +166,9 @@ var tmpl = template.Must(template.New("index").Parse(`
 
 // QueryRequest represents a user's query input.
 type QueryRequest struct {
-	Query   string `json:"query"`
-	LLM     string `json:"llm"`
-	Context string `json:"context"`
+	Query     string `json:"query"`
+	LLM       string `json:"llm"`
+	Selection string `json:"selection"`
 }
 
 // QueryResponse represents the LLM's response.
@@ -231,7 +253,7 @@ func (c *Chat) _updateMarkdown() error {
 }
 
 // StartRound initializes a new chat round with a query and and empty response.
-func (c *Chat) StartRound(query, context string) (r *ChatRound) {
+func (c *Chat) StartRound(query, selection string) (r *ChatRound) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
@@ -240,9 +262,9 @@ func (c *Chat) StartRound(query, context string) (r *ChatRound) {
 	// trim the query to avoid leading/trailing whitespace
 	q := strings.TrimSpace(query)
 
-	// add context if provided
-	if context != "" {
-		q = fmt.Sprintf("%s:\n%s", q, context)
+	// add selection if provided
+	if selection != "" {
+		q = fmt.Sprintf("%s:\n%s", q, selection)
 	}
 
 	round.Query = q
@@ -331,6 +353,7 @@ func main() {
 	})
 
 	http.HandleFunc("/query", queryHandler)
+	http.HandleFunc("/tokencount", tokenCountHandler)
 
 	addr := fmt.Sprintf(":%d", *port)
 	log.Printf("Starting server on %s\n", addr)
@@ -355,9 +378,25 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	round := chat.StartRound(req.Query, req.Context)
-	responseText := sendQueryToLLM(req.Query, req.LLM, req.Context)
-	err := chat.FinishRound(round, responseText)
+	round := chat.StartRound(req.Query, req.Selection)
+	history := chat.getHistory(false)
+	// add the last N characters of the chat history as context.
+	// XXX should really use embeddings and a vector db to find relevant context.
+	N := 150000
+	startIndex := len(history) - N
+	if startIndex < 0 {
+		startIndex = 0
+	}
+	lastN := history[startIndex:]
+	lastNTokenCount, err := grok.TokenCount(lastN)
+	if err != nil {
+		log.Printf("Token count error: %v", err)
+		lastNTokenCount = 0
+	}
+	log.Printf("Added %d tokens of context to query: %s", lastNTokenCount, req.Query)
+
+	responseText := sendQueryToLLM(req.Query, req.LLM, req.Selection, lastN)
+	err = chat.FinishRound(round, responseText)
 	if err != nil {
 		http.Error(w, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -370,11 +409,24 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-// sendQueryToLLM calls the Grokker API to obtain a markdown-formatted text.
-func sendQueryToLLM(query string, llm string, context string) string {
-	sysmsg := fmt.Sprintf("You are a helpful assistant. Respond to the query: %s", query)
+// tokenCountHandler calculates the token count for the current conversation
+// using the Grokker's TokenCount function and returns it as JSON.
+func tokenCountHandler(w http.ResponseWriter, r *http.Request) {
+	chatText := chat.getHistory(false)
+	count, err := grok.TokenCount(chatText)
+	if err != nil {
+		log.Printf("Token count error: %v", err)
+		count = 0
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]int{"tokens": count})
+}
 
-	prompt := fmt.Sprintf("Query: %s\nContext: %s", query, context)
+// sendQueryToLLM calls the Grokker API to obtain a markdown-formatted text.
+func sendQueryToLLM(query string, llm string, selection, backgroundContext string) string {
+	sysmsg := fmt.Sprintf("You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.")
+
+	prompt := fmt.Sprintf("---CONTEXT START---\n%s\n---CONTEXT END---\n\nNew Query: %s [%s]", backgroundContext, query, selection)
 
 	msgs := []client.ChatMsg{
 		{Role: "USER", Content: prompt},
@@ -384,18 +436,14 @@ func sendQueryToLLM(query string, llm string, context string) string {
 	var outFiles []core.FileLang
 
 	fmt.Printf("Sending query to LLM '%s'\n", llm)
+	fmt.Printf("Query: %s\n", query)
 	response, _, err := grok.SendWithFiles(llm, sysmsg, msgs, inputFiles, outFiles)
 	if err != nil {
 		log.Printf("SendWithFiles error: %v", err)
 		return fmt.Sprintf("Error sending query: %v", err)
 	}
 	fmt.Printf("Received response from LLM '%s'\n", llm)
-	/*
-		if context != "" {
-			return fmt.Sprintf("Response for comment on '%s': %s [via %s]: %s", context, query, llm, response)
-		}
-		return fmt.Sprintf("Response from %s: %s: %s", llm, query, response)
-	*/
+	fmt.Printf("Response: %s\n", response[:100]) // print first 100 characters of response
 	return response
 }
 
