@@ -63,8 +63,8 @@ The application should:
 
 New requirements:
 
-- fix the mouse selection.  It no longer causes a dialog box to pop
-  up. 
+- fix this error found in the Chrome javascript console:
+  localhost/:1 Uncaught (in promise) Error: A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received
 
 In:
   x/storm/main.go
