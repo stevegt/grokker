@@ -71,16 +71,6 @@ var tmpl = template.Must(template.New("index").Parse(`
       messageDiv.className = "message";
       messageDiv.innerHTML = content;
       // Enable selection-based commenting.
-      messageDiv.addEventListener("mouseup", function(e) {
-        var selection = window.getSelection().toString().trim();
-        if(selection.length > 0) {
-          var comment = prompt("Enter your comment:");
-          if(comment) {
-            // When commenting, send the comment along with the context (selected text).
-            sendQuery(comment, document.getElementById("llmSelect").value, selection);
-          }
-        }
-      });
       chat.appendChild(messageDiv);
     }
 
@@ -133,6 +123,21 @@ var tmpl = template.Must(template.New("index").Parse(`
       sendQuery(query, document.getElementById("llmSelect").value, "");
       input.value = "";
     });
+
+	// Enable selection-based commenting on the chat messages.
+	  document.addEventListener("mouseup", function(e) {
+		console.log("Mouse up event detected");
+		var selection = window.getSelection().toString().trim();
+		if(selection.length > 0) {
+		  console.log("Selected text: " + selection);
+		  var comment = prompt("Enter your comment:");
+		  if(comment) {
+			// When commenting, send the comment along with the context (selected text).
+			sendQuery(comment, document.getElementById("llmSelect").value, selection);
+		  }
+		}
+	  });
+
   </script>
 </body>
 </html>

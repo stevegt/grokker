@@ -58,8 +58,8 @@ var tmpl = template.Must(template.New("index").Parse(`
   </div>
   <div id="input-area">
     <select id="llmSelect">
-      <option value="sonar-deep-research">sonar-deep-research</option>
       <option value="o3-mini">o3-mini</option>
+      <option value="sonar-deep-research">sonar-deep-research</option>
     </select>
     <textarea id="userInput" placeholder="Enter your query or comment"></textarea>
     <button id="sendBtn">Send</button>
@@ -73,14 +73,16 @@ var tmpl = template.Must(template.New("index").Parse(`
       messageDiv.innerHTML = content;
       // Enable selection-based commenting.
       messageDiv.addEventListener("mouseup", function(e) {
-        var selection = window.getSelection().toString().trim();
-        if(selection.length > 0) {
-          var comment = prompt("Enter your comment:");
-          if(comment) {
-            // When commenting, send the comment along with the context (selected text).
-            sendQuery(comment, document.getElementById("llmSelect").value, selection);
+        setTimeout(function(){
+          var selection = window.getSelection().toString().trim();
+          if(selection.length > 0) {
+            var comment = prompt("Enter your comment:");
+            if(comment) {
+              // When commenting, send the comment along with the context (selected text).
+              sendQuery(comment, document.getElementById("llmSelect").value, selection);
+            }
           }
-        }
+        }, 0);
       });
       chat.appendChild(messageDiv);
     }
@@ -279,15 +281,40 @@ func markdownToHTML(markdown string) string {
 }
 
 // updateMarkdown creates a backup of the existing markdown file and updates it with the new content.
-func updateMarkdown(filename string, content string) {
+func updateMarkdown(filename string, content string) (err error) {
+	// write the old content to a backup file
 	if oldContent, err := ioutil.ReadFile(filename); err == nil {
 		backupName := filename + ".bak.md"
 		if err := ioutil.WriteFile(backupName, oldContent, 0644); err != nil {
 			log.Printf("failed to create backup: %v", err)
 		}
 	}
-	if err := ioutil.WriteFile(filename, []byte(content), 0644); err != nil {
-		log.Printf("failed to update markdown file: %v", err)
+
+	// write the new content to a temporary file
+	tempFile, err := ioutil.TempFile("", "storm-chat-*.md")
+	if err != nil {
+		log.Printf("failed to create temporary file: %v", err)
+		return fmt.Errorf("failed to create temporary file: %w", err)
 	}
+	log.Printf("created temporary file %s", tempFile.Name())
+	defer os.Remove(tempFile.Name()) // clean up temp file after writing
+
+	if _, err := tempFile.WriteString(content); err != nil {
+		log.Printf("failed to write to temporary file: %v", err)
+		err = fmt.Errorf("failed to write to temporary file: %w", err)
+		return err
+	}
+	tempFile.Close()
+
+	// move the temporary file to the final destination
+	if err := os.Rename(tempFile.Name(), filename); err != nil {
+		log.Printf("failed to rename temporary file to %s: %v", filename, err)
+		err = fmt.Errorf("failed to rename temporary file to %s: %w", filename, err)
+		return err
+	}
+	log.Printf("updated markdown file %s", filename)
+
+	return nil
 }
+
 ---FILE-END filename="/home/stevegt/lab/grokker/x/storm/main.go"---

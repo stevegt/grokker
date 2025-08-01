@@ -47,9 +47,6 @@ The application should:
   similar to the one used in the existing code.  The spinner should
   go away when the LLM response is received, to be replaced by the
   response text.  
-
-New requirements:
-
 - The server must require a filename as a command line argument
   and use that filename to store the HTML page as a markdown file.
   Create the file if it does not exist, and load it into the
@@ -64,12 +61,19 @@ New requirements:
   same filename as the markdown file, but with a ".bak.md" extension.
 
 
+New requirements:
 
+- fix the mouse selection.  It no longer causes a dialog box to pop
+  up. 
 
 In:
   x/storm/main.go
 Out:
   x/storm/main.go
+
+
+.stop
+
 
 
 .stop
