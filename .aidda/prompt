@@ -50,10 +50,9 @@ The application should:
 
 New requirements:
 
-- we appear to be hanging on a mutex lock when processing /query
-  requests.   see if you can find where the deadlock is happening.
-
-
+- Queries appear to be being queued -- i.e. a long-running query
+  blocks the next query from being sent until the first query is
+  completed.  See if you can figure out why.
 
 
 
@@ -64,6 +63,17 @@ Out:
 
 
 .stop
+
+  This is not the desired behavior.  Each query should be
+  sent to the LLM immediately, without waiting for the previous query
+  to complete.  The queries should be sent asynchronously, and the
+  responses should be displayed as they come in, without blocking the
+  next query from being sent.
+  
+
+
+
+
 
 
 
