@@ -332,19 +332,16 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	responseText := sendQueryToLLM(req.Query, req.LLM, req.Context)
+
+	// add the query and response to the chat history and update the
+	// markdown file.
 	chat.addQuery(req.Query, req.Context)
+	chat.addResponse(responseText)
 	if err := chat.updateMarkdown(); err != nil {
 		log.Printf("error updating markdown: %v", err)
 		http.Error(w, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
-	}
-
-	// Call the LLM via grokker.
-	responseText := sendQueryToLLM(req.Query, req.LLM, req.Context)
-
-	chat.addResponse(responseText)
-	if err := chat.updateMarkdown(); err != nil {
-		log.Printf("error updating markdown: %v", err)
 	}
 
 	resp := QueryResponse{

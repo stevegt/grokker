@@ -50,35 +50,18 @@ The application should:
 
 New requirements:
 
-- Queries appear to be being queued -- i.e. a long-running query
-  blocks the next response from being written until the first response is
-  completed.  See if you can figure out why.  Hint: it doesn't have to
-  do with the grok lock.  It's likely the ChatRound mutex.
-
-
+- Change the design:  Add in-progress queries to the page, but do not
+  add either the query or the response to the markdown until after the
+  response is received.  Keep the addQuery and updateMarkdown
+  functions and continue to use them as needed.
 
 In:
   x/storm/main.go
-.stop
-
 Out:
   x/storm/main.go
 
 
 .stop
-
-  This is not the desired behavior.  Each query should be
-  sent to the LLM immediately, without waiting for the previous query
-  to complete.  The queries should be sent asynchronously, and the
-  responses should be displayed as they come in, without blocking the
-  next query from being sent.
-  
-
-
-
-
-
-
 
 .stop
 
