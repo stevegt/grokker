@@ -50,9 +50,8 @@ The application should:
 
 New requirements:
 
-- Instead of a string, Chat.history should be a slice of 
-  ChatMessage structs, where each ChatMessage struct contains a
-  string for the query and a string for the response.  
+- we appear to be hanging on a mutex lock when processing /query
+  requests.   see if you can find where the deadlock is happening.
 
 
 

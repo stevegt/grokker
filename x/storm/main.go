@@ -191,7 +191,9 @@ func (c *Chat) updateMarkdown() error {
 	defer c.mutex.Unlock()
 
 	// Convert the chat history slice into markdown content.
-	content := c.getHistory()
+	// We don't need getHistory to lock, since we're already holding
+	// the mutex, so 'false'.
+	content := c.getHistory(false)
 
 	// Write the old content to a backup file.
 	if oldContent, err := ioutil.ReadFile(c.filename); err == nil {
@@ -252,16 +254,18 @@ func (c *Chat) addResponse(response string) {
 }
 
 // getHistory returns the current chat history as a markdown formatted string.
-func (c *Chat) getHistory() string {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
+func (c *Chat) getHistory(lock bool) string {
+	if lock {
+		c.mutex.Lock()
+		defer c.mutex.Unlock()
+	}
 	var result string
 	for _, msg := range c.history {
 		if msg.Query != "" {
-			result += fmt.Sprintf("**You:** %s\n", msg.Query)
+			result += fmt.Sprintf("\n\n**You:** %s\n", msg.Query)
 		}
 		if msg.Response != "" {
-			result += fmt.Sprintf("**Response:** %s\n", msg.Response)
+			result += fmt.Sprintf("\n\n**Response:** %s\n", msg.Response)
 		}
 	}
 	return result
@@ -282,7 +286,7 @@ func main() {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Received request for %s", r.URL.Path)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		chatContent := chat.getHistory()
+		chatContent := chat.getHistory(true)
 		data := struct {
 			ChatHTML template.HTML
 		}{
