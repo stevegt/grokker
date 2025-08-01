@@ -6,8 +6,11 @@ import (
 	"flag"
 	"fmt"
 	"html/template"
+	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
+	"sync"
 
 	"github.com/stevegt/grokker/v3/client"
 	"github.com/stevegt/grokker/v3/core"
@@ -47,14 +50,15 @@ var tmpl = template.Must(template.New("index").Parse(`
 <body>
   <div id="chat">
     <!-- Chat messages will appear here -->
+    {{.ChatHTML}}
   </div>
   <div id="spinner-area">
     <!-- Progress spinners will appear here -->
   </div>
   <div id="input-area">
     <select id="llmSelect">
-      <option value="sonar-deep-research">sonar-deep-research</option>
       <option value="o3-mini">o3-mini</option>
+      <option value="sonar-deep-research">sonar-deep-research</option>
     </select>
     <textarea id="userInput" placeholder="Enter your query or comment"></textarea>
     <button id="sendBtn">Send</button>
@@ -63,7 +67,6 @@ var tmpl = template.Must(template.New("index").Parse(`
     // Append a new message to the chat view without scrolling the page.
     function appendMessage(content) {
       var chat = document.getElementById("chat");
-      var scrollPos = chat.scrollTop;
       var messageDiv = document.createElement("div");
       messageDiv.className = "message";
       messageDiv.innerHTML = content;
@@ -79,7 +82,6 @@ var tmpl = template.Must(template.New("index").Parse(`
         }
       });
       chat.appendChild(messageDiv);
-      chat.scrollTop = scrollPos;
     }
 
     // Send query or comment to the /query endpoint.
@@ -87,7 +89,6 @@ var tmpl = template.Must(template.New("index").Parse(`
     // When the LLM response is received the spinner is removed and replaced by the response.
     function sendQuery(query, llm, context) {
       var chat = document.getElementById("chat");
-      var scrollPos = chat.scrollTop;
       var messageDiv = document.createElement("div");
       messageDiv.className = "message";
       if(context && context.trim() !== "") {
@@ -101,7 +102,6 @@ var tmpl = template.Must(template.New("index").Parse(`
       spinner.style.marginLeft = "10px";
       messageDiv.appendChild(spinner);
       chat.appendChild(messageDiv);
-      chat.scrollTop = scrollPos;
 
       fetch("/query", {
         method: "POST",
@@ -150,13 +150,40 @@ type QueryResponse struct {
 	Response string `json:"response"`
 }
 
+var markdownFilename string
+var chatHistory string
+var chatMutex sync.Mutex
+
 func main() {
 	port := flag.Int("port", 8080, "port to listen on")
+	filePtr := flag.String("file", "", "markdown file to store chat history")
 	flag.Parse()
+	if *filePtr == "" {
+		log.Fatal("must provide a markdown filename with -file")
+	}
+	markdownFilename = *filePtr
+
+	// Load existing chat history if file exists.
+	if _, err := os.Stat(markdownFilename); err == nil {
+		content, err := ioutil.ReadFile(markdownFilename)
+		if err != nil {
+			log.Printf("failed to read markdown file: %v", err)
+		} else {
+			chatHistory = string(content)
+		}
+	}
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := tmpl.Execute(w, nil); err != nil {
+		chatMutex.Lock()
+		chatContent := chatHistory
+		chatMutex.Unlock()
+		data := struct {
+			ChatHTML template.HTML
+		}{
+			ChatHTML: template.HTML(markdownToHTML(chatContent)),
+		}
+		if err := tmpl.Execute(w, data); err != nil {
 			http.Error(w, "Template error", http.StatusInternalServerError)
 		}
 	})
@@ -171,7 +198,7 @@ func main() {
 }
 
 // queryHandler processes each query or comment, sends it to the Grokker API (simulated),
-// and returns the LLM response as HTML.
+// updates the markdown file with the current chat state, and returns the LLM response as HTML.
 func queryHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -183,8 +210,22 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	chatMutex.Lock()
+	if req.Context != "" {
+		chatHistory += fmt.Sprintf("**Comment on '%s':** %s\n", req.Context, req.Query)
+	} else {
+		chatHistory += fmt.Sprintf("**You:** %s\n", req.Query)
+	}
+	updateMarkdown(markdownFilename, chatHistory)
+	chatMutex.Unlock()
+
 	// Call the LLM via grokker
 	responseText := sendQueryToLLM(req.Query, req.LLM, req.Context)
+
+	chatMutex.Lock()
+	chatHistory += fmt.Sprintf("**Response:** %s\n", responseText)
+	updateMarkdown(markdownFilename, chatHistory)
+	chatMutex.Unlock()
 
 	resp := QueryResponse{
 		Response: markdownToHTML(responseText),
@@ -236,3 +277,39 @@ func markdownToHTML(markdown string) string {
 	return buf.String()
 }
 
+// updateMarkdown creates a backup of the existing markdown file and updates it with the new content.
+func updateMarkdown(filename string, content string) (err error) {
+	// write the old content to a backup file
+	if oldContent, err := ioutil.ReadFile(filename); err == nil {
+		backupName := filename + ".bak.md"
+		if err := ioutil.WriteFile(backupName, oldContent, 0644); err != nil {
+			log.Printf("failed to create backup: %v", err)
+		}
+	}
+
+	// write the new content to a temporary file
+	tempFile, err := ioutil.TempFile("", "storm-chat-*.md")
+	if err != nil {
+		log.Printf("failed to create temporary file: %v", err)
+		return fmt.Errorf("failed to create temporary file: %w", err)
+	}
+	log.Printf("created temporary file %s", tempFile.Name())
+	defer os.Remove(tempFile.Name()) // clean up temp file after writing
+
+	if _, err := tempFile.WriteString(content); err != nil {
+		log.Printf("failed to write to temporary file: %v", err)
+		err = fmt.Errorf("failed to write to temporary file: %w", err)
+		return err
+	}
+	tempFile.Close()
+
+	// move the temporary file to the final destination
+	if err := os.Rename(tempFile.Name(), filename); err != nil {
+		log.Printf("failed to rename temporary file to %s: %v", filename, err)
+		err = fmt.Errorf("failed to rename temporary file to %s: %w", filename, err)
+		return err
+	}
+	log.Printf("updated markdown file %s", filename)
+
+	return nil
+}

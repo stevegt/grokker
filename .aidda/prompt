@@ -40,9 +40,6 @@ The application should:
   immediately after the user submits a query or comment, and they
   should be removed when the LLM response is received and displayed on
   the page.  
-
-New requirements:
-
 - Each query should be added to the bottom of the page as soon as it's
   entered, without waiting for the LLM response. There should be a
   progress spinner next to each query while the query is waiting for a
@@ -50,6 +47,24 @@ New requirements:
   similar to the one used in the existing code.  The spinner should
   go away when the LLM response is received, to be replaced by the
   response text.  
+
+New requirements:
+
+- The server must require a filename as a command line argument
+  and use that filename to store the HTML page as a markdown file.
+  Create the file if it does not exist, and load it into the
+  browser when the server starts.  After each query is sent or response
+  is received, the server must update the markdown file with the
+  current state of the page, including all queries, responses, and
+  comments. The markdown file should be updated in real-time as the
+  user interacts with the page.  For safety, the server should
+  create a backup of the markdown file before updating it, so that
+  if the server crashes or the file is corrupted, the user can still
+  recover their work. The backup file should be created with the
+  same filename as the markdown file, but with a ".bak.md" extension.
+
+
+
 
 In:
   x/storm/main.go
