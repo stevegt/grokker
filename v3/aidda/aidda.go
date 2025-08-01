@@ -235,8 +235,8 @@ func Do(g *core.Grokker, modelName string, args ...string) (err error) {
 			Ck(err)
 			// set prompt file read-only to remind user to commit
 			// before generating again
-			err = os.Chmod(promptFn, 0444)
-			Ck(err)
+			// err = os.Chmod(promptFn, 0444)
+			// Ck(err)
 		case "autocommit":
 			// commit using the git diff to generate a commit message
 			// do a git add -A first
@@ -266,8 +266,8 @@ func Do(g *core.Grokker, modelName string, args ...string) (err error) {
 			Ck(err)
 			// set prompt file read-only to remind user to commit
 			// before generating again
-			err = os.Chmod(promptFn, 0444)
-			Ck(err)
+			// err = os.Chmod(promptFn, 0444)
+			// Ck(err)
 		case "force-commit":
 			// Commit using the current promptFn without checking
 			var p *Prompt
