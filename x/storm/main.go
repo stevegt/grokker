@@ -60,7 +60,7 @@ var tmpl = template.Must(template.New("index").Parse(`
       <option value="o3-mini">o3-mini</option>
       <option value="sonar-deep-research">sonar-deep-research</option>
     </select>
-    <textarea id="userInput" placeholder="Enter your query or comment"></textarea>
+    <textarea id="userInput" placeholder="Enter query"></textarea>
     <button id="sendBtn">Send</button>
   </div>
   <script>
@@ -73,18 +73,14 @@ var tmpl = template.Must(template.New("index").Parse(`
       chat.appendChild(messageDiv);
     }
 
-    // Send query or comment to the /query endpoint.
+    // Send query to the /query endpoint.
     // Each query is immediately added to the chat with a 10px spinner.
     // When the LLM response is received the spinner is removed and replaced by the response.
     function sendQuery(query, llm, context) {
       var chat = document.getElementById("chat");
       var messageDiv = document.createElement("div");
       messageDiv.className = "message";
-      if(context && context.trim() !== "") {
-        messageDiv.innerHTML = "<strong>Comment on '" + context + "':</strong> " + query;
-      } else {
-        messageDiv.innerHTML = "<strong>You:</strong> " + query;
-      }
+	  messageDiv.innerHTML = "<strong>" + query + "</strong>";
       // Create a spinner element next to the query.
       var spinner = document.createElement("span");
       spinner.className = "spinner";
@@ -123,17 +119,17 @@ var tmpl = template.Must(template.New("index").Parse(`
       input.value = "";
     });
 
-    // Enable selection-based commenting on the chat messages.
+    // Enable selection-based querying on the chat messages.
     document.addEventListener("mouseup", function(e) {
       console.log("Mouse up event detected");
       var selection = window.getSelection().toString().trim();
       if(selection.length > 0) {
         console.log("Selected text: " + selection);
-        var comment = prompt("Enter your comment:");
-        if(comment) {
-          // When commenting, send the comment along with the context (selected text).
-          sendQuery(comment, document.getElementById("llmSelect").value, selection);
-        }
+        var query = prompt("Enter your query:");
+        if(!query) {
+			query = "Expand on: " + selection;
+		}
+	    sendQuery(query, document.getElementById("llmSelect").value, selection);
       }
       return;
     });
@@ -142,7 +138,7 @@ var tmpl = template.Must(template.New("index").Parse(`
 </html>
 `))
 
-// QueryRequest represents a user's query or comment input.
+// QueryRequest represents a user's query input.
 type QueryRequest struct {
 	Query   string `json:"query"`
 	LLM     string `json:"llm"`
@@ -201,7 +197,7 @@ func main() {
 	}
 }
 
-// queryHandler processes each query or comment, sends it to the Grokker API (simulated),
+// queryHandler processes each query, sends it to the Grokker API (simulated),
 // updates the markdown file with the current chat state, and returns the LLM response as HTML.
 func queryHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
@@ -216,7 +212,7 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 
 	chatMutex.Lock()
 	if req.Context != "" {
-		chatHistory += fmt.Sprintf("**Comment on '%s':** %s\n", req.Context, req.Query)
+		chatHistory += fmt.Sprintf("**You:** %s:\n%s\n", req.Query, req.Context)
 	} else {
 		chatHistory += fmt.Sprintf("**You:** %s\n", req.Query)
 	}
@@ -265,10 +261,13 @@ func sendQueryToLLM(query string, llm string, context string) string {
 		return fmt.Sprintf("Error sending query: %v", err)
 	}
 	fmt.Printf("Received response from LLM '%s'\n", llm)
-	if context != "" {
-		return fmt.Sprintf("Response for comment on '%s': %s [via %s]: %s", context, query, llm, response)
-	}
-	return fmt.Sprintf("Response from %s: %s: %s", llm, query, response)
+	/*
+		if context != "" {
+			return fmt.Sprintf("Response for comment on '%s': %s [via %s]: %s", context, query, llm, response)
+		}
+		return fmt.Sprintf("Response from %s: %s: %s", llm, query, response)
+	*/
+	return response
 }
 
 // markdownToHTML converts markdown text to HTML using goldmark.
