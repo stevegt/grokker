@@ -9,6 +9,7 @@ The application should:
 - start an HTTP server listening on a port given on the command line
 - return a web page that is similar to the UI of ChatGPT or Perplexity
 - allow the user to select a LLM and enter a query
+- append the query to the page, similar to a chat UI
 - send the query to the LLM via the Grokker API, asking for markdown
   formatted text
 - format the response from the LLM as HTML
@@ -16,9 +17,10 @@ The application should:
   any block of text and comment on it, similar to Google Doc comments
 - return the HTML to the user's browser
 - accept each individual comment as a separate query to the LLM
-- append the comments to the page, allowing the user to continue
-  commenting and scrolling as the replies come back from the LLMs 
-  and are added at the bottom
+- append the comments to the page while the API query is running,
+  allowing the user to continue commenting and scrolling as the
+  replies come back from the LLMs and are added after their respective
+  queries.
 - maintain a text box at the bottom of the page for the user to
   enter new queries or comments on the same page
 - use goldmark or similar to render the markdown response to HTML
@@ -33,15 +35,21 @@ The application should:
   styling.  Do NOT delete or reformat any existing comments. Do NOT
   rewrap any existing lines. Do NOT change the HTML structure of the
   page.
-
-New requirements:
-
-- Add a series of progress spinners on the bottom of the page that
-  show the progress of each LLM query.  The spinners should be added
+- Add a progress spinner next to each outstanding query that has not
+  yet been completed. The spinners should be added
   immediately after the user submits a query or comment, and they
   should be removed when the LLM response is received and displayed on
   the page.  
 
+New requirements:
+
+- Each query should be added to the bottom of the page as soon as it's
+  entered, without waiting for the LLM response. There should be a
+  progress spinner next to each query while the query is waiting for a
+  response.  The spinner should be a simple 10px by 10px spinner, 
+  similar to the one used in the existing code.  The spinner should
+  go away when the LLM response is received, to be replaced by the
+  response text.  
 
 In:
   x/storm/main.go

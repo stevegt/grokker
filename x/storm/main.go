@@ -63,6 +63,7 @@ var tmpl = template.Must(template.New("index").Parse(`
     // Append a new message to the chat view without scrolling the page.
     function appendMessage(content) {
       var chat = document.getElementById("chat");
+      var scrollPos = chat.scrollTop;
       var messageDiv = document.createElement("div");
       messageDiv.className = "message";
       messageDiv.innerHTML = content;
@@ -78,14 +79,29 @@ var tmpl = template.Must(template.New("index").Parse(`
         }
       });
       chat.appendChild(messageDiv);
+      chat.scrollTop = scrollPos;
     }
 
     // Send query or comment to the /query endpoint.
+    // Each query is immediately added to the chat with a 10px spinner.
+    // When the LLM response is received the spinner is removed and replaced by the response.
     function sendQuery(query, llm, context) {
-      // Add a spinner to indicate progress.
-      var spinner = document.createElement("div");
+      var chat = document.getElementById("chat");
+      var scrollPos = chat.scrollTop;
+      var messageDiv = document.createElement("div");
+      messageDiv.className = "message";
+      if(context && context.trim() !== "") {
+        messageDiv.innerHTML = "<strong>Comment on '" + context + "':</strong> " + query;
+      } else {
+        messageDiv.innerHTML = "<strong>You:</strong> " + query;
+      }
+      // Create a spinner element next to the query.
+      var spinner = document.createElement("span");
       spinner.className = "spinner";
-      document.getElementById("spinner-area").appendChild(spinner);
+      spinner.style.marginLeft = "10px";
+      messageDiv.appendChild(spinner);
+      chat.appendChild(messageDiv);
+      chat.scrollTop = scrollPos;
 
       fetch("/query", {
         method: "POST",
@@ -98,10 +114,14 @@ var tmpl = template.Must(template.New("index").Parse(`
       }).then(function(data) {
         // Remove the spinner once the response is received.
         spinner.remove();
-        appendMessage(data.response);
+        var responseDiv = document.createElement("div");
+        responseDiv.innerHTML = data.response;
+        messageDiv.appendChild(responseDiv);
       }).catch(function(err) {
         spinner.remove();
-        appendMessage("Error: " + err);
+        var errorDiv = document.createElement("div");
+        errorDiv.textContent = "Error: " + err;
+        messageDiv.appendChild(errorDiv);
       });
     }
 
@@ -215,3 +235,4 @@ func markdownToHTML(markdown string) string {
 	}
 	return buf.String()
 }
+
