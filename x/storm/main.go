@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/gofrs/flock"
@@ -130,7 +131,7 @@ var tmpl = template.Must(template.New("index").Parse(`
         console.log("Selected text: " + selection);
         var query = prompt("Enter your query:");
         if(!query) {
-			query = "Expand on: " + selection;
+			query = "Expand: [" + selection + "]";
 		}
 	    sendQuery(query, document.getElementById("llmSelect").value, selection);
       }
@@ -236,10 +237,12 @@ func (c *Chat) StartRound(query, context string) (r *ChatRound) {
 
 	round := &ChatRound{}
 
-	// add the query and context
-	q := query
+	// trim the query to avoid leading/trailing whitespace
+	q := strings.TrimSpace(query)
+
+	// add context if provided
 	if context != "" {
-		q = fmt.Sprintf("%s:\n%s", query, context)
+		q = fmt.Sprintf("%s:\n%s", q, context)
 	}
 
 	round.Query = q
@@ -285,9 +288,9 @@ func (c *Chat) getHistory(lock bool) string {
 		}
 
 		if msg.Query != "" {
-			result += fmt.Sprintf("\n\n**You:** %s\n", msg.Query)
+			result += fmt.Sprintf("\n\n**%s**\n", msg.Query)
 		}
-		result += fmt.Sprintf("\n\n**Response:** %s\n", msg.Response)
+		result += fmt.Sprintf("\n\n%s\n", msg.Response)
 	}
 	return result
 }
