@@ -153,23 +153,32 @@ type QueryResponse struct {
 	Response string `json:"response"`
 }
 
+// ChatMessage contains a user query and its corresponding response.
+type ChatMessage struct {
+	Query    string
+	Response string
+}
+
 // Chat encapsulates chat history and synchronization.
+// Instead of a string, Chat.history is now a slice of ChatMessage structs.
 type Chat struct {
 	mutex    sync.Mutex
-	history  string
+	history  []ChatMessage
 	filename string
 }
 
 // NewChat creates a new Chat instance using the given markdown filename.
 // If the file exists, its content is loaded as the initial chat history.
 func NewChat(filename string) *Chat {
-	var history string
+	var history []ChatMessage
 	if _, err := os.Stat(filename); err == nil {
 		content, err := ioutil.ReadFile(filename)
 		if err != nil {
 			log.Printf("failed to read markdown file: %v", err)
 		} else {
-			history = string(content)
+			// Since the file stores the chat history as markdown,
+			// we load it as a single ChatMessage with an empty query.
+			history = append(history, ChatMessage{Response: string(content)})
 		}
 	}
 	return &Chat{
@@ -180,10 +189,11 @@ func NewChat(filename string) *Chat {
 
 // updateMarkdown creates a backup of the existing markdown file and updates it with the current chat history.
 func (c *Chat) updateMarkdown() error {
-	// Make a copy of the current history to work with.
 	c.mutex.Lock()
-	content := c.history
-	c.mutex.Unlock()
+	defer c.mutex.Unlock()
+
+	// Convert the chat history slice into markdown content.
+	content := c.getHistory()
 
 	// Write the old content to a backup file.
 	if oldContent, err := ioutil.ReadFile(c.filename); err == nil {
@@ -224,25 +234,38 @@ func (c *Chat) updateMarkdown() error {
 func (c *Chat) addQuery(query, context string) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
+	text := query
 	if context != "" {
-		c.history += fmt.Sprintf("**You:** %s:\n%s\n", query, context)
-	} else {
-		c.history += fmt.Sprintf("**You:** %s\n", query)
+		text = fmt.Sprintf("%s:\n%s", query, context)
 	}
+	c.history = append(c.history, ChatMessage{Query: text})
 }
 
 // addResponse appends a new response to the chat history.
 func (c *Chat) addResponse(response string) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	c.history += fmt.Sprintf("**Response:** %s\n", response)
+	if len(c.history) == 0 {
+		c.history = append(c.history, ChatMessage{Response: response})
+	} else {
+		c.history[len(c.history)-1].Response = response
+	}
 }
 
-// getHistory returns the current chat history.
+// getHistory returns the current chat history as a markdown formatted string.
 func (c *Chat) getHistory() string {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	return c.history
+	var result string
+	for _, msg := range c.history {
+		if msg.Query != "" {
+			result += fmt.Sprintf("**You:** %s\n", msg.Query)
+		}
+		if msg.Response != "" {
+			result += fmt.Sprintf("**Response:** %s\n", msg.Response)
+		}
+	}
+	return result
 }
 
 var chat *Chat

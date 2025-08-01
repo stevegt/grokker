@@ -47,32 +47,14 @@ The application should:
   similar to the one used in the existing code.  The spinner should
   go away when the LLM response is received, to be replaced by the
   response text.  
-- The server must require a filename as a command line argument
-  and use that filename to store the HTML page as a markdown file.
-  Create the file if it does not exist, and load it into the
-  browser when the server starts.  After each query is sent or response
-  is received, the server must update the markdown file with the
-  current state of the page, including all queries, responses, and
-  comments. The markdown file should be updated in real-time as the
-  user interacts with the page.  For safety, the server should
-  create a backup of the markdown file before updating it, so that
-  if the server crashes or the file is corrupted, the user can still
-  recover their work. The backup file should be created with the
-  same filename as the markdown file, but with a ".bak.md" extension.
-
 
 New requirements:
 
-- Move chatMutex and chatHistory into fields of a struct called Chat.  Move
-  updateMarkdown into the Chat struct as a method.  Updating the
-  markdown, both file and in the browser, should be done by
-  Chat.updateMarkdown, which should be called by the main goroutine
-  whenever a new query is sent or a response is received.  The mutex
-  should be used to protect read and write access to the chatHistory
-  variable -- no code outside of the Chat struct should access
-  chatHistory or chatMutex directly.  Add appropriate methods to the
-  Chat struct to allow adding new queries and responses, and to
-  retrieve the current chat history.  
+- Instead of a string, Chat.history should be a slice of 
+  ChatMessage structs, where each ChatMessage struct contains a
+  string for the query and a string for the response.  
+
+
 
 
 
