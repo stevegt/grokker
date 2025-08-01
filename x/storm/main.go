@@ -187,9 +187,7 @@ func NewChat(filename string) *Chat {
 }
 
 // updateMarkdown creates a backup of the existing markdown file and updates it with the current chat history.
-func (c *Chat) updateMarkdown() error {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
+func (c *Chat) _updateMarkdown() error {
 
 	// Convert the chat history slice into markdown content.
 	// We don't need getHistory to lock, since we're already holding
@@ -231,27 +229,33 @@ func (c *Chat) updateMarkdown() error {
 	return nil
 }
 
-// addQuery appends a new user query (and optional context) to the chat history.
-func (c *Chat) addQuery(query, context string) {
+// AddRound adds a new chat round with the given query, context, and
+// response.  It updates the markdown file with the new chat state.
+func (c *Chat) AddRound(query, context, response string) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	text := query
-	if context != "" {
-		text = fmt.Sprintf("%s:\n%s", query, context)
-	}
-	c.history = append(c.history, ChatRound{Query: text})
-}
 
-// addResponse appends a new response to the chat history.
-func (c *Chat) addResponse(response string) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-	if len(c.history) == 0 {
-		c.history = append(c.history, ChatRound{Response: response})
-	} else {
-		// XXX response should be added to the query that generated it.
-		c.history[len(c.history)-1].Response = response
+	round := ChatRound{}
+
+	// add the query and context
+	q := query
+	if context != "" {
+		q = fmt.Sprintf("%s:\n%s", query, context)
 	}
+
+	round.Query = q
+	round.Response = response
+
+	c.history = append(c.history, round)
+
+	err := c._updateMarkdown()
+	if err != nil {
+		log.Printf("error updating markdown: %v", err)
+		return fmt.Errorf("error updating markdown: %w", err)
+	}
+
+	log.Printf("added chat round: %s", query)
+	return nil
 }
 
 // getHistory returns the current chat history as a markdown formatted string.
@@ -336,10 +340,8 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 
 	// add the query and response to the chat history and update the
 	// markdown file.
-	chat.addQuery(req.Query, req.Context)
-	chat.addResponse(responseText)
-	if err := chat.updateMarkdown(); err != nil {
-		log.Printf("error updating markdown: %v", err)
+	err := chat.AddRound(req.Query, req.Context, responseText)
+	if err != nil {
 		http.Error(w, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
