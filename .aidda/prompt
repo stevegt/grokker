@@ -63,6 +63,18 @@ The application should:
 
 New requirements:
 
+- Move chatMutex and chatHistory into fields of a struct called Chat.  Move
+  updateMarkdown into the Chat struct as a method.  Updating the
+  markdown, both file and in the browser, should be done by
+  Chat.updateMarkdown, which should be called by the main goroutine
+  whenever a new query is sent or a response is received.  The mutex
+  should be used to protect read and write access to the chatHistory
+  variable -- no code outside of the Chat struct should access
+  chatHistory or chatMutex directly.  Add appropriate methods to the
+  Chat struct to allow adding new queries and responses, and to
+  retrieve the current chat history.  
+
+
 
 In:
   x/storm/main.go

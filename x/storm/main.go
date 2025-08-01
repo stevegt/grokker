@@ -70,6 +70,8 @@ var tmpl = template.Must(template.New("index").Parse(`
       var messageDiv = document.createElement("div");
       messageDiv.className = "message";
       messageDiv.innerHTML = content;
+      // Instead of auto-scrolling or saving scroll position,
+      // we simply append the content and let the browser handle it without scrolling.
       chat.appendChild(messageDiv);
     }
 
@@ -80,7 +82,7 @@ var tmpl = template.Must(template.New("index").Parse(`
       var chat = document.getElementById("chat");
       var messageDiv = document.createElement("div");
       messageDiv.className = "message";
-	  messageDiv.innerHTML = "<strong>" + query + "</strong>";
+      messageDiv.innerHTML = "<strong>" + query + "</strong>";
       // Create a spinner element next to the query.
       var spinner = document.createElement("span");
       spinner.className = "spinner";
@@ -150,9 +152,100 @@ type QueryResponse struct {
 	Response string `json:"response"`
 }
 
-var markdownFilename string
-var chatHistory string
-var chatMutex sync.Mutex
+// Chat encapsulates chat history and synchronization.
+type Chat struct {
+	mutex    sync.Mutex
+	history  string
+	filename string
+}
+
+// NewChat creates a new Chat instance using the given markdown filename.
+// If the file exists, its content is loaded as the initial chat history.
+func NewChat(filename string) *Chat {
+	var history string
+	if _, err := os.Stat(filename); err == nil {
+		content, err := ioutil.ReadFile(filename)
+		if err != nil {
+			log.Printf("failed to read markdown file: %v", err)
+		} else {
+			history = string(content)
+		}
+	}
+	return &Chat{
+		history:  history,
+		filename: filename,
+	}
+}
+
+// updateMarkdown creates a backup of the existing markdown file and updates it with the current chat history.
+func (c *Chat) updateMarkdown() error {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	// Make a copy of the current history to work with.
+	content := c.history
+
+	// Write the old content to a backup file.
+	if oldContent, err := ioutil.ReadFile(c.filename); err == nil {
+		backupName := c.filename + ".bak.md"
+		if err := ioutil.WriteFile(backupName, oldContent, 0644); err != nil {
+			log.Printf("failed to create backup: %v", err)
+		}
+	}
+
+	// Write the new content to a temporary file.
+	tempFile, err := ioutil.TempFile("", "storm-chat-*.md")
+	if err != nil {
+		log.Printf("failed to create temporary file: %v", err)
+		return fmt.Errorf("failed to create temporary file: %w", err)
+	}
+	log.Printf("created temporary file %s", tempFile.Name())
+	defer os.Remove(tempFile.Name()) // clean up temp file after writing
+
+	if _, err := tempFile.WriteString(content); err != nil {
+		log.Printf("failed to write to temporary file: %v", err)
+		err = fmt.Errorf("failed to write to temporary file: %w", err)
+		return err
+	}
+	tempFile.Close()
+
+	// Move the temporary file to the final destination.
+	if err := os.Rename(tempFile.Name(), c.filename); err != nil {
+		log.Printf("failed to rename temporary file to %s: %v", c.filename, err)
+		err = fmt.Errorf("failed to rename temporary file to %s: %w", c.filename, err)
+		return err
+	}
+	log.Printf("updated markdown file %s", c.filename)
+
+	return nil
+}
+
+// addQuery appends a new user query (and optional context) to the chat history.
+func (c *Chat) addQuery(query, context string) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	if context != "" {
+		c.history += fmt.Sprintf("**You:** %s:\n%s\n", query, context)
+	} else {
+		c.history += fmt.Sprintf("**You:** %s\n", query)
+	}
+}
+
+// addResponse appends a new response to the chat history.
+func (c *Chat) addResponse(response string) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	c.history += fmt.Sprintf("**Response:** %s\n", response)
+}
+
+// getHistory returns the current chat history.
+func (c *Chat) getHistory() string {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	return c.history
+}
+
+var chat *Chat
 
 func main() {
 	port := flag.Int("port", 8080, "port to listen on")
@@ -161,23 +254,12 @@ func main() {
 	if *filePtr == "" {
 		log.Fatal("must provide a markdown filename with -file")
 	}
-	markdownFilename = *filePtr
 
-	// Load existing chat history if file exists.
-	if _, err := os.Stat(markdownFilename); err == nil {
-		content, err := ioutil.ReadFile(markdownFilename)
-		if err != nil {
-			log.Printf("failed to read markdown file: %v", err)
-		} else {
-			chatHistory = string(content)
-		}
-	}
+	chat = NewChat(*filePtr)
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		chatMutex.Lock()
-		chatContent := chatHistory
-		chatMutex.Unlock()
+		chatContent := chat.getHistory()
 		data := struct {
 			ChatHTML template.HTML
 		}{
@@ -210,22 +292,18 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	chatMutex.Lock()
-	if req.Context != "" {
-		chatHistory += fmt.Sprintf("**You:** %s:\n%s\n", req.Query, req.Context)
-	} else {
-		chatHistory += fmt.Sprintf("**You:** %s\n", req.Query)
+	chat.addQuery(req.Query, req.Context)
+	if err := chat.updateMarkdown(); err != nil {
+		log.Printf("error updating markdown: %v", err)
 	}
-	updateMarkdown(markdownFilename, chatHistory)
-	chatMutex.Unlock()
 
-	// Call the LLM via grokker
+	// Call the LLM via grokker.
 	responseText := sendQueryToLLM(req.Query, req.LLM, req.Context)
 
-	chatMutex.Lock()
-	chatHistory += fmt.Sprintf("**Response:** %s\n", responseText)
-	updateMarkdown(markdownFilename, chatHistory)
-	chatMutex.Unlock()
+	chat.addResponse(responseText)
+	if err := chat.updateMarkdown(); err != nil {
+		log.Printf("error updating markdown: %v", err)
+	}
 
 	resp := QueryResponse{
 		Response: markdownToHTML(responseText),
@@ -278,41 +356,4 @@ func markdownToHTML(markdown string) string {
 		return "<p>Error rendering markdown</p>"
 	}
 	return buf.String()
-}
-
-// updateMarkdown creates a backup of the existing markdown file and updates it with the new content.
-func updateMarkdown(filename string, content string) (err error) {
-	// write the old content to a backup file
-	if oldContent, err := ioutil.ReadFile(filename); err == nil {
-		backupName := filename + ".bak.md"
-		if err := ioutil.WriteFile(backupName, oldContent, 0644); err != nil {
-			log.Printf("failed to create backup: %v", err)
-		}
-	}
-
-	// write the new content to a temporary file
-	tempFile, err := ioutil.TempFile("", "storm-chat-*.md")
-	if err != nil {
-		log.Printf("failed to create temporary file: %v", err)
-		return fmt.Errorf("failed to create temporary file: %w", err)
-	}
-	log.Printf("created temporary file %s", tempFile.Name())
-	defer os.Remove(tempFile.Name()) // clean up temp file after writing
-
-	if _, err := tempFile.WriteString(content); err != nil {
-		log.Printf("failed to write to temporary file: %v", err)
-		err = fmt.Errorf("failed to write to temporary file: %w", err)
-		return err
-	}
-	tempFile.Close()
-
-	// move the temporary file to the final destination
-	if err := os.Rename(tempFile.Name(), filename); err != nil {
-		log.Printf("failed to rename temporary file to %s: %v", filename, err)
-		err = fmt.Errorf("failed to rename temporary file to %s: %w", filename, err)
-		return err
-	}
-	log.Printf("updated markdown file %s", filename)
-
-	return nil
 }
