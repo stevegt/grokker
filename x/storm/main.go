@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -431,9 +432,21 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 			if line == "</references>" {
 				break // stop at the closing tag
 			}
-			if line != "" {
-				refLines = append(refLines, "- "+line)
+			if line == "" {
+				continue // skip empty lines
 			}
+
+			// if the line looks like [N] followed by a URL, convert
+			// the URL to a markdown link.
+			regex := `^\[(\d+)\]\s*(http[s]?://[^\s]+)\s*$`
+			re := regexp.MustCompile(regex)
+			m := re.FindStringSubmatch(line)
+			if len(m) == 2 {
+				// m[1] is the reference number, m[2] is the URL
+				line = fmt.Sprintf("- [%s] [%s](%s)", m[1], m[2], m[2])
+			}
+
+			refLines = append(refLines, line)
 		}
 		if len(refLines) > 0 {
 			// remove the original <references> section
