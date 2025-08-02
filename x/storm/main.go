@@ -397,6 +397,33 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 
 	responseText := sendQueryToLLM(req.Query, req.LLM, req.Selection, lastN)
 
+	// convert references to a bulleted list
+	refIndex := strings.Index(responseText, "<references>")
+	if refIndex != -1 {
+		refEndIndex := strings.Index(responseText, "</references>") + len("</references>")
+		// every non-blank line after <references> is a reference --
+		// insert a '- ' before each line until we hit the closing tag.
+		firstRefIndex := refIndex + len("<references>")
+		references := strings.Split(responseText[firstRefIndex:], "\n")
+		var refLines []string
+		for _, line := range references {
+			line = strings.TrimSpace(line)
+			if line == "</references>" {
+				break // stop at the closing tag
+			}
+			if line != "" {
+				refLines = append(refLines, "- "+line)
+			}
+		}
+		if len(refLines) > 0 {
+			// remove the original <references> section
+			beforeRefs := responseText[:refIndex]
+			refHead := "\n\n## References\n\n"
+			afterRefs := responseText[refEndIndex:]
+			responseText = beforeRefs + refHead + strings.Join(refLines, "\n") + "\n" + afterRefs
+		}
+	}
+
 	// move the <think> section to the end of the response
 	thinkIndex := strings.Index(responseText, "<think>")
 	if thinkIndex != -1 {
@@ -411,12 +438,8 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 			log.Printf("Malformed <think> section in response: %s", responseText)
 		}
 	}
-
 	// convert <think> tags to a markdown heading
 	re := strings.NewReplacer("<think>", "## Reasoning\n", "</think>", "")
-	responseText = re.Replace(responseText)
-	// convert <references> tags to a markdown heading
-	re = strings.NewReplacer("<references>", "## References\n", "</references>", "")
 	responseText = re.Replace(responseText)
 
 	err = chat.FinishRound(round, responseText)
@@ -433,7 +456,7 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // tokenCountHandler calculates the token count for the current conversation
-// using the Grokker's TokenCount function and returns it as JSON.
+// using Grokker's TokenCount function and returns it as JSON.
 func tokenCountHandler(w http.ResponseWriter, r *http.Request) {
 	chatText := chat.getHistory(false)
 	count, err := grok.TokenCount(chatText)
