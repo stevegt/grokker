@@ -48,7 +48,7 @@ var tmpl = template.Must(template.New("index").Parse(`
     textarea { width: 70%; height: 50px; vertical-align: middle; margin-right: 10px; }
     select { vertical-align: middle; margin-right: 10px; }
     button { height: 54px; vertical-align: middle; }
-    #statusBox { display: inline-block; margin-left: 10px; vertical-align: middle; }
+    #statusBox { display: inline-block; margin-left: 10px; vertical-align: middle; font-size: 9px; }
   </style>
 </head>
 <body>
@@ -81,43 +81,72 @@ var tmpl = template.Must(template.New("index").Parse(`
     }
 
     // Send query to the /query endpoint.
-    // Each query is immediately added to the chat with a 10px spinner.
+    // Each query is immediately added to the chat with a 10px spinner and a Cancel button.
     // When the LLM response is received the spinner is removed and replaced by the response.
-    function sendQuery(query, llm, context) {
+    function sendQuery(query, llm, selection) {
       var chat = document.getElementById("chat");
       var messageDiv = document.createElement("div");
       messageDiv.className = "message";
-      messageDiv.innerHTML = "<strong>" + query + "</strong>";
+      if (selection === "") {
+        messageDiv.innerHTML = "<strong>" + query + "</strong>";
+      } else {
+        messageDiv.innerHTML = "<strong>" + query + " [" + selection + "]</strong>";
+      }
       // Create a spinner element next to the query.
       var spinner = document.createElement("span");
       spinner.className = "spinner";
       spinner.style.marginLeft = "10px";
       messageDiv.appendChild(spinner);
+      // Create a Cancel button next to the spinner.
+      var cancelBtn = document.createElement("button");
+      cancelBtn.textContent = "Cancel";
+      cancelBtn.style.marginLeft = "5px";
+      messageDiv.appendChild(cancelBtn);
       chat.appendChild(messageDiv);
+
+      // Create an abort controller to cancel the fetch request.
+      var abortController = new AbortController();
+
+      // When the user clicks the Cancel button, abort the request and remove the message.
+      cancelBtn.addEventListener("click", function() {
+        abortController.abort();
+        messageDiv.remove();
+      });
 
       fetch("/query", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ query: query, llm: llm, context: context })
+        signal: abortController.signal,
+        body: JSON.stringify({ query: query, llm: llm, selection: selection })
       }).then(function(response) {
         return response.json();
       }).then(function(data) {
-        // Remove the spinner once the response is received.
+        // Remove the spinner and cancel button once the response is received.
         spinner.remove();
+        cancelBtn.remove();
         var responseDiv = document.createElement("div");
         responseDiv.innerHTML = data.response;
-        messageDiv.appendChild(responseDiv);
+        // If the messageDiv is still in the document (i.e. not cancelled), append the response.
+        if (document.body.contains(messageDiv)) {
+          messageDiv.appendChild(responseDiv);
+          updateTokenCount();
+        }
       }).catch(function(err) {
+        // If the error is due to abort, do nothing.
+        if (err.name === "AbortError") {
+          return;
+        }
         spinner.remove();
+        cancelBtn.remove();
         var errorDiv = document.createElement("div");
         errorDiv.textContent = "Error: " + err;
         messageDiv.appendChild(errorDiv);
       });
     }
 
-    // Poll the /tokencount endpoint every second to update the token count.
+    // Poll the /tokencount endpoint to update the token count.
     function updateTokenCount() {
       fetch("/tokencount")
         .then(function(response) { return response.json(); })
@@ -129,7 +158,8 @@ var tmpl = template.Must(template.New("index").Parse(`
           console.error("Error fetching token count:", err);
         });
     }
-    setInterval(updateTokenCount, 1000);
+
+    updateTokenCount(); // Initial token count fetch
 
     // Handle click on the Send button.
     document.getElementById("sendBtn").addEventListener("click", function() {
@@ -141,16 +171,12 @@ var tmpl = template.Must(template.New("index").Parse(`
     });
 
     // Enable selection-based querying on the chat messages.
+    // Instead of prompting for input, selected text is appended to the text box at the bottom.
     document.addEventListener("mouseup", function(e) {
-      console.log("Mouse up event detected");
       var selection = window.getSelection().toString().trim();
       if(selection.length > 0) {
-        console.log("Selected text: " + selection);
-        var query = prompt("Enter your query:");
-        if(!query) {
-			query = "Expand: [" + selection + "]";
-		}
-	    sendQuery(query, document.getElementById("llmSelect").value, selection);
+        var input = document.getElementById("userInput");
+        input.value = input.value + " " + selection;
       }
       return;
     });
@@ -161,9 +187,9 @@ var tmpl = template.Must(template.New("index").Parse(`
 
 // QueryRequest represents a user's query input.
 type QueryRequest struct {
-	Query   string `json:"query"`
-	LLM     string `json:"llm"`
-	Context string `json:"context"`
+	Query     string `json:"query"`
+	LLM       string `json:"llm"`
+	Selection string `json:"selection"`
 }
 
 // QueryResponse represents the LLM's response.
@@ -248,7 +274,7 @@ func (c *Chat) _updateMarkdown() error {
 }
 
 // StartRound initializes a new chat round with a query and and empty response.
-func (c *Chat) StartRound(query, context string) (r *ChatRound) {
+func (c *Chat) StartRound(query, selection string) (r *ChatRound) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
@@ -257,9 +283,9 @@ func (c *Chat) StartRound(query, context string) (r *ChatRound) {
 	// trim the query to avoid leading/trailing whitespace
 	q := strings.TrimSpace(query)
 
-	// add context if provided
-	if context != "" {
-		q = fmt.Sprintf("%s:\n%s", q, context)
+	// add selection if provided
+	if selection != "" {
+		q = fmt.Sprintf("%s: [%s]", q, selection)
 	}
 
 	round.Query = q
@@ -373,9 +399,71 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	round := chat.StartRound(req.Query, req.Context)
-	responseText := sendQueryToLLM(req.Query, req.LLM, req.Context)
-	err := chat.FinishRound(round, responseText)
+	round := chat.StartRound(req.Query, req.Selection)
+	history := chat.getHistory(false)
+	// add the last N characters of the chat history as context.
+	// XXX should really use embeddings and a vector db to find relevant context.
+	N := 150000
+	startIndex := len(history) - N
+	if startIndex < 0 {
+		startIndex = 0
+	}
+	lastN := history[startIndex:]
+	lastNTokenCount, err := grok.TokenCount(lastN)
+	if err != nil {
+		log.Printf("Token count error: %v", err)
+		lastNTokenCount = 0
+	}
+	log.Printf("Added %d tokens of context to query: %s", lastNTokenCount, req.Query)
+
+	responseText := sendQueryToLLM(req.Query, req.LLM, req.Selection, lastN)
+
+	// convert references to a bulleted list
+	refIndex := strings.Index(responseText, "<references>")
+	if refIndex != -1 {
+		refEndIndex := strings.Index(responseText, "</references>") + len("</references>")
+		// every non-blank line after <references> is a reference --
+		// insert a '- ' before each line until we hit the closing tag.
+		firstRefIndex := refIndex + len("<references>")
+		references := strings.Split(responseText[firstRefIndex:], "\n")
+		var refLines []string
+		for _, line := range references {
+			line = strings.TrimSpace(line)
+			if line == "</references>" {
+				break // stop at the closing tag
+			}
+			if line != "" {
+				refLines = append(refLines, "- "+line)
+			}
+		}
+		if len(refLines) > 0 {
+			// remove the original <references> section
+			beforeRefs := responseText[:refIndex]
+			refHead := "\n\n## References\n\n"
+			afterRefs := responseText[refEndIndex:]
+			responseText = beforeRefs + refHead + strings.Join(refLines, "\n") + "\n" + afterRefs
+		}
+	}
+
+	// move the <think> section to the end of the response
+	thinkIndex := strings.Index(responseText, "<think>")
+	if thinkIndex != -1 {
+		thinkEndIndex := strings.Index(responseText, "</think>") + len("</think>")
+		if thinkEndIndex > thinkIndex {
+			thinkSection := responseText[thinkIndex:thinkEndIndex]
+			// remove the think section from the response
+			responseText = responseText[:thinkIndex] + responseText[thinkEndIndex:]
+			// append the think section to the end of the response
+			responseText += "\n\n" + thinkSection
+		} else {
+			log.Printf("Malformed <think> section in response: %s", responseText)
+		}
+	}
+	// convert <think> tags to a markdown heading
+	re := strings.NewReplacer("<think>", "## Reasoning\n", "</think>", "")
+	responseText = re.Replace(responseText)
+
+	err = chat.FinishRound(round, responseText)
 	if err != nil {
 		http.Error(w, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -389,7 +477,7 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // tokenCountHandler calculates the token count for the current conversation
-// using the Grokker's TokenCount function and returns it as JSON.
+// using Grokker's TokenCount function and returns it as JSON.
 func tokenCountHandler(w http.ResponseWriter, r *http.Request) {
 	chatText := chat.getHistory(false)
 	count, err := grok.TokenCount(chatText)
@@ -402,10 +490,10 @@ func tokenCountHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // sendQueryToLLM calls the Grokker API to obtain a markdown-formatted text.
-func sendQueryToLLM(query string, llm string, context string) string {
-	sysmsg := fmt.Sprintf("You are a helpful assistant. Respond to the query: %s", query)
+func sendQueryToLLM(query string, llm string, selection, backgroundContext string) string {
+	sysmsg := fmt.Sprintf("You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.")
 
-	prompt := fmt.Sprintf("Query: %s\nContext: %s", query, context)
+	prompt := fmt.Sprintf("---CONTEXT START---\n%s\n---CONTEXT END---\n\nNew Query: %s [%s]", backgroundContext, query, selection)
 
 	msgs := []client.ChatMsg{
 		{Role: "USER", Content: prompt},
@@ -415,18 +503,14 @@ func sendQueryToLLM(query string, llm string, context string) string {
 	var outFiles []core.FileLang
 
 	fmt.Printf("Sending query to LLM '%s'\n", llm)
+	fmt.Printf("Query: %s\n", query)
 	response, _, err := grok.SendWithFiles(llm, sysmsg, msgs, inputFiles, outFiles)
 	if err != nil {
 		log.Printf("SendWithFiles error: %v", err)
 		return fmt.Sprintf("Error sending query: %v", err)
 	}
 	fmt.Printf("Received response from LLM '%s'\n", llm)
-	/*
-		if context != "" {
-			return fmt.Sprintf("Response for comment on '%s': %s [via %s]: %s", context, query, llm, response)
-		}
-		return fmt.Sprintf("Response from %s: %s: %s", llm, query, response)
-	*/
+	fmt.Printf("Response: %s\n", response[:10]) // print first 10 characters of response
 	return response
 }
 

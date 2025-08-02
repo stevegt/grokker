@@ -80,41 +80,65 @@ var tmpl = template.Must(template.New("index").Parse(`
     }
 
     // Send query to the /query endpoint.
-    // Each query is immediately added to the chat with a 10px spinner.
+    // Each query is immediately added to the chat with a 10px spinner and a Cancel button.
     // When the LLM response is received the spinner is removed and replaced by the response.
     function sendQuery(query, llm, selection) {
       var chat = document.getElementById("chat");
       var messageDiv = document.createElement("div");
       messageDiv.className = "message";
-	  if (selection === "") {
-		  messageDiv.innerHTML = "<strong>" + query + "</strong>";
-	  } else {
-		  messageDiv.innerHTML = "<strong>" + query + " [" + selection + "]</strong>";
-	  }
+      if (selection === "") {
+        messageDiv.innerHTML = "<strong>" + query + "</strong>";
+      } else {
+        messageDiv.innerHTML = "<strong>" + query + " [" + selection + "]</strong>";
+      }
       // Create a spinner element next to the query.
       var spinner = document.createElement("span");
       spinner.className = "spinner";
       spinner.style.marginLeft = "10px";
       messageDiv.appendChild(spinner);
+      // Create a Cancel button next to the spinner.
+      var cancelBtn = document.createElement("button");
+      cancelBtn.textContent = "Cancel";
+      cancelBtn.style.marginLeft = "5px";
+      messageDiv.appendChild(cancelBtn);
       chat.appendChild(messageDiv);
+
+      // Create an abort controller to cancel the fetch request.
+      var abortController = new AbortController();
+
+      // When the user clicks the Cancel button, abort the request and remove the message.
+      cancelBtn.addEventListener("click", function() {
+        abortController.abort();
+        messageDiv.remove();
+      });
 
       fetch("/query", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
+        signal: abortController.signal,
         body: JSON.stringify({ query: query, llm: llm, selection: selection })
       }).then(function(response) {
         return response.json();
       }).then(function(data) {
-        // Remove the spinner once the response is received.
+        // Remove the spinner and cancel button once the response is received.
         spinner.remove();
+        cancelBtn.remove();
         var responseDiv = document.createElement("div");
         responseDiv.innerHTML = data.response;
-        messageDiv.appendChild(responseDiv);
-		updateTokenCount();
+        // If the messageDiv is still in the document (i.e. not cancelled), append the response.
+        if (document.body.contains(messageDiv)) {
+          messageDiv.appendChild(responseDiv);
+          updateTokenCount();
+        }
       }).catch(function(err) {
+        // If the error is due to abort, do nothing.
+        if (err.name === "AbortError") {
+          return;
+        }
         spinner.remove();
+        cancelBtn.remove();
         var errorDiv = document.createElement("div");
         errorDiv.textContent = "Error: " + err;
         messageDiv.appendChild(errorDiv);
@@ -134,7 +158,7 @@ var tmpl = template.Must(template.New("index").Parse(`
         });
     }
 
-	updateTokenCount(); // Initial token count fetch
+    updateTokenCount(); // Initial token count fetch
 
     // Handle click on the Send button.
     document.getElementById("sendBtn").addEventListener("click", function() {
@@ -146,16 +170,12 @@ var tmpl = template.Must(template.New("index").Parse(`
     });
 
     // Enable selection-based querying on the chat messages.
+    // Instead of prompting for input, selected text is appended to the text box at the bottom.
     document.addEventListener("mouseup", function(e) {
-      console.log("Mouse up event detected");
       var selection = window.getSelection().toString().trim();
       if(selection.length > 0) {
-        console.log("Selected text: " + selection);
-        var query = prompt("Enter your query:");
-        if(!query) {
-			query = "Expand:";
-		}
-	    sendQuery(query, document.getElementById("llmSelect").value, selection);
+        var input = document.getElementById("userInput");
+        input.value = input.value + " " + selection;
       }
       return;
     });
