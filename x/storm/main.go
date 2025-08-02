@@ -332,7 +332,7 @@ func (c *Chat) getHistory(lock bool) string {
 		if msg.Query != "" {
 			result += fmt.Sprintf("\n\n**%s**\n", msg.Query)
 		}
-		result += fmt.Sprintf("\n\n%s\n", msg.Response)
+		result += fmt.Sprintf("\n\n%s\n\n---\n\n", msg.Response)
 	}
 	return result
 }
