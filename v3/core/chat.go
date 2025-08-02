@@ -30,7 +30,7 @@ type ChatMsg struct {
 const (
 	RoleSystem = "SYSTEM"
 	RoleUser   = "USER"
-	RoleAI     = "AI"
+	RoleAI     = "ASSISTANT"
 )
 
 var SysMsgSummarizeChat = `You are an editor.  Rewrite the chat
@@ -46,7 +46,7 @@ the AI: and USER: headers in your response.\n\nTopic:\n%s\n`
 //
 // <role>:\n<message>\n\n
 //
-// ...where <role> is either "USER" or "AI", and <message> is the text
+// ...where <role> is either "USER" or "ASSISTANT", and <message> is the text
 // of the message.  The last message in the file is the most recent
 // message.
 func (g *Grokker) OpenChatHistory(sysmsg, relPath string) (history *ChatHistory, err error) {
@@ -151,7 +151,7 @@ func (history *ChatHistory) ContinueChat(modelName, prompt string, contextLevel 
 			// make context look like a message exchange
 			msgs = []client.ChatMsg{
 				client.ChatMsg{Role: "USER", Content: context},
-				client.ChatMsg{Role: "AI", Content: "I understand the context."},
+				client.ChatMsg{Role: "ASSISTANT", Content: "I understand the context."},
 			}
 		}
 		Debug("continueChat: context len=%d", len(context))
@@ -200,7 +200,7 @@ func (history *ChatHistory) ContinueChat(modelName, prompt string, contextLevel 
 
 	// append the prompt and response to the stored messages
 	history.msgs = append(history.msgs, client.ChatMsg{Role: "USER", Content: prompt})
-	history.msgs = append(history.msgs, client.ChatMsg{Role: "AI", Content: resp})
+	history.msgs = append(history.msgs, client.ChatMsg{Role: "ASSISTANT", Content: resp})
 
 	// save the output files
 	err = ExtractFiles(outfiles, resp, false, false)
@@ -435,12 +435,12 @@ func (history *ChatHistory) fixRole(role string) (fixed string) {
 	switch role {
 	case "USER":
 		fallthrough
-	case "AI":
+	case "ASSISTANT":
 		fixed = role
 	default:
 		// default to AI for now, might need more sophisticated
 		// logic later
-		fixed = "AI"
+		fixed = "ASSISTANT"
 	}
 	return
 }
@@ -641,7 +641,7 @@ func (history *ChatHistory) extractFromChat(outfiles []FileLang, N int, extractT
 		// iterate over responses starting with the most recent
 		for i := len(history.msgs) - 1; i >= 0; i-- {
 			// skip messages that are not from the AI
-			if history.msgs[i].Role != "AI" {
+			if history.msgs[i].Role != "ASSISTANT" && history.msgs[i].Role != "AI" {
 				continue
 			}
 			// see if we have a match for this file
