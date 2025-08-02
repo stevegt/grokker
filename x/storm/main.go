@@ -264,7 +264,7 @@ func (c *Chat) StartRound(query, selection string) (r *ChatRound) {
 
 	// add selection if provided
 	if selection != "" {
-		q = fmt.Sprintf("%s:\n%s", q, selection)
+		q = fmt.Sprintf("%s: [%s]", q, selection)
 	}
 
 	round.Query = q
@@ -443,7 +443,7 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 		return fmt.Sprintf("Error sending query: %v", err)
 	}
 	fmt.Printf("Received response from LLM '%s'\n", llm)
-	fmt.Printf("Response: %s\n", response[:100]) // print first 100 characters of response
+	fmt.Printf("Response: %s\n", response[:10]) // print first 10 characters of response
 	return response
 }
 
