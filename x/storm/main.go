@@ -396,6 +396,29 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Added %d tokens of context to query: %s", lastNTokenCount, req.Query)
 
 	responseText := sendQueryToLLM(req.Query, req.LLM, req.Selection, lastN)
+
+	// move the <think> section to the end of the response
+	thinkIndex := strings.Index(responseText, "<think>")
+	if thinkIndex != -1 {
+		thinkEndIndex := strings.Index(responseText, "</think>") + len("</think>")
+		if thinkEndIndex > thinkIndex {
+			thinkSection := responseText[thinkIndex:thinkEndIndex]
+			// remove the think section from the response
+			responseText = responseText[:thinkIndex] + responseText[thinkEndIndex:]
+			// append the think section to the end of the response
+			responseText += "\n\n" + thinkSection
+		} else {
+			log.Printf("Malformed <think> section in response: %s", responseText)
+		}
+	}
+
+	// convert <think> tags to a markdown heading
+	re := strings.NewReplacer("<think>", "## Reasoning\n", "</think>", "")
+	responseText = re.Replace(responseText)
+	// convert <references> tags to a markdown heading
+	re = strings.NewReplacer("<references>", "## References\n", "</references>", "")
+	responseText = re.Replace(responseText)
+
 	err = chat.FinishRound(round, responseText)
 	if err != nil {
 		http.Error(w, "Internal server error: "+err.Error(), http.StatusInternalServerError)

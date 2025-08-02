@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/gofrs/flock v0.8.1
-	github.com/stevegt/grokker/v3 v3.0.35
+	github.com/stevegt/grokker/v3 v3.0.36
 	github.com/yuin/goldmark v1.7.13
 )
 
