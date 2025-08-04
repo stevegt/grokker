@@ -1,5 +1,6 @@
-add horizontal rule between rounds in the markdown file 
+add a "stop server" button
 
+Add a "stop server" button to the right of the status box.
 
 In:
   x/storm/main.go

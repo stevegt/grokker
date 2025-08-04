@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -45,7 +46,7 @@ var tmpl = template.Must(template.New("index").Parse(`
       100% { transform: rotate(360deg); }
     }
     #input-area { position: fixed; bottom: 0; width: 100%; background: #f0f0f0; padding: 10px; box-shadow: 0 -2px 5px rgba(0,0,0,0.1); }
-    textarea { width: 70%; height: 50px; vertical-align: middle; margin-right: 10px; }
+    textarea { width: 60%; height: 50px; vertical-align: middle; margin-right: 10px; }
     select { vertical-align: middle; margin-right: 10px; }
     button { height: 54px; vertical-align: middle; }
     #statusBox { display: inline-block; margin-left: 10px; vertical-align: middle; font-size: 9px; }
@@ -67,6 +68,7 @@ var tmpl = template.Must(template.New("index").Parse(`
     <textarea id="userInput" placeholder="Enter query"></textarea>
     <button id="sendBtn">Send</button>
     <span id="statusBox">Token Count: 0</span>
+    <button id="stopBtn">Stop<br>Server</button>
   </div>
   <script>
     // Append a new message to the chat view without scrolling the page.
@@ -168,6 +170,21 @@ var tmpl = template.Must(template.New("index").Parse(`
       if(query.trim() === "") return;
       sendQuery(query, document.getElementById("llmSelect").value, "");
       input.value = "";
+    });
+
+    // Handle click on the Stop Server button.
+    document.getElementById("stopBtn").addEventListener("click", function() {
+      if(confirm("Are you sure you want to stop the server?")) {
+        fetch("/stop", { method: "POST" })
+          .then(function(response) {
+            if(response.ok) {
+              alert("Server is stopping...");
+            }
+          })
+          .catch(function(err) {
+            console.error("Error stopping server:", err);
+          });
+      }
     });
 
     // Enable selection-based querying on the chat messages.
@@ -273,7 +290,7 @@ func (c *Chat) _updateMarkdown() error {
 	return nil
 }
 
-// StartRound initializes a new chat round with a query and and empty response.
+// StartRound initializes a new chat round with a query and an empty response.
 func (c *Chat) StartRound(query, selection string) (r *ChatRound) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
@@ -340,6 +357,7 @@ func (c *Chat) getHistory(lock bool) string {
 
 var chat *Chat
 var grok *core.Grokker
+var srv *http.Server
 
 func main() {
 	port := flag.Int("port", 8080, "port to listen on")
@@ -375,12 +393,31 @@ func main() {
 
 	http.HandleFunc("/query", queryHandler)
 	http.HandleFunc("/tokencount", tokenCountHandler)
+	http.HandleFunc("/stop", stopHandler)
 
 	addr := fmt.Sprintf(":%d", *port)
+	srv = &http.Server{Addr: addr}
 	log.Printf("Starting server on %s\n", addr)
-	if err := http.ListenAndServe(addr, nil); err != nil {
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
+}
+
+// stopHandler gracefully shuts down the server when receiving a POST request.
+func stopHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Received stop server request: %s", r.URL.Path)
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Server stopping"))
+	// Shutdown the server gracefully in a separate goroutine.
+	go func() {
+		if err := srv.Shutdown(context.Background()); err != nil {
+			log.Printf("Error shutting down server: %v", err)
+		}
+	}()
 }
 
 // queryHandler processes each query, sends it to the Grokker API,
