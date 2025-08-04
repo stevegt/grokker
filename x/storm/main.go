@@ -438,10 +438,10 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 
 			// if the line looks like [N] followed by a URL, convert
 			// the URL to a markdown link.
-			regex := `^\[(\d+)\]\s*(http[s]?://[^\s]+)\s*$`
+			regex := `^\s*\[(\d+)\]\s*(http[s]?://\S+)\s*$`
 			re := regexp.MustCompile(regex)
 			m := re.FindStringSubmatch(line)
-			if len(m) == 2 {
+			if len(m) > 0 {
 				// m[1] is the reference number, m[2] is the URL
 				line = fmt.Sprintf("- [%s] [%s](%s)", m[1], m[2], m[2])
 			}
