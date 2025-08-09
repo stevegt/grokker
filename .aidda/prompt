@@ -1,7 +1,12 @@
-add table of contents
+add table of contents hierarchy 
 
-Add a table of contents in a left-side navbar.  The navbar should be
-collapsible and should contain a link to each section of the document.  
+In the table of contents, the links should be structured and styled to
+reflect the hierarchy of the document. Each link should be indented
+according to its level in the hierarchy, with top-level links having
+no indentation, and links to subsections being indented accordingly.
+Top-level links should be bolded to indicate their primary importance,
+with subsection links being progressively smaller text depending on their
+level in the hierarchy. 
 
 In:
   x/storm/main.go

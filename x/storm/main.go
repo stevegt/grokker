@@ -136,9 +136,19 @@ var tmpl = template.Must(template.New("index").Parse(`
         if (!heading.id) {
           heading.id = "heading-" + index;
         }
+        var level = parseInt(heading.tagName.substring(1)); // Determine heading level from tag name
         var link = document.createElement("a");
         link.href = "#" + heading.id;
         link.textContent = heading.textContent;
+        // Bold top-level links (h1)
+        if(level === 1) {
+          link.style.fontWeight = "bold";
+        }
+        // Indent based on level, e.g. 20px per sub-level
+        link.style.marginLeft = ((level - 1) * 20) + "px";
+        // Adjust font size based on heading level
+        var fontSize = Math.max(1.2 - 0.1 * (level - 1), 0.8);
+        link.style.fontSize = fontSize + "em";
         toc.appendChild(link);
       });
     }

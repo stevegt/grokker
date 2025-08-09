@@ -42,7 +42,7 @@ var tmpl = template.Must(template.New("index").Parse(`
     }
     /* Collapsed sidebar style */
     #sidebar.collapsed {
-      width: 0;
+      width: 10;
       padding: 0;
       border: none;
       overflow: hidden;
@@ -100,7 +100,7 @@ var tmpl = template.Must(template.New("index").Parse(`
 <body>
   <div id="container">
     <div id="sidebar">
-      <button id="toggle-sidebar">Toggle TOC</button>
+      <button id="toggle-sidebar">TOC</button>
       <h3>Table of Contents</h3>
       <div id="toc">
         <!-- TOC will be generated here -->
@@ -137,9 +137,19 @@ var tmpl = template.Must(template.New("index").Parse(`
         if (!heading.id) {
           heading.id = "heading-" + index;
         }
+        var level = parseInt(heading.tagName.substring(1)); // Determine heading level from tag name
         var link = document.createElement("a");
         link.href = "#" + heading.id;
         link.textContent = heading.textContent;
+        // Bold top-level links (h1)
+        if(level === 1) {
+          link.style.fontWeight = "bold";
+        }
+        // Indent based on level, e.g. 20px per sub-level
+        link.style.marginLeft = ((level - 1) * 20) + "px";
+        // Adjust font size based on heading level
+        var fontSize = Math.max(1.2 - 0.1 * (level - 1), 0.8);
+        link.style.fontSize = fontSize + "em";
         toc.appendChild(link);
       });
     }
@@ -163,6 +173,8 @@ var tmpl = template.Must(template.New("index").Parse(`
       var messageDiv = document.createElement("div");
       messageDiv.className = "message";
       messageDiv.innerHTML = content;
+      // Instead of auto-scrolling or saving scroll position,
+      // we simply append the content and let the browser handle it without scrolling.
       chat.appendChild(messageDiv);
       generateTOC();
     }
@@ -212,10 +224,12 @@ var tmpl = template.Must(template.New("index").Parse(`
       }).then(function(response) {
         return response.json();
       }).then(function(data) {
+        // Remove the spinner and cancel button once the response is received.
         spinner.remove();
         cancelBtn.remove();
         var responseDiv = document.createElement("div");
         responseDiv.innerHTML = data.response;
+        // If the messageDiv is still in the document (i.e. not cancelled), append the response.
         if (document.body.contains(messageDiv)) {
           messageDiv.appendChild(responseDiv);
           updateTokenCount();
@@ -272,6 +286,7 @@ var tmpl = template.Must(template.New("index").Parse(`
       }
     });
 
+	/*
     // Enable selection-based querying on the chat messages.
     document.addEventListener("mouseup", function(e) {
       var selection = window.getSelection().toString().trim();
@@ -281,6 +296,7 @@ var tmpl = template.Must(template.New("index").Parse(`
       }
       return;
     });
+	*/
   </script>
 </body>
 </html>
@@ -656,5 +672,4 @@ func markdownToHTML(markdown string) string {
 	}
 	return buf.String()
 }
-
 ---FILE-END filename="/home/stevegt/lab/grokker/x/storm/main.go"---
