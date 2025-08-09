@@ -339,7 +339,7 @@ func NewChat(filename string) *Chat {
 			log.Printf("failed to read markdown file: %v", err)
 		} else {
 			// Since the file stores the chat history as markdown,
-			// we load it as a single ChatMessage with an empty query.
+			// we load it as a single ChatRound with an empty query.
 			history = append(history, &ChatRound{Response: string(content)})
 		}
 	}
@@ -462,6 +462,7 @@ var grok *core.Grokker
 var srv *http.Server
 
 func main() {
+	fmt.Println("storm v0.0.74")
 	port := flag.Int("port", 8080, "port to listen on")
 	filePtr := flag.String("file", "", "markdown file to store chat history")
 	flag.Parse()
@@ -588,7 +589,7 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 			refLines = append(refLines, line)
 		}
 		if len(refLines) > 0 {
-			// remove the original <references> section
+			// replace the original <references> section with the new ## References section.
 			beforeRefs := responseText[:refIndex]
 			refHead := "\n\n## References\n\n"
 			afterRefs := responseText[refEndIndex:]
@@ -611,8 +612,8 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// convert <think> tags to a markdown heading
-	re := strings.NewReplacer("<think>", "## Reasoning\n", "</think>", "")
-	responseText = re.Replace(responseText)
+	replacer := strings.NewReplacer("<think>", "## Reasoning\n", "</think>", "")
+	responseText = replacer.Replace(responseText)
 
 	err = chat.FinishRound(round, responseText)
 	if err != nil {
@@ -665,10 +666,55 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 	return response
 }
 
+// splitMarkdown splits the markdown input into sections separated by a horizontal rule (^---$).
+func splitMarkdown(input string) []string {
+	re := regexp.MustCompile("(?m)^---$")
+	sections := re.Split(input, -1)
+	return sections
+}
+
+// collectReferences scans the markdown input for reference lines of the form "- [N] URL"
+// and returns a map of URLs keyed by the reference number.
+func collectReferences(input string) map[string]string {
+	re := regexp.MustCompile(`(?m)^-\s+\[(\d+)\]\s+\[(http[s]?://\S+)\]`)
+	matches := re.FindAllStringSubmatch(input, -1)
+	refs := make(map[string]string)
+	for _, m := range matches {
+		if len(m) == 3 {
+			refs[m[1]] = m[2]
+		}
+	}
+	return refs
+}
+
+// linkifyReferences replaces occurrences of references like "[N]" with markdown links to the corresponding URL.
+func linkifyReferences(input string, refs map[string]string) string {
+	re := regexp.MustCompile(`\[(\d+)\]`)
+	result := re.ReplaceAllStringFunc(input, func(match string) string {
+		m := re.FindStringSubmatch(match)
+		if len(m) == 2 {
+			if url, ok := refs[m[1]]; ok {
+				return fmt.Sprintf("[[%s](%s)]", m[1], url)
+			}
+		}
+		return match
+	})
+	return result
+}
+
 // markdownToHTML converts markdown text to HTML using goldmark.
+// It first splits the markdown into sections, collects any reference URLs, and replaces each "[N]"
+// with a markdown link to the corresponding URL before rendering.
 func markdownToHTML(markdown string) string {
+	sections := splitMarkdown(markdown)
+	for i, sec := range sections {
+		refs := collectReferences(sec)
+		log.Printf("Found %d references in section %d", len(refs), i)
+		sections[i] = linkifyReferences(sec, refs)
+	}
+	processed := strings.Join(sections, "\n")
 	var buf bytes.Buffer
-	if err := goldmark.Convert([]byte(markdown), &buf); err != nil {
+	if err := goldmark.Convert([]byte(processed), &buf); err != nil {
 		log.Printf("Markdown conversion error: %v", err)
 		return "<p>Error rendering markdown</p>"
 	}
