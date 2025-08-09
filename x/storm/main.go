@@ -83,6 +83,9 @@ var tmpl = template.Must(template.New("index").Parse(`
       padding: 5px 10px;
       cursor: pointer;
       margin-bottom: 10px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
     }
     /* Table of Contents links */
     #toc a {
