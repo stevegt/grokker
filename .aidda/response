@@ -48,7 +48,7 @@ var tmpl = template.Must(template.New("index").Parse(`
       overflow: hidden;
     }
     /* Shrink the heading in the sidebar */
-    #sidebar h3 { font-size: 0.9em; }
+    #sidebar h3 { font-size: 0.7em; }
     /* Main content area */
     #main {
       flex: 1;

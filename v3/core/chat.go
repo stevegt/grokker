@@ -675,8 +675,8 @@ func ExtractFiles(outfiles []FileLang, rawResp string, dryrun, extractToStdout b
 
 	// remove the first <think>.*</think> section found
 	// get the start and end markers for the section
-	thinkStartPat := `(?i)<think>`
-	thinkEndPat := `</think>`
+	thinkStartPat := `(?i)^<think>$`
+	thinkEndPat := `^</think>$`
 	thinkStartRe := regexp.MustCompile(thinkStartPat)
 	thinkEndRe := regexp.MustCompile(thinkEndPat)
 	thinkStartPair := thinkStartRe.FindStringIndex(rawResp)
@@ -686,7 +686,9 @@ func ExtractFiles(outfiles []FileLang, rawResp string, dryrun, extractToStdout b
 		// we have a think section, remove it
 		thinkStartIdx := thinkStartPair[0]
 		thinkEndIdx := thinkEndPair[1]
-		resp = rawResp[:thinkStartIdx] + rawResp[thinkEndIdx:]
+		if thinkStartIdx < thinkEndIdx {
+			resp = rawResp[:thinkStartIdx] + rawResp[thinkEndIdx:]
+		}
 	} else {
 		// no think section, use the raw response
 		resp = rawResp
@@ -721,7 +723,7 @@ func ExtractFiles(outfiles []FileLang, rawResp string, dryrun, extractToStdout b
 			continue
 		}
 		fileStartIdx := startMarkerPair[1] // start of file is after the start marker
-		fileEndIdx := endMarkerPair[0]     // end of file is before the end marker
+		fileEndIdx := endMarkerPair[0] - 1 // end of file is before the end marker
 
 		// extract the file content from the response
 		txt := resp[fileStartIdx : fileEndIdx+1]
