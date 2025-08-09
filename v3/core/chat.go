@@ -699,22 +699,21 @@ func ExtractFiles(outfiles []FileLang, rawResp string, dryrun, extractToStdout b
 		re := regexp.MustCompile(pat)
 		// see if we have a match for this file
 		match := re.FindStringSubmatch(resp)
-		if len(match) == 0 {
+		if match == nil {
 			Fpf(os.Stderr, "Warning: file not found in the response: '%s'\nregex was: '%s'\n", fn, pat)
-			Fpf(os.Stderr, "Response was:\n%s\n", resp)
+			// Fpf(os.Stderr, "Response was:\n%s\n", resp)
 			continue
 		}
-		// match[1] is file name (from header)
-		// match[2] is text
+		// match[1] is text
 		if !dryrun {
 			if extractToStdout {
 				// write raw text to stdout
-				_, err = Pf("%s", match[2])
+				_, err = Pf("%s", match[1])
 				Ck(err)
 			} else {
 				// save the text to the file
 				// path := filepath.Join(history.g.Root, fn)
-				err = os.WriteFile(fn, []byte(match[2]), 0644)
+				err = os.WriteFile(fn, []byte(match[1]), 0644)
 				Ck(err)
 			}
 		}
