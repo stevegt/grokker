@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gofrs/flock"
 	"github.com/stevegt/grokker/v3/client"
@@ -462,6 +463,7 @@ var grok *core.Grokker
 var srv *http.Server
 
 func main() {
+	fmt.Println("storm v0.0.70")
 	port := flag.Int("port", 8080, "port to listen on")
 	filePtr := flag.String("file", "", "markdown file to store chat history")
 	flag.Parse()
@@ -556,15 +558,18 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Added %d tokens of context to query: %s", lastNTokenCount, req.Query)
 
 	responseText := sendQueryToLLM(req.Query, req.LLM, req.Selection, lastN)
+	// Capture the current epoch time to use in reference links.
+	rTime := time.Now().Unix()
 
-	// convert references to a bulleted list
+	// Convert references to a bulleted list and add anchor ids.
 	refIndex := strings.Index(responseText, "<references>")
 	if refIndex != -1 {
 		refEndIndex := strings.Index(responseText, "</references>") + len("</references>")
 		// every non-blank line after <references> is a reference --
 		// insert a '- ' before each line until we hit the closing tag.
 		firstRefIndex := refIndex + len("<references>")
-		references := strings.Split(responseText[firstRefIndex:], "\n")
+		referenceBlock := responseText[firstRefIndex:]
+		references := strings.Split(referenceBlock, "\n")
 		var refLines []string
 		for _, line := range references {
 			line = strings.TrimSpace(line)
@@ -576,15 +581,15 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// if the line looks like [N] followed by a URL, convert
-			// the URL to a markdown link.
+			// the URL to a markdown link with an embedded anchor id.
 			regex := `^\s*\[(\d+)\]\s*(http[s]?://\S+)\s*$`
 			re := regexp.MustCompile(regex)
 			m := re.FindStringSubmatch(line)
 			if len(m) > 0 {
-				// m[1] is the reference number, m[2] is the URL
-				line = fmt.Sprintf("- [%s] [%s](%s)", m[1], m[2], m[2])
+				// m[1] is the reference number, m[2] is the URL.
+				// Create an anchor with id for the reference.
+				line = fmt.Sprintf("- <a id=\"ref-%d-%s\"></a><a href=\"#ref-%d-%s\">[%s]</a> [%s](%s)", rTime, m[1], rTime, m[1], m[1], m[2], m[2])
 			}
-
 			refLines = append(refLines, line)
 		}
 		if len(refLines) > 0 {
@@ -611,8 +616,20 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// convert <think> tags to a markdown heading
-	re := strings.NewReplacer("<think>", "## Reasoning\n", "</think>", "")
-	responseText = re.Replace(responseText)
+	replacer := strings.NewReplacer("<think>", "## Reasoning\n", "</think>", "")
+	responseText = replacer.Replace(responseText)
+
+	// Replace inline reference markers with links.
+	// To avoid altering the references section, perform replacement on the main text only.
+	splitIdx := strings.Index(responseText, "## References")
+	if splitIdx != -1 {
+		mainText := responseText[:splitIdx]
+		refText := responseText[splitIdx:]
+		mainText = replaceInlineReferences(mainText, rTime)
+		responseText = mainText + refText
+	} else {
+		responseText = replaceInlineReferences(responseText, rTime)
+	}
 
 	err = chat.FinishRound(round, responseText)
 	if err != nil {
@@ -673,4 +690,16 @@ func markdownToHTML(markdown string) string {
 		return "<p>Error rendering markdown</p>"
 	}
 	return buf.String()
+}
+
+// replaceInlineReferences finds inline reference markers [N] and replaces them with links.
+func replaceInlineReferences(text string, rTime int64) string {
+	re := regexp.MustCompile(`\[(\d+)\]`)
+	return re.ReplaceAllStringFunc(text, func(match string) string {
+		sub := re.FindStringSubmatch(match)
+		if len(sub) == 2 {
+			return fmt.Sprintf(`<a href="#ref-%d-%s">[%s]</a>`, rTime, sub[1], sub[1])
+		}
+		return match
+	})
 }
