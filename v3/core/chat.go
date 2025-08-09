@@ -673,14 +673,22 @@ func (history *ChatHistory) extractFromChat(outfiles []FileLang, N int, extractT
 func ExtractFiles(outfiles []FileLang, rawResp string, dryrun, extractToStdout bool) (err error) {
 	defer Return(&err)
 
-	// remove the content of processing directives from the response, e.g. <think>
+	// remove the first <think>.*</think> section found
+	// get the start and end markers for the section
+	thinkStartPat := `(?i)<think>`
+	thinkEndPat := `</think>`
+	thinkStartRe := regexp.MustCompile(thinkStartPat)
+	thinkEndRe := regexp.MustCompile(thinkEndPat)
+	thinkStartPair := thinkStartRe.FindStringIndex(rawResp)
+	thinkEndPair := thinkEndRe.FindStringIndex(rawResp)
 	var resp string
-	re := regexp.MustCompile(`(?i)<think>.*?</think>(.*)`)
-	m := re.FindStringSubmatch(rawResp)
-	if len(m) > 0 {
-		// remove the think directive
-		resp = m[1]
+	if thinkStartPair != nil && thinkEndPair != nil {
+		// we have a think section, remove it
+		thinkStartIdx := thinkStartPair[0]
+		thinkEndIdx := thinkEndPair[1]
+		resp = rawResp[:thinkStartIdx] + rawResp[thinkEndIdx:]
 	} else {
+		// no think section, use the raw response
 		resp = rawResp
 	}
 
@@ -698,6 +706,13 @@ func ExtractFiles(outfiles []FileLang, rawResp string, dryrun, extractToStdout b
 		startMarkerPair := startRe.FindStringIndex(resp)
 		if startMarkerPair == nil {
 			Fpf(os.Stderr, "Warning: start marker not found for file '%s'\nregex was: '%s'\n", fn, startPat)
+			Fpf(os.Stderr, "rawResp length: %d\n", len(rawResp))
+			Fpf(os.Stderr, "Response length: %d\n", len(resp))
+			headLen := len(resp)
+			if headLen > 100 {
+				headLen = 100
+			}
+			Fpf(os.Stderr, "Response head: %s\n", resp[:headLen])
 			continue
 		}
 		endMarkerPair := endRe.FindStringIndex(resp)
@@ -705,8 +720,8 @@ func ExtractFiles(outfiles []FileLang, rawResp string, dryrun, extractToStdout b
 			Fpf(os.Stderr, "Warning: end marker not found for file '%s'\nregex was: '%s'\n", fn, endPat)
 			continue
 		}
-		fileStartIdx := startMarkerPair[1] + 1 // start of file is after the start marker
-		fileEndIdx := endMarkerPair[0] - 1     // end of file is before the end marker
+		fileStartIdx := startMarkerPair[1] // start of file is after the start marker
+		fileEndIdx := endMarkerPair[0]     // end of file is before the end marker
 
 		// extract the file content from the response
 		txt := resp[fileStartIdx : fileEndIdx+1]

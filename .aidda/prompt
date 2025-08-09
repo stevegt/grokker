@@ -1,30 +1,7 @@
-create links to reference URLs
+shrink heading fonts in left nevigation bar
 
-We want each '[N]' reference in the markdown input to be a link to the URL
-given in the corresponding reference.  There may be multiple reference
-sections in the markdown input, and each section has a horizontal rule
-('^---$') that separates it from the next section.  Here's what we
-need to do:
-
-Write a function called splitMarkdown that takes a string of markdown
-input and returns a slice of strings, where each string is a section of
-markdown input that is separated by a horizontal rule ('^---$').  
-
-Write a function called collectReferences that takes a string of markdown
-input and returns a map of URLs keyed by reference number.  
-
-Write a function called linkifyReferences that takes a string of markdown
-and a map of URLs keyed by reference number, and returns a string of
-markdown input with each '[N]' reference replaced with a link to the
-corresponding URL.  
-
-Finally, in markdownToHTML(), use these functions to process the
-markdown input before calling goldmark.Convert().  Specifically, you
-will first call splitMarkdown() to get the sections, then for each
-section, you will call collectReferences() to get the map of URLs,
-and then you will call linkifyReferences() to replace the references
-with links.  After processing all sections, you will join them back
-together into a single string and pass that to goldmark.Convert().
+The left navigation bar table of content headings are too large and
+need to be shrunk to a more reasonable size.  
 
 In:
   x/storm/main.go
@@ -39,8 +16,6 @@ Out:
 - autopopulate models list
 - embeddings and vector db 
 
-
-.stop
 
 .stop
 

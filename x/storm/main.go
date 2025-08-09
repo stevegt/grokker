@@ -46,6 +46,8 @@ var tmpl = template.Must(template.New("index").Parse(`
       border: none;
       overflow: hidden;
     }
+    /* Shrink the heading in the sidebar */
+    #sidebar h3 { font-size: 0.9em; }
     /* Main content area */
     #main {
       flex: 1;
@@ -149,8 +151,8 @@ var tmpl = template.Must(template.New("index").Parse(`
         }
         // Indent based on level, e.g. 20px per sub-level
         link.style.marginLeft = ((level - 1) * 20) + "px";
-        // Adjust font size based on heading level
-        var fontSize = Math.max(1.2 - 0.1 * (level - 1), 0.8);
+        // Adjust font size based on heading level (shrunk from original values)
+        var fontSize = Math.max(1.0 - 0.1 * (level - 1), 0.7);
         link.style.fontSize = fontSize + "em";
         toc.appendChild(link);
       });
