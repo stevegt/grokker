@@ -573,13 +573,13 @@ func OutfilesRegex(files []FileLang) string {
 		The regex matches the following:
 
 		<ignored optional text>
-		---FILE-START filename="(filename)"---
+		---FILE-START filename="filename"---
 		[file content]
-		---FILE-END filename="(filename)"---
+		---FILE-END filename="filename"---
 		[ignored optional text]
-		---FILE-START filename="(filename)"---
+		---FILE-START filename="filename"---
 		[file content]
-		---FILE-END filename="(filename)"---
+		---FILE-END filename="filename"---
 		[ignored optional text]
 		...
 
@@ -589,9 +589,9 @@ func OutfilesRegex(files []FileLang) string {
 	// (?s:...) is a dot-all group
 	// (?i:...) is a case-insensitive group
 
-	headerTmpl := `(?:^|\n)(?i)---FILE-START filename="(%s)"---\n`
+	headerTmpl := `(?:^|\n)(?i)---FILE-START filename="%s"---\n`
 	text := `(?s)(.*)`
-	closeTmpl := `---FILE-END filename="(%s)"---(?:\s*|\n)*`
+	closeTmpl := `---FILE-END filename="%s"---(?:\s*|\n)*`
 
 	var header, closeBlock, out string
 	if len(files) == 0 {

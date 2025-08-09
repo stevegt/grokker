@@ -1,8 +1,12 @@
-keep TOC button on screen
+create links to references
 
-The Table of Contents (TOC) button should remain visible on the screen
-at all times, even when the user scrolls through the table of
-contents.
+Each "[N]" reference in the text should be a link to the corresponding
+reference in the "References" section at the end of the response. The
+links should be in the format "<a href="#ref-R-N">[N]</a>", where R is
+the epoch timestamp the response was received, and N is the reference
+number within that response. For example, if the response was received
+at epoch time 1754757540 and the reference number is 2, the link
+should be "<a href="#ref-1754757540-2">[2]</a>". 
 
 In:
   x/storm/main.go
