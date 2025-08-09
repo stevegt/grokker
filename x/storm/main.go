@@ -28,7 +28,32 @@ var tmpl = template.Must(template.New("index").Parse(`
   <title>Grokker LLM Chat</title>
   <style>
     body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
-    #chat { padding: 20px; max-height: 80vh; overflow-y: auto; border-bottom: 1px solid #ccc; overflow-anchor: none; }
+    /* Container for sidebar and main content */
+    #container { display: flex; height: 100vh; }
+    /* Left sidebar for Table of Contents */
+    #sidebar {
+      width: 250px;
+      background-color: #f4f4f4;
+      border-right: 1px solid #ccc;
+      overflow-y: auto;
+      transition: width 0.3s;
+      padding: 10px;
+    }
+    /* Collapsed sidebar style */
+    #sidebar.collapsed {
+      width: 10;
+      padding: 0;
+      border: none;
+      overflow: hidden;
+    }
+    /* Main content area */
+    #main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    #chat { padding: 20px; flex: 1; overflow-y: auto; border-bottom: 1px solid #ccc; }
     .message { margin-bottom: 10px; padding: 5px; border: 1px solid #ddd; border-radius: 4px; background-color: #f9f9f9; }
     #spinner-area { padding: 10px; text-align: center; }
     .spinner {
@@ -45,32 +70,92 @@ var tmpl = template.Must(template.New("index").Parse(`
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
     }
-    #input-area { position: fixed; bottom: 0; width: 100%; background: #f0f0f0; padding: 10px; box-shadow: 0 -2px 5px rgba(0,0,0,0.1); }
+    #input-area { background: #f0f0f0; padding: 10px; box-shadow: 0 -2px 5px rgba(0,0,0,0.1); }
     textarea { width: 60%; height: 50px; vertical-align: middle; margin-right: 10px; }
     select { vertical-align: middle; margin-right: 10px; }
     button { height: 54px; vertical-align: middle; }
     #statusBox { display: inline-block; margin-left: 10px; vertical-align: middle; font-size: 9px; }
+    /* Toggle button for sidebar */
+    #toggle-sidebar {
+      background-color: #3498db;
+      color: white;
+      border: none;
+      padding: 5px 10px;
+      cursor: pointer;
+      margin-bottom: 10px;
+    }
+    /* Table of Contents links */
+    #toc a {
+      text-decoration: none;
+      color: #333;
+      padding: 4px;
+      display: block;
+    }
+    #toc a:hover {
+      background-color: #ddd;
+    }
   </style>
 </head>
 <body>
-  <div id="chat">
-    <!-- Chat messages will appear here -->
-    {{.ChatHTML}}
-  </div>
-  <div id="spinner-area">
-    <!-- Progress spinners will appear here -->
-  </div>
-  <div id="input-area">
-    <select id="llmSelect">
-      <option value="o3-mini">o3-mini</option>
-      <option value="sonar-deep-research">sonar-deep-research</option>
-    </select>
-    <textarea id="userInput" placeholder="Enter query"></textarea>
-    <button id="sendBtn">Send</button>
-    <span id="statusBox">Token Count: 0</span>
-    <button id="stopBtn">Stop<br>Server</button>
+  <div id="container">
+    <div id="sidebar">
+      <button id="toggle-sidebar">TOC</button>
+      <h3>Table of Contents</h3>
+      <div id="toc">
+        <!-- TOC will be generated here -->
+      </div>
+    </div>
+    <div id="main">
+      <div id="chat">
+        <!-- Chat messages will appear here -->
+        {{.ChatHTML}}
+      </div>
+      <div id="spinner-area">
+        <!-- Progress spinners will appear here -->
+      </div>
+      <div id="input-area">
+        <select id="llmSelect">
+          <option value="o3-mini">o3-mini</option>
+          <option value="sonar-deep-research">sonar-deep-research</option>
+        </select>
+        <textarea id="userInput" placeholder="Enter query"></textarea>
+        <button id="sendBtn">Send</button>
+        <span id="statusBox">Token Count: 0</span>
+        <button id="stopBtn">Stop<br>Server</button>
+      </div>
+    </div>
   </div>
   <script>
+    // Generate a Table of Contents from headings in the chat
+    function generateTOC() {
+      var chat = document.getElementById("chat");
+      var headings = chat.querySelectorAll("h1, h2, h3, h4, h5, h6");
+      var toc = document.getElementById("toc");
+      toc.innerHTML = "";
+      headings.forEach(function(heading, index) {
+        if (!heading.id) {
+          heading.id = "heading-" + index;
+        }
+        var link = document.createElement("a");
+        link.href = "#" + heading.id;
+        link.textContent = heading.textContent;
+        toc.appendChild(link);
+      });
+    }
+    // Call generateTOC when the DOM content is loaded.
+    document.addEventListener("DOMContentLoaded", function() {
+      generateTOC();
+      // Toggle sidebar visibility
+      var sidebar = document.getElementById("sidebar");
+      document.getElementById("toggle-sidebar").addEventListener("click", function() {
+        if (sidebar.classList.contains("collapsed")) {
+          sidebar.classList.remove("collapsed");
+        } else {
+          sidebar.classList.add("collapsed");
+        }
+      });
+    });
+
     // Append a new message to the chat view without scrolling the page.
     function appendMessage(content) {
       var chat = document.getElementById("chat");
@@ -80,6 +165,7 @@ var tmpl = template.Must(template.New("index").Parse(`
       // Instead of auto-scrolling or saving scroll position,
       // we simply append the content and let the browser handle it without scrolling.
       chat.appendChild(messageDiv);
+      generateTOC();
     }
 
     // Send query to the /query endpoint.
@@ -105,6 +191,7 @@ var tmpl = template.Must(template.New("index").Parse(`
       cancelBtn.style.marginLeft = "5px";
       messageDiv.appendChild(cancelBtn);
       chat.appendChild(messageDiv);
+      generateTOC();
 
       // Create an abort controller to cancel the fetch request.
       var abortController = new AbortController();
@@ -113,6 +200,7 @@ var tmpl = template.Must(template.New("index").Parse(`
       cancelBtn.addEventListener("click", function() {
         abortController.abort();
         messageDiv.remove();
+        generateTOC();
       });
 
       fetch("/query", {
@@ -134,9 +222,9 @@ var tmpl = template.Must(template.New("index").Parse(`
         if (document.body.contains(messageDiv)) {
           messageDiv.appendChild(responseDiv);
           updateTokenCount();
+          generateTOC();
         }
       }).catch(function(err) {
-        // If the error is due to abort, do nothing.
         if (err.name === "AbortError") {
           return;
         }
@@ -187,8 +275,8 @@ var tmpl = template.Must(template.New("index").Parse(`
       }
     });
 
+	/*
     // Enable selection-based querying on the chat messages.
-    // Instead of prompting for input, selected text is appended to the text box at the bottom.
     document.addEventListener("mouseup", function(e) {
       var selection = window.getSelection().toString().trim();
       if(selection.length > 0) {
@@ -197,6 +285,7 @@ var tmpl = template.Must(template.New("index").Parse(`
       }
       return;
     });
+	*/
   </script>
 </body>
 </html>

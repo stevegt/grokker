@@ -1,11 +1,20 @@
-add a "stop server" button
+add table of contents
 
-Add a "stop server" button to the right of the status box.
+Add a table of contents in a left-side navbar.  The navbar should be
+collapsible and should contain a link to each section of the document.  
 
 In:
   x/storm/main.go
 Out:
   x/storm/main.go
+
+.stop
+
+- remove paste
+- add a spinner in the status box 
+- some sort of bookmarks
+- autopopulate models list
+- embeddings and vector db 
 
 
 .stop
