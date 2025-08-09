@@ -563,6 +563,9 @@ type FileLang struct {
 	Language string
 }
 
+var fileStartTmpl = `(?:^|\n)(?i)---FILE-START filename="%s"---\n`
+var fileEndTmpl = `---FILE-END filename="%s"---(?:\s*|\n)*`
+
 // OutfilesRegex returns a regular expression that matches the format
 // of output files embedded in chat responses.  The Language field of
 // each FileLang struct is used to generate a repeating regex that
@@ -589,22 +592,20 @@ func OutfilesRegex(files []FileLang) string {
 	// (?s:...) is a dot-all group
 	// (?i:...) is a case-insensitive group
 
-	headerTmpl := `(?:^|\n)(?i)---FILE-START filename="%s"---\n`
-	text := `(?s)(.*)`
-	closeTmpl := `---FILE-END filename="%s"---(?:\s*|\n)*`
+	testPat := `(?s)(.*)`
 
 	var header, closeBlock, out string
 	if len(files) == 0 {
 		// single file, unknown name
-		header = Spf(headerTmpl, `[\w\-\.]+`)
-		closeBlock = Spf(closeTmpl, `[\w\-\.]+`)
-		out = Spf(`%s%s%s`, header, text, closeBlock)
+		header = Spf(fileStartTmpl, `[\w\-\.]+`)
+		closeBlock = Spf(fileEndTmpl, `[\w\-\.]+`)
+		out = Spf(`%s%s%s`, header, testPat, closeBlock)
 	} else {
 		// multiple files, known names
 		for _, fileLang := range files {
-			header = Spf(headerTmpl, fileLang.File)
-			closeBlock = Spf(closeTmpl, fileLang.File)
-			out += Spf(`%s%s%s`, header, text, closeBlock)
+			header = Spf(fileStartTmpl, fileLang.File)
+			closeBlock = Spf(fileEndTmpl, fileLang.File)
+			out += Spf(`%s%s%s`, header, testPat, closeBlock)
 		}
 	}
 	return out
@@ -687,33 +688,38 @@ func ExtractFiles(outfiles []FileLang, rawResp string, dryrun, extractToStdout b
 	// - we ignore any files the AI provides that are not in the list
 	for _, fileLang := range outfiles {
 		fn := fileLang.File
-		// get the regex for this file
-		var pat string
-		// XXX make outfiles a map or make this a method
-		for _, fl := range outfiles {
-			if fl.File == fn {
-				pat = OutfilesRegex([]FileLang{fl})
-				break
-			}
-		}
-		re := regexp.MustCompile(pat)
-		// see if we have a match for this file
-		match := re.FindStringSubmatch(resp)
-		if match == nil {
-			Fpf(os.Stderr, "Warning: file not found in the response: '%s'\nregex was: '%s'\n", fn, pat)
-			// Fpf(os.Stderr, "Response was:\n%s\n", resp)
+		// get the start and end regexs for this file
+		startPat := Spf(fileStartTmpl, regexp.QuoteMeta(fn))
+		endPat := Spf(fileEndTmpl, regexp.QuoteMeta(fn))
+		startRe := regexp.MustCompile(startPat)
+		endRe := regexp.MustCompile(endPat)
+
+		// find the start and end of the file in the response
+		startMarkerPair := startRe.FindStringIndex(resp)
+		if startMarkerPair == nil {
+			Fpf(os.Stderr, "Warning: start marker not found for file '%s'\nregex was: '%s'\n", fn, startPat)
 			continue
 		}
-		// match[1] is text
+		endMarkerPair := endRe.FindStringIndex(resp)
+		if endMarkerPair == nil {
+			Fpf(os.Stderr, "Warning: end marker not found for file '%s'\nregex was: '%s'\n", fn, endPat)
+			continue
+		}
+		fileStartIdx := startMarkerPair[1] + 1 // start of file is after the start marker
+		fileEndIdx := endMarkerPair[0] - 1     // end of file is before the end marker
+
+		// extract the file content from the response
+		txt := resp[fileStartIdx : fileEndIdx+1]
+
 		if !dryrun {
 			if extractToStdout {
 				// write raw text to stdout
-				_, err = Pf("%s", match[1])
+				_, err = Pf("%s", txt)
 				Ck(err)
 			} else {
 				// save the text to the file
 				// path := filepath.Join(history.g.Root, fn)
-				err = os.WriteFile(fn, []byte(match[1]), 0644)
+				err = os.WriteFile(fn, []byte(txt), 0644)
 				Ck(err)
 			}
 		}
