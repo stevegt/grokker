@@ -1,7 +1,9 @@
-shrink heading fonts in left nevigation bar
+add status box spinner
 
-The left navigation bar table of content headings are too large and
-need to be shrunk to a more reasonable size.  
+Add a small spinner in the status box that only appears when there are
+outstanding queries to the Grokker API. The spinner should be visible
+when the Grokker API is processing a request and should disappear once
+the response is received. 
 
 In:
   x/storm/main.go

@@ -120,17 +120,33 @@ var tmpl = template.Must(template.New("index").Parse(`
       </div>
       <div id="input-area">
         <select id="llmSelect">
-          <option value="o3-mini">o3-mini</option>
           <option value="sonar-deep-research">sonar-deep-research</option>
+          <option value="o3-mini">o3-mini</option>
         </select>
         <textarea id="userInput" placeholder="Enter query"></textarea>
         <button id="sendBtn">Send</button>
-        <span id="statusBox">Token Count: 0</span>
+        <span id="statusBox">
+          <span id="tokenCountText">Token Count: 0</span>
+		  <br>
+          <span id="statusSpinner" style="display:none;" class="spinner"></span>
+        </span>
         <button id="stopBtn">Stop<br>Server</button>
       </div>
     </div>
   </div>
   <script>
+    // Global counter for outstanding queries.
+    var outstandingQueries = 0;
+    // Updates the spinner in the status box based on the current outstanding query count.
+    function updateStatusSpinner() {
+      var spinner = document.getElementById("statusSpinner");
+      if (outstandingQueries > 0) {
+        spinner.style.display = "inline-block";
+      } else {
+        spinner.style.display = "none";
+      }
+    }
+
     // Generate a Table of Contents from headings in the chat
     function generateTOC() {
       var chat = document.getElementById("chat");
@@ -208,6 +224,10 @@ var tmpl = template.Must(template.New("index").Parse(`
       chat.appendChild(messageDiv);
       generateTOC();
 
+      // Increment global outstanding query count and update status spinner.
+      outstandingQueries++;
+      updateStatusSpinner();
+
       // Create an abort controller to cancel the fetch request.
       var abortController = new AbortController();
 
@@ -215,6 +235,9 @@ var tmpl = template.Must(template.New("index").Parse(`
       cancelBtn.addEventListener("click", function() {
         abortController.abort();
         messageDiv.remove();
+        // Decrement outstanding queries and update status spinner when cancelled.
+        outstandingQueries--;
+        updateStatusSpinner();
         generateTOC();
       });
 
@@ -239,6 +262,9 @@ var tmpl = template.Must(template.New("index").Parse(`
           updateTokenCount();
           generateTOC();
         }
+        // Decrement outstanding queries and update status spinner.
+        outstandingQueries--;
+        updateStatusSpinner();
       }).catch(function(err) {
         if (err.name === "AbortError") {
           return;
@@ -248,6 +274,9 @@ var tmpl = template.Must(template.New("index").Parse(`
         var errorDiv = document.createElement("div");
         errorDiv.textContent = "Error: " + err;
         messageDiv.appendChild(errorDiv);
+        // Decrement outstanding queries and update status spinner.
+        outstandingQueries--;
+        updateStatusSpinner();
       });
     }
 
@@ -256,8 +285,8 @@ var tmpl = template.Must(template.New("index").Parse(`
       fetch("/tokencount")
         .then(function(response) { return response.json(); })
         .then(function(data) {
-          var statusBox = document.getElementById("statusBox");
-          statusBox.textContent = "Token Count: " + data.tokens;
+          var tokenCountText = document.getElementById("tokenCountText");
+          tokenCountText.textContent = "Token Count: " + data.tokens;
         })
         .catch(function(err) {
           console.error("Error fetching token count:", err);
