@@ -1,9 +1,9 @@
-add status box spinner
+add red stop sign in the status box in case of error
 
-Add a small spinner in the status box that only appears when there are
-outstanding queries to the Grokker API. The spinner should be visible
-when the Grokker API is processing a request and should disappear once
-the response is received. 
+Add a red stop sign in the status box that appears when there is an
+error in the Grokker API response. The stop sign should be visible
+when the Grokker API returns an error and should not disappear until
+the page is reloaded.
 
 In:
   x/storm/main.go

@@ -77,8 +77,14 @@ var tmpl = template.Must(template.New("index").Parse(`
     textarea { width: 60%; height: 50px; vertical-align: middle; margin-right: 10px; }
     select { vertical-align: middle; margin-right: 10px; }
     button { height: 54px; vertical-align: middle; }
-    /* Modified statusBox to include a spinner element for outstanding queries */
     #statusBox { display: inline-block; margin-left: 10px; vertical-align: middle; font-size: 9px; }
+    /* Red stop sign for error indication in status box */
+    #errorSign {
+      display: none;
+      color: red;
+      font-size: 16px;
+      margin-left: 5px;
+    }
     /* Toggle button for sidebar */
     #toggle-sidebar {
       background-color: #3498db;
@@ -129,7 +135,9 @@ var tmpl = template.Must(template.New("index").Parse(`
         <button id="sendBtn">Send</button>
         <span id="statusBox">
           <span id="tokenCountText">Token Count: 0</span>
+		  <br>
           <span id="statusSpinner" style="display:none;" class="spinner"></span>
+          <span id="errorSign">⛔</span>
         </span>
         <button id="stopBtn">Stop<br>Server</button>
       </div>
@@ -145,6 +153,14 @@ var tmpl = template.Must(template.New("index").Parse(`
         spinner.style.display = "inline-block";
       } else {
         spinner.style.display = "none";
+      }
+    }
+
+    // Show the error stop sign. Once shown, it remains visible until the page is reloaded.
+    function showErrorSign() {
+      var errorSign = document.getElementById("errorSign");
+      if (errorSign) {
+        errorSign.style.display = "inline-block";
       }
     }
 
@@ -275,6 +291,8 @@ var tmpl = template.Must(template.New("index").Parse(`
         var errorDiv = document.createElement("div");
         errorDiv.textContent = "Error: " + err;
         messageDiv.appendChild(errorDiv);
+        // Show red stop sign in the status box in case of error.
+        showErrorSign();
         // Decrement outstanding queries and update status spinner.
         outstandingQueries--;
         updateStatusSpinner();
@@ -311,7 +329,7 @@ var tmpl = template.Must(template.New("index").Parse(`
         fetch("/stop", { method: "POST" })
           .then(function(response) {
             if(response.ok) {
-              alert("Server is stopping...");
+              console.log("Server is stopping...");
             }
           })
           .catch(function(err) {

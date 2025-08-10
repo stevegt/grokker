@@ -77,6 +77,13 @@ var tmpl = template.Must(template.New("index").Parse(`
     select { vertical-align: middle; margin-right: 10px; }
     button { height: 54px; vertical-align: middle; }
     #statusBox { display: inline-block; margin-left: 10px; vertical-align: middle; font-size: 9px; }
+    /* Red stop sign for error indication in status box */
+    #errorSign {
+      display: none;
+      color: red;
+      font-size: 16px;
+      margin-left: 5px;
+    }
     /* Toggle button for sidebar */
     #toggle-sidebar {
       background-color: #3498db;
@@ -129,6 +136,7 @@ var tmpl = template.Must(template.New("index").Parse(`
           <span id="tokenCountText">Token Count: 0</span>
 		  <br>
           <span id="statusSpinner" style="display:none;" class="spinner"></span>
+          <span id="errorSign">⛔</span>
         </span>
         <button id="stopBtn">Stop<br>Server</button>
       </div>
@@ -144,6 +152,14 @@ var tmpl = template.Must(template.New("index").Parse(`
         spinner.style.display = "inline-block";
       } else {
         spinner.style.display = "none";
+      }
+    }
+
+    // Show the error stop sign. Once shown, it remains visible until the page is reloaded.
+    function showErrorSign() {
+      var errorSign = document.getElementById("errorSign");
+      if (errorSign) {
+        errorSign.style.display = "inline-block";
       }
     }
 
@@ -274,6 +290,8 @@ var tmpl = template.Must(template.New("index").Parse(`
         var errorDiv = document.createElement("div");
         errorDiv.textContent = "Error: " + err;
         messageDiv.appendChild(errorDiv);
+        // Show red stop sign in the status box in case of error.
+        showErrorSign();
         // Decrement outstanding queries and update status spinner.
         outstandingQueries--;
         updateStatusSpinner();
@@ -493,7 +511,7 @@ var grok *core.Grokker
 var srv *http.Server
 
 func main() {
-	fmt.Println("storm v0.0.74")
+	fmt.Println("storm v0.0.75")
 	port := flag.Int("port", 8080, "port to listen on")
 	filePtr := flag.String("file", "", "markdown file to store chat history")
 	flag.Parse()
@@ -653,7 +671,7 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := QueryResponse{
-		Response: markdownToHTML(responseText),
+		Response: markdownToHTML(responseText) + "\n\n<hr>\n\n",
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
@@ -737,17 +755,27 @@ func linkifyReferences(input string, refs map[string]string) string {
 // It first splits the markdown into sections, collects any reference URLs, and replaces each "[N]"
 // with a markdown link to the corresponding URL before rendering.
 func markdownToHTML(markdown string) string {
+
+	// linkify references in the markdown
 	sections := splitMarkdown(markdown)
 	for i, sec := range sections {
 		refs := collectReferences(sec)
-		log.Printf("Found %d references in section %d", len(refs), i)
+		// log.Printf("Found %d references in section %d", len(refs), i)
 		sections[i] = linkifyReferences(sec, refs)
 	}
-	processed := strings.Join(sections, "\n")
+	processed := strings.Join(sections, "\n\n---\n\n")
+
+	/*
+		// replace '^---$' with an HTML horizontal rule
+		pattern := regexp.MustCompile("(?m)^---$")
+		processed = pattern.ReplaceAllString(processed, "<hr>")
+	*/
+
 	var buf bytes.Buffer
 	if err := goldmark.Convert([]byte(processed), &buf); err != nil {
 		log.Printf("Markdown conversion error: %v", err)
 		return "<p>Error rendering markdown</p>"
 	}
+
 	return buf.String()
 }
