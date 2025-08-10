@@ -310,7 +310,7 @@ var tmpl = template.Must(template.New("index").Parse(`
         fetch("/stop", { method: "POST" })
           .then(function(response) {
             if(response.ok) {
-              alert("Server is stopping...");
+              console.log("Server is stopping...");
             }
           })
           .catch(function(err) {
