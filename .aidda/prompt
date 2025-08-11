@@ -1,17 +1,6 @@
-add a "word count" input 
+change the UI to operate in "dark mode"
 
-Add an input field under the "Send" button that lets the user ask the
-LLM to limit the number of words in the response.  This is not a token
-limit provided to the Grokker API, but rather a request to the LLM as
-part of the prompt. The input should be labeled "Word Count" and
-should accept a positive integer value. If the user enters a value,
-we will append a sentencthe to the prompt asking the LLM to limit
-the response to that many words. If the user does not enter a value,
-we do not append the sentence.
-
-The value the user enters should be persistent; the user should not
-need to re-enter the value every time they hit "Send". 
-
+Change the UI to operate in "dark mode", with a dark background and light text.
 
 In:
   x/storm/main.go

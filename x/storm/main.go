@@ -27,14 +27,20 @@ var tmpl = template.Must(template.New("index").Parse(`
   <meta charset="utf-8">
   <title>Grokker LLM Chat</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+    body { 
+      font-family: Arial, sans-serif; 
+      margin: 0; 
+      padding: 0; 
+      background-color: #121212; 
+      color: #e0e0e0;
+    }
     /* Container for sidebar and main content */
     #container { display: flex; height: 100vh; }
     /* Left sidebar for Table of Contents */
     #sidebar {
       width: 250px;
-      background-color: #f4f4f4;
-      border-right: 1px solid #ccc;
+      background-color: #1e1e1e;
+      border-right: 1px solid #333;
       overflow-y: auto;
       transition: width 0.3s;
       padding: 10px;
@@ -55,11 +61,17 @@ var tmpl = template.Must(template.New("index").Parse(`
       flex-direction: column;
       overflow: hidden;
     }
-    #chat { padding: 20px; flex: 1; overflow-y: auto; border-bottom: 1px solid #ccc; }
-    .message { margin-bottom: 10px; padding: 5px; border: 1px solid #ddd; border-radius: 4px; background-color: #f9f9f9; }
+    #chat { padding: 20px; flex: 1; overflow-y: auto; border-bottom: 1px solid #333; }
+    .message { 
+      margin-bottom: 10px; 
+      padding: 5px; 
+      border: 1px solid #444; 
+      border-radius: 4px; 
+      background-color: #252525; 
+    }
     #spinner-area { padding: 10px; text-align: center; }
     .spinner {
-      border: 4px solid #f3f3f3;
+      border: 4px solid #555;
       border-top: 4px solid #3498db;
       border-radius: 50%;
       width: 10px;
@@ -72,11 +84,38 @@ var tmpl = template.Must(template.New("index").Parse(`
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
     }
-    #input-area { background: #f0f0f0; padding: 10px; box-shadow: 0 -2px 5px rgba(0,0,0,0.1); }
-    textarea { width: 40%; height: 100px; vertical-align: middle; margin-right: 10px; }
-    select { vertical-align: middle; margin-right: 10px; }
-    input[type="number"] { vertical-align: middle; margin-right: 10px; width: 80px; height: 20px; font-size: 12px; padding: 5px; }
-    button { height: 50; vertical-align: middle; }
+    #input-area { background: #1e1e1e; padding: 10px; box-shadow: 0 -2px 5px rgba(0,0,0,0.1); }
+    textarea { 
+      width: 40%; 
+      height: 100px; 
+      vertical-align: middle; 
+      margin-right: 10px; 
+      background-color: #333;
+      color: #e0e0e0;
+      border: 1px solid #555;
+    }
+    select { 
+      vertical-align: middle; 
+      margin-right: 10px; 
+      background-color: #333;
+      color: #e0e0e0;
+      border: 1px solid #555;
+    }
+    input[type="number"] { 
+      vertical-align: middle; 
+      margin-right: 10px; 
+      width: 80px; 
+      height: 20px; 
+      font-size: 12px; 
+      padding: 5px; 
+      background-color: #333;
+      color: #e0e0e0;
+      border: 1px solid #555;
+    }
+    button { 
+      height: 50; 
+      vertical-align: middle; 
+    }
     #statusBox { display: inline-block; margin-left: 10px; vertical-align: middle; font-size: 9px; }
     /* Red stop sign for error indication in status box */
     #errorSign {
@@ -100,12 +139,12 @@ var tmpl = template.Must(template.New("index").Parse(`
     /* Table of Contents links */
     #toc a {
       text-decoration: none;
-      color: #333;
+      color: #ddd;
       padding: 4px;
       display: block;
     }
     #toc a:hover {
-      background-color: #ddd;
+      background-color: #444;
     }
   </style>
 </head>
@@ -789,3 +828,4 @@ func markdownToHTML(markdown string) string {
 
 	return buf.String()
 }
+
