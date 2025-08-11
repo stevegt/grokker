@@ -73,9 +73,10 @@ var tmpl = template.Must(template.New("index").Parse(`
       100% { transform: rotate(360deg); }
     }
     #input-area { background: #f0f0f0; padding: 10px; box-shadow: 0 -2px 5px rgba(0,0,0,0.1); }
-    textarea { width: 60%; height: 50px; vertical-align: middle; margin-right: 10px; }
+    textarea { width: 40%; height: 100px; vertical-align: middle; margin-right: 10px; }
     select { vertical-align: middle; margin-right: 10px; }
-    button { height: 54px; vertical-align: middle; }
+    input[type="number"] { vertical-align: middle; margin-right: 10px; width: 80px; height: 20px; font-size: 12px; padding: 5px; }
+    button { height: 50; vertical-align: middle; }
     #statusBox { display: inline-block; margin-left: 10px; vertical-align: middle; font-size: 9px; }
     /* Red stop sign for error indication in status box */
     #errorSign {
@@ -132,6 +133,8 @@ var tmpl = template.Must(template.New("index").Parse(`
         </select>
         <textarea id="userInput" placeholder="Enter query"></textarea>
         <button id="sendBtn">Send</button>
+        <label for="wordCount">Word Count</label>
+        <input type="number" id="wordCount" min="1" placeholder="10000">
         <span id="statusBox">
           <span id="tokenCountText">Token Count: 0</span>
 		  <br>
@@ -318,8 +321,14 @@ var tmpl = template.Must(template.New("index").Parse(`
       var input = document.getElementById("userInput");
       var query = input.value;
       if(query.trim() === "") return;
+      // Check for word count input
+      var wordCountElem = document.getElementById("wordCount");
+      if(wordCountElem && wordCountElem.value.trim() !== "") {
+        query = query + " Please limit your response to " + wordCountElem.value + " words.";
+      }
       sendQuery(query, document.getElementById("llmSelect").value, "");
       input.value = "";
+      // Do not clear the word count input so the value persists.
     });
 
     // Handle click on the Stop Server button.
@@ -572,6 +581,8 @@ func stopHandler(w http.ResponseWriter, r *http.Request) {
 	}()
 }
 
+var TailLength = 150000
+
 // queryHandler processes each query, sends it to the Grokker API,
 // updates the markdown file with the current chat state, and returns the LLM response as HTML.
 func queryHandler(w http.ResponseWriter, r *http.Request) {
@@ -590,10 +601,9 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 
 	round := chat.StartRound(req.Query, req.Selection)
 	history := chat.getHistory(false)
-	// add the last N characters of the chat history as context.
+	// add the last TailLength characters of the chat history as context.
 	// XXX should really use embeddings and a vector db to find relevant context.
-	N := 150000
-	startIndex := len(history) - N
+	startIndex := len(history) - TailLength
 	if startIndex < 0 {
 		startIndex = 0
 	}
