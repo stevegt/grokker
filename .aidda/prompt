@@ -2,6 +2,10 @@ change the UI to operate in "dark mode"
 
 Change the UI to operate in "dark mode", with a dark background and light text.
 
+Change the vertical and horizontal scrollbars to be dark as well.
+
+Change the button colors to be more muted, with a dark background and light text.
+
 In:
   x/storm/main.go
 Out:

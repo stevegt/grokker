@@ -112,9 +112,15 @@ var tmpl = template.Must(template.New("index").Parse(`
       color: #e0e0e0;
       border: 1px solid #555;
     }
-    button { 
-      height: 50; 
-      vertical-align: middle; 
+    button {
+      background-color: #333;
+      color: #e0e0e0;
+      border: 1px solid #555;
+      padding: 10px 15px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #444;
     }
     #statusBox { display: inline-block; margin-left: 10px; vertical-align: middle; font-size: 9px; }
     /* Red stop sign for error indication in status box */
@@ -127,8 +133,8 @@ var tmpl = template.Must(template.New("index").Parse(`
     /* Toggle button for sidebar */
     #toggle-sidebar {
       background-color: #3498db;
-      color: white;
-      border: none;
+      color: #e0e0e0;
+      border: 1px solid #555;
       padding: 5px 10px;
       cursor: pointer;
       margin-bottom: 10px;
@@ -145,6 +151,19 @@ var tmpl = template.Must(template.New("index").Parse(`
     }
     #toc a:hover {
       background-color: #444;
+    }
+    /* Dark scrollbar styles */
+    ::-webkit-scrollbar {
+      width: 12px;
+      height: 12px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #1e1e1e;
+    }
+    ::-webkit-scrollbar-thumb {
+      background-color: #444;
+      border: 2px solid #1e1e1e;
+      border-radius: 6px;
     }
   </style>
 </head>
@@ -170,10 +189,10 @@ var tmpl = template.Must(template.New("index").Parse(`
           <option value="sonar-deep-research">sonar-deep-research</option>
           <option value="o3-mini">o3-mini</option>
         </select>
-        <textarea id="userInput" placeholder="Enter query"></textarea>
-        <button id="sendBtn">Send</button>
         <label for="wordCount">Word Count</label>
         <input type="number" id="wordCount" min="1" placeholder="10000">
+        <textarea id="userInput" placeholder="Enter query"></textarea>
+        <button id="sendBtn">Send</button>
         <span id="statusBox">
           <span id="tokenCountText">Token Count: 0</span>
 		  <br>
@@ -828,4 +847,3 @@ func markdownToHTML(markdown string) string {
 
 	return buf.String()
 }
-
