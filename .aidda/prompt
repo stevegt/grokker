@@ -1,10 +1,13 @@
-change the UI to operate in "dark mode"
+arrange the input-area content
 
-Change the UI to operate in "dark mode", with a dark background and light text.
+Arrange the input-area content like this:
 
-Change the vertical and horizontal scrollbars to be dark as well.
+  llmSelect userInput sendBtn statusBox stopBtn
+  wordCount userInput         statusBox 
 
-Change the button colors to be more muted, with a dark background and light text.
+...in other words, both userInput and statusBox span the full height
+of the input area.
+
 
 In:
   x/storm/main.go

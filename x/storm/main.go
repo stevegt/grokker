@@ -84,26 +84,32 @@ var tmpl = template.Must(template.New("index").Parse(`
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
     }
-    #input-area { background: #1e1e1e; padding: 10px; box-shadow: 0 -2px 5px rgba(0,0,0,0.1); }
+    /* Updated input area using CSS Grid to span userInput and statusBox across two rows */
+    #input-area { 
+      background: #1e1e1e; 
+      padding: 10px; 
+      box-shadow: 0 -2px 5px rgba(0,0,0,0.1);
+      display: grid;
+      grid-template-areas: 
+        "llmSelect userInput sendBtn statusBox stopBtn"
+        "wordCount   userInput  .       statusBox .";
+      grid-template-columns: auto 1fr auto auto auto;
+      grid-template-rows: auto auto;
+      gap: 5px;
+    }
     textarea { 
-      width: 40%; 
-      height: 100px; 
-      vertical-align: middle; 
-      margin-right: 10px; 
+      width: 100%; 
+      height: 100%; 
       background-color: #333;
       color: #e0e0e0;
       border: 1px solid #555;
     }
     select { 
-      vertical-align: middle; 
-      margin-right: 10px; 
       background-color: #333;
       color: #e0e0e0;
       border: 1px solid #555;
     }
     input[type="number"] { 
-      vertical-align: middle; 
-      margin-right: 10px; 
       width: 80px; 
       height: 20px; 
       font-size: 12px; 
@@ -122,7 +128,15 @@ var tmpl = template.Must(template.New("index").Parse(`
     button:hover {
       background-color: #444;
     }
-    #statusBox { display: inline-block; margin-left: 10px; vertical-align: middle; font-size: 9px; }
+    /* Custom style for the stop button to shrink its size and font */
+    #stopBtn {
+      font-size: 10px;
+      padding: 5px 10px;
+    }
+    #statusBox { 
+      display: inline-block; 
+      font-size: 9px; 
+    }
     /* Red stop sign for error indication in status box */
     #errorSign {
       display: none;
@@ -185,21 +199,23 @@ var tmpl = template.Must(template.New("index").Parse(`
         <!-- Progress spinners will appear here -->
       </div>
       <div id="input-area">
-        <select id="llmSelect">
+        <select id="llmSelect" style="grid-area: llmSelect;">
           <option value="sonar-deep-research">sonar-deep-research</option>
           <option value="o3-mini">o3-mini</option>
         </select>
-        <label for="wordCount">Word Count</label>
-        <input type="number" id="wordCount" min="1" placeholder="10000">
-        <textarea id="userInput" placeholder="Enter query"></textarea>
-        <button id="sendBtn">Send</button>
-        <span id="statusBox">
+        <textarea id="userInput" placeholder="Enter query" style="grid-area: userInput;"></textarea>
+        <button id="sendBtn" style="grid-area: sendBtn;">Send</button>
+        <span id="statusBox" style="grid-area: statusBox;">
           <span id="tokenCountText">Token Count: 0</span>
-		  <br>
+          <br>
           <span id="statusSpinner" style="display:none;" class="spinner"></span>
           <span id="errorSign">⛔</span>
         </span>
-        <button id="stopBtn">Stop<br>Server</button>
+        <button id="stopBtn" style="grid-area: stopBtn;">Stop<br>Server</button>
+        <div id="wordCountContainer" style="grid-area: wordCount;">
+          <label for="wordCount">Word Count</label>
+          <input type="number" id="wordCount" min="1" placeholder="10000">
+        </div>
       </div>
     </div>
   </div>
@@ -847,3 +863,5 @@ func markdownToHTML(markdown string) string {
 
 	return buf.String()
 }
+
+
