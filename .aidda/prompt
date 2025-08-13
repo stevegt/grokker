@@ -1,8 +1,16 @@
-
-
+replace ohcount with Go code to identify programming languages
 
 I need to get rid of the dependency on ohcount by writing or importing
-Go code that counts the number of tokens in a Go source file.
+Go code that identifies the programming language of a file.  I've
+written getMimeTypes, but the mime type is not enough to determine
+the programming language.  
+
+Check github to see if anyone has already written a Go library to identify
+programming languages from file contents and/or file names. 
+
+If you can't find anything suitable, try finding and examining the
+source code of ohcount itself to see how it identifies programming
+languages.  
 
 In:
   x/tokencount/main.go
