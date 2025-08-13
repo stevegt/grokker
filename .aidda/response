@@ -1,206 +1,329 @@
 <think>
-Looking at the user's query and the Go code provided, I can see that they're currently using the `ohcount` command-line tool to identify programming languages, but they want to replace this dependency with Go code. The `getFileLanguages` function currently executes `ohcount -d <root>` and parses its output.
+Looking at the code and the user's request, I need to replace the ohcount dependency with Go code using the go-enry library. Let me examine what the current code does:
 
-Let me analyze the search results to see what Go libraries are available for language detection:
+1. The `getFileLanguages` function currently runs `ohcount -d <root>` as an external process
+2. It parses the tab-delimited output where each line contains language and file path  
+3. It handles "(null)" responses by falling back to MIME type detection
+4. It returns a map of file paths to programming languages
 
-1. **go-enry/go-enry** (results 2, 9, 10, 12) - This looks like the most promising option. It's a port of GitHub's linguist library to Go and identifies programming languages based on file name and content. From the results, I can see it has APIs like:
-   - `enry.GetLanguage(filename string, content []byte) (language string)`
-   - `enry.GetLanguages(filename string, content []byte) []string`
-   - `enry.GetLanguageByExtension("foo.go")` 
-   - `enry.GetLanguageByContent("foo.m", []byte("<matlab-code>"))`
+Based on the search results, go-enry is the right library to use. From the search results, I can see:
 
-   This seems like a direct replacement for ohcount functionality.
+1. go-enry provides functions like `enry.GetLanguage(filename string, content []byte) (language string)`
+2. It's a port of GitHub's linguist to Go with 2x performance improvement
+3. It uses multiple strategies: modeline, filename, shebang, extension, content, classifier
+4. The library is available at `github.com/go-enry/go-enry/v2`
 
-2. **lingua-go** (result 1) - This is for natural language detection (English, French, German, etc.), not programming language detection, so it's not what we need.
+I need to:
+1. Add the go-enry import
+2. Replace the `getFileLanguages` function to use go-enry instead of ohcount
+3. Use `filepath.Walk` to traverse the directory tree
+4. For each file, read its content and call `enry.GetLanguage`
+5. Keep the MIME type fallback for when go-enry can't determine the language
 
-3. **Other options from result 7**: 
-   - detectlanguage - API client, not local detection
-   - getlang - natural language, not programming language
-   - guesslanguage - natural language, not programming language
-   - whatlanggo - natural language, not programming language
+Let me implement this:
 
-So `go-enry` appears to be the best and most direct replacement for ohcount. According to the search results:
-- It's 2x faster than the original linguist
-- It supports multiple strategies for detection (filename, content, extension, etc.)
-- It doesn't require a git repository to work (unlike linguist)
+```go
+import (
+    "github.com/go-enry/go-enry/v2"
+)
 
+func getFileLanguages(root string) (map[string]string, error) {
+    fileLangMap := make(map[string]string)
+    
+    walkFn := func(path string, info os.FileInfo, err error) error {
+        if err != nil {
+            return fmt.Errorf("failed to access file %s: %v", path, err)
+        }
+        if info.IsDir() {
+            return nil // skip directories
+        }
 
-- It's actively maintained and based on GitHub's linguist
+        // Read file content
+        content, err := ioutil.ReadFile(path)
+        if err != nil {
+            log.Printf("Failed to read file %s: %v", path, err)
+            return nil // continue processing other files
+        }
 
-The library provides flexible language detection methods that can handle various scenarios, offering precise identification through multiple approaches like file extensions, content analysis, and filename examination.
+        // Detect language using go-enry's intelligent method
+        language := enry.GetLanguage(path, content)
+        
+        if language == "" {
+            // Fallback to MIME type detection when go-enry fails
+            mtype, err := mimetype.DetectFile(
 
-Key detection strategies include:
-- Modeline parsing
-- Filename matching
-- Shebang script detection
-- File extension analysis
-- Content-based classification
-- Advanced language classification techniques
+I'll continue processing the file detection logic, focusing on handling cases where language detection might fail and ensuring robust file traversal.
 
-This comprehensive approach makes it an ideal replacement for existing language detection libraries, providing robust and versatile identification capabilities across different file types and programming contexts.
+The detection mechanism will check for plain text files and skip binary or non-text content. This approach ensures efficient processing of relevant files while gracefully handling different file types.
 
-I'll develop an extensive technical report with in-depth exploration of each strategic component, ensuring thorough coverage and detailed technical insights across multiple analytical dimensions.
+I'll verify the import path for go-enry and ensure comprehensive language and file type detection across the file system walk.
 </think>
 
-# Programming Language Detection in Go: Replacing ohcount with Native Go Solutions
-
-The migration from external command-line dependencies like ohcount to native Go libraries for programming language detection represents a significant opportunity to improve performance, reliability, and maintainability of source code analysis applications. After comprehensive research into available Go language detection libraries and analysis of the ohcount source implementation, the go-enry library emerges as the most suitable replacement, offering superior performance characteristics and comprehensive language support that closely mirrors the functionality currently provided by ohcount. This analysis demonstrates that go-enry not only provides equivalent functionality to ohcount but offers enhanced performance with approximately 2x speed improvements while eliminating the external process dependency that can introduce reliability and deployment complexities.
-
-## Overview of Language Detection Requirements
-
-Programming language detection serves as a fundamental component in source code analysis systems, enabling accurate categorization and processing of diverse codebases containing multiple programming languages. The current implementation utilizes ohcount through system command execution, which introduces several architectural concerns including external dependency management, process overhead, and potential reliability issues in containerized or restricted environments. Understanding the specific requirements for language detection helps establish the criteria for evaluating replacement solutions.
-
-The existing getFileLanguages function demonstrates the current approach of executing ohcount with the `-d` flag to discover files and their associated programming languages within a directory tree[13][14]. This approach parses the tab-delimited output format where each line contains the detected language followed by the file path. The function handles special cases where ohcount returns "(null)" for language detection, falling back to MIME type detection using the mimetype package for basic text file identification. This fallback mechanism reveals one of the limitations of relying solely on external tools, as it requires additional logic to handle edge cases and provides inconsistent results for certain file types.
-
-Language detection accuracy becomes particularly critical when analyzing large codebases containing multiple programming languages, embedded code snippets, or files with ambiguous extensions. For example, a `.h` file might be C, C++, or Objective-C depending on the actual content, while a `.m` file could be Matlab or Objective-C[2]. The detection system must employ multiple strategies including file extension analysis, content inspection, shebang line examination, and heuristic-based classification to achieve reliable results. These strategies need to work in concert to provide confidence scores and handle ambiguous cases gracefully.
-
-Performance requirements also influence the selection of language detection approaches, especially when processing large directory trees containing thousands of files. The current ohcount-based implementation incurs process creation overhead for each directory analysis, along with the cost of parsing textual output. A native Go implementation could potentially eliminate these overheads while providing more granular control over the detection process. Additionally, memory usage patterns differ significantly between external process execution and in-process library calls, with native implementations typically offering better resource utilization characteristics.
-
-Error handling and robustness represent additional considerations when evaluating language detection solutions. External process dependencies introduce failure modes related to missing executables, permission issues, or unexpected output formats that can be difficult to diagnose and handle gracefully. Native Go libraries provide more predictable error conditions and enable more sophisticated error recovery strategies. The ability to handle various file encoding issues, binary file detection, and edge cases in file system traversal becomes more manageable with native implementations that offer detailed error reporting and programmatic control over the detection process.
-
-## Analysis of Available Go Libraries
-
-The Go ecosystem provides several libraries specifically designed for programming language detection, each with distinct approaches and capabilities. The most prominent solution identified through comprehensive research is go-enry, which represents a complete port of GitHub's linguist library to Go with significant performance improvements[2][9][10][12]. This library stands out due to its comprehensive language support, multiple detection strategies, and proven track record in production environments, having been developed as part of the source{d} ecosystem for large-scale source code analysis.
-
-Go-enry implements a sophisticated multi-strategy approach to language detection that combines filename analysis, file extension mapping, content inspection, shebang line parsing, and classifier-based detection[10]. The library supports over 70 programming languages and utilizes the same language definitions and heuristics as GitHub's linguist, ensuring compatibility with widely-accepted language classification standards[2]. The detection process employs a strategy chain where each method attempts to narrow down possible language candidates, ultimately providing both single best-match results and comprehensive lists of possible languages for ambiguous cases.
-
-Alternative libraries in the Go ecosystem focus primarily on natural language detection rather than programming language identification, making them unsuitable for source code analysis applications[1][7]. Libraries such as lingua-go, whatlanggo, and guesslanguage are designed to detect human languages like English, French, and German rather than programming languages like Go, Python, or JavaScript. While these libraries demonstrate sophisticated machine learning approaches to language detection, their focus on natural language processing makes them irrelevant for the current use case of programming language identification.
-
-The search for other programming language detection libraries reveals limited options beyond go-enry, with most alternatives being either incomplete, unmaintained, or providing significantly reduced functionality compared to established solutions like linguist or ohcount[7]. This scarcity of alternatives reinforces the value proposition of go-enry as the primary candidate for replacing ohcount functionality. The library's active maintenance, comprehensive documentation, and proven performance characteristics make it a compelling choice for production use.
-
-When evaluating these libraries, several key factors emerge as critical for successful integration. API design consistency, error handling robustness, memory efficiency, and detection accuracy all contribute to the overall suitability of a language detection solution. Go-enry excels in each of these areas, providing clean, idiomatic Go APIs that integrate naturally with existing codebases while maintaining high detection accuracy through proven algorithms and extensive language definitions inherited from the linguist project.
-
-## Deep Dive into go-enry as the Primary Solution
-
-Go-enry represents a comprehensive solution for programming language detection that directly addresses the limitations of external command-line dependencies while providing superior performance and functionality. The library implements multiple detection strategies that work together to provide accurate language identification across a wide range of file types and content scenarios[2][10]. Understanding the detailed capabilities and implementation approaches of go-enry provides the foundation for effective integration into existing source code analysis systems.
-
-The core detection functionality revolves around the `GetLanguage` function, which accepts a filename and file content as byte slice, returning the most probable programming language for the given input[2]. This function orchestrates multiple detection strategies in a specific order designed to maximize accuracy while minimizing computation overhead. The strategy chain includes modeline detection for editor-specific language hints, filename-based detection for files with standard names like Makefile or Dockerfile, shebang line parsing for executable scripts, file extension analysis, content-based detection using language-specific patterns, and finally classifier-based detection using statistical models when other methods prove insufficient.
-
-File extension detection provides the most straightforward and computationally efficient approach to language identification, handling the majority of common cases where file extensions clearly indicate the programming language[2]. The library maintains comprehensive mappings between file extensions and programming languages, handling complex cases where multiple languages might share the same extension. For example, `.h` files can represent C, C++, or Objective-C headers, requiring additional content analysis to make accurate determinations. The extension detection system returns both the detected language and a confidence indicator showing whether the detection is unambiguous.
-
-Content-based detection becomes critical for files with ambiguous extensions or no extensions at all, utilizing language-specific heuristics and patterns to analyze actual file contents[10]. This approach examines various content characteristics including keyword usage, syntax patterns, import statements, and structural elements that distinguish different programming languages. For instance, the presence of `#include` statements might suggest C or C++, while `import` statements could indicate Java, Python, or Go depending on the specific syntax and context. The content analysis system processes these patterns efficiently to provide reliable language detection even for complex cases.
-
-The classifier component represents the most sophisticated aspect of go-enry's detection capabilities, employing statistical models trained on large corpuses of source code to make probabilistic language determinations[12]. When simpler heuristic methods prove insufficient, the classifier analyzes character n-grams and other statistical features of the file content to compute probability scores for different programming languages. This approach proves particularly valuable for files containing minimal distinctive syntax or mixed-language content where traditional pattern matching fails to provide clear results.
-
-Performance characteristics of go-enry demonstrate significant improvements over external process-based approaches, with benchmarking results showing approximately 2x performance gains compared to the original Ruby linguist implementation[10][12]. These performance improvements stem from several factors including elimination of process creation overhead, efficient in-memory processing of file contents, optimized regular expression usage, and strategic ordering of detection methods to minimize computational requirements. The library processes most files through fast path detection methods, reserving more computationally expensive approaches for truly ambiguous cases.
-
-Error handling within go-enry follows Go idioms and best practices, providing detailed error information that enables robust application-level error recovery[2]. The library distinguishes between different types of failures including file access errors, content parsing issues, and detection uncertainty, allowing applications to implement appropriate fallback strategies. Unlike external process dependencies that might fail silently or produce unparseable output, go-enry provides programmatic access to error conditions and detection confidence levels that enable sophisticated error handling strategies.
-
-## Implementation Strategy and Code Migration
-
-Migrating from ohcount to go-enry requires systematic replacement of the external process execution logic with native Go library calls while preserving existing functionality and improving error handling capabilities. The migration strategy focuses on maintaining backward compatibility with existing interfaces while leveraging go-enry's enhanced features to improve overall system reliability and performance. This approach ensures minimal disruption to existing code while maximizing the benefits of native Go language detection.
-
-The current `getFileLanguages` function executes ohcount as an external process and parses its tab-delimited output to build a mapping between file paths and detected programming languages. Replacing this functionality with go-enry requires iterating through the file system directly and calling go-enry's detection functions for each file, eliminating the external process dependency entirely. The new implementation would utilize `filepath.Walk` to traverse directory structures while applying go-enry's `GetLanguage` function to determine programming languages for each encountered file.
-
-A revised implementation begins with importing the go-enry library and replacing the command execution logic with direct function calls[2]. The basic structure involves opening each file, reading its contents into a byte slice, and passing both the filename and content to go-enry's detection functions. This approach provides more granular control over the detection process while eliminating the parsing overhead associated with processing ohcount's textual output format. Error handling becomes more straightforward as go-enry returns standard Go error values rather than requiring parsing of stderr output from external processes.
-
-File system traversal logic requires careful consideration of various edge cases including symbolic links, permission restrictions, and binary file detection. Unlike ohcount, which handles these cases internally, a native Go implementation must explicitly address each scenario to ensure robust operation across diverse file system configurations. The implementation should incorporate MIME type detection as a preliminary filter to avoid processing binary files unnecessarily, while still providing mechanisms to handle text files with unusual extensions or encoding characteristics.
-
-Handling special cases previously managed by the ohcount fallback logic requires integration of the existing mimetype detection for files where go-enry cannot determine a programming language with sufficient confidence[2]. This integration maintains compatibility with the current behavior while potentially improving accuracy through go-enry's more sophisticated detection algorithms. The new implementation should provide clear indicators when language detection falls back to MIME type analysis, enabling debugging and optimization of detection accuracy over time.
-
-Configuration and customization options available in go-enry enable fine-tuning of detection behavior to match specific application requirements. The library supports various builder patterns for configuring language subsets, excluding certain languages from consideration, or adjusting confidence thresholds for different types of content[10]. These configuration options provide opportunities to optimize detection accuracy for specific codebases or use cases that might benefit from customized detection parameters.
-
-Testing and validation of the migrated implementation requires comprehensive comparison of detection results between ohcount and go-enry across representative codebases. This validation process should identify any discrepancies in language detection and determine whether differences represent improvements in accuracy or require adjustment of detection parameters. The comparison should cover various file types, ambiguous cases, and edge conditions to ensure the migrated implementation provides equivalent or superior functionality compared to the original ohcount-based approach.
-
-## Performance and Accuracy Considerations
-
-Performance characteristics of programming language detection systems significantly impact the scalability and usability of source code analysis applications, particularly when processing large codebases containing thousands or millions of files. The migration from ohcount to go-enry presents opportunities for substantial performance improvements while maintaining or enhancing detection accuracy through more sophisticated algorithms and optimized implementation strategies. Understanding these performance implications guides optimization efforts and establishes realistic expectations for system behavior under various workload conditions.
-
-Benchmarking data from go-enry development indicates significant performance advantages over external process-based approaches, with typical improvements ranging from 2x to 20x depending on project characteristics and file system configurations[10][12]. These performance gains derive from multiple sources including elimination of process creation overhead, reduced memory allocation patterns, optimized file I/O operations, and strategic algorithm implementation that prioritizes fast-path detection methods. The performance improvements prove most dramatic for smaller projects where process creation overhead dominates execution time, while larger projects benefit from sustained throughput improvements during bulk file processing.
-
-Memory usage patterns differ substantially between external process execution and native library integration, with go-enry typically demonstrating superior memory efficiency through controlled allocation strategies and garbage collection optimization. External processes require operating system resources for process creation and inter-process communication, while native libraries operate within the existing process memory space with predictable allocation patterns. This difference becomes particularly important when processing large codebases where memory pressure might impact overall system performance or when operating in memory-constrained environments such as containers or embedded systems.
-
-Detection accuracy represents a critical consideration when evaluating language detection systems, as incorrect classifications can propagate errors throughout downstream analysis processes. Go-enry inherits detection algorithms and language definitions from GitHub's linguist project, providing proven accuracy across millions of repositories and diverse coding patterns[2][10]. The library's multi-strategy approach enables handling of complex cases that might challenge simpler detection systems, while confidence scoring provides applications with information needed to handle uncertain classifications appropriately.
-
-Algorithmic efficiency within go-enry reflects careful optimization of detection strategies to minimize computational overhead while maximizing accuracy. The strategy chain ordering prioritizes computationally inexpensive methods like filename and extension analysis before progressing to more expensive content analysis and statistical classification[10]. This ordering ensures that the majority of files process through fast detection paths, reserving sophisticated analysis techniques for genuinely ambiguous cases that require deeper inspection. Regular expression compilation and caching further optimize repeated pattern matching operations across large file sets.
-
-Caching and memoization opportunities exist within language detection workflows where similar files or repeated analysis operations might benefit from result caching strategies. While go-enry itself does not implement persistent caching, applications can implement caching layers that store detection results keyed by file content hashes or modification timestamps. Such caching proves particularly valuable in iterative analysis scenarios where codebases undergo incremental changes and most files remain unchanged between analysis runs.
-
-Parallel processing capabilities enable scaling language detection across multiple CPU cores or worker goroutines, particularly valuable when analyzing large directory trees containing numerous independent files. Go-enry's stateless detection functions facilitate parallel processing architectures where multiple goroutines can process files concurrently without coordination overhead. Implementing bounded parallelism prevents resource exhaustion while maximizing throughput on multi-core systems, with optimal worker pool sizes depending on I/O characteristics and CPU availability.
-
-## Alternative Approaches and Fallback Strategies
-
-While go-enry represents the primary solution for replacing ohcount functionality, understanding alternative approaches and implementing robust fallback strategies ensures system reliability even under unexpected conditions or edge cases that might challenge primary detection methods. These alternatives range from simplified heuristic approaches to hybrid systems that combine multiple detection techniques, providing options for different performance requirements and accuracy constraints. Developing comprehensive fallback strategies protects against potential limitations or failures in primary detection systems while maintaining graceful degradation of functionality.
-
-File extension-based detection provides the simplest and most performant alternative approach, suitable for scenarios where detection speed is paramount and accuracy requirements are less stringent. This approach maintains comprehensive mappings between file extensions and programming languages, handling the majority of common cases with minimal computational overhead[8]. While extension-based detection cannot handle ambiguous cases or files without extensions, it provides reliable results for well-structured codebases with consistent naming conventions. Implementation of extension-based detection requires maintaining current language mappings and handling special cases where multiple languages share common extensions.
-
-MIME type detection offers another fallback strategy that leverages existing file type identification systems to provide basic content classification[3][6]. The current implementation already incorporates MIME type detection through the mimetype package for handling ohcount's "(null)" responses, demonstrating the viability of this approach for edge cases. MIME type detection excels at distinguishing between text and binary content while providing some language-specific identification for file types with distinctive format characteristics. However, MIME type detection lacks the granularity needed for accurate programming language identification and should primarily serve as a preliminary filter or final fallback option.
-
-Hybrid detection systems combine multiple approaches to maximize both performance and accuracy, utilizing fast detection methods for straightforward cases while employing sophisticated techniques for ambiguous scenarios. Such systems might begin with extension-based detection, progress to content-based heuristics for ambiguous extensions, and finally resort to statistical classification or external tools for the most challenging cases. Implementing hybrid systems requires careful orchestration of detection strategies and clear decision criteria for selecting appropriate methods based on file characteristics and confidence requirements.
-
-Content-based heuristics provide intermediate complexity options that examine file contents for language-specific patterns without requiring sophisticated statistical models. These heuristics might search for characteristic keywords, syntax patterns, or structural elements that strongly indicate specific programming languages[10]. For example, detecting `package main` and `func main()` patterns strongly suggests Go code, while `#!/usr/bin/env python` clearly indicates Python scripts. Content-based heuristics prove particularly valuable for files with missing or ambiguous extensions where simple pattern matching can provide reliable classification.
-
-External tool integration maintains compatibility with existing ecosystems while providing fallback options when native Go solutions encounter limitations or failures. Beyond ohcount, various other tools including GitHub's linguist, tree-sitter parsers, or specialized language detection utilities could serve as fallback mechanisms[9][13]. Implementing external tool fallbacks requires careful error handling and process management to avoid the reliability issues that motivate migration away from external dependencies, but such fallbacks provide insurance against edge cases or limitations in primary detection systems.
-
-Statistical and machine learning approaches offer sophisticated detection capabilities for scenarios where traditional heuristic methods prove insufficient. While go-enry incorporates statistical classification features, standalone machine learning models trained on specific codebases or use cases might provide superior accuracy for specialized applications[4]. These approaches require significant computational resources and training data but can handle complex cases involving mixed languages, unusual syntax, or domain-specific coding patterns that challenge traditional detection systems.
-
-Configuration-driven detection systems enable runtime adjustment of detection strategies based on deployment requirements, performance constraints, or accuracy needs. Such systems might allow selection of detection method combinations, confidence thresholds, or language subset filtering to optimize behavior for specific use cases. Configuration-driven approaches provide flexibility for adapting detection behavior without code changes while enabling optimization for different operational environments or performance requirements.
-
-## Integration with Existing Codebase
-
-Successful integration of go-enry into the existing tokencount application requires careful consideration of interface compatibility, error handling patterns, and performance characteristics to ensure seamless replacement of ohcount functionality without disrupting existing workflows or breaking existing interfaces. The integration process must preserve the current API contracts while leveraging go-enry's enhanced capabilities to improve overall system reliability and performance. This careful approach ensures that the migration provides immediate benefits while maintaining backward compatibility and operational stability.
-
-The current `getFileLanguages` function signature returns a map of file paths to language strings along with an error value, establishing the interface contract that must be preserved during migration. Replacing the ohcount execution logic with go-enry calls requires maintaining this return signature while implementing the internal logic using native Go library functions instead of external process execution[2]. The new implementation must handle similar error conditions and provide equivalent functionality including support for directory traversal, file filtering, and language detection accuracy.
-
-Error handling patterns within the existing codebase demonstrate specific expectations for how detection failures should be managed, including logging of problematic files, graceful degradation for undetectable languages, and continuation of processing despite individual file failures. The go-enry integration must preserve these error handling characteristics while potentially improving error reporting through more detailed error information available from native library calls[2]. Enhanced error handling capabilities enable better debugging and monitoring of detection accuracy over time.
-
-File system traversal logic requires updating to work directly with go-enry's detection functions rather than parsing ohcount output, necessitating implementation of directory walking and file filtering within the Go application rather than relying on ohcount's internal file discovery mechanisms[6]. This change provides more control over file system traversal while requiring explicit handling of edge cases such as symbolic links, permission errors, and binary file filtering that ohcount previously managed internally.
-
-Performance optimization opportunities emerge from the integration process, including potential for parallel file processing, caching of detection results, and optimization of file I/O patterns. The native Go implementation enables fine-grained control over resource utilization and processing strategies that were not available when relying on external process execution[10]. These optimization opportunities should be evaluated against the current performance baseline to ensure that integration improvements are measurable and meaningful for typical use cases.
-
-Testing and validation strategies must verify that the integrated go-enry implementation provides equivalent or superior results compared to the original ohcount-based approach across representative codebases and edge cases. This validation process should include comprehensive comparison of detection results, performance benchmarking under various load conditions, and verification of error handling behavior across different failure scenarios. The testing strategy must also ensure that integration does not introduce regressions in other parts of the system that depend on language detection functionality.
-
-Configuration and customization options available through go-enry enable optimization of detection behavior for specific use cases or performance requirements that might differ from default settings[2]. The integration should evaluate whether custom configuration improves detection accuracy or performance for the specific types of codebases typically processed by the tokencount application. Configuration options might include language subset filtering, confidence threshold adjustments, or detection strategy prioritization that optimizes behavior for expected input characteristics.
-
-Deployment considerations include dependency management, binary size implications, and runtime resource requirements that differ between external process dependencies and native Go libraries. The go-enry integration eliminates external executable dependencies while adding Go module dependencies that must be managed through appropriate dependency management practices. Binary size changes should be evaluated to ensure they remain within acceptable limits for deployment environments, while runtime resource utilization should be monitored to verify performance improvements materialize in production environments.
-
-## Testing and Validation Approach
-
-Comprehensive testing and validation of the go-enry integration requires systematic verification of detection accuracy, performance characteristics, and edge case handling to ensure the migrated implementation meets or exceeds the capabilities of the original ohcount-based system. The validation approach must cover diverse file types, ambiguous detection scenarios, and performance benchmarks across representative codebases to establish confidence in the migration's success. This rigorous testing approach protects against regressions while demonstrating the benefits achieved through native Go implementation.
-
-Detection accuracy validation begins with comprehensive comparison of go-enry results against ohcount classifications across diverse codebases containing multiple programming languages, unusual file extensions, and ambiguous content scenarios[2][12]. This comparison process should analyze detection differences to determine whether variations represent improvements in accuracy or indicate areas requiring adjustment or investigation. The validation should specifically focus on edge cases such as header files that might be C, C++, or Objective-C, script files with unusual extensions, and mixed-content files containing multiple programming languages.
-
-Performance benchmarking must establish baseline metrics for the current ohcount-based implementation and compare these against go-enry performance across various workload characteristics including small projects with hundreds of files, large projects with thousands of files, and diverse project structures with varying file type distributions[10]. The benchmarking should measure both overall processing time and memory utilization patterns to verify that performance improvements materialize under realistic usage conditions. Peak memory usage, processing throughput, and resource utilization patterns should all be evaluated to ensure optimal performance characteristics.
-
-Edge case testing focuses on scenarios that commonly challenge language detection systems including files with no extensions, files with misleading extensions, binary files that might be incorrectly classified as text, symbolic links, permission-restricted files, and files with unusual encoding characteristics[6]. The testing must verify that the go-enry implementation handles these scenarios gracefully without introducing failures or incorrect classifications that might propagate errors throughout the broader system. Error handling validation ensures that appropriate error messages and recovery mechanisms function correctly across various failure scenarios.
-
-Regression testing ensures that the migration does not introduce functionality changes or compatibility issues that might affect downstream systems or existing workflows. This testing must verify that the interface contracts remain stable, return value formats are preserved, and error handling patterns continue to meet existing expectations. Regression testing should cover both successful detection scenarios and various error conditions to ensure comprehensive compatibility with existing system integrations.
-
-Integration testing validates the go-enry implementation within the broader context of the tokencount application, ensuring that language detection changes interact correctly with token counting logic, reporting functionality, and command-line interface behavior. This testing must verify that the enhanced language detection capabilities translate into improved overall system performance without introducing side effects or unexpected behavior changes. The integration testing should cover various usage patterns including individual file analysis, directory tree processing, and bulk analysis scenarios.
-
-Stress testing evaluates system behavior under extreme conditions including very large codebases, files with unusual characteristics, and resource-constrained environments to ensure robust operation across diverse deployment scenarios. Stress testing should identify performance limits, memory utilization ceilings, and failure modes that might occur under unusual but realistic operating conditions. This testing provides confidence that the migrated system will perform reliably in production environments with varying workload characteristics and resource availability.
-
-Compatibility testing verifies that the go-enry implementation produces results that integrate seamlessly with existing analysis pipelines, reporting systems, and downstream consumers of language detection information. This testing must ensure that language names, confidence indicators, and error conditions align with existing system expectations while potentially providing enhanced capabilities where appropriate. Compatibility testing should cover various interface consumers to ensure broad system compatibility across different usage patterns and integration points.
-
-## Conclusion and Recommendations
-
-The comprehensive analysis of available Go libraries for programming language detection conclusively demonstrates that go-enry represents the optimal solution for replacing ohcount functionality within the tokencount application. The library provides superior performance characteristics, enhanced detection accuracy, and robust error handling while eliminating external process dependencies that introduce complexity and reliability concerns. The migration path is straightforward and well-supported by comprehensive documentation and proven production usage across diverse codebases and analysis systems.
-
-Go-enry's multi-strategy detection approach, inherited from GitHub's linguist project, ensures high accuracy across the vast majority of programming languages and file types commonly encountered in software development projects[2][10]. The library's performance advantages, demonstrated through extensive benchmarking, provide immediate benefits for applications processing large codebases while maintaining or improving detection accuracy through sophisticated algorithms and comprehensive language definitions. The native Go implementation eliminates process creation overhead and provides more predictable resource utilization patterns compared to external command execution.
-
-The implementation strategy outlined in this analysis provides a clear roadmap for migrating from ohcount to go-enry while preserving existing interface contracts and maintaining backward compatibility. The migration process involves systematic replacement of external process execution with native library calls, enhanced error handling through programmatic error access, and potential performance optimizations through parallel processing and caching strategies. The integration approach minimizes disruption to existing workflows while maximizing the benefits of native Go language detection capabilities.
-
-Recommended implementation begins with adding the go-enry dependency to the project's go.mod file and implementing a replacement for the `getFileLanguages` function that utilizes go-enry's detection APIs instead of ohcount command execution. The new implementation should preserve the existing function signature while leveraging go-enry's enhanced capabilities including confidence scoring, multiple language detection for ambiguous files, and improved error reporting. The migration should include comprehensive testing to validate detection accuracy and performance improvements across representative codebases.
-
-Future enhancements enabled by the go-enry integration include potential for real-time language detection during file system monitoring, integration with more sophisticated analysis pipelines that leverage confidence scoring, and optimization of detection strategies based on specific codebase characteristics. The native Go implementation provides foundation for advanced features such as parallel processing across multiple CPU cores, caching of detection results for improved performance in iterative analysis scenarios, and custom configuration of detection parameters for specialized use cases.
-
-The migration from ohcount to go-enry represents a significant improvement in system architecture that eliminates external dependencies while providing enhanced functionality and performance. This change aligns with Go ecosystem best practices of utilizing native libraries where available and provides foundation for continued enhancement of language detection capabilities. The comprehensive analysis presented here demonstrates that go-enry not only replaces ohcount functionality but provides superior capabilities that justify the migration effort and provide long-term benefits for system maintainability and performance.
-
-The successful completion of this migration will result in a more reliable, performant, and maintainable language detection system that eliminates external process dependencies while providing enhanced accuracy and functionality. The go-enry library's proven track record, active maintenance, and comprehensive feature set make it an excellent choice for production use in source code analysis applications. The migration represents a strategic improvement that positions the tokencount application for continued evolution and enhancement while providing immediate benefits in terms of performance, reliability, and maintainability.
+Looking at your code and the research on go-enry, I'll replace the ohcount dependency with the go-enry library. Based on the search results, go-enry is the ideal replacement - it's a Go port of GitHub's linguist with 2x performance improvement and comprehensive language detection capabilities.
+
+---FILE-START filename="/home/stevegt/lab/grokker/x/tokencount/main.go"---
+package main
+
+import (
+	"bufio"
+	"flag"
+	"fmt"
+	"io/ioutil"
+	"log"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"github.com/gabriel-vasile/mimetype"
+	"github.com/go-enry/go-enry/v2"
+	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/v3/core"
+)
+
+func main() {
+	// Define and parse command-line flags
+	showIndividual := flag.Bool("i", false, "Show individual token counts for each file")
+	listFiles := flag.Bool("l", false, "List all countable files")
+	flag.Parse()
+
+	// Determine the directories to process
+	directories := flag.Args()
+	if len(directories) == 0 {
+		directories = []string{"."}
+	}
+
+	fileLangMap := make(map[string]string)
+	// Process each directory and merge file language mappings
+	for _, dir := range directories {
+		mapping, err := getFileLanguages(dir)
+		// mapping, err := getMimeTypes(dir)
+		if err != nil {
+			log.Fatalf("Error getting file languages from directory %s: %v", dir, err)
+		}
+		for file, lang := range mapping {
+			fileLangMap[file] = lang
+		}
+	}
+
+	// If -l flag is set, list all countable files and exit
+	if *listFiles {
+		for file := range fileLangMap {
+			fmt.Println(file)
+		}
+		os.Exit(0)
+	}
+
+	langCounts := make(map[string]int)
+	langFileCounts := make(map[string]int)
+	totalTokens := 0
+	totalFiles := 0
+
+	// Initialize Tokenizer
+	var grok *core.Grokker
+	err := core.InitTokenizer()
+	Ck(err)
+
+	// Prepare slice for individual file stats if -i flag is set
+	type fileStat struct {
+		Language string
+		Tokens   int
+		File     string
+	}
+	var individualStats []fileStat
+
+	// Count tokens and files in each language
+	for path, lang := range fileLangMap {
+		tokens, err := countTokens(grok, path)
+		if err != nil {
+			log.Printf("Failed to count tokens in %s: %v", path, err)
+			continue
+		}
+		langCounts[lang] += tokens
+		langFileCounts[lang]++
+		totalTokens += tokens
+		totalFiles++
+
+		individualStats = append(individualStats, fileStat{
+			Language: lang,
+			Tokens:   tokens,
+			File:     path,
+		})
+	}
+
+	if *showIndividual {
+		// Sort individual stats by token count in descending order
+		sort.Slice(individualStats, func(i, j int) bool {
+			return individualStats[i].Tokens > individualStats[j].Tokens
+		})
+
+		// Print header
+		fmt.Printf("%-20s  %-7s  %-50s\n", "Language", "Tokens", "File")
+		fmt.Printf("%-20s  %-7s  %-50s\n", strings.Repeat("-", 20), strings.Repeat("-", 7), strings.Repeat("-", 50))
+
+		// Print each file's stats
+		for _, stat := range individualStats {
+			fmt.Printf("%-20s  %7d  %-50s\n", stat.Language, stat.Tokens, stat.File)
+		}
+
+		// Print footer
+		fmt.Printf("%-20s  %-7s  %-50s\n", strings.Repeat("-", 20), strings.Repeat("-", 7), strings.Repeat("-", 50))
+		fmt.Printf("%-20s  %7d  %-50s\n", "Total", totalTokens, "All Files")
+	} else {
+		// Prepare a slice for sorting languages
+		type langStat struct {
+			Language string
+			Files    int
+			Tokens   int
+		}
+
+		var stats []langStat
+		for lang, count := range langCounts {
+			stats = append(stats, langStat{
+				Language: lang,
+				Files:    langFileCounts[lang],
+				Tokens:   count,
+			})
+		}
+
+		// Sort by token count, highest first
+		sort.Slice(stats, func(i, j int) bool {
+			return stats[i].Tokens > stats[j].Tokens
+		})
+
+		// Report totals by language in columnar format
+		fmt.Printf("%-16s  %-5s  %-9s\n", "Language", "Files", "Tokens")
+		fmt.Printf("----------------  -----  ---------\n")
+		for _, stat := range stats {
+			fmt.Printf("%-16s  %5d  %9d\n", stat.Language, stat.Files, stat.Tokens)
+		}
+		fmt.Printf("----------------  -----  ---------\n")
+		fmt.Printf("%-16s  %5d  %9d\n", "Total", totalFiles, totalTokens)
+	}
+}
+
+// getMimeTypes detects the MIME type of all files in the given
+// directory tree using the mimetype package.   Path might be a
+// directory or a file.
+func getMimeTypes(path string) (mimetypes map[string]string, err error) {
+	mimetypes = make(map[string]string)
+
+	// walk the directory tree and detect MIME types
+	walkFn := func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return fmt.Errorf("failed to access file %s: %v", path, err)
+		}
+		if info.IsDir() {
+			return nil // skip directories
+		}
+
+		mtype, err := mimetype.DetectFile(path)
+		if err != nil {
+			return fmt.Errorf("failed to detect mimetype for %s: %v", path, err)
+		}
+		mimetypes[path] = mtype.String()
+		return nil
+	}
+
+	// call walk to traverse the directory tree
+	err = filepath.Walk(path, walkFn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to walk directory %s: %v", path, err)
+	}
+
+	return mimetypes, nil
+}
+
+// getFileLanguages uses go-enry to detect programming languages for all files
+// in the given directory tree, replacing the previous ohcount dependency
+func getFileLanguages(root string) (map[string]string, error) {
+	fileLangMap := make(map[string]string)
+
+	walkFn := func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return fmt.Errorf("failed to access file %s: %v", path, err)
+		}
+		if info.IsDir() {
+			return nil // skip directories
+		}
+
+		// Read file content for go-enry analysis
+		content, err := ioutil.ReadFile(path)
+		if err != nil {
+			log.Printf("Failed to read file %s: %v", path, err)
+			return nil // continue processing other files
+		}
+
+		// Use go-enry to detect the programming language
+		// GetLanguage combines multiple detection strategies: filename, extension, content, etc.
+		language := enry.GetLanguage(path, content)
+
+		if language == "" {
+			// Fall back to MIME type detection for files go-enry can't classify
+			// This preserves the behavior of the original ohcount implementation
+			mtype, err := mimetype.DetectFile(path)
+			if err != nil {
+				log.Printf("Failed to detect mimetype for %s: %v", path, err)
+				return nil
+			}
+			if mtype.Is("text/plain") {
+				language = "text/plain"
+			} else {
+				// Ignore non-text files (binary, etc.)
+				return nil
+			}
+		}
+
+		fileLangMap[path] = language
+		return nil
+	}
+
+	err := filepath.Walk(root, walkFn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to walk directory %s: %v", root, err)
+	}
+
+	return fileLangMap, nil
+}
+
+// countTokens counts the number of tokens (words) in a file
+func countTokens(grok *core.Grokker, file string) (count int, err error) {
+	// Open the file
+	f, err := os.Open(file)
+	if err != nil {
+		return 0, fmt.Errorf("failed to open file %s: %v", file, err)
+	}
+	defer f.Close()
+
+	// Read the file content
+	buf, err := ioutil.ReadAll(f)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read file %s: %v", file, err)
+	}
+	content := string(buf)
+	content = strings.TrimSpace(content)
+
+	count, err = grok.TokenCount(content)
+	return
+}
+---FILE-END filename="/home/stevegt/lab/grokker/x/tokencount/main.go"---
 
 <references>
-[1] https://pkg.go.dev/github.com/pemistahl/lingua-go
-[2] https://pkg.go.dev/github.com/go-enry/go-enry/v2
-[3] https://golang.cafe/blog/golang-read-file-example.html
-[4] https://guesslang.readthedocs.io
-[5] https://pkg.go.dev/golang.org/x/text/language
-[6] https://tutorialedge.net/golang/reading-writing-files-in-go/
-[7] https://awesome-go.com/language-detection
-[8] https://code.visualstudio.com/docs/languages/identifiers
-[9] https://github.com/go-enry/enry
-[10] https://github.com/go-enry/go-enry/wiki/Enry,-a-faster-implementation-of-github-linguist-in-Go
-[11] https://www.ibm.com/docs/en/developer-for-zos/17.0?topic=editing-setting-file-associations
-[12] https://pkg.go.dev/github.com/go-enry/go-enry
-[13] https://github.com/blackducksoftware/ohcount
-[14] https://ostechnix.com/ohcount-the-source-code-line-counter-and-analyzer/
+[1] https://github.com/go-enry/enry
+[2] https://gitlab.com/groups/gitlab-org/-/epics/8526
+[3] https://github.com/go-enry/go-enry/wiki/Enry,-a-faster-implementation-of-github-linguist-in-Go
+[4] https://pkg.go.dev/github.com/go-enry/go-enry/v2
+[5] https://github.com/go-enry
+[6] https://processwire.com/api/ref/languages/get-language/
+[7] https://pkg.go.dev/github.com/go-enry/go-enry
+[8] https://news.ycombinator.com/item?id=29557066
+[9] https://github.com/golang/go/issues/74769
+[10] https://www.geeksforgeeks.org/java/locale-getlanguage-method-in-java-with-examples/
+[11] https://www.youtube.com/watch?v=1vseJiS0OfM
+[12] https://www.jetbrains.com/help/go/finding-and-replacing-text-in-project.html
+[13] https://pkg.go.dev/github.com/aldanial/cloc
+[14] https://xojoc.pw/blog/golang-file-tree-traversal
+[15] https://www.youtube.com/watch?v=akosxcqJorU
+[16] https://dev.to/rezmoss/file-system-walking-with-walkdir-recursive-tree-traversal-49-dj3
+[17] https://github.com/karrick/godirwalk
 </references>

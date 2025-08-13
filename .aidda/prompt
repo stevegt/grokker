@@ -5,14 +5,13 @@ Go code that identifies the programming language of a file.  I've
 written getMimeTypes, but the mime type is not enough to determine
 the programming language.  
 
-Check github to see if anyone has already written a Go library to identify
-programming languages from file contents and/or file names. 
-
-If you can't find anything suitable, try finding and examining the
-source code of ohcount itself to see how it identifies programming
-languages.  
+Use the go-enry library to replace the ohcount functionality in
+getFileLanguages().  See .aidda/response for more information.
 
 In:
+  .aidda/response
+  x/tokencount/main.go
+Out:
   x/tokencount/main.go
 
 .stop

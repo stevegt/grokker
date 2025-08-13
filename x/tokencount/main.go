@@ -1,19 +1,18 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
+	// "bufio"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/gabriel-vasile/mimetype"
+	"github.com/go-enry/go-enry/v2"
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker/v3/core"
 )
@@ -171,46 +170,53 @@ func getMimeTypes(path string) (mimetypes map[string]string, err error) {
 	return mimetypes, nil
 }
 
-// getFileLanguages runs ohcount -d <root> and parses its output to map files to languages
+// getFileLanguages uses go-enry to detect programming languages for all files
+// in the given directory tree, replacing the previous ohcount dependency
 func getFileLanguages(root string) (map[string]string, error) {
-	cmd := exec.Command("ohcount", "-d", root)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-
-	err := cmd.Run()
-	if err != nil {
-		return nil, fmt.Errorf("ohcount command failed: %v, output: %s", err, out.String())
-	}
-
 	fileLangMap := make(map[string]string)
-	scanner := bufio.NewScanner(&out)
-	for scanner.Scan() {
-		line := scanner.Text()
-		parts := strings.Fields(line)
-		if len(parts) < 2 {
-			continue
+
+	walkFn := func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return fmt.Errorf("failed to access file %s: %v", path, err)
 		}
-		lang := parts[0]
-		filePath := strings.Join(parts[1:], " ")
-		if lang == "(null)" {
-			mtype, err := mimetype.DetectFile(filePath)
+		if info.IsDir() {
+			return nil // skip directories
+		}
+
+		// Read file content for go-enry analysis
+		content, err := ioutil.ReadFile(path)
+		if err != nil {
+			log.Printf("Failed to read file %s: %v", path, err)
+			return nil // continue processing other files
+		}
+
+		// Use go-enry to detect the programming language
+		// GetLanguage combines multiple detection strategies: filename, extension, content, etc.
+		language := enry.GetLanguage(path, content)
+
+		if language == "" {
+			// Fall back to MIME type detection for files go-enry can't classify
+			// This preserves the behavior of the original ohcount implementation
+			mtype, err := mimetype.DetectFile(path)
 			if err != nil {
-				log.Printf("Failed to detect mimetype for %s: %v", filePath, err)
-				continue
+				log.Printf("Failed to detect mimetype for %s: %v", path, err)
+				return nil
 			}
 			if mtype.Is("text/plain") {
-				lang = "text/plain"
+				language = "text/plain"
 			} else {
-				// Ignore non-text/plain files
-				continue
+				// Ignore non-text files (binary, etc.)
+				return nil
 			}
 		}
-		fileLangMap[filePath] = lang
+
+		fileLangMap[path] = language
+		return nil
 	}
 
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading ohcount output: %v", err)
+	err := filepath.Walk(root, walkFn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to walk directory %s: %v", root, err)
 	}
 
 	return fileLangMap, nil
