@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -33,6 +34,7 @@ func main() {
 	// Process each directory and merge file language mappings
 	for _, dir := range directories {
 		mapping, err := getFileLanguages(dir)
+		// mapping, err := getMimeTypes(dir)
 		if err != nil {
 			log.Fatalf("Error getting file languages from directory %s: %v", dir, err)
 		}
@@ -135,6 +137,38 @@ func main() {
 		fmt.Printf("----------------  -----  ---------\n")
 		fmt.Printf("%-16s  %5d  %9d\n", "Total", totalFiles, totalTokens)
 	}
+}
+
+// getMimeTypes detects the MIME type of all files in the given
+// directory tree using the mimetype package.   Path might be a
+// directory or a file.
+func getMimeTypes(path string) (mimetypes map[string]string, err error) {
+	mimetypes = make(map[string]string)
+
+	// walk the directory tree and detect MIME types
+	walkFn := func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return fmt.Errorf("failed to access file %s: %v", path, err)
+		}
+		if info.IsDir() {
+			return nil // skip directories
+		}
+
+		mtype, err := mimetype.DetectFile(path)
+		if err != nil {
+			return fmt.Errorf("failed to detect mimetype for %s: %v", path, err)
+		}
+		mimetypes[path] = mtype.String()
+		return nil
+	}
+
+	// call walk to traverse the directory tree
+	err = filepath.Walk(path, walkFn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to walk directory %s: %v", path, err)
+	}
+
+	return mimetypes, nil
 }
 
 // getFileLanguages runs ohcount -d <root> and parses its output to map files to languages

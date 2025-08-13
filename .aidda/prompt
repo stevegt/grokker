@@ -1,18 +1,11 @@
-arrange the input-area content
 
-Arrange the input-area content like this:
 
-  llmSelect userInput sendBtn statusBox stopBtn
-  wordCount userInput         statusBox 
 
-...in other words, both userInput and statusBox span the full height
-of the input area.
-
+I need to get rid of the dependency on ohcount by writing or importing
+Go code that counts the number of tokens in a Go source file.
 
 In:
-  x/storm/main.go
-Out:
-  x/storm/main.go
+  x/tokencount/main.go
 
 .stop
 
