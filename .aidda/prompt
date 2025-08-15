@@ -1,18 +1,19 @@
-replace ohcount with Go code to identify programming languages
+write storm file splitter
 
-I need to get rid of the dependency on ohcount by writing or importing
-Go code that identifies the programming language of a file.  I've
-written getMimeTypes, but the mime type is not enough to determine
-the programming language.  
+Write a library to parse storm files.  A storm file consists of a
+sequence of LLM prompts and responses, each separated by a '^---$'
+pattern.  Each round-trip contains a query, reponse, references, and
+reasoning.  A sample can be found in /tmp/storm-file-sample.md.
 
-Use the go-enry library to replace the ohcount functionality in
-getFileLanguages().  See .aidda/response for more information.
+The library should have a Parse() function that takes a storm file as
+an io.Reader and returns a slice of RoundTrip structs, each containing
+the query, response, references, and reasoning for each round-trip.  
 
 In:
-  .aidda/response
-  x/tokencount/main.go
+  x/storm/main.go
+  /tmp/storm-file-sample.md
 Out:
-  x/tokencount/main.go
+  x/storm/split/split.go
 
 .stop
 

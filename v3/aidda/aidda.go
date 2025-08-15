@@ -151,6 +151,7 @@ func Do(g *core.Grokker, modelName string, args ...string) (err error) {
 	Ck(err)
 
 	// XXX location might want to be more flexible
+	// XXX e.g. .aidda.$USER or .aidda/$(git config user.email) might make sense
 	dir := Spf("%s/.aidda", baseDir)
 
 	// generate filenames

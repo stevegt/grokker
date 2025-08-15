@@ -1,13 +1,16 @@
----FILE-START filename="/home/stevegt/lab/grokker/x/storm/split/split.go"---
-package split
+package main
 
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
+	"os"
 	"regexp"
 	"strings"
+
+	. "github.com/stevegt/goadapt"
 )
 
 // RoundTrip represents one complete exchange in a storm file,
@@ -43,25 +46,38 @@ func Parse(r io.Reader) ([]RoundTrip, error) {
 
 	// Split the file into blocks using lines that exactly match "---"
 	// The regex works in multiline mode.
-	splitRegex := regexp.MustCompile(`(?m)^[ \t]*---[ \t]*$`)
+	splitRegex := regexp.MustCompile(`(?m)^---[ \t]*$`)
 	blocks := splitRegex.Split(content, -1)
+	Fpf(os.Stderr, "INFO: Split storm file into %d blocks\n", len(blocks))
+
+	// if the last block is empty, remove it
+	if len(blocks) > 0 && strings.TrimSpace(blocks[len(blocks)-1]) == "" {
+		Fpf(os.Stderr, "INFO: Removing empty last block\n")
+		blocks = blocks[:len(blocks)-1]
+	}
 
 	var rounds []RoundTrip
-	// Regular expression to capture the first bold text as the query.
-	queryRegex := regexp.MustCompile(`\*\*(.*?)\*\*`)
+	// Regular expression to capture the first multiline bold text as the query.
+	queryRegex := regexp.MustCompile(`^\*\*((.|\n)*?)\*\*`)
 
-	for _, block := range blocks {
+	for blocknum, block := range blocks {
 		block = strings.TrimSpace(block)
 		if block == "" {
+			Fpf(os.Stderr, "ERROR: Skipping empty block %d\n", blocknum)
 			continue
 		}
+		Fpf(os.Stderr, "INFO: Processing block %d length %d\n", blocknum, len(block))
 
 		var rt RoundTrip
 
 		// Find the first occurrence of a bold segment for the query.
 		qmatches := queryRegex.FindStringSubmatch(block)
-		if len(qmatches) >= 2 {
+		Fpf(os.Stderr, "INFO: block %d, qmatches length: %d\n", blocknum, len(qmatches))
+		if len(qmatches) >= 3 {
 			rt.Query = strings.TrimSpace(qmatches[1])
+			Fpf(os.Stderr, "INFO: block %d, query: \n%s\n", blocknum, rt.Query)
+		} else {
+			Assert(false, "No query found in block %d", blocknum)
 		}
 
 		// Locate section markers "## References" and "## Reasoning"
@@ -75,7 +91,8 @@ func Parse(r io.Reader) ([]RoundTrip, error) {
 		// If a "## References" marker exists, we define the response as the part from the end of the query
 		// up to the marker. Otherwise, the entire block (except the query part) is the response.
 		if idxRef != -1 {
-			// Find end of first bold query (if any) and then slice
+			// Find end of first bold query (if any) and then slice to
+			// get the response.
 			qEndIdx := 0
 			if qmatches != nil {
 				index := strings.Index(block, qmatches[0])
@@ -83,9 +100,12 @@ func Parse(r io.Reader) ([]RoundTrip, error) {
 					qEndIdx = index + len(qmatches[0])
 				}
 			}
+			fmt.Fprintf(os.Stderr, "INFO: block %d, qEndIdx: %d, idxRef: %d, idxThink: %d, block length: %d\n",
+				blocknum, qEndIdx, idxRef, idxThink, len(block))
 			rt.Response = strings.TrimSpace(block[qEndIdx:idxRef])
 		} else {
 			// No references marker, so take all after the query as response.
+			fmt.Fprintf(os.Stderr, "WARN: No references marker found, block number %d\n", blocknum)
 			if qmatches != nil {
 				index := strings.Index(block, qmatches[0])
 				if index != -1 {
@@ -105,10 +125,12 @@ func Parse(r io.Reader) ([]RoundTrip, error) {
 			rt.Reasoning = strings.TrimSpace(block[idxThink+len(reasoningMarker):])
 		} else if idxRef != -1 {
 			// If only References marker exists, take all after as references.
+			fmt.Fprintf(os.Stderr, "WARN: Only references marker found, block number %d\n", blocknum)
 			rt.References = strings.TrimSpace(block[idxRef+len(referencesMarker):])
 			rt.Reasoning = ""
 		} else if idxThink != -1 {
 			// If only Reasoning marker exists, assign empty references.
+			fmt.Fprintf(os.Stderr, "WARN: Only reasoning marker found, block number %d\n", blocknum)
 			rt.References = ""
 			rt.Reasoning = strings.TrimSpace(block[idxThink+len(reasoningMarker):])
 		}
@@ -116,6 +138,7 @@ func Parse(r io.Reader) ([]RoundTrip, error) {
 		// If no query was found (and thus possibly no valid roundtrip), we can decide whether to drop or include.
 		if rt.Query == "" && rt.Response == "" && rt.References == "" && rt.Reasoning == "" {
 			// Likely not a valid roundtrip block.
+			Assert(false, "Empty or invalid roundtrip block at block %d\n", blocknum)
 			continue
 		}
 
@@ -125,6 +148,8 @@ func Parse(r io.Reader) ([]RoundTrip, error) {
 	if len(rounds) == 0 {
 		return nil, errors.New("no valid roundtrips found in storm file")
 	}
+
+	fmt.Fprintf(os.Stderr, "INFO: Parsed %d roundtrips from storm file\n", len(rounds))
 
 	return rounds, nil
 }
@@ -142,4 +167,24 @@ func (rt RoundTrip) String() string {
 	}
 	return buf.String()
 }
----FILE-END filename="/home/stevegt/lab/grokker/x/storm/split/split.go"---
+
+func main() {
+	// take input from stdin
+	input, err := ioutil.ReadAll(os.Stdin)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: Error reading input: %v\n", err)
+		os.Exit(1)
+	}
+	// Parse the storm file from the input
+	roundTrips, err := Parse(bytes.NewReader(input))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: Error parsing storm file: %v\n", err)
+		os.Exit(1)
+	}
+	// Print each round trip
+	for _, rt := range roundTrips {
+		fmt.Println(rt)
+	}
+	// Exit with success
+	os.Exit(0)
+}
