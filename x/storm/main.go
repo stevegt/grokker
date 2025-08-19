@@ -304,6 +304,8 @@ var tmpl = template.Must(template.New("index").Parse(`
       } else {
         messageDiv.innerHTML = "<strong>" + query + " [" + selection + "]</strong>";
       }
+	  // create a <br> before the spinner and cancel button
+	  messageDiv.innerHTML += "<br>";
       // Create a spinner element next to the query.
       var spinner = document.createElement("span");
       spinner.className = "spinner";
@@ -863,5 +865,3 @@ func markdownToHTML(markdown string) string {
 
 	return buf.String()
 }
-
-
