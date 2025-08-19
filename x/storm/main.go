@@ -214,7 +214,7 @@ var tmpl = template.Must(template.New("index").Parse(`
         <button id="stopBtn" style="grid-area: stopBtn;">Stop<br>Server</button>
         <div id="wordCountContainer" style="grid-area: wordCount;">
           <label for="wordCount">Word Count</label>
-          <input type="number" id="wordCount" min="1" placeholder="10000">
+          <input type="number" id="wordCount" min="1" placeholder="100">
         </div>
       </div>
     </div>
@@ -399,8 +399,12 @@ var tmpl = template.Must(template.New("index").Parse(`
       if(query.trim() === "") return;
       // Check for word count input
       var wordCountElem = document.getElementById("wordCount");
-      if(wordCountElem && wordCountElem.value.trim() !== "") {
-        query = query + " Please limit your response to " + wordCountElem.value + " words.";
+      if(wordCountElem) {
+	  	if(wordCountElem.value.trim() == "") {
+			// default to 100 words if no input is given
+			wordCountElem.value = "100";
+		}
+        query = query + "\n\nPlease limit your response to " + wordCountElem.value + " words.";
       }
       sendQuery(query, document.getElementById("llmSelect").value, "");
       input.value = "";
@@ -778,7 +782,7 @@ func tokenCountHandler(w http.ResponseWriter, r *http.Request) {
 
 // sendQueryToLLM calls the Grokker API to obtain a markdown-formatted text.
 func sendQueryToLLM(query string, llm string, selection, backgroundContext string) string {
-	sysmsg := fmt.Sprintf("You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.")
+	sysmsg := fmt.Sprintf("You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; do not include empty square brackets in your response.  Always start your response with a markdown heading.")
 
 	prompt := fmt.Sprintf("---CONTEXT START---\n%s\n---CONTEXT END---\n\nNew Query: %s [%s]", backgroundContext, query, selection)
 

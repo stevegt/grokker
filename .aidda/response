@@ -1,145 +1,123 @@
----FILE-START filename="/home/stevegt/lab/grokker/x/storm/split/split.go"---
-package split
+The fix turned out not to be in how you rewrite the markdown when
+updating the file but in what you return to the browser. In
+queryHandler you append a horizontal‐rule (an <hr> tag) to the
+converted markdown. That extra <hr> is then “combined” with the
+separator that comes from how chat history is written (each round is
+ended with a markdown horizontal rule, which goldmark converts into
+<hr>). (In the markdown file the extra <hr> isn’t there, so the
+References section appears only once there.) Removing the extra hr
+from the JSON response fixes the issue.
 
-import (
-	"bytes"
-	"errors"
-	"io"
-	"io/ioutil"
-	"regexp"
-	"strings"
-)
+Below is the updated queryHandler: 
 
-// RoundTrip represents one complete exchange in a storm file,
-// containing the query, the response, the references and the reasoning.
-type RoundTrip struct {
-	Query      string
-	Response   string
-	References string
-	Reasoning  string
-}
+-----------------------------------------------------------
+package main
 
-// Parse reads a storm file from the provided io.Reader and returns
-// a slice of RoundTrip structs. A storm file is expected to consist of
-// one or more round-trip blocks separated by a line matching "^---$".
-// Each block is further parsed using heuristics:
-//   - The first occurrence of text in double asterisks (**) is taken as the query.
-//   - The text between the query and a "## References" marker is taken as the response.
-//   - The text between "## References" and "## Reasoning" is taken as the references.
-//   - The text after "## Reasoning" is taken as the reasoning.
-//
-// If any of these markers are missing, the corresponding field is set to an empty string.
-func Parse(r io.Reader) ([]RoundTrip, error) {
-	// Read entire file contents
-	data, err := ioutil.ReadAll(r)
+// ... (other code remains unchanged)
+
+func queryHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Received query request: %s", r.URL.Path)
+	if r.Method != "POST" {
+		log.Printf("Method not allowed: %s", r.Method)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req QueryRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("error decoding request body: %v", err)
+		http.Error(w, "Bad request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	round := chat.StartRound(req.Query, req.Selection)
+	history := chat.getHistory(false)
+	// add the last TailLength characters of the chat history as context.
+	// XXX should really use embeddings and a vector db to find relevant context.
+	startIndex := len(history) - TailLength
+	if startIndex < 0 {
+		startIndex = 0
+	}
+	lastN := history[startIndex:]
+	lastNTokenCount, err := grok.TokenCount(lastN)
 	if err != nil {
-		return nil, err
+		log.Printf("Token count error: %v", err)
+		lastNTokenCount = 0
+	}
+	log.Printf("Added %d tokens of context to query: %s", lastNTokenCount, req.Query)
+
+	responseText := sendQueryToLLM(req.Query, req.LLM, req.Selection, lastN)
+
+	// convert references to a bulleted list
+	refIndex := strings.Index(responseText, "<references>")
+	if refIndex != -1 {
+		refEndIndex := strings.Index(responseText, "</references>") + len("</references>")
+		// every non-blank line after <references> is a reference --
+		// insert a '- ' before each line until we hit the closing tag.
+		firstRefIndex := refIndex + len("<references>")
+		references := strings.Split(responseText[firstRefIndex:], "\n")
+		var refLines []string
+		for _, line := range references {
+			line = strings.TrimSpace(line)
+			if line == "</references>" {
+				break // stop at the closing tag
+			}
+			if line == "" {
+				continue // skip empty lines
+			}
+
+			// if the line looks like [N] followed by a URL, convert
+			// the URL to a markdown link.
+			regex := `^\s*\[(\d+)\]\s*(http[s]?://\S+)\s*$`
+			re := regexp.MustCompile(regex)
+			m := re.FindStringSubmatch(line)
+			if len(m) > 0 {
+				// m[1] is the reference number, m[2] is the URL
+				line = fmt.Sprintf("- [%s] [%s](%s)", m[1], m[2], m[2])
+			}
+
+			refLines = append(refLines, line)
+		}
+		if len(refLines) > 0 {
+			// replace the original <references> section with the new ## References section.
+			beforeRefs := responseText[:refIndex]
+			refHead := "\n\n## References\n\n"
+			afterRefs := responseText[refEndIndex:]
+			responseText = beforeRefs + refHead + strings.Join(refLines, "\n") + "\n" + afterRefs
+		}
 	}
 
-	// Normalize line endings and trim surrounding whitespace.
-	content := string(data)
-	content = strings.ReplaceAll(content, "\r\n", "\n")
-	content = strings.TrimSpace(content)
-
-	// Split the file into blocks using lines that exactly match "---"
-	// The regex works in multiline mode.
-	splitRegex := regexp.MustCompile(`(?m)^[ \t]*---[ \t]*$`)
-	blocks := splitRegex.Split(content, -1)
-
-	var rounds []RoundTrip
-	// Regular expression to capture the first bold text as the query.
-	queryRegex := regexp.MustCompile(`\*\*(.*?)\*\*`)
-
-	for _, block := range blocks {
-		block = strings.TrimSpace(block)
-		if block == "" {
-			continue
-		}
-
-		var rt RoundTrip
-
-		// Find the first occurrence of a bold segment for the query.
-		qmatches := queryRegex.FindStringSubmatch(block)
-		if len(qmatches) >= 2 {
-			rt.Query = strings.TrimSpace(qmatches[1])
-		}
-
-		// Locate section markers "## References" and "## Reasoning"
-		referencesMarker := "## References"
-		reasoningMarker := "## Reasoning"
-
-		idxRef := strings.Index(block, referencesMarker)
-		idxThink := strings.Index(block, reasoningMarker)
-
-		// Determine Response
-		// If a "## References" marker exists, we define the response as the part from the end of the query
-		// up to the marker. Otherwise, the entire block (except the query part) is the response.
-		if idxRef != -1 {
-			// Find end of first bold query (if any) and then slice
-			qEndIdx := 0
-			if qmatches != nil {
-				index := strings.Index(block, qmatches[0])
-				if index != -1 {
-					qEndIdx = index + len(qmatches[0])
-				}
-			}
-			rt.Response = strings.TrimSpace(block[qEndIdx:idxRef])
+	// move the <think> section to the end of the response
+	thinkIndex := strings.Index(responseText, "<think>")
+	if thinkIndex != -1 {
+		thinkEndIndex := strings.Index(responseText, "</think>") + len("</think>")
+		if thinkEndIndex > thinkIndex {
+			thinkSection := responseText[thinkIndex:thinkEndIndex]
+			// remove the think section from the response
+			responseText = responseText[:thinkIndex] + responseText[thinkEndIndex:]
+			// append the think section to the end of the response
+			responseText += "\n\n" + thinkSection
 		} else {
-			// No references marker, so take all after the query as response.
-			if qmatches != nil {
-				index := strings.Index(block, qmatches[0])
-				if index != -1 {
-					qEndIdx := index + len(qmatches[0])
-					rt.Response = strings.TrimSpace(block[qEndIdx:])
-				} else {
-					rt.Response = ""
-				}
-			} else {
-				rt.Response = block
-			}
+			log.Printf("Malformed <think> section in response: %s", responseText)
 		}
+	}
+	// convert <think> tags to a markdown heading
+	replacer := strings.NewReplacer("<think>", "## Reasoning\n", "</think>", "")
+	responseText = replacer.Replace(responseText)
 
-		// Determine References and Reasoning if available.
-		if idxRef != -1 && idxThink != -1 && idxThink > idxRef {
-			rt.References = strings.TrimSpace(block[idxRef+len(referencesMarker) : idxThink])
-			rt.Reasoning = strings.TrimSpace(block[idxThink+len(reasoningMarker):])
-		} else if idxRef != -1 {
-			// If only References marker exists, take all after as references.
-			rt.References = strings.TrimSpace(block[idxRef+len(referencesMarker):])
-			rt.Reasoning = ""
-		} else if idxThink != -1 {
-			// If only Reasoning marker exists, assign empty references.
-			rt.References = ""
-			rt.Reasoning = strings.TrimSpace(block[idxThink+len(reasoningMarker):])
-		}
-
-		// If no query was found (and thus possibly no valid roundtrip), we can decide whether to drop or include.
-		if rt.Query == "" && rt.Response == "" && rt.References == "" && rt.Reasoning == "" {
-			// Likely not a valid roundtrip block.
-			continue
-		}
-
-		rounds = append(rounds, rt)
+	err = chat.FinishRound(round, responseText)
+	if err != nil {
+		http.Error(w, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 
-	if len(rounds) == 0 {
-		return nil, errors.New("no valid roundtrips found in storm file")
+	// Removed extraneous <hr> so that the references section isn’t duplicated.
+	resp := QueryResponse{
+		Response: markdownToHTML(responseText),
 	}
-
-	return rounds, nil
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
-// For debugging: a helper function to pretty-print a RoundTrip.
-func (rt RoundTrip) String() string {
-	var buf bytes.Buffer
-	buf.WriteString("Query:\n" + rt.Query + "\n")
-	buf.WriteString("Response:\n" + rt.Response + "\n")
-	if rt.References != "" {
-		buf.WriteString("References:\n" + rt.References + "\n")
-	}
-	if rt.Reasoning != "" {
-		buf.WriteString("Reasoning:\n" + rt.Reasoning + "\n")
-	}
-	return buf.String()
-}
----FILE-END filename="/home/stevegt/lab/grokker/x/storm/split/split.go"---
+-----------------------------------------------------------
+
+With this change the markdown file (which is generated with one separator per round) remains unchanged and the HTML is updated with the rendered markdown once. This ensures that the References section appears only once in the browser.

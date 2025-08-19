@@ -1,19 +1,12 @@
-write storm file splitter
+troubleshoot references duplication in HTTP response
 
-Write a library to parse storm files.  A storm file consists of a
-sequence of LLM prompts and responses, each separated by a '^---$'
-pattern.  Each round-trip contains a query, reponse, references, and
-reasoning.  A sample can be found in /tmp/storm-file-sample.md.
+figure out why the References section is being written to the HTML in
+the browser twice, but only once to the markdown file.  It should only
+be once to both places.
 
-The library should have a Parse() function that takes a storm file as
-an io.Reader and returns a slice of RoundTrip structs, each containing
-the query, response, references, and reasoning for each round-trip.  
 
 In:
   x/storm/main.go
-  /tmp/storm-file-sample.md
-Out:
-  x/storm/split/split.go
 
 .stop
 
