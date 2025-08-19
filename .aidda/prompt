@@ -1,9 +1,23 @@
+add word count buttons 
+
+Add small buttons below the Word Count input field that let the user
+quickly choose from a few preset word counts.  Add buttons for 100,
+300, 500, and 700 words.  When the user clicks one of these buttons,
+the Word Count input field should be updated with the corresponding
+word count value.  
+
+In:
+  x/storm/main.go
+Out:
+  x/storm/main.go
+
+.stop
+
 troubleshoot references duplication in HTTP response
 
 figure out why the References section is being written to the HTML in
 the browser twice, but only once to the markdown file.  It should only
 be once to both places.
-
 
 In:
   x/storm/main.go

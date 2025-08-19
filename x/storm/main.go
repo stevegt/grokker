@@ -215,6 +215,12 @@ var tmpl = template.Must(template.New("index").Parse(`
         <div id="wordCountContainer" style="grid-area: wordCount;">
           <label for="wordCount">Word Count</label>
           <input type="number" id="wordCount" min="1" placeholder="100">
+          <div id="presetButtons">
+            <button type="button" class="preset-wordcount" data-word="100" style="font-size:10px; padding:2px 5px; margin:2px;">100</button>
+            <button type="button" class="preset-wordcount" data-word="300" style="font-size:10px; padding:2px 5px; margin:2px;">300</button>
+            <button type="button" class="preset-wordcount" data-word="500" style="font-size:10px; padding:2px 5px; margin:2px;">500</button>
+            <button type="button" class="preset-wordcount" data-word="700" style="font-size:10px; padding:2px 5px; margin:2px;">700</button>
+          </div>
         </div>
       </div>
     </div>
@@ -277,6 +283,12 @@ var tmpl = template.Must(template.New("index").Parse(`
         } else {
           sidebar.classList.add("collapsed");
         }
+      });
+      // Add preset word count buttons functionality.
+      document.querySelectorAll('.preset-wordcount').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          document.getElementById('wordCount').value = this.getAttribute('data-word');
+        });
       });
     });
 
