@@ -210,6 +210,8 @@ var tmpl = template.Must(template.New("index").Parse(`
           <br>
           <span id="statusSpinner" style="display:none;" class="spinner"></span>
           <span id="errorSign">⛔</span>
+          <br>
+          <div id="progressStats"></div>
         </span>
         <button id="stopBtn" style="grid-area: stopBtn;">Stop<br>Server</button>
         <div id="wordCountContainer" style="grid-area: wordCount;">
@@ -236,6 +238,33 @@ var tmpl = template.Must(template.New("index").Parse(`
       } else {
         spinner.style.display = "none";
       }
+    }
+
+    // Updates the progress stats in the status box.
+    // It calculates the total number of rounds (each message with class "message"),
+    // the current round being viewed based on scroll position, rounds remaining,
+    // and the percentage progress (current round divided by total rounds).
+    function updateProgressStats() {
+      var chat = document.getElementById("chat");
+      var messages = chat.querySelectorAll(".message");
+      var totalRounds = messages.length;
+
+      // Determine the current round based on scroll position.
+      // We'll choose the last message whose offsetTop is less than or equal to chat.scrollTop.
+      var currentIndex = 0;
+      for (var i = 0; i < messages.length; i++) {
+        if (messages[i].offsetTop <= chat.scrollTop + 5) {
+          currentIndex = i;
+        } else {
+          break;
+        }
+      }
+      var currentRound = totalRounds > 0 ? currentIndex + 1 : 0;
+      var roundsRemaining = totalRounds - currentRound;
+      var percent = totalRounds > 0 ? Math.round((currentRound / totalRounds) * 100) : 0;
+
+      var progressDiv = document.getElementById("progressStats");
+      progressDiv.textContent = "Rounds: " + totalRounds + ", Remaining: " + roundsRemaining + ", Progress: " + percent + "%";
     }
 
     // Show the error stop sign. Once shown, it remains visible until the page is reloaded.
@@ -290,6 +319,10 @@ var tmpl = template.Must(template.New("index").Parse(`
           document.getElementById('wordCount').value = this.getAttribute('data-word');
         });
       });
+      // Attach scroll event listener to update progress stats on chat scroll.
+      var chatDiv = document.getElementById("chat");
+      chatDiv.addEventListener("scroll", updateProgressStats);
+      updateProgressStats();
     });
 
     // Append a new message to the chat view without scrolling the page.
@@ -302,6 +335,7 @@ var tmpl = template.Must(template.New("index").Parse(`
       // we simply append the content and let the browser handle it without scrolling.
       chat.appendChild(messageDiv);
       generateTOC();
+      updateProgressStats();
     }
 
     // Send query to the /query endpoint.
@@ -330,6 +364,7 @@ var tmpl = template.Must(template.New("index").Parse(`
       messageDiv.appendChild(cancelBtn);
       chat.appendChild(messageDiv);
       generateTOC();
+      updateProgressStats();
 
       // Increment global outstanding query count and update status spinner.
       outstandingQueries++;
@@ -346,6 +381,7 @@ var tmpl = template.Must(template.New("index").Parse(`
         outstandingQueries--;
         updateStatusSpinner();
         generateTOC();
+        updateProgressStats();
       });
 
       fetch("/query", {
@@ -368,6 +404,7 @@ var tmpl = template.Must(template.New("index").Parse(`
           messageDiv.appendChild(responseDiv);
           updateTokenCount();
           generateTOC();
+          updateProgressStats();
         }
         // Decrement outstanding queries and update status spinner.
         outstandingQueries--;
@@ -885,3 +922,4 @@ func markdownToHTML(markdown string) string {
 
 	return buf.String()
 }
+

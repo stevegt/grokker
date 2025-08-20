@@ -1,9 +1,17 @@
-troubleshoot how empty brackets are being added to the markdown
+add progress stats to status box
 
-Empty brackets keep showing up in the markdown.
-Where are they coming from?  
+- keep track of where the user currently has the page scrolled to
+  (which round the user is currently viewing)
+- count the total number of rounds in the markdown file (this is just
+  the count of c.history, so get this from a Chat method)
+- in the status box, show a count of total rounds, rounds remeining
+  between current scroll position and end, and percentage of
+  rounds between current scroll position and beginning of file
+
 
 In:
+  x/storm/main.go
+Out:
   x/storm/main.go
 
 .stop
