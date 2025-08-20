@@ -15,7 +15,10 @@ import (
 	"strings"
 	"sync"
 
+	"storm/split"
+
 	"github.com/gofrs/flock"
+	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker/v3/client"
 	"github.com/stevegt/grokker/v3/core"
 	"github.com/yuin/goldmark"
@@ -135,7 +138,7 @@ var tmpl = template.Must(template.New("index").Parse(`
     }
     #statusBox { 
       display: inline-block; 
-      font-size: 9px; 
+      font-size: 10px; 
     }
     /* Red stop sign for error indication in status box */
     #errorSign {
@@ -208,6 +211,8 @@ var tmpl = template.Must(template.New("index").Parse(`
         <span id="statusBox" style="grid-area: statusBox;">
           <span id="tokenCountText">Token Count: 0</span>
           <br>
+          <span id="progressStats">Progress: 0 of 0. Remaining: 0. 0% complete.</span>
+          <br>
           <span id="statusSpinner" style="display:none;" class="spinner"></span>
           <span id="errorSign">⛔</span>
         </span>
@@ -275,6 +280,7 @@ var tmpl = template.Must(template.New("index").Parse(`
     // Call generateTOC when the DOM content is loaded.
     document.addEventListener("DOMContentLoaded", function() {
       generateTOC();
+      updateProgressStats();
       // Toggle sidebar visibility
       var sidebar = document.getElementById("sidebar");
       document.getElementById("toggle-sidebar").addEventListener("click", function() {
@@ -368,6 +374,7 @@ var tmpl = template.Must(template.New("index").Parse(`
           messageDiv.appendChild(responseDiv);
           updateTokenCount();
           generateTOC();
+          updateProgressStats();
         }
         // Decrement outstanding queries and update status spinner.
         outstandingQueries--;
@@ -401,6 +408,38 @@ var tmpl = template.Must(template.New("index").Parse(`
           console.error("Error fetching token count:", err);
         });
     }
+
+    // Updates progress stats by counting the number of <hr> tags above the current scroll position
+    // and fetching the total round count from the server.
+    function updateProgressStats() {
+      var chatElem = document.getElementById("chat");
+      var hrTags = chatElem.getElementsByTagName("hr");
+      var currentRound = 0;
+      // Count the number of <hr> tags that are above the current scroll top
+      for (var i = 0; i < hrTags.length; i++) {
+        var hrPos = hrTags[i].offsetTop;
+        if (hrPos < chatElem.scrollTop) {
+          currentRound++;
+        }
+      }
+      fetch("/rounds")
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+          var total = data.rounds;
+          var remaining = total - currentRound;
+          var percentage = total > 0 ? Math.round((currentRound / total) * 100) : 0;
+          var progressElem = document.getElementById("progressStats");
+          if(progressElem) {
+            progressElem.textContent = "Rounds: " + currentRound + "/" + total + ", Remaining: " + remaining + ", " + percentage + "%";
+          }
+        })
+        .catch(function(err) {
+          console.error("Error fetching rounds count:", err);
+        });
+    }
+
+    // Add scroll event listener on the chat element to update progress stats.
+    document.getElementById("chat").addEventListener("scroll", updateProgressStats);
 
     updateTokenCount(); // Initial token count fetch
 
@@ -490,13 +529,32 @@ func NewChat(filename string) *Chat {
 		} else {
 			// Since the file stores the chat history as markdown,
 			// we load it as a single ChatRound with an empty query.
-			history = append(history, &ChatRound{Response: string(content)})
+			// history = append(history, &ChatRound{Response: string(content)})
+
+			// load the markdown file and parse it into chat rounds.
+			roundTrips, err := split.Parse(bytes.NewReader(content))
+			Ck(err)
+			for _, rt := range roundTrips {
+				response := Spf("%s\n\n## References\n\n%s\n\n## Reasoning\n\n%s\n\n", rt.Response, rt.References, rt.Reasoning)
+				chatRound := &ChatRound{
+					Query:    rt.Query,
+					Response: response,
+				}
+				history = append(history, chatRound)
+			}
 		}
 	}
 	return &Chat{
 		history:  history,
 		filename: filename,
 	}
+}
+
+// TotalRounds returns the total number of chat rounds.
+func (c *Chat) TotalRounds() int {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	return len(c.history)
 }
 
 // updateMarkdown creates a backup of the existing markdown file and updates it with the current chat history.
@@ -646,6 +704,7 @@ func main() {
 
 	http.HandleFunc("/query", queryHandler)
 	http.HandleFunc("/tokencount", tokenCountHandler)
+	http.HandleFunc("/rounds", roundsHandler)
 	http.HandleFunc("/stop", stopHandler)
 
 	addr := fmt.Sprintf(":%d", *port)
@@ -671,6 +730,13 @@ func stopHandler(w http.ResponseWriter, r *http.Request) {
 			log.Printf("Error shutting down server: %v", err)
 		}
 	}()
+}
+
+// roundsHandler returns the total number of chat rounds as JSON.
+func roundsHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	rounds := chat.TotalRounds()
+	json.NewEncoder(w).Encode(map[string]int{"rounds": rounds})
 }
 
 var TailLength = 300000

@@ -1,4 +1,4 @@
-package main
+package split
 
 import (
 	"bytes"
@@ -63,7 +63,7 @@ func Parse(r io.Reader) ([]RoundTrip, error) {
 	for blocknum, block := range blocks {
 		block = strings.TrimSpace(block)
 		if block == "" {
-			Fpf(os.Stderr, "ERROR: Skipping empty block %d\n", blocknum)
+			Fpf(os.Stderr, "WARN: Skipping empty block %d\n", blocknum)
 			continue
 		}
 		Fpf(os.Stderr, "INFO: Processing block %d length %d\n", blocknum, len(block))
@@ -166,25 +166,4 @@ func (rt RoundTrip) String() string {
 		buf.WriteString("Reasoning:\n" + rt.Reasoning + "\n")
 	}
 	return buf.String()
-}
-
-func main() {
-	// take input from stdin
-	input, err := ioutil.ReadAll(os.Stdin)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: Error reading input: %v\n", err)
-		os.Exit(1)
-	}
-	// Parse the storm file from the input
-	roundTrips, err := Parse(bytes.NewReader(input))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: Error parsing storm file: %v\n", err)
-		os.Exit(1)
-	}
-	// Print each round trip
-	for _, rt := range roundTrips {
-		fmt.Println(rt)
-	}
-	// Exit with success
-	os.Exit(0)
 }
