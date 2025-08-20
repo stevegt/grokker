@@ -673,7 +673,7 @@ func stopHandler(w http.ResponseWriter, r *http.Request) {
 	}()
 }
 
-var TailLength = 150000
+var TailLength = 300000
 
 // queryHandler processes each query, sends it to the Grokker API,
 // updates the markdown file with the current chat state, and returns the LLM response as HTML.
@@ -794,9 +794,12 @@ func tokenCountHandler(w http.ResponseWriter, r *http.Request) {
 
 // sendQueryToLLM calls the Grokker API to obtain a markdown-formatted text.
 func sendQueryToLLM(query string, llm string, selection, backgroundContext string) string {
-	sysmsg := fmt.Sprintf("You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; do not include empty square brackets in your response.  Always start your response with a markdown heading.")
+	sysmsg := fmt.Sprintf("You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading.")
 
-	prompt := fmt.Sprintf("---CONTEXT START---\n%s\n---CONTEXT END---\n\nNew Query: %s [%s]", backgroundContext, query, selection)
+	prompt := fmt.Sprintf("---CONTEXT START---\n%s\n---CONTEXT END---\n\nNew Query: %s", backgroundContext, query)
+	if selection != "" {
+		prompt += fmt.Sprintf(" {%s}", selection)
+	}
 
 	msgs := []client.ChatMsg{
 		{Role: "USER", Content: prompt},
@@ -844,7 +847,8 @@ func linkifyReferences(input string, refs map[string]string) string {
 	result := re.ReplaceAllStringFunc(input, func(match string) string {
 		m := re.FindStringSubmatch(match)
 		if len(m) == 2 {
-			if url, ok := refs[m[1]]; ok {
+			url, ok := refs[m[1]]
+			if ok && m[1] != "" && url != "" {
 				return fmt.Sprintf("[[%s](%s)]", m[1], url)
 			}
 		}
