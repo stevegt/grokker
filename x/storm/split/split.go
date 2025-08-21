@@ -63,6 +63,7 @@ func Parse(r io.Reader) ([]RoundTrip, error) {
 	for blocknum, block := range blocks {
 		block = strings.TrimSpace(block)
 		if block == "" {
+			Assert(false, "Empty block found at block number %d", blocknum)
 			Fpf(os.Stderr, "WARN: Skipping empty block %d\n", blocknum)
 			continue
 		}
@@ -89,7 +90,7 @@ func Parse(r io.Reader) ([]RoundTrip, error) {
 
 		// Determine Response
 		// If a "## References" marker exists, we define the response as the part from the end of the query
-		// up to the marker. Otherwise, the entire block (except the query part) is the response.
+		// up to the marker.
 		if idxRef != -1 {
 			// Find end of first bold query (if any) and then slice to
 			// get the response.
@@ -104,19 +105,7 @@ func Parse(r io.Reader) ([]RoundTrip, error) {
 				blocknum, qEndIdx, idxRef, idxThink, len(block))
 			rt.Response = strings.TrimSpace(block[qEndIdx:idxRef])
 		} else {
-			// No references marker, so take all after the query as response.
-			fmt.Fprintf(os.Stderr, "WARN: No references marker found, block number %d\n", blocknum)
-			if qmatches != nil {
-				index := strings.Index(block, qmatches[0])
-				if index != -1 {
-					qEndIdx := index + len(qmatches[0])
-					rt.Response = strings.TrimSpace(block[qEndIdx:])
-				} else {
-					rt.Response = ""
-				}
-			} else {
-				rt.Response = block
-			}
+			Assert(false, "No references marker found in block %d", blocknum)
 		}
 
 		// Determine References and Reasoning if available.
@@ -124,11 +113,13 @@ func Parse(r io.Reader) ([]RoundTrip, error) {
 			rt.References = strings.TrimSpace(block[idxRef+len(referencesMarker) : idxThink])
 			rt.Reasoning = strings.TrimSpace(block[idxThink+len(reasoningMarker):])
 		} else if idxRef != -1 {
+			Assert(false, "No reasoning marker found in block %d", blocknum)
 			// If only References marker exists, take all after as references.
 			fmt.Fprintf(os.Stderr, "WARN: Only references marker found, block number %d\n", blocknum)
 			rt.References = strings.TrimSpace(block[idxRef+len(referencesMarker):])
 			rt.Reasoning = ""
 		} else if idxThink != -1 {
+			Assert(false, "No references marker found in block %d", blocknum)
 			// If only Reasoning marker exists, assign empty references.
 			fmt.Fprintf(os.Stderr, "WARN: Only reasoning marker found, block number %d\n", blocknum)
 			rt.References = ""

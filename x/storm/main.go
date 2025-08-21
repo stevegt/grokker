@@ -138,7 +138,7 @@ var tmpl = template.Must(template.New("index").Parse(`
     }
     #statusBox { 
       display: inline-block; 
-      font-size: 10px; 
+      font-size: 11px; 
     }
     /* Red stop sign for error indication in status box */
     #errorSign {
@@ -211,7 +211,9 @@ var tmpl = template.Must(template.New("index").Parse(`
         <span id="statusBox" style="grid-area: statusBox;">
           <span id="tokenCountText">Token Count: 0</span>
           <br>
-          <span id="progressStats">Progress: 0 of 0. Remaining: 0. 0% complete.</span>
+          <span id="roundsStats">Rounds:</span>
+          <br>
+          <span id="progressStats">Progress:</span>
           <br>
           <span id="statusSpinner" style="display:none;" class="spinner"></span>
           <span id="errorSign">⛔</span>
@@ -428,9 +430,15 @@ var tmpl = template.Must(template.New("index").Parse(`
           var total = data.rounds;
           var remaining = total - currentRound;
           var percentage = total > 0 ? Math.round((currentRound / total) * 100) : 0;
+          var roundsElem = document.getElementById("roundsStats");
           var progressElem = document.getElementById("progressStats");
+          if(roundsElem) {
+						// Rounds: total - current = remaining 
+						roundsElem.textContent = "Rounds: " + total + " - " + currentRound + " = " + remaining;
+					}
           if(progressElem) {
-            progressElem.textContent = "Rounds: " + currentRound + "/" + total + ", Remaining: " + remaining + ", " + percentage + "%";
+						// Progress: N%
+						progressElem.textContent = "Progress: " + percentage + "%";
           }
         })
         .catch(function(err) {
@@ -805,13 +813,11 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 
 			refLines = append(refLines, line)
 		}
-		if len(refLines) > 0 {
-			// replace the original <references> section with the new ## References section.
-			beforeRefs := responseText[:refIndex]
-			refHead := "\n\n## References\n\n"
-			afterRefs := responseText[refEndIndex:]
-			responseText = beforeRefs + refHead + strings.Join(refLines, "\n") + "\n" + afterRefs
-		}
+		// replace the original <references> section with the new ## References section.
+		beforeRefs := responseText[:refIndex]
+		refHead := "\n\n## References\n\n"
+		afterRefs := responseText[refEndIndex:]
+		responseText = beforeRefs + refHead + strings.Join(refLines, "\n") + "\n" + afterRefs
 	}
 
 	// move the <think> section to the end of the response

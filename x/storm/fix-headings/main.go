@@ -1,4 +1,3 @@
----FILE-START filename="/home/stevegt/lab/grokker/x/storm/fix-headings/main.go"---
 package main
 
 import (
@@ -38,6 +37,7 @@ func main() {
 	for scanner.Scan() {
 		line := scanner.Text()
 		insert := ""
+		skip := false
 
 		switch state {
 		case stateBody:
@@ -54,7 +54,11 @@ func main() {
 			}
 		case stateReferences:
 			// If line starts with "- [<digit>]" or "## References" or is blank, stay in references.
-			if startsWithDashDigit(line) || strings.HasPrefix(line, "## References") || strings.TrimSpace(line) == "" {
+			if startsWithDashDigit(line) || strings.TrimSpace(line) == "" {
+				// remain in stateReferences.
+			} else if strings.HasPrefix(line, "## References") {
+				// remove "## References" header if it is a duplicate.
+				skip = true
 				// remain in stateReferences.
 			} else if strings.HasPrefix(line, "## Reasoning") {
 				state = stateReasoning
@@ -81,7 +85,9 @@ func main() {
 		}
 
 		// Print the current line.
-		fmt.Println(line)
+		if !skip {
+			fmt.Println(line)
+		}
 
 		// After printing the line, if the current line triggered hr, reset state to body.
 		if strings.HasPrefix(line, "---") {
@@ -94,4 +100,3 @@ func main() {
 		os.Exit(1)
 	}
 }
----FILE-END filename="/home/stevegt/lab/grokker/x/storm/fix-headings/main.go"---
