@@ -1,48 +1,12 @@
-write fix-headings/main.go
+bookmark current position
 
-given a markdown file on stdin, insert the missing "## References" and
-"## Reasoning" headings before each section. 
-
-We need a state machine.  The states are:
-- body
-- references
-- reasoning
-- hr
-
-The starting state is body.  Loop through the input line-by line.
-Before printing each line, execute the following logic:
-
-- if in body:
-  - if the line starts with "## References", new state is references
-  - if the line starts with `- [\d]`, insert "## References\n\n" before
-    the line; new state is references
-  - if the line starts with "## Reasoning", new state is reasoning
-  - if the line starts with `---`, new state is hr
-- if in references:
-  - if the line starts with `- [\d]`, stay in references
-  - if the line starts with "## References", stay in references
-  - if the line is blank, stay in references
-  - if the line starts with "## Reasoning", new state is reasoning
-  - if the line starts with `---`, new state is hr
-  - if the line starts with anything else, insert "## Reasoning\n\n"
-    before the line; new state is reasoning
-- if in reasoning:
-  - if the line starts with `---`, new state is hr
-- if in hr:
-  - new state is body
-
-Out:
-  x/storm/fix-headings/main.go
-
-.stop
-
-troubleshoot references duplication in HTTP response
-
-figure out why the References section is being written to the HTML in
-the browser twice, but only once to the markdown file.  It should only
-be once to both places.
+After the user scrolls, bookmark the current position (round number)
+in the window by dropping a cookie in the browser.  When the user
+returns to the page, scroll to the bookmarked position.
 
 In:
+  x/storm/main.go
+Out:
   x/storm/main.go
 
 .stop

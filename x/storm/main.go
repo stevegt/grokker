@@ -233,6 +233,26 @@ var tmpl = template.Must(template.New("index").Parse(`
     </div>
   </div>
   <script>
+    // Helper functions for managing cookies.
+    function setCookie(name, value, days) {
+      var expires = "";
+      if (days) {
+        var date = new Date();
+        date.setTime(date.getTime() + (days*24*60*60*1000));
+        expires = "; expires=" + date.toUTCString();
+      }
+      document.cookie = name + "=" + (value || "")  + expires + "; path=/";
+    }
+    function getCookie(name) {
+      var nameEQ = name + "=";
+      var ca = document.cookie.split(';');
+      for(var i=0; i < ca.length; i++) {
+        var c = ca[i].trim();
+        if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length, c.length);
+      }
+      return null;
+    }
+
     // Global counter for outstanding queries.
     var outstandingQueries = 0;
     // Updates the spinner in the status box based on the current outstanding query count.
@@ -283,6 +303,16 @@ var tmpl = template.Must(template.New("index").Parse(`
     document.addEventListener("DOMContentLoaded", function() {
       generateTOC();
       updateProgressStats();
+      // On page load, check for a bookmark cookie and scroll to the bookmarked round.
+      var bookmark = getCookie("bookmark_round");
+      if (bookmark) {
+        var round = parseInt(bookmark);
+        var chat = document.getElementById("chat");
+        var hrTags = chat.getElementsByTagName("hr");
+        if (round > 0 && round <= hrTags.length) {
+          chat.scrollTop = hrTags[round - 1].offsetTop;
+        }
+      }
       // Toggle sidebar visibility
       var sidebar = document.getElementById("sidebar");
       document.getElementById("toggle-sidebar").addEventListener("click", function() {
@@ -324,8 +354,8 @@ var tmpl = template.Must(template.New("index").Parse(`
       } else {
         messageDiv.innerHTML = "<strong>" + query + " [" + selection + "]</strong>";
       }
-	  // create a <br> before the spinner and cancel button
-	  messageDiv.innerHTML += "<br>";
+      // create a <br> before the spinner and cancel button
+      messageDiv.innerHTML += "<br>";
       // Create a spinner element next to the query.
       var spinner = document.createElement("span");
       spinner.className = "spinner";
@@ -424,6 +454,8 @@ var tmpl = template.Must(template.New("index").Parse(`
           currentRound++;
         }
       }
+      // Bookmark the current round in a cookie (for one year)
+      setCookie("bookmark_round", currentRound, 365);
       fetch("/rounds")
         .then(function(response) { return response.json(); })
         .then(function(data) {
@@ -433,12 +465,12 @@ var tmpl = template.Must(template.New("index").Parse(`
           var roundsElem = document.getElementById("roundsStats");
           var progressElem = document.getElementById("progressStats");
           if(roundsElem) {
-						// Rounds: total - current = remaining 
-						roundsElem.textContent = "Rounds: " + total + " - " + currentRound + " = " + remaining;
-					}
+            // Rounds: total - current = remaining 
+            roundsElem.textContent = "Rounds: " + total + " - " + currentRound + " = " + remaining;
+          }
           if(progressElem) {
-						// Progress: N%
-						progressElem.textContent = "Progress: " + percentage + "%";
+            // Progress: N%
+            progressElem.textContent = "Progress: " + percentage + "%";
           }
         })
         .catch(function(err) {
@@ -446,7 +478,7 @@ var tmpl = template.Must(template.New("index").Parse(`
         });
     }
 
-    // Add scroll event listener on the chat element to update progress stats.
+    // Add scroll event listener on the chat element to update progress stats and update bookmark.
     document.getElementById("chat").addEventListener("scroll", updateProgressStats);
 
     updateTokenCount(); // Initial token count fetch
@@ -459,10 +491,10 @@ var tmpl = template.Must(template.New("index").Parse(`
       // Check for word count input
       var wordCountElem = document.getElementById("wordCount");
       if(wordCountElem) {
-	  	if(wordCountElem.value.trim() == "") {
-			// default to 100 words if no input is given
-			wordCountElem.value = "100";
-		}
+        if(wordCountElem.value.trim() == "") {
+          // default to 100 words if no input is given
+          wordCountElem.value = "100";
+        }
         query = query + "\n\nPlease limit your response to " + wordCountElem.value + " words.";
       }
       sendQuery(query, document.getElementById("llmSelect").value, "");
@@ -535,9 +567,6 @@ func NewChat(filename string) *Chat {
 		if err != nil {
 			log.Printf("failed to read markdown file: %v", err)
 		} else {
-			// Since the file stores the chat history as markdown,
-			// we load it as a single ChatRound with an empty query.
-			// history = append(history, &ChatRound{Response: string(content)})
 
 			// load the markdown file and parse it into chat rounds.
 			roundTrips, err := split.Parse(bytes.NewReader(content))
