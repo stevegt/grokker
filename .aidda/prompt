@@ -4,6 +4,9 @@ After the user scrolls, bookmark the current position (round number)
 in the window by dropping a cookie in the browser.  When the user
 returns to the page, scroll to the bookmarked position.
 
+New requirement:  Wait for the chat to be fully loaded before scrolling
+to the bookmarked position.
+
 In:
   x/storm/main.go
 Out:

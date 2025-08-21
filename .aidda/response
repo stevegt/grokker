@@ -300,20 +300,10 @@ var tmpl = template.Must(template.New("index").Parse(`
         toc.appendChild(link);
       });
     }
-    // Call generateTOC when the DOM content is loaded.
+    // Call generateTOC and other initializations when the DOM content is loaded.
     document.addEventListener("DOMContentLoaded", function() {
       generateTOC();
       updateProgressStats();
-      // On page load, check for a bookmark cookie and scroll to the bookmarked round.
-      var bookmark = getCookie("bookmark_round");
-      if (bookmark) {
-        var round = parseInt(bookmark);
-        var chat = document.getElementById("chat");
-        var hrTags = chat.getElementsByTagName("hr");
-        if (round > 0 && round <= hrTags.length) {
-          chat.scrollTop = hrTags[round - 1].offsetTop;
-        }
-      }
       // Toggle sidebar visibility
       var sidebar = document.getElementById("sidebar");
       document.getElementById("toggle-sidebar").addEventListener("click", function() {
@@ -329,6 +319,19 @@ var tmpl = template.Must(template.New("index").Parse(`
           document.getElementById('wordCount').value = this.getAttribute('data-word');
         });
       });
+    });
+
+    // Wait for the complete page to load before scrolling to the bookmarked position.
+    window.addEventListener("load", function() {
+      var bookmark = getCookie("bookmark_round");
+      if (bookmark) {
+        var round = parseInt(bookmark);
+        var chat = document.getElementById("chat");
+        var hrTags = chat.getElementsByTagName("hr");
+        if (round > 0 && round <= hrTags.length) {
+          chat.scrollTop = hrTags[round - 1].offsetTop;
+        }
+      }
     });
 
     // Append a new message to the chat view without scrolling the page.
@@ -568,8 +571,6 @@ func NewChat(filename string) *Chat {
 		if err != nil {
 			log.Printf("failed to read markdown file: %v", err)
 		} else {
-			// Since the file stores the chat history as markdown,
-			// we load it as a single ChatRound with an empty query.
 
 			// load the markdown file and parse it into chat rounds.
 			roundTrips, err := split.Parse(bytes.NewReader(content))

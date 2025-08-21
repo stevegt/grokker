@@ -299,20 +299,9 @@ var tmpl = template.Must(template.New("index").Parse(`
         toc.appendChild(link);
       });
     }
-    // Call generateTOC when the DOM content is loaded.
+    // Call generateTOC and other initializations when the DOM content is loaded.
     document.addEventListener("DOMContentLoaded", function() {
       generateTOC();
-      updateProgressStats();
-      // On page load, check for a bookmark cookie and scroll to the bookmarked round.
-      var bookmark = getCookie("bookmark_round");
-      if (bookmark) {
-        var round = parseInt(bookmark);
-        var chat = document.getElementById("chat");
-        var hrTags = chat.getElementsByTagName("hr");
-        if (round > 0 && round <= hrTags.length) {
-          chat.scrollTop = hrTags[round - 1].offsetTop;
-        }
-      }
       // Toggle sidebar visibility
       var sidebar = document.getElementById("sidebar");
       document.getElementById("toggle-sidebar").addEventListener("click", function() {
@@ -328,6 +317,18 @@ var tmpl = template.Must(template.New("index").Parse(`
           document.getElementById('wordCount').value = this.getAttribute('data-word');
         });
       });
+			// scroll to the bookmarked round 
+      var bookmark = getCookie("bookmark_round");
+      if (bookmark) {
+        var round = parseInt(bookmark);
+        var chat = document.getElementById("chat");
+        var hrTags = chat.getElementsByTagName("hr");
+        if (round > 0 && round <= hrTags.length) {
+          console.log("Scrolling to round:", round);
+          chat.scrollTop = hrTags[round - 1].offsetTop;
+        }
+      }
+      updateProgressStats();
     });
 
     // Append a new message to the chat view without scrolling the page.
