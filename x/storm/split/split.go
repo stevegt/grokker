@@ -105,7 +105,7 @@ func Parse(r io.Reader) ([]RoundTrip, error) {
 				blocknum, qEndIdx, idxRef, idxThink, len(block))
 			rt.Response = strings.TrimSpace(block[qEndIdx:idxRef])
 		} else {
-			Assert(false, "No references marker found in block %d", blocknum)
+			Assert(false, "No references marker found in block %d:\n\n%s", blocknum, block)
 		}
 
 		// Determine References and Reasoning if available.
