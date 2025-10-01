@@ -298,7 +298,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 	}
 
 	// list of commands that can use a read-only db
-	roCmds := []string{"ls", "models", "version", "backup", "msg", "ctx"}
+	roCmds := []string{"commit", "ls", "models", "version", "backup", "msg", "ctx"}
 	readonly := false
 	if cmdInSlice(cmd, roCmds) {
 		Debug("command %s can use a read-only grok db", cmd)

@@ -58,7 +58,9 @@ func Parse(r io.Reader) ([]RoundTrip, error) {
 
 	var rounds []RoundTrip
 	// Regular expression to capture the first multiline bold text as the query.
-	queryRegex := regexp.MustCompile(`^\*\*((.|\n)*?)\*\*`)
+	boldRegex := regexp.MustCompile(`^\*\*((.|\n)*?)\*\*`)
+	// Regular expression to capture the first multiline non-whitespace text as the query if no bold is found.
+	textRegex := regexp.MustCompile(`(?m)(\S+.+?)\n\n`)
 
 	for blocknum, block := range blocks {
 		block = strings.TrimSpace(block)
@@ -72,13 +74,22 @@ func Parse(r io.Reader) ([]RoundTrip, error) {
 		var rt RoundTrip
 
 		// Find the first occurrence of a bold segment for the query.
-		qmatches := queryRegex.FindStringSubmatch(block)
+		qmatches := boldRegex.FindStringSubmatch(block)
 		Fpf(os.Stderr, "INFO: block %d, qmatches length: %d\n", blocknum, len(qmatches))
 		if len(qmatches) >= 3 {
 			rt.Query = strings.TrimSpace(qmatches[1])
 			Fpf(os.Stderr, "INFO: block %d, query: \n%s\n", blocknum, rt.Query)
 		} else {
-			Assert(false, "No query found in block %d", blocknum)
+			// use the first text block as the query if no bold text is found
+			qmatches = textRegex.FindStringSubmatch(block)
+			if len(qmatches) >= 2 {
+				rt.Query = strings.TrimSpace(qmatches[1])
+				Fpf(os.Stderr, "INFO: block %d, no bold found, using first text block as query:\n%s\n", blocknum, rt.Query)
+			} else {
+				Assert(false, "No query found in block %d:\n\n%s", blocknum, block)
+				Fpf(os.Stderr, "WARN: No query found in block %d, skipping block\n", blocknum)
+				continue
+			}
 		}
 
 		// Locate section markers "## References" and "## Reasoning"
@@ -88,7 +99,7 @@ func Parse(r io.Reader) ([]RoundTrip, error) {
 		idxRef := strings.Index(block, referencesMarker)
 		idxThink := strings.Index(block, reasoningMarker)
 
-		// Determine Response
+		// Find Response
 		// If a "## References" marker exists, we define the response as the part from the end of the query
 		// up to the marker.
 		if idxRef != -1 {
@@ -105,7 +116,14 @@ func Parse(r io.Reader) ([]RoundTrip, error) {
 				blocknum, qEndIdx, idxRef, idxThink, len(block))
 			rt.Response = strings.TrimSpace(block[qEndIdx:idxRef])
 		} else {
-			Assert(false, "No references marker found in block %d:\n\n%s", blocknum, block)
+			fmt.Fprintf(os.Stderr, "WARN: No references marker found, block number %d\n", blocknum)
+			// If no references marker exists, take all after the query as response.
+			queryEndIdx := len(block)
+			if qmatches != nil {
+				index := strings.Index(block, qmatches[0])
+				queryEndIdx = index + len(qmatches[0])
+			}
+			rt.Response = strings.TrimSpace(block[queryEndIdx:])
 		}
 
 		// Determine References and Reasoning if available.
@@ -113,13 +131,13 @@ func Parse(r io.Reader) ([]RoundTrip, error) {
 			rt.References = strings.TrimSpace(block[idxRef+len(referencesMarker) : idxThink])
 			rt.Reasoning = strings.TrimSpace(block[idxThink+len(reasoningMarker):])
 		} else if idxRef != -1 {
-			Assert(false, "No reasoning marker found in block %d", blocknum)
+			// Assert(false, "No reasoning marker found in block %d", blocknum)
 			// If only References marker exists, take all after as references.
 			fmt.Fprintf(os.Stderr, "WARN: Only references marker found, block number %d\n", blocknum)
 			rt.References = strings.TrimSpace(block[idxRef+len(referencesMarker):])
 			rt.Reasoning = ""
 		} else if idxThink != -1 {
-			Assert(false, "No references marker found in block %d", blocknum)
+			// Assert(false, "No references marker found in block %d", blocknum)
 			// If only Reasoning marker exists, assign empty references.
 			fmt.Fprintf(os.Stderr, "WARN: Only reasoning marker found, block number %d\n", blocknum)
 			rt.References = ""

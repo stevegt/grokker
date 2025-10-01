@@ -204,6 +204,7 @@ var tmpl = template.Must(template.New("index").Parse(`
       <div id="input-area">
         <select id="llmSelect" style="grid-area: llmSelect;">
           <option value="sonar-deep-research">sonar-deep-research</option>
+          <option value="sonar-reasoning">sonar-reasoning</option>
           <option value="o3-mini">o3-mini</option>
         </select>
         <textarea id="userInput" placeholder="Enter query" style="grid-area: userInput;"></textarea>
