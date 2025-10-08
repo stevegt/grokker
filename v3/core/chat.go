@@ -203,7 +203,11 @@ func (history *ChatHistory) ContinueChat(modelName, prompt string, contextLevel 
 	history.msgs = append(history.msgs, client.ChatMsg{Role: "ASSISTANT", Content: resp})
 
 	// save the output files
-	err = ExtractFiles(outfiles, resp, false, false)
+	_, err = ExtractFiles(outfiles, resp, ExtractOptions{
+		DryRun:             false,
+		ExtractToStdout:    false,
+		RemoveFromResponse: false,
+	})
 	Ck(err)
 
 	return
@@ -647,7 +651,11 @@ func (history *ChatHistory) extractFromChat(outfiles []FileLang, N int, extractT
 			}
 			// see if we have a match for this file
 			dryrun := true
-			err = ExtractFiles(fl, history.msgs[i].Content, dryrun, false)
+			_, err = ExtractFiles(fl, history.msgs[i].Content, ExtractOptions{
+				DryRun:             dryrun,
+				ExtractToStdout:    false,
+				RemoveFromResponse: false,
+			})
 			if err != nil {
 				// file not found in this response
 				continue
@@ -656,7 +664,11 @@ func (history *ChatHistory) extractFromChat(outfiles []FileLang, N int, extractT
 			if foundN == N {
 				// we found the Nth most recent version of the file
 				dryrun = false
-				err = ExtractFiles(fl, history.msgs[i].Content, dryrun, extractToStdout)
+				_, err = ExtractFiles(fl, history.msgs[i].Content, ExtractOptions{
+					DryRun:             dryrun,
+					ExtractToStdout:    extractToStdout,
+					RemoveFromResponse: false,
+				})
 				Ck(err)
 				break
 			}
@@ -668,10 +680,21 @@ func (history *ChatHistory) extractFromChat(outfiles []FileLang, N int, extractT
 	return
 }
 
+// ExtractOptions contains options for the ExtractFiles function.
+type ExtractOptions struct {
+	DryRun             bool // if true, do not write files
+	ExtractToStdout    bool // if true, write files to stdout instead of disk
+	RemoveFromResponse bool // if true, remove the extracted files from the response
+}
+
 // ExtractFiles extracts the output files from the given response and
 // saves them to the given files, overwriting any existing files.
-func ExtractFiles(outfiles []FileLang, rawResp string, dryrun, extractToStdout bool) (err error) {
+func ExtractFiles(outfiles []FileLang, rawResp string, opts ExtractOptions) (cookedResp string, err error) {
 	defer Return(&err)
+
+	cookedResp = rawResp
+	dryrun := opts.DryRun
+	extractToStdout := opts.ExtractToStdout
 
 	// remove the first <think>.*</think> section found
 	// get the start and end markers for the section
@@ -739,6 +762,11 @@ func ExtractFiles(outfiles []FileLang, rawResp string, dryrun, extractToStdout b
 				err = os.WriteFile(fn, []byte(txt), 0644)
 				Ck(err)
 			}
+		}
+
+		if opts.RemoveFromResponse {
+			// remove the file from the response
+			cookedResp = strings.Replace(cookedResp, resp[startMarkerPair[0]:endMarkerPair[1]], "", 1)
 		}
 	}
 	return

@@ -21,6 +21,7 @@ import (
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker/v3/client"
 	"github.com/stevegt/grokker/v3/core"
+	"github.com/stevegt/grokker/v3/util"
 	"github.com/yuin/goldmark"
 )
 
@@ -1021,8 +1022,12 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 	}
 	var outFilesConverted []core.FileLang
 	for _, f := range outFiles {
-		// XXX get file language
-		outFilesConverted = append(outFilesConverted, core.FileLang{File: f, Language: "text"})
+		lang, known, err := util.Ext2Lang(f)
+		Ck(err)
+		if !known {
+			log.Printf("Unknown file extension for output file %s; assuming language is %s", f, lang)
+		}
+		outFilesConverted = append(outFilesConverted, core.FileLang{File: f, Language: lang})
 	}
 	fmt.Printf("Sending query to LLM '%s'\n", llm)
 	fmt.Printf("Query: %s\n", query)
@@ -1033,6 +1038,10 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 	}
 	fmt.Printf("Received response from LLM '%s'\n", llm)
 	fmt.Printf("Response: %s\n", response)
+
+	err = core.ExtractFiles(outFilesConverted, response, false, false)
+	Ck(err)
+
 	return response
 }
 
