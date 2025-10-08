@@ -37,7 +37,7 @@ var tmpl = template.Must(template.New("index").Parse(`
       background-color: #121212; 
       color: #e0e0e0;
     }
-    /* Container for sidebar and main content */
+    /* Container for sidebars and main content */
     #container { display: flex; height: 100vh; }
     /* Left sidebar for Table of Contents */
     #sidebar {
@@ -50,12 +50,12 @@ var tmpl = template.Must(template.New("index").Parse(`
     }
     /* Collapsed sidebar style */
     #sidebar.collapsed {
-      width: 10;
+      width: 10px;
       padding: 0;
       border: none;
       overflow: hidden;
     }
-    /* Shrink the heading in the sidebar */
+    /* Shrik the heading in the sidebar */
     #sidebar h3 { font-size: 0.9em; }
     /* Main content area */
     #main {
@@ -64,6 +64,19 @@ var tmpl = template.Must(template.New("index").Parse(`
       flex-direction: column;
       overflow: hidden;
     }
+    /* Right sidebar for File I/O */
+    #fileSidebar {
+      width: 250px;
+      background-color: #1e1e1e;
+      border-left: 1px solid #333;
+      padding: 10px;
+      overflow-y: auto;
+    }
+    #fileSidebar h3 { margin-top: 0; }
+    #fileSidebar table { width: 100%; border-collapse: collapse; }
+    #fileSidebar th, #fileSidebar td { border: 1px solid #555; padding: 4px; text-align: center; }
+    #fileSidebar input[type="text"] { width: 100%; margin-bottom: 5px; }
+    /* Chat area styles */
     #chat { padding: 20px; flex: 1; overflow-y: auto; border-bottom: 1px solid #333; }
     .message { 
       margin-bottom: 10px; 
@@ -232,6 +245,27 @@ var tmpl = template.Must(template.New("index").Parse(`
         </div>
       </div>
     </div>
+    <div id="fileSidebar">
+      <h3>Files</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>In</th>
+            <th>Out</th>
+            <th>Filename</th>
+          </tr>
+        </thead>
+        <tbody id="fileList">
+          <!-- File list will be rendered here -->
+        </tbody>
+      </table>
+      <div id="newFileEntry">
+        <label><input type="checkbox" id="newFileIn"> In</label>
+        <label><input type="checkbox" id="newFileOut"> Out</label>
+        <input type="text" id="newFilename" placeholder="New filename">
+        <button id="addFileBtn">Add</button>
+      </div>
+    </div>
   </div>
   <script>
     // Helper functions for managing cookies.
@@ -284,7 +318,8 @@ var tmpl = template.Must(template.New("index").Parse(`
         if (!heading.id) {
           heading.id = "heading-" + index;
         }
-        var level = parseInt(heading.tagName.substring(1)); // Determine heading level from tag name
+        // Determine heading level and create link with indentation and font size
+        var level = parseInt(heading.tagName.substring(1));
         var link = document.createElement("a");
         link.href = "#" + heading.id;
         link.textContent = heading.textContent;
@@ -330,6 +365,7 @@ var tmpl = template.Must(template.New("index").Parse(`
         }
       }
       updateProgressStats();
+      initFileIO();
     });
 
     // Append a new message to the chat view without scrolling the page.
@@ -388,13 +424,22 @@ var tmpl = template.Must(template.New("index").Parse(`
         generateTOC();
       });
 
+      // Gather file I/O selections from the file sidebar.
+      var fileSelection = getSelectedFiles();
+
       fetch("/query", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
         signal: abortController.signal,
-        body: JSON.stringify({ query: query, llm: llm, selection: selection })
+        body: JSON.stringify({ 
+          query: query, 
+          llm: llm, 
+          selection: selection,
+          inputFiles: fileSelection.inputFiles,
+          outFiles: fileSelection.outFiles
+        })
       }).then(function(response) {
         return response.json();
       }).then(function(data) {
@@ -482,7 +527,6 @@ var tmpl = template.Must(template.New("index").Parse(`
 
     // Add scroll event listener on the chat element to update progress stats and update bookmark.
     document.getElementById("chat").addEventListener("scroll", updateProgressStats);
-
     updateTokenCount(); // Initial token count fetch
 
     // Handle click on the Send button.
@@ -519,17 +563,102 @@ var tmpl = template.Must(template.New("index").Parse(`
       }
     });
 
-	/*
-    // Enable selection-based querying on the chat messages.
-    document.addEventListener("mouseup", function(e) {
-      var selection = window.getSelection().toString().trim();
-      if(selection.length > 0) {
-        var input = document.getElementById("userInput");
-        input.value = input.value + " " + selection;
-      }
-      return;
+    // --- File I/O using IndexedDB ---
+    var db;
+    function initFileIO() {
+      var request = indexedDB.open("fileIODB", 1);
+      request.onerror = function(event) {
+        console.error("IndexedDB error:", event.target.error);
+      };
+      request.onupgradeneeded = function(event) {
+        db = event.target.result;
+        if (!db.objectStoreNames.contains("files")) {
+          var store = db.createObjectStore("files", { keyPath: "filename" });
+          store.createIndex("by_filename", "filename", { unique: true });
+        }
+      };
+      request.onsuccess = function(event) {
+        db = event.target.result;
+        loadFileList();
+      };
+    }
+    function loadFileList() {
+      var transaction = db.transaction(["files"], "readonly");
+      var store = transaction.objectStore("files");
+      var request = store.getAll();
+      request.onsuccess = function(event) {
+        var files = event.target.result;
+        renderFileList(files);
+      };
+    }
+    function saveFileEntry(fileEntry) {
+      var transaction = db.transaction(["files"], "readwrite");
+      var store = transaction.objectStore("files");
+      store.put(fileEntry);
+    }
+    function renderFileList(files) {
+      var fileListElem = document.getElementById("fileList");
+      fileListElem.innerHTML = "";
+      files.forEach(function(file) {
+        var tr = document.createElement("tr");
+        var tdName = document.createElement("td");
+        tdName.textContent = file.filename;
+        var tdIn = document.createElement("td");
+        var inCheckbox = document.createElement("input");
+        inCheckbox.type = "checkbox";
+        inCheckbox.checked = file.in || false;
+        inCheckbox.className = "fileIn";
+        inCheckbox.addEventListener("change", function() {
+          file.in = inCheckbox.checked;
+          saveFileEntry(file);
+        });
+        tdIn.appendChild(inCheckbox);
+        var tdOut = document.createElement("td");
+        var outCheckbox = document.createElement("input");
+        outCheckbox.type = "checkbox";
+        outCheckbox.checked = file.out || false;
+        outCheckbox.className = "fileOut";
+        outCheckbox.addEventListener("change", function() {
+          file.out = outCheckbox.checked;
+          saveFileEntry(file);
+        });
+        tdOut.appendChild(outCheckbox);
+        tr.appendChild(tdIn);
+        tr.appendChild(tdOut);
+        tr.appendChild(tdName);
+        fileListElem.appendChild(tr);
+      });
+    }
+    document.getElementById("addFileBtn").addEventListener("click", function() {
+      var newFilename = document.getElementById("newFilename").value.trim();
+      if(newFilename === "") return;
+      var newFileEntry = {
+        filename: newFilename,
+        in: document.getElementById("newFileIn").checked,
+        out: document.getElementById("newFileOut").checked
+      };
+      saveFileEntry(newFileEntry);
+      loadFileList();
+      document.getElementById("newFilename").value = "";
+      document.getElementById("newFileIn").checked = false;
+      document.getElementById("newFileOut").checked = false;
     });
-	*/
+    function getSelectedFiles() {
+      var inputFiles = [];
+      var outFiles = [];
+      var rows = document.getElementById("fileList").getElementsByTagName("tr");
+      for (var i = 0; i < rows.length; i++) {
+        var cells = rows[i].getElementsByTagName("td");
+        if(cells.length < 3) continue;
+        var inChecked = cells[0].querySelector("input").checked;
+        var outChecked = cells[1].querySelector("input").checked;
+        var filename = cells[2].textContent;
+        if(inChecked) inputFiles.push(filename);
+        if(outChecked) outFiles.push(filename);
+      }
+      return { inputFiles: inputFiles, outFiles: outFiles };
+    }
+    // --- End File I/O code ---
   </script>
 </body>
 </html>
@@ -537,9 +666,11 @@ var tmpl = template.Must(template.New("index").Parse(`
 
 // QueryRequest represents a user's query input.
 type QueryRequest struct {
-	Query     string `json:"query"`
-	LLM       string `json:"llm"`
-	Selection string `json:"selection"`
+	Query      string   `json:"query"`
+	LLM        string   `json:"llm"`
+	Selection  string   `json:"selection"`
+	InputFiles []string `json:"inputFiles"`
+	OutFiles   []string `json:"outFiles"`
 }
 
 // QueryResponse represents the LLM's response.
@@ -596,7 +727,7 @@ func (c *Chat) TotalRounds() int {
 	return len(c.history)
 }
 
-// updateMarkdown creates a backup of the existing markdown file and updates it with the current chat history.
+// _updateMarkdown writes the current chat history to the markdown file.
 func (c *Chat) _updateMarkdown() error {
 
 	// Convert the chat history slice into markdown content.
@@ -619,71 +750,53 @@ func (c *Chat) _updateMarkdown() error {
 		return fmt.Errorf("failed to create temporary file: %w", err)
 	}
 	log.Printf("created temporary file %s", tempFile.Name())
-	defer os.Remove(tempFile.Name()) // clean up temp file after writing
-
+	defer os.Remove(tempFile.Name())
 	if _, err := tempFile.WriteString(content); err != nil {
 		log.Printf("failed to write to temporary file: %v", err)
-		err = fmt.Errorf("failed to write to temporary file: %w", err)
-		return err
+		return fmt.Errorf("failed to write to temporary file: %w", err)
 	}
 	tempFile.Close()
-
-	// Move the temporary file to the final destination.
 	if err := os.Rename(tempFile.Name(), c.filename); err != nil {
 		log.Printf("failed to rename temporary file to %s: %v", c.filename, err)
-		err = fmt.Errorf("failed to rename temporary file to %s: %w", c.filename, err)
-		return err
+		return fmt.Errorf("failed to rename temporary file to %s: %w", c.filename, err)
 	}
 	log.Printf("updated markdown file %s", c.filename)
-
 	return nil
 }
 
-// StartRound initializes a new chat round with a query and an empty response.
+// StartRound initializes a chat round.
 func (c *Chat) StartRound(query, selection string) (r *ChatRound) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-
 	round := &ChatRound{}
-
-	// trim the query to avoid leading/trailing whitespace
 	q := strings.TrimSpace(query)
-
-	// add selection if provided
 	if selection != "" {
 		q = fmt.Sprintf("%s: [%s]", q, selection)
 	}
-
 	round.Query = q
 	c.history = append(c.history, round)
-
 	log.Printf("started chat round: %s", query)
 	return round
 }
 
-// FinishRound finalizes the current chat round with a response.
+// FinishRound finalizes a chat round.
 func (c *Chat) FinishRound(r *ChatRound, response string) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-
 	if r == nil {
 		return fmt.Errorf("cannot finish a nil chat round")
 	}
-
-	// update the response
 	r.Response = response
-
 	err := c._updateMarkdown()
 	if err != nil {
 		log.Printf("error updating markdown: %v", err)
 		return fmt.Errorf("error updating markdown: %w", err)
 	}
-
 	log.Printf("finished chat round: %s", r.Query)
 	return nil
 }
 
-// getHistory returns the current chat history as a markdown formatted string.
+// getHistory returns the chat history as markdown.
 func (c *Chat) getHistory(lock bool) string {
 	if lock {
 		c.mutex.Lock()
@@ -695,7 +808,6 @@ func (c *Chat) getHistory(lock bool) string {
 		if msg.Response == "" {
 			continue
 		}
-
 		if msg.Query != "" {
 			result += fmt.Sprintf("\n\n**%s**\n", msg.Query)
 		}
@@ -754,7 +866,7 @@ func main() {
 	}
 }
 
-// stopHandler gracefully shuts down the server when receiving a POST request.
+// stopHandler gracefully shuts down the server.
 func stopHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Received stop server request: %s", r.URL.Path)
 	if r.Method != "POST" {
@@ -812,7 +924,7 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("Added %d tokens of context to query: %s", lastNTokenCount, req.Query)
 
-	responseText := sendQueryToLLM(req.Query, req.LLM, req.Selection, lastN)
+	responseText := sendQueryToLLM(req.Query, req.LLM, req.Selection, lastN, req.InputFiles, req.OutFiles)
 
 	// convert references to a bulleted list
 	refIndex := strings.Index(responseText, "<references>")
@@ -896,8 +1008,8 @@ func tokenCountHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // sendQueryToLLM calls the Grokker API to obtain a markdown-formatted text.
-func sendQueryToLLM(query string, llm string, selection, backgroundContext string) string {
-	sysmsg := fmt.Sprintf("You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading.")
+func sendQueryToLLM(query string, llm string, selection, backgroundContext string, inputFiles []string, outFiles []string) string {
+	sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading."
 
 	prompt := fmt.Sprintf("---CONTEXT START---\n%s\n---CONTEXT END---\n\nNew Query: %s", backgroundContext, query)
 	if selection != "" {
@@ -907,19 +1019,20 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 	msgs := []client.ChatMsg{
 		{Role: "USER", Content: prompt},
 	}
-
-	var inputFiles []string
-	var outFiles []core.FileLang
-
+	var outFilesConverted []core.FileLang
+	for _, f := range outFiles {
+		// XXX get file language
+		outFilesConverted = append(outFilesConverted, core.FileLang{File: f, Language: "text"})
+	}
 	fmt.Printf("Sending query to LLM '%s'\n", llm)
 	fmt.Printf("Query: %s\n", query)
-	response, _, err := grok.SendWithFiles(llm, sysmsg, msgs, inputFiles, outFiles)
+	response, _, err := grok.SendWithFiles(llm, sysmsg, msgs, inputFiles, outFilesConverted)
 	if err != nil {
 		log.Printf("SendWithFiles error: %v", err)
 		return fmt.Sprintf("Error sending query: %v", err)
 	}
 	fmt.Printf("Received response from LLM '%s'\n", llm)
-	fmt.Printf("Response: %s\n", response[:10]) // print first 10 characters of response
+	fmt.Printf("Response: %s\n", response)
 	return response
 }
 

@@ -1,14 +1,32 @@
-bookmark current position
+add file I/O to x/storm/main.go
 
-After the user scrolls, bookmark the current position (round number)
-in the window by dropping a cookie in the browser.  When the user
-returns to the page, scroll to the bookmarked position.
+Add the ability to send and receive files in the experimental x/storm
+package.  See /home/stevegt/lab/econophysics/allocate/main.go for an
+example of how to use the grokker API to send and receive files.
 
-New requirement:  Wait for the chat to be fully loaded before scrolling
-to the bookmarked position.
+The UI for file I/O should be:
+- a collapsable right-hand sidebar containing a list of files
+- next to each file in the list, a checkbox to select the file for
+  sending, and another checkbox to select the file for receiving
+  and extracting.  The checkbox columns should be labeled "In" and
+  "Out" respectively.
+- a blank input box below the file list to enter a new filename, with
+  In and Out checkboxes next to it, and an "Add" button to add the
+  new file to the list
+
+The file list and checkbox states should be saved in the browser's
+IndexedDB storage so that they persist between sessions.
+
+When the user clicks the "Send" button, the selected files in the list
+with the "In" checkbox checked should be read from disk and sent to
+the grokker API, along with the query, using the SendWithFiles
+function.  The selected files with the "Out" checkbox checked should be
+extracted from the API response using the ExtractFiles function and
+written to disk.
 
 In:
   x/storm/main.go
+  /home/stevegt/lab/econophysics/allocate/main.go
 Out:
   x/storm/main.go
 
