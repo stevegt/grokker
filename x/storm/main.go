@@ -254,6 +254,7 @@ var tmpl = template.Must(template.New("index").Parse(`
             <th>In</th>
             <th>Out</th>
             <th>Filename</th>
+            <th>Remove</th>
           </tr>
         </thead>
         <tbody id="fileList">
@@ -354,7 +355,7 @@ var tmpl = template.Must(template.New("index").Parse(`
           document.getElementById('wordCount').value = this.getAttribute('data-word');
         });
       });
-			// scroll to the bookmarked round 
+      // scroll to the bookmarked round 
       var bookmark = getCookie("bookmark_round");
       if (bookmark) {
         var round = parseInt(bookmark);
@@ -597,6 +598,17 @@ var tmpl = template.Must(template.New("index").Parse(`
       var store = transaction.objectStore("files");
       store.put(fileEntry);
     }
+    function removeFileEntry(filename) {
+      var transaction = db.transaction(["files"], "readwrite");
+      var store = transaction.objectStore("files");
+      var request = store.delete(filename);
+      request.onsuccess = function(event) {
+        loadFileList();
+      };
+      request.onerror = function(event) {
+        console.error("Failed to delete file:", filename);
+      };
+    }
     function renderFileList(files) {
       var fileListElem = document.getElementById("fileList");
       fileListElem.innerHTML = "";
@@ -631,6 +643,17 @@ var tmpl = template.Must(template.New("index").Parse(`
         tr.appendChild(tdIn);
         tr.appendChild(tdOut);
         tr.appendChild(tdName);
+        var tdRemove = document.createElement("td");
+        var removeBtn = document.createElement("button");
+        removeBtn.textContent = "x";
+        removeBtn.title = "Remove this file from the list";
+        removeBtn.style.fontSize = "10px";
+        removeBtn.style.padding = "2px 5px";
+        removeBtn.addEventListener("click", function() {
+          removeFileEntry(file.filename);
+        });
+        tdRemove.appendChild(removeBtn);
+        tr.appendChild(tdRemove);
         fileListElem.appendChild(tr);
       });
     }
@@ -1132,3 +1155,4 @@ func markdownToHTML(markdown string) string {
 
 	return buf.String()
 }
+

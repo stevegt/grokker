@@ -1,7 +1,8 @@
-add file links
+add remove buttons to file I/O list
 
-In the UI for file I/O, make each filename in the list a clickable
-link that opens the file in the user's browser.  
+In the UI for file I/O, add small buttons to the right of each file in the list to
+remove that file from the list.  The button should be a small 'x' or trash can
+icon.  The button should have a tooltip that says "Remove this file from the list".
 
 In:
   x/storm/main.go
