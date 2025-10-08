@@ -602,8 +602,6 @@ var tmpl = template.Must(template.New("index").Parse(`
       fileListElem.innerHTML = "";
       files.forEach(function(file) {
         var tr = document.createElement("tr");
-        var tdName = document.createElement("td");
-        tdName.textContent = file.filename;
         var tdIn = document.createElement("td");
         var inCheckbox = document.createElement("input");
         inCheckbox.type = "checkbox";
@@ -624,6 +622,12 @@ var tmpl = template.Must(template.New("index").Parse(`
           saveFileEntry(file);
         });
         tdOut.appendChild(outCheckbox);
+        var tdName = document.createElement("td");
+        var link = document.createElement("a");
+        link.href = "/open?filename=" + encodeURIComponent(file.filename);
+        link.target = "_blank";
+        link.textContent = file.filename;
+        tdName.appendChild(link);
         tr.appendChild(tdIn);
         tr.appendChild(tdOut);
         tr.appendChild(tdName);
@@ -858,6 +862,7 @@ func main() {
 	http.HandleFunc("/tokencount", tokenCountHandler)
 	http.HandleFunc("/rounds", roundsHandler)
 	http.HandleFunc("/stop", stopHandler)
+	http.HandleFunc("/open", openHandler)
 
 	addr := fmt.Sprintf(":%d", *port)
 	srv = &http.Server{Addr: addr}
@@ -865,6 +870,20 @@ func main() {
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
+}
+
+// openHandler serves a file based on the filename query parameter.
+func openHandler(w http.ResponseWriter, r *http.Request) {
+	filename := r.URL.Query().Get("filename")
+	if filename == "" {
+		http.Error(w, "Missing filename parameter", http.StatusBadRequest)
+		return
+	}
+	if _, err := os.Stat(filename); os.IsNotExist(err) {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+	http.ServeFile(w, r, filename)
 }
 
 // stopHandler gracefully shuts down the server.
