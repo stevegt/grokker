@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -385,7 +386,7 @@ var tmpl = template.Must(template.New("index").Parse(`
     // Send query to the /query endpoint.
     // Each query is immediately added to the chat with a 10px spinner and a Cancel button.
     // When the LLM response is received the spinner is removed and replaced by the response.
-    function sendQuery(query, llm, selection) {
+    function sendQuery(query, llm, selection, wordCount) {
       var chat = document.getElementById("chat");
       var messageDiv = document.createElement("div");
       messageDiv.className = "message";
@@ -440,7 +441,8 @@ var tmpl = template.Must(template.New("index").Parse(`
           llm: llm, 
           selection: selection,
           inputFiles: fileSelection.inputFiles,
-          outFiles: fileSelection.outFiles
+          outFiles: fileSelection.outFiles,
+          wordCount: wordCount
         })
       }).then(function(response) {
         return response.json();
@@ -536,16 +538,13 @@ var tmpl = template.Must(template.New("index").Parse(`
       var input = document.getElementById("userInput");
       var query = input.value;
       if(query.trim() === "") return;
-      // Check for word count input
+      var llm = document.getElementById("llmSelect").value;
       var wordCountElem = document.getElementById("wordCount");
+      var wordCount = 0;
       if(wordCountElem) {
-        if(wordCountElem.value.trim() == "") {
-          // default to 100 words if no input is given
-          wordCountElem.value = "100";
-        }
-        query = query + "\n\nPlease limit your response to " + wordCountElem.value + " words.";
+         wordCount = parseInt(wordCountElem.value, 10) || 0;
       }
-      sendQuery(query, document.getElementById("llmSelect").value, "");
+      sendQuery(query, llm, "", wordCount);
       input.value = "";
       // Do not clear the word count input so the value persists.
     });
@@ -699,6 +698,7 @@ type QueryRequest struct {
 	Selection  string   `json:"selection"`
 	InputFiles []string `json:"inputFiles"`
 	OutFiles   []string `json:"outFiles"`
+	WordCount  int      `json:"wordCount"`
 }
 
 // QueryResponse represents the LLM's response.
@@ -951,6 +951,12 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Append word count prompt fragment in the backend.
+	if req.WordCount == 0 {
+		req.WordCount = 100
+	}
+	req.Query = req.Query + "\n\nPlease limit your response to " + strconv.Itoa(req.WordCount) + " words."
+
 	round := chat.StartRound(req.Query, req.Selection)
 	history := chat.getHistory(false)
 	// add the last TailLength characters of the chat history as context.
@@ -1155,4 +1161,5 @@ func markdownToHTML(markdown string) string {
 
 	return buf.String()
 }
+
 

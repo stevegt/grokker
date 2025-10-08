@@ -1,11 +1,14 @@
-add remove buttons to file I/O list
+move word count handling to backend
 
-In the UI for file I/O, add small buttons to the right of each file in the list to
-remove that file from the list.  The button should be a small 'x' or trash can
-icon.  The button should have a tooltip that says "Remove this file from the list".
+Move the handling of the word count promt fragment from javascript in
+the frontend to where we build the prompt in the backend.  See
+/home/stevegt/lab/econophysics/allocate/main.go for how do refactor
+the code to do this.
+
 
 In:
   x/storm/main.go
+  /home/stevegt/lab/econophysics/allocate/main.go
 Out:
   x/storm/main.go
 
