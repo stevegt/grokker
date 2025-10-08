@@ -1039,10 +1039,13 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 	fmt.Printf("Received response from LLM '%s'\n", llm)
 	fmt.Printf("Response: %s\n", response)
 
-	err = core.ExtractFiles(outFilesConverted, response, false, false)
-	Ck(err)
+	cookedResponse, err := core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
+		DryRun:             false,
+		ExtractToStdout:    false,
+		RemoveFromResponse: true,
+	})
 
-	return response
+	return cookedResponse
 }
 
 // splitMarkdown splits the markdown input into sections separated by a horizontal rule (^---$).
