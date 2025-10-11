@@ -1,18 +1,25 @@
+allow bulk-add of filenames, check for existence
+
+Convert the filename input field to a textarea to allow bulk-add of
+filenames.  When the user clicks 'Add', split the textarea contents
+on newlines and add each filename separately.  If any of the filenames
+do not exist, show an error message and do not add any of the
+filenames.
+
+In:
+  x/storm/main.go
+Out:
+  x/storm/main.go
+
+.stop
+
 move word count handling to sendQueryToLLM
 
 Move the handling of the word count prompt fragment to the sysmsg and
 prompt construction in sendQueryToLLM.  See
 /home/stevegt/lab/econophysics/allocate/main.go for how do refactor
 the code to do this.
-
-
-In:
-  x/storm/main.go
   /home/stevegt/lab/econophysics/allocate/main.go
-Out:
-  x/storm/main.go
-
-.stop
 
 - remove paste
 - add a spinner in the status box 

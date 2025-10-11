@@ -77,7 +77,7 @@ var tmpl = template.Must(template.New("index").Parse(`
     #fileSidebar h3 { margin-top: 0; }
     #fileSidebar table { width: 100%; border-collapse: collapse; }
     #fileSidebar th, #fileSidebar td { border: 1px solid #555; padding: 4px; text-align: center; }
-    #fileSidebar input[type="text"] { width: 100%; margin-bottom: 5px; }
+    #fileSidebar textarea { width: 100%; margin-bottom: 5px; background-color: #333; color: #e0e0e0; border: 1px solid #555; }
     /* Chat area styles */
     #chat { padding: 20px; flex: 1; overflow-y: auto; border-bottom: 1px solid #333; }
     .message { 
@@ -117,7 +117,7 @@ var tmpl = template.Must(template.New("index").Parse(`
     }
     textarea { 
       width: 100%; 
-      height: 100%; 
+      height: 20%; 
       background-color: #333;
       color: #e0e0e0;
       border: 1px solid #555;
@@ -265,7 +265,7 @@ var tmpl = template.Must(template.New("index").Parse(`
       <div id="newFileEntry">
         <label><input type="checkbox" id="newFileIn"> In</label>
         <label><input type="checkbox" id="newFileOut"> Out</label>
-        <input type="text" id="newFilename" placeholder="New filename">
+        <textarea id="newFilenames" placeholder="Enter one filename per line"></textarea>
         <button id="addFileBtn">Add</button>
       </div>
     </div>
@@ -657,19 +657,44 @@ var tmpl = template.Must(template.New("index").Parse(`
         fileListElem.appendChild(tr);
       });
     }
+    // Function to check if a file exists on the server using a HEAD request.
+    function checkFileExists(filename) {
+      return fetch("/open?filename=" + encodeURIComponent(filename), { method: "HEAD" })
+        .then(function(response) {
+          return response.status === 200;
+        })
+        .catch(function(err) {
+          return false;
+        });
+    }
+    // Modified event listener for bulk-adding filenames.
     document.getElementById("addFileBtn").addEventListener("click", function() {
-      var newFilename = document.getElementById("newFilename").value.trim();
-      if(newFilename === "") return;
-      var newFileEntry = {
-        filename: newFilename,
-        in: document.getElementById("newFileIn").checked,
-        out: document.getElementById("newFileOut").checked
-      };
-      saveFileEntry(newFileEntry);
-      loadFileList();
-      document.getElementById("newFilename").value = "";
-      document.getElementById("newFileIn").checked = false;
-      document.getElementById("newFileOut").checked = false;
+      var text = document.getElementById("newFilenames").value;
+      var lines = text.split("\n").map(function(line) { return line.trim(); }).filter(function(line) { return line !== ""; });
+      if(lines.length === 0) return;
+      // Check existence of each filename.
+      Promise.all(lines.map(function(fn) { return checkFileExists(fn); }))
+      .then(function(results) {
+        for (var i = 0; i < results.length; i++) {
+          if (!results[i]) {
+            alert("File does not exist: " + lines[i]);
+            return;
+          }
+        }
+        // If all files exist, add each to the file list.
+        lines.forEach(function(newFilename) {
+          var newFileEntry = {
+            filename: newFilename,
+            in: document.getElementById("newFileIn").checked,
+            out: document.getElementById("newFileOut").checked
+          };
+          saveFileEntry(newFileEntry);
+        });
+        loadFileList();
+        document.getElementById("newFilenames").value = "";
+        document.getElementById("newFileIn").checked = false;
+        document.getElementById("newFileOut").checked = false;
+      });
     });
     function getSelectedFiles() {
       var inputFiles = [];
@@ -1165,4 +1190,3 @@ func markdownToHTML(markdown string) string {
 
 	return buf.String()
 }
-
