@@ -1,7 +1,7 @@
-move word count handling to backend
+move word count handling to sendQueryToLLM
 
-Move the handling of the word count promt fragment from javascript in
-the frontend to where we build the prompt in the backend.  See
+Move the handling of the word count prompt fragment to the sysmsg and
+prompt construction in sendQueryToLLM.  See
 /home/stevegt/lab/econophysics/allocate/main.go for how do refactor
 the code to do this.
 

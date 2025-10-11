@@ -540,6 +540,7 @@ var tmpl = template.Must(template.New("index").Parse(`
       if(query.trim() === "") return;
       var llm = document.getElementById("llmSelect").value;
       var wordCountElem = document.getElementById("wordCount");
+      // default to 0 if empty or invalid
       var wordCount = 0;
       if(wordCountElem) {
          wordCount = parseInt(wordCountElem.value, 10) || 0;
@@ -951,12 +952,7 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Append word count prompt fragment in the backend.
-	if req.WordCount == 0 {
-		req.WordCount = 100
-	}
-	req.Query = req.Query + "\n\nPlease limit your response to " + strconv.Itoa(req.WordCount) + " words."
-
+	// Removed word count manipulation from here.
 	round := chat.StartRound(req.Query, req.Selection)
 	history := chat.getHistory(false)
 	// add the last TailLength characters of the chat history as context.
@@ -973,7 +969,8 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("Added %d tokens of context to query: %s", lastNTokenCount, req.Query)
 
-	responseText := sendQueryToLLM(req.Query, req.LLM, req.Selection, lastN, req.InputFiles, req.OutFiles)
+	// Pass the word count along to sendQueryToLLM.
+	responseText := sendQueryToLLM(req.Query, req.LLM, req.Selection, lastN, req.InputFiles, req.OutFiles, req.WordCount)
 
 	// convert references to a bulleted list
 	refIndex := strings.Index(responseText, "<references>")
@@ -1057,7 +1054,14 @@ func tokenCountHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // sendQueryToLLM calls the Grokker API to obtain a markdown-formatted text.
-func sendQueryToLLM(query string, llm string, selection, backgroundContext string, inputFiles []string, outFiles []string) string {
+func sendQueryToLLM(query string, llm string, selection, backgroundContext string, inputFiles []string, outFiles []string, wordCount int) string {
+	// Move word count handling into LLM prompt construction.
+	if wordCount == 0 {
+		// limit to 100 words by default if wordCount not specified
+		wordCount = 100
+	}
+	query = query + "\n\nPlease limit your response to " + strconv.Itoa(wordCount) + " words."
+
 	sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading."
 
 	prompt := fmt.Sprintf("---CONTEXT START---\n%s\n---CONTEXT END---\n\nNew Query: %s", backgroundContext, query)
@@ -1161,5 +1165,4 @@ func markdownToHTML(markdown string) string {
 
 	return buf.String()
 }
-
 
