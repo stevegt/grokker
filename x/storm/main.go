@@ -77,7 +77,7 @@ var tmpl = template.Must(template.New("index").Parse(`
     #fileSidebar h3 { margin-top: 0; }
     #fileSidebar table { width: 100%; border-collapse: collapse; }
     #fileSidebar th, #fileSidebar td { border: 1px solid #555; padding: 4px; text-align: center; }
-    #fileSidebar textarea { width: 100%; margin-bottom: 5px; background-color: #333; color: #e0e0e0; border: 1px solid #555; }
+		#fileSidebar textarea { width: 100%; height: 20%; margin-bottom: 5px; background-color: #333; color: #e0e0e0; border: 1px solid #555; }
     /* Chat area styles */
     #chat { padding: 20px; flex: 1; overflow-y: auto; border-bottom: 1px solid #333; }
     .message { 
@@ -117,7 +117,7 @@ var tmpl = template.Must(template.New("index").Parse(`
     }
     textarea { 
       width: 100%; 
-      height: 20%; 
+      height: 100%; 
       background-color: #333;
       color: #e0e0e0;
       border: 1px solid #555;
