@@ -1,10 +1,8 @@
-allow bulk-add of filenames, check for existence
+add a all/none checkbox to the filename list
 
-Convert the filename input field to a textarea to allow bulk-add of
-filenames.  When the user clicks 'Add', split the textarea contents
-on newlines and add each filename separately.  If any of the filenames
-do not exist, show an error message and do not add any of the
-filenames.
+At the top of the filename list, add a checkbox that, when checked,
+selects all filenames in the list, and when unchecked, deselects all
+filenames in the list.  
 
 In:
   x/storm/main.go

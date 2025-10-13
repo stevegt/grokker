@@ -249,6 +249,7 @@ var tmpl = template.Must(template.New("index").Parse(`
     </div>
     <div id="fileSidebar">
       <h3>Files</h3>
+      <label style="display:block; margin-bottom:5px;"><input type="checkbox" id="selectAllFiles"> All/None</label>
       <table>
         <thead>
           <tr>
@@ -356,6 +357,23 @@ var tmpl = template.Must(template.New("index").Parse(`
           document.getElementById('wordCount').value = this.getAttribute('data-word');
         });
       });
+      // Initialize All/None checkbox for file list.
+      var selectAll = document.getElementById("selectAllFiles");
+      if (selectAll) {
+        selectAll.addEventListener("change", function() {
+          var checked = this.checked;
+          var fileInCheckboxes = document.querySelectorAll("#fileList input.fileIn");
+          var fileOutCheckboxes = document.querySelectorAll("#fileList input.fileOut");
+          fileInCheckboxes.forEach(function(cb) {
+            cb.checked = checked;
+            cb.dispatchEvent(new Event("change"));
+          });
+          fileOutCheckboxes.forEach(function(cb) {
+            cb.checked = false;
+            cb.dispatchEvent(new Event("change"));
+          });
+        });
+      }
       // scroll to the bookmarked round 
       var bookmark = getCookie("bookmark_round");
       if (bookmark) {

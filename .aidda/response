@@ -78,7 +78,7 @@ var tmpl = template.Must(template.New("index").Parse(`
     #fileSidebar h3 { margin-top: 0; }
     #fileSidebar table { width: 100%; border-collapse: collapse; }
     #fileSidebar th, #fileSidebar td { border: 1px solid #555; padding: 4px; text-align: center; }
-    #fileSidebar textarea { width: 100%; margin-bottom: 5px; background-color: #333; color: #e0e0e0; border: 1px solid #555; }
+		#fileSidebar textarea { width: 100%; height: 20%; margin-bottom: 5px; background-color: #333; color: #e0e0e0; border: 1px solid #555; }
     /* Chat area styles */
     #chat { padding: 20px; flex: 1; overflow-y: auto; border-bottom: 1px solid #333; }
     .message { 
@@ -250,6 +250,7 @@ var tmpl = template.Must(template.New("index").Parse(`
     </div>
     <div id="fileSidebar">
       <h3>Files</h3>
+      <label style="display:block; margin-bottom:5px;"><input type="checkbox" id="selectAllFiles"> All/None</label>
       <table>
         <thead>
           <tr>
@@ -357,6 +358,23 @@ var tmpl = template.Must(template.New("index").Parse(`
           document.getElementById('wordCount').value = this.getAttribute('data-word');
         });
       });
+      // Initialize All/None checkbox for file list.
+      var selectAll = document.getElementById("selectAllFiles");
+      if (selectAll) {
+        selectAll.addEventListener("change", function() {
+          var checked = this.checked;
+          var fileInCheckboxes = document.querySelectorAll("#fileList input.fileIn");
+          var fileOutCheckboxes = document.querySelectorAll("#fileList input.fileOut");
+          fileInCheckboxes.forEach(function(cb) {
+            cb.checked = checked;
+            cb.dispatchEvent(new Event("change"));
+          });
+          fileOutCheckboxes.forEach(function(cb) {
+            cb.checked = checked;
+            cb.dispatchEvent(new Event("change"));
+          });
+        });
+      }
       // scroll to the bookmarked round 
       var bookmark = getCookie("bookmark_round");
       if (bookmark) {
@@ -1191,4 +1209,5 @@ func markdownToHTML(markdown string) string {
 
 	return buf.String()
 }
+
 ---FILE-END filename="/home/stevegt/lab/grokker/x/storm/main.go"---
