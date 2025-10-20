@@ -16,7 +16,7 @@ import (
 	"strings"
 	"sync"
 
-	"storm/split"
+	"github.com/stevegt/grokker/x/storm/split"
 
 	"github.com/gofrs/flock"
 	. "github.com/stevegt/goadapt"
