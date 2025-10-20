@@ -1,4 +1,4 @@
-module storm
+module github.com/stevegt/grokker/x/storm
 
 go 1.24.0
 
