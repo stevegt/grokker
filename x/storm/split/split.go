@@ -154,7 +154,7 @@ func Parse(r io.Reader) ([]RoundTrip, error) {
 		rounds = append(rounds, rt)
 	}
 
-	if len(rounds) == 0 {
+	if len(rounds) == 0 && len(data) > 0 {
 		return nil, errors.New("no valid roundtrips found in storm file")
 	}
 
