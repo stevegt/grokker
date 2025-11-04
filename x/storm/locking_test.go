@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"reflect"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -28,8 +28,6 @@ func TestRWMutexConcurrentReads(t *testing.T) {
 	numGoroutines := 5
 	sleepTimeMs := 50
 	var wg sync.WaitGroup
-	var activeReaders int32 = 0
-	var maxConcurrent int32 = 0
 
 	startTime := time.Now()
 
@@ -37,9 +35,7 @@ func TestRWMutexConcurrentReads(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			// Increment active readers WHILE holding the lock
 			_ = chat.getHistory(true)
-			// Note: getHistory(true) now needs to increment/decrement activeReaders
 		}()
 	}
 	wg.Wait()
@@ -275,7 +271,6 @@ func TestNoRaceConditionDuringConcurrentQueries(t *testing.T) {
 	}
 
 	// Verify all queries are present
-	contentStr := string(content)
 	for i := 0; i < numGoroutines; i++ {
 		if !bytes.Contains(content, []byte(fmt.Sprintf("query %d", i))) {
 			t.Errorf("Query %d not found in markdown file", i)
@@ -368,17 +363,17 @@ func TestMutexNotRWMutex(t *testing.T) {
 
 	chat := NewChat(tmpFile.Name())
 
-	// This test MUST fail if Chat.mutex is sync.Mutex
-	// Once Chat.mutex is changed to sync.RWMutex, this test will pass
+	// Use reflection to check the type of chat.mutex
+	mutexType := reflect.TypeOf(chat.mutex)
 	
-	// Check the type of chat.mutex
-	switch chat.mutex.(type) {
-	case sync.RWMutex:
+	if mutexType.Name() == "RWMutex" {
 		// Correct - using RWMutex
-	case sync.Mutex:
-		t.Fatal("FAIL: Chat.mutex is sync.Mutex, must be sync.RWMutex for Phase 1")
-	default:
-		t.Fatalf("FAIL: Chat.mutex is unexpected type: %T", chat.mutex)
+		return
 	}
+	
+	if mutexType.Name() == "Mutex" {
+		t.Fatal("FAIL: Chat.mutex is sync.Mutex, must be sync.RWMutex for Phase 1")
+	}
+	
+	t.Fatalf("FAIL: Chat.mutex is unexpected type: %s", mutexType.Name())
 }
-
