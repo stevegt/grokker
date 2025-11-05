@@ -452,7 +452,6 @@ func TestMultiUserConcurrentQueries(t *testing.T) {
 	}
 	
 	// Verify each query number is present (1 through expectedRounds)
-	contentStr := string(content)
 	for qNum := 1; qNum <= expectedRounds; qNum++ {
 		searchStr := fmt.Sprintf("Query #%d", qNum)
 		if !bytes.Contains(content, []byte(searchStr)) {

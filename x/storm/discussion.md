@@ -5297,3 +5297,79 @@ I'll add this as a new test function to the existing locking_test.go file.
 
 ---
 
+
+
+**$ go test
+# github.com/stevegt/grokker/x/storm [github.com/stevegt/grokker/x/storm.test]
+./locking_test.go:455:2: declared and not used: contentStr
+FAIL    github.com/stevegt/grokker/x/storm [build failed]**
+
+
+
+
+# Fix Unused Variable in Test
+
+Remove the unused `contentStr` variable on line 455. The variable is declared but never used—the subsequent loop uses `content` directly with `bytes.Contains()`. Simply delete the line `contentStr := string(content)` to resolve the compilation error[1][2].
+## References
+
+[1] [https://golang.org/doc/effective_go#blank_identifier](https://golang.org/doc/effective_go#blank_identifier)
+[2] [https://pkg.go.dev/cmd/go#hdr-List_packages_or_modules](https://pkg.go.dev/cmd/go#hdr-List_packages_or_modules)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to fix a Go compilation error. Let me look at what they're showing:
+
+```
+$ go test
+# github.com/stevegt/grokker/x/storm [github.com/stevegt/grokker/x/storm.test]
+./locking_test.go:455:2: declared and not used: contentStr
+FAIL    github.com/stevegt/grokker/x/storm [build failed]
+```
+
+So there's an unused variable `contentStr` on line 455 of the locking_test.go file.
+
+Looking at the test file I provided, the `TestMultiUserConcurrentQueries` function has:
+```go
+// Verify markdown file format and content
+content, err := ioutil.ReadFile(tmpFile.Name())
+if err != nil {
+	t.Fatalf("failed to read markdown file: %v", err)
+}
+
+if len(content) == 0 {
+	t.Fatal("Markdown file is empty")
+}
+
+// ... more code ...
+
+// Verify each query number is present (1 through expectedRounds)
+contentStr := string(content)
+```
+
+The `contentStr` variable is declared but I see it's used in a `bytes.Contains()` check, so it should be used. Wait, let me check - actually it looks like it's not being used anywhere after that line. Looking at the code:
+
+```go
+contentStr := string(content)
+for qNum := 1; qNum <= expectedRounds; qNum++ {
+	searchStr := fmt.Sprintf("Query #%d", qNum)
+	if !bytes.Contains(content, []byte(searchStr)) {
+		t.Errorf("Query #%d not found in markdown file", qNum)
+	}
+}
+```
+
+I see - `contentStr` is declared but then we're using `content` directly with `bytes.Contains`. The `contentStr` variable is unnecessary. 
+
+I'll simply remove the unnecessary line to resolve the compilation error. I'll prepare a complete file with the fix, ensuring all requirements are met.
+
+
+---
+
