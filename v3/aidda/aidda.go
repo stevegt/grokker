@@ -824,8 +824,12 @@ func generate(g *core.Grokker, modelName string, p *Prompt) (err error) {
 		Pl("Wrote references to", refFn)
 	}
 
-	// ExtractFiles(outFls, promptFrag, dryrun, extractToStdout)
-	err = core.ExtractFiles(outFls, resp, false, false)
+	// save the output files
+	_, err = core.ExtractFiles(outFls, resp, core.ExtractOptions{
+		DryRun:             false,
+		ExtractToStdout:    false,
+		RemoveFromResponse: false,
+	})
 	Ck(err)
 
 	// Write entire response to .aidda/response
