@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"os"
 	"reflect"
 	"sync"
@@ -377,3 +378,102 @@ func TestMutexNotRWMutex(t *testing.T) {
 	
 	t.Fatalf("FAIL: Chat.mutex is unexpected type: %s", chatMutexType.Name())
 }
+
+// TestMultiUserConcurrentQueries simulates 5 users, each sending 10 queries with
+// varying LLM response times (up to 10 seconds), without waiting for previous queries.
+// Verifies all queries are recorded correctly in the markdown file.
+func TestMultiUserConcurrentQueries(t *testing.T) {
+	tmpFile, err := ioutil.TempFile("", "test-*.md")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	tmpFile.Close()
+
+	chat := NewChat(tmpFile.Name())
+	
+	const numUsers = 5
+	const queriesPerUser = 10
+	const maxResponseTime = 10 * time.Second
+	
+	// Shared query number counter protected by mutex
+	var queryNumberMutex sync.Mutex
+	var queryNumber int
+	
+	var wg sync.WaitGroup
+	
+	// Simulate 5 users
+	for userID := 0; userID < numUsers; userID++ {
+		for queryIdx := 0; queryIdx < queriesPerUser; queryIdx++ {
+			wg.Add(1)
+			go func(uid, qidx int) {
+				defer wg.Done()
+				
+				// Get next query number
+				queryNumberMutex.Lock()
+				queryNumber++
+				qNum := queryNumber
+				queryNumberMutex.Unlock()
+				
+				// Create query with query number
+				query := fmt.Sprintf("User %d Query %d (Query #%d)", uid, qidx, qNum)
+				
+				// Start round
+				round := chat.StartRound(query, "")
+				
+				// Simulate varying LLM response time
+				responseTime := time.Duration(rand.Intn(int(maxResponseTime.Milliseconds()))) * time.Millisecond
+				time.Sleep(responseTime)
+				
+				// Finish round with response
+				response := fmt.Sprintf("Response for Query #%d (processed in %v)", qNum, responseTime)
+				_ = chat.FinishRound(round, response)
+			}(userID, queryIdx)
+		}
+	}
+	
+	wg.Wait()
+	
+	// Verify markdown file format and content
+	content, err := ioutil.ReadFile(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("failed to read markdown file: %v", err)
+	}
+	
+	if len(content) == 0 {
+		t.Fatal("Markdown file is empty")
+	}
+	
+	// Verify total rounds
+	expectedRounds := numUsers * queriesPerUser
+	actualRounds := chat.TotalRounds()
+	if actualRounds != expectedRounds {
+		t.Errorf("Expected %d rounds, got %d", expectedRounds, actualRounds)
+	}
+	
+	// Verify each query number is present (1 through expectedRounds)
+	contentStr := string(content)
+	for qNum := 1; qNum <= expectedRounds; qNum++ {
+		searchStr := fmt.Sprintf("Query #%d", qNum)
+		if !bytes.Contains(content, []byte(searchStr)) {
+			t.Errorf("Query #%d not found in markdown file", qNum)
+		}
+	}
+	
+	// Verify markdown structure (should contain query and response pairs separated by ---)
+	if !bytes.Contains(content, []byte("**User")) {
+		t.Error("Markdown file missing query format")
+	}
+	
+	if !bytes.Contains(content, []byte("Response for Query")) {
+		t.Error("Markdown file missing response format")
+	}
+	
+	// Verify no data corruption (file should contain horizontal rules)
+	if !bytes.Contains(content, []byte("---")) {
+		t.Error("Markdown file missing horizontal rule separators")
+	}
+	
+	t.Logf("Successfully processed %d queries from %d users", expectedRounds, numUsers)
+}
+
