@@ -70,10 +70,10 @@ func TestConcurrentReadsDontBlock(t *testing.T) {
 
 	// Goroutine 1: Hold read lock
 	go func() {
-		chat.mutex.Lock()
+		chat.mutex.RLock()
 		insideCS <- true
 		time.Sleep(100 * time.Millisecond)
-		chat.mutex.Unlock()
+		chat.mutex.RUnlock()
 	}()
 
 	// Wait for goroutine 1 to acquire lock
@@ -363,17 +363,17 @@ func TestMutexNotRWMutex(t *testing.T) {
 
 	chat := NewChat(tmpFile.Name())
 
-	// Use reflection to check the type of chat.mutex
-	mutexType := reflect.TypeOf(chat.mutex)
+	// Use reflect to check the type of chat.mutex without copying it
+	chatMutexType := reflect.TypeOf(&chat.mutex).Elem()
 	
-	if mutexType.Name() == "RWMutex" {
+	if chatMutexType.Name() == "RWMutex" {
 		// Correct - using RWMutex
 		return
 	}
 	
-	if mutexType.Name() == "Mutex" {
+	if chatMutexType.Name() == "Mutex" {
 		t.Fatal("FAIL: Chat.mutex is sync.Mutex, must be sync.RWMutex for Phase 1")
 	}
 	
-	t.Fatalf("FAIL: Chat.mutex is unexpected type: %s", mutexType.Name())
+	t.Fatalf("FAIL: Chat.mutex is unexpected type: %s", chatMutexType.Name())
 }

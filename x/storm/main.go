@@ -1208,4 +1208,3 @@ func markdownToHTML(markdown string) string {
 
 	return buf.String()
 }
-
