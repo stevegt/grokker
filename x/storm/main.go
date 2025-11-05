@@ -758,7 +758,7 @@ type ChatRound struct {
 
 // Chat encapsulates chat history and synchronization.
 type Chat struct {
-	mutex    sync.Mutex
+	mutex    sync.RWMutex
 	history  []*ChatRound
 	filename string
 }
@@ -794,8 +794,8 @@ func NewChat(filename string) *Chat {
 
 // TotalRounds returns the total number of chat rounds.
 func (c *Chat) TotalRounds() int {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
 	return len(c.history)
 }
 
@@ -871,8 +871,8 @@ func (c *Chat) FinishRound(r *ChatRound, response string) error {
 // getHistory returns the chat history as markdown.
 func (c *Chat) getHistory(lock bool) string {
 	if lock {
-		c.mutex.Lock()
-		defer c.mutex.Unlock()
+		c.mutex.RLock()
+		defer c.mutex.RUnlock()
 	}
 	var result string
 	for _, msg := range c.history {
@@ -997,7 +997,7 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Removed word count manipulation from here.
 	round := chat.StartRound(req.Query, req.Selection)
-	history := chat.getHistory(false)
+	history := chat.getHistory(true)
 	// add the last TailLength characters of the chat history as context.
 	// XXX should really use embeddings and a vector db to find relevant context.
 	startIndex := len(history) - TailLength
@@ -1086,7 +1086,7 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 // tokenCountHandler calculates the token count for the current conversation
 // using Grokker's TokenCount function and returns it as JSON.
 func tokenCountHandler(w http.ResponseWriter, r *http.Request) {
-	chatText := chat.getHistory(false)
+	chatText := chat.getHistory(true)
 	count, err := grok.TokenCount(chatText)
 	if err != nil {
 		log.Printf("Token count error: %v", err)
@@ -1208,3 +1208,4 @@ func markdownToHTML(markdown string) string {
 
 	return buf.String()
 }
+

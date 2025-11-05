@@ -4086,3 +4086,69 @@ I need to clean up the compilation errors by removing the unused imports and var
 
 ---
 
+
+
+**update main.go to make test cases pass**
+
+
+
+
+# Phase 1: Convert Mutex to RWMutex
+
+Update `main.go` to use `sync.RWMutex` and implement proper read/write lock semantics. Change `Chat.mutex` from `sync.Mutex` to `sync.RWMutex`, modify `getHistory()` to use `RLock()` when locking, and ensure `StartRound()` and `FinishRound()` use `Lock()` for write operations. Test cases check mutex type via reflection and verify concurrent behavior matches RWMutex semantics, not Mutex.
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to "update main.go to make test cases pass". Let me look at what the test cases are checking:
+
+1. `TestRWMutexConcurrentReads` - Expects multiple reads to happen concurrently, which should take about `sleepTime` with RWMutex but much longer with Mutex
+2. `TestConcurrentReadsDontBlock` - Second read should complete quickly when first thread is holding a lock
+3. `TestWriteLockBlocksReads` - Write lock should block readers
+4. `TestStartRoundBlocksDuringWrite` - StartRound should block during write
+5. `TestFinishRoundLocksOnlyForFileIO` - FinishRound should complete quickly
+6. `TestNoRaceConditionDuringConcurrentQueries` - Multiple concurrent queries should work
+7. `TestGetHistoryWithLockParameter` - getHistory with lock parameter should work
+8. `TestUpdateMarkdownDoesNotDeadlock` - File updates should not deadlock
+9. `TestMutexNotRWMutex` - **This is the key test** - it checks that `Chat.mutex` is an `RWMutex`, not a regular `Mutex`
+
+The current code in main.go has:
+```go
+type Chat struct {
+	mutex    sync.Mutex
+	history  []*ChatRound
+	filename string
+}
+```
+
+But the test expects `RWMutex`. So Phase 1 is to change this to:
+```go
+type Chat struct {
+	mutex    sync.RWMutex
+	history  []*ChatRound
+	filename string
+}
+```
+
+But that's not enough! The tests also expect:
+- `RLock()/RUnlock()` to be used for reads (getHistory)
+- `Lock()/Unlock()` to be used for writes (StartRound, FinishRound)
+
+
+- Minimal locking during file I/O operations
+
+I need to refactor the locking strategy so that `FinishRound()` only holds the write lock when updating the markdown file, not during the entire operation. Similarly, `queryHandler()` should acquire a read lock to fetch history, then release it before making the LLM call. This allows concurrent reads while still protecting writes. The `FinishRound` method acquires the lock and holds it through the entire operation, including the `_updateMarkdown()` call which performs file I/O. This is inefficient since the lock should only protect the shared state modification, not the I/O operation itself. The response can be set on the round object before acquiring the lock, then we only need to hold it during the markdown update and history access.
+
+Looking at the test more carefully, there's a mismatch between what the code does and what the test expects. The test acquires `chat.mutex.Lock()` directly, suggesting the mutex should support both exclusive and shared locking patterns. With an RWMutex, a write lock from one goroutine would block read locks from others, so the test's expectation that `getHistory(true)` blocks during this operation would still hold true.
+
+The implementation needs three changes: swap `sync.Mutex` for `sync.RWMutex` in the Chat struct, update `getHistory()` to use `RLock()/RUnlock()` when the lock parameter is true, and ensure `StartRound()` continues using the exclusive `Lock()` since it modifies state.
+
+
+---
+
