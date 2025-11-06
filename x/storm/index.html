@@ -378,7 +378,7 @@
             cancelBtn.addEventListener("click", function() {
               messageDiv.remove();
               generateTOC();
-              pendingQueryDivs[message.queryID] = null;
+              delete pendingQueryDivs[message.queryID];
               outstandingQueries--;
               updateStatusSpinner();
             });
@@ -404,6 +404,9 @@
               
               delete pendingQueryDivs[message.queryID];
             }
+            // Decrement outstanding queries when response arrives via WebSocket
+            outstandingQueries--;
+            updateStatusSpinner();
             generateTOC();
             updateProgressStats();
             updateTokenCount();
@@ -489,7 +492,7 @@
       generateTOC();
     }
 
-    // Send query via WebSocket and HTTP
+    // Send query via HTTP with UUID
     function sendQuery(query, llm, selection, wordCount) {
       // Increment global outstanding query count and update status spinner.
       outstandingQueries++;
@@ -519,12 +522,13 @@
       }).then(function(response) {
         return response.json();
       }).then(function(data) {
-        // Response handled by WebSocket messages
-        outstandingQueries--;
-        updateStatusSpinner();
+        // Response is handled by WebSocket broadcast messages
+        // This HTTP response is kept for backward compatibility only
+        console.log('HTTP response received, actual display handled by WebSocket');
       }).catch(function(err) {
         console.error("Error sending query:", err);
         showErrorSign();
+        // Decrement counter on HTTP error since we won't get a WebSocket response
         outstandingQueries--;
         updateStatusSpinner();
       });
@@ -766,4 +770,5 @@
   </script>
 </body>
 </html>
+
 
