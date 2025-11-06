@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"os"
 	"reflect"
+	"regexp"
 	"sync"
 	"testing"
 	"time"
@@ -47,7 +48,7 @@ func TestRWMutexConcurrentReads(t *testing.T) {
 	// With Mutex, they should take ~numGoroutines * sleepTime
 	expectedMaxTime := time.Duration(sleepTimeMs*2) * time.Millisecond
 	if elapsed > expectedMaxTime {
-		t.Logf("FAIL: Reads took %v, expected ~%v. Likely using Mutex instead of RWMutex.", 
+		t.Logf("FAIL: Reads took %v, expected ~%v. Likely using Mutex instead of RWMutex.",
 			elapsed, expectedMaxTime)
 		t.Fail()
 	}
@@ -366,17 +367,24 @@ func TestMutexNotRWMutex(t *testing.T) {
 
 	// Use reflect to check the type of chat.mutex without copying it
 	chatMutexType := reflect.TypeOf(&chat.mutex).Elem()
-	
+
 	if chatMutexType.Name() == "RWMutex" {
 		// Correct - using RWMutex
 		return
 	}
-	
+
 	if chatMutexType.Name() == "Mutex" {
 		t.Fatal("FAIL: Chat.mutex is sync.Mutex, must be sync.RWMutex for Phase 1")
 	}
-	
+
 	t.Fatalf("FAIL: Chat.mutex is unexpected type: %s", chatMutexType.Name())
+}
+
+// mockLLMResponse simulates an LLM response with a delay and long response.
+func mockLLMResponse(delay time.Duration, responseHeader string, responseLength int) string {
+	time.Sleep(delay)
+	body := bytes.Repeat([]byte("X"), responseLength)
+	return fmt.Sprintf("%s: %s", responseHeader, string(body))
 }
 
 // TestMultiUserConcurrentQueries simulates 5 users, each sending 10 queries with
@@ -387,92 +395,102 @@ func TestMultiUserConcurrentQueries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	// defer os.Remove(tmpFile.Name())
+	remove := true
 	tmpFile.Close()
 
 	chat := NewChat(tmpFile.Name())
-	
+
 	const numUsers = 5
 	const queriesPerUser = 10
 	const maxResponseTime = 10 * time.Second
-	
+
 	// Shared query number counter protected by mutex
 	var queryNumberMutex sync.Mutex
 	var queryNumber int
-	
+
 	var wg sync.WaitGroup
-	
+
+	queryFmt := "User %d Query %d Total %d"
+	responseFmt := "Response for User %d Query %d"
+
 	// Simulate 5 users
 	for userID := 0; userID < numUsers; userID++ {
 		for queryIdx := 0; queryIdx < queriesPerUser; queryIdx++ {
 			wg.Add(1)
 			go func(uid, qidx int) {
 				defer wg.Done()
-				
+
 				// Get next query number
 				queryNumberMutex.Lock()
 				queryNumber++
 				qNum := queryNumber
 				queryNumberMutex.Unlock()
-				
+
 				// Create query with query number
-				query := fmt.Sprintf("User %d Query %d (Query #%d)", uid, qidx, qNum)
-				
+				query := fmt.Sprintf(queryFmt, uid, qidx, qNum)
+
 				// Start round
 				round := chat.StartRound(query, "")
-				
+
 				// Simulate varying LLM response time
 				responseTime := time.Duration(rand.Intn(int(maxResponseTime.Milliseconds()))) * time.Millisecond
-				time.Sleep(responseTime)
-				
+				responseHeader := fmt.Sprintf(responseFmt, uid, qidx)
+				responseLength := 10000 // Simulate long response
+				response := mockLLMResponse(responseTime, responseHeader, responseLength)
+
 				// Finish round with response
-				response := fmt.Sprintf("Response for Query #%d (processed in %v)", qNum, responseTime)
 				_ = chat.FinishRound(round, response)
 			}(userID, queryIdx)
 		}
 	}
-	
+
 	wg.Wait()
-	
+
 	// Verify markdown file format and content
 	content, err := ioutil.ReadFile(tmpFile.Name())
 	if err != nil {
 		t.Fatalf("failed to read markdown file: %v", err)
 	}
-	
+
 	if len(content) == 0 {
 		t.Fatal("Markdown file is empty")
 	}
-	
+
 	// Verify total rounds
 	expectedRounds := numUsers * queriesPerUser
 	actualRounds := chat.TotalRounds()
 	if actualRounds != expectedRounds {
 		t.Errorf("Expected %d rounds, got %d", expectedRounds, actualRounds)
 	}
-	
-	// Verify each query number is present (1 through expectedRounds)
-	for qNum := 1; qNum <= expectedRounds; qNum++ {
-		searchStr := fmt.Sprintf("Query #%d", qNum)
+
+	// Verify each total number is present (1 through expectedRounds)
+	for tNum := 1; tNum <= expectedRounds; tNum++ {
+		searchStr := fmt.Sprintf("Total %d", tNum)
 		if !bytes.Contains(content, []byte(searchStr)) {
-			t.Errorf("Query #%d not found in markdown file", qNum)
+			t.Errorf("Total %d not found in markdown file", tNum)
 		}
 	}
-	
-	// Verify markdown structure (should contain query and response pairs separated by ---)
-	if !bytes.Contains(content, []byte("**User")) {
-		t.Error("Markdown file missing query format")
-	}
-	
-	if !bytes.Contains(content, []byte("Response for Query")) {
-		t.Error("Markdown file missing response format")
-	}
-	
-	// Verify no data corruption (file should contain horizontal rules)
-	if !bytes.Contains(content, []byte("---")) {
-		t.Error("Markdown file missing horizontal rule separators")
-	}
-	
-	t.Logf("Successfully processed %d queries from %d users", expectedRounds, numUsers)
-}
 
+	// Verify each query and response pair is present
+	// - each query and response should be in its own section separated by \n---\n
+	pat := `\n\*\*%s\*\*\n+%s: X+\n+---\n`
+	for userID := 0; userID < numUsers; userID++ {
+		for queryIdx := 0; queryIdx < queriesPerUser; queryIdx++ {
+			queryFmt := `User %d Query %d Total \d+`
+			queryStr := fmt.Sprintf(queryFmt, userID, queryIdx)
+			responseStr := fmt.Sprintf(responseFmt, userID, queryIdx)
+			re := regexp.MustCompile(fmt.Sprintf(pat, queryStr, responseStr))
+			m := re.FindStringIndex(string(content))
+			if m == nil {
+				t.Errorf("Query/Response pair for User %d Query %d not found", userID, queryIdx)
+				remove = false
+			}
+		}
+	}
+
+	t.Logf("Successfully processed %d queries from %d users", expectedRounds, numUsers)
+	if remove {
+		os.Remove(tmpFile.Name())
+	}
+}
