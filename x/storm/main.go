@@ -304,7 +304,6 @@ func main() {
 	})
 
 	http.HandleFunc("/ws", wsHandler)
-	http.HandleFunc("/query", queryHandler)
 	http.HandleFunc("/tokencount", tokenCountHandler)
 	http.HandleFunc("/rounds", roundsHandler)
 	http.HandleFunc("/stop", stopHandler)
@@ -339,7 +338,19 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	go client.readPump()
 }
 
-// readPump reads messages from the WebSocket client.
+// writePump writes messages to the WebSocket client.
+func (c *WSClient) writePump() {
+	defer c.conn.Close()
+
+	for message := range c.send {
+		if err := c.conn.WriteJSON(message); err != nil {
+			log.Printf("WebSocket write error: %v", err)
+			break
+		}
+	}
+}
+
+// readPump reads messages from the WebSocket client and processes queries.
 func (c *WSClient) readPump() {
 	defer func() {
 		c.pool.unregister <- c
@@ -353,21 +364,135 @@ func (c *WSClient) readPump() {
 			log.Printf("WebSocket read error: %v", err)
 			break
 		}
-		// Handle incoming messages from clients
-		log.Printf("Received from %s: %v", c.id, msg)
+
+		// Handle incoming query messages from clients
+		if msgType, ok := msg["type"].(string); ok && msgType == "query" {
+			log.Printf("Received query from %s: %v", c.id, msg)
+
+			// Extract query parameters
+			query, _ := msg["query"].(string)
+			llm, _ := msg["llm"].(string)
+			selection, _ := msg["selection"].(string)
+			queryID, _ := msg["queryID"].(string)
+
+			// Extract arrays
+			var inputFiles, outFiles []string
+			if inputFilesRaw, ok := msg["inputFiles"].([]interface{}); ok {
+				for _, f := range inputFilesRaw {
+					if s, ok := f.(string); ok {
+						inputFiles = append(inputFiles, s)
+					}
+				}
+			}
+			if outFilesRaw, ok := msg["outFiles"].([]interface{}); ok {
+				for _, f := range outFilesRaw {
+					if s, ok := f.(string); ok {
+						outFiles = append(outFiles, s)
+					}
+				}
+			}
+
+			// Extract wordCount as float64 (JSON number type)
+			wordCount := 0
+			if wc, ok := msg["wordCount"].(float64); ok {
+				wordCount = int(wc)
+			}
+
+			// Process the query
+			go processQuery(queryID, query, llm, selection, inputFiles, outFiles, wordCount)
+		}
 	}
 }
 
-// writePump writes messages to the WebSocket client.
-func (c *WSClient) writePump() {
-	defer c.conn.Close()
+// processQuery processes a query and broadcasts results to all clients.
+func processQuery(queryID, query, llm, selection string, inputFiles, outFiles []string, wordCount int) {
+	// Broadcast the query to all clients
+	queryBroadcast := map[string]interface{}{
+		"type":    "query",
+		"query":   query,
+		"queryID": queryID,
+	}
+	clientPool.Broadcast(queryBroadcast)
 
-	for message := range c.send {
-		if err := c.conn.WriteJSON(message); err != nil {
-			log.Printf("WebSocket write error: %v", err)
-			break
+	round := chat.StartRound(query, selection)
+
+	history := chat.getHistory(true)
+	// add the last TailLength characters of the chat history as context.
+	const TailLength = 300000
+	startIndex := len(history) - TailLength
+	if startIndex < 0 {
+		startIndex = 0
+	}
+	lastN := history[startIndex:]
+	lastNTokenCount, err := grok.TokenCount(lastN)
+	if err != nil {
+		log.Printf("Token count error: %v", err)
+		lastNTokenCount = 0
+	}
+	log.Printf("Added %d tokens of context to query: %s", lastNTokenCount, query)
+
+	// Pass the word count along to sendQueryToLLM.
+	responseText := sendQueryToLLM(query, llm, selection, lastN, inputFiles, outFiles, wordCount)
+
+	// convert references to a bulleted list
+	refIndex := strings.Index(responseText, "<references>")
+	if refIndex != -1 {
+		refEndIndex := strings.Index(responseText, "</references>") + len("</references>")
+		firstRefIndex := refIndex + len("<references>")
+		references := strings.Split(responseText[firstRefIndex:], "\n")
+		var refLines []string
+		for _, line := range references {
+			line = strings.TrimSpace(line)
+			if line == "</references>" {
+				break
+			}
+			if line == "" {
+				continue
+			}
+
+			regex := `^\s*\[(\d+)\]\s*(http[s]?://\S+)\s*$`
+			re := regexp.MustCompile(regex)
+			m := re.FindStringSubmatch(line)
+			if len(m) > 0 {
+				line = fmt.Sprintf("- [%s] [%s](%s)", m[1], m[2], m[2])
+			}
+
+			refLines = append(refLines, line)
+		}
+		beforeRefs := responseText[:refIndex]
+		refHead := "\n\n## References\n\n"
+		afterRefs := responseText[refEndIndex:]
+		responseText = beforeRefs + refHead + strings.Join(refLines, "\n") + "\n" + afterRefs
+	}
+
+	// move the <think> section to the end of the response
+	thinkIndex := strings.Index(responseText, "<think>")
+	if thinkIndex != -1 {
+		thinkEndIndex := strings.Index(responseText, "</think>") + len("</think>")
+		if thinkEndIndex > thinkIndex {
+			thinkSection := responseText[thinkIndex:thinkEndIndex]
+			responseText = responseText[:thinkIndex] + responseText[thinkEndIndex:]
+			responseText += "\n\n" + thinkSection
+		} else {
+			log.Printf("Malformed <think> section in response: %s", responseText)
 		}
 	}
+	replacer := strings.NewReplacer("<think>", "## Reasoning\n", "</think>", "")
+	responseText = replacer.Replace(responseText)
+
+	err = chat.FinishRound(round, responseText)
+	if err != nil {
+		log.Printf("Error finishing round: %v", err)
+		return
+	}
+
+	// Broadcast the response to all connected clients
+	responseBroadcast := map[string]interface{}{
+		"type":     "response",
+		"queryID":  queryID,
+		"response": markdownToHTML(responseText) + "\n\n<hr>\n\n",
+	}
+	clientPool.Broadcast(responseBroadcast)
 }
 
 // openHandler serves a file based on the filename query parameter.
@@ -393,7 +518,6 @@ func stopHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Server stopping"))
-	// Shutdown the server gracefully in a separate goroutine.
 	go func() {
 		if err := srv.Shutdown(context.Background()); err != nil {
 			log.Printf("Error shutting down server: %v", err)
@@ -408,131 +532,7 @@ func roundsHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]int{"rounds": rounds})
 }
 
-var TailLength = 300000
-
-// queryHandler processes each query, sends it to the Grokker API,
-// updates the markdown file with the current chat state, and returns the LLM response as HTML.
-func queryHandler(w http.ResponseWriter, r *http.Request) {
-	log.Printf("Received query request: %s", r.URL.Path)
-	if r.Method != "POST" {
-		log.Printf("Method not allowed: %s", r.Method)
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	var req QueryRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Printf("error decoding request body: %v", err)
-		http.Error(w, "Bad request: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// Removed word count manipulation from here.
-	round := chat.StartRound(req.Query, req.Selection)
-	
-	// Step 4: Broadcast the query to all connected clients
-	queryBroadcast := map[string]interface{}{
-		"type":    "query",
-		"query":   round.Query,
-		"queryID": req.QueryID,
-	}
-	clientPool.Broadcast(queryBroadcast)
-	
-	history := chat.getHistory(true)
-	// add the last TailLength characters of the chat history as context.
-	// XXX should really use embeddings and a vector db to find relevant context.
-	startIndex := len(history) - TailLength
-	if startIndex < 0 {
-		startIndex = 0
-	}
-	lastN := history[startIndex:]
-	lastNTokenCount, err := grok.TokenCount(lastN)
-	if err != nil {
-		log.Printf("Token count error: %v", err)
-		lastNTokenCount = 0
-	}
-	log.Printf("Added %d tokens of context to query: %s", lastNTokenCount, req.Query)
-
-	// Pass the word count along to sendQueryToLLM.
-	responseText := sendQueryToLLM(req.Query, req.LLM, req.Selection, lastN, req.InputFiles, req.OutFiles, req.WordCount)
-
-	// convert references to a bulleted list
-	refIndex := strings.Index(responseText, "<references>")
-	if refIndex != -1 {
-		refEndIndex := strings.Index(responseText, "</references>") + len("</references>")
-		// every non-blank line after <references> is a reference --
-		// insert a '- ' before each line until we hit the closing tag.
-		firstRefIndex := refIndex + len("<references>")
-		references := strings.Split(responseText[firstRefIndex:], "\n")
-		var refLines []string
-		for _, line := range references {
-			line = strings.TrimSpace(line)
-			if line == "</references>" {
-				break // stop at the closing tag
-			}
-			if line == "" {
-				continue // skip empty lines
-			}
-
-			// if the line looks like [N] followed by a URL, convert
-			// the URL to a markdown link.
-			regex := `^\s*\[(\d+)\]\s*(http[s]?://\S+)\s*$`
-			re := regexp.MustCompile(regex)
-			m := re.FindStringSubmatch(line)
-			if len(m) > 0 {
-				// m[1] is the reference number, m[2] is the URL
-				line = fmt.Sprintf("- [%s] [%s](%s)", m[1], m[2], m[2])
-			}
-
-			refLines = append(refLines, line)
-		}
-		// replace the original <references> section with the new ## References section.
-		beforeRefs := responseText[:refIndex]
-		refHead := "\n\n## References\n\n"
-		afterRefs := responseText[refEndIndex:]
-		responseText = beforeRefs + refHead + strings.Join(refLines, "\n") + "\n" + afterRefs
-	}
-
-	// move the <think> section to the end of the response
-	thinkIndex := strings.Index(responseText, "<think>")
-	if thinkIndex != -1 {
-		thinkEndIndex := strings.Index(responseText, "</think>") + len("</think>")
-		if thinkEndIndex > thinkIndex {
-			thinkSection := responseText[thinkIndex:thinkEndIndex]
-			// remove the think section from the response
-			responseText = responseText[:thinkIndex] + responseText[thinkEndIndex:]
-			// append the think section to the end of the response
-			responseText += "\n\n" + thinkSection
-		} else {
-			log.Printf("Malformed <think> section in response: %s", responseText)
-		}
-	}
-	// convert <think> tags to a markdown heading
-	replacer := strings.NewReplacer("<think>", "## Reasoning\n", "</think>", "")
-	responseText = replacer.Replace(responseText)
-
-	err = chat.FinishRound(round, responseText)
-	if err != nil {
-		http.Error(w, "Internal server error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	
-	// Step 5: Broadcast the response to all connected clients
-	responseBroadcast := map[string]interface{}{
-		"type":     "response",
-		"queryID":  req.QueryID,
-		"response": markdownToHTML(responseText) + "\n\n<hr>\n\n",
-	}
-	clientPool.Broadcast(responseBroadcast)
-
-	resp := QueryResponse{
-		Response: markdownToHTML(responseText) + "\n\n<hr>\n\n",
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
-}
-
-// tokenCountHandler calculates the token count for the current conversation
-// using Grokker's TokenCount function and returns it as JSON.
+// tokenCountHandler calculates the token count for the current conversation.
 func tokenCountHandler(w http.ResponseWriter, r *http.Request) {
 	chatText := chat.getHistory(true)
 	count, err := grok.TokenCount(chatText)
@@ -546,14 +546,12 @@ func tokenCountHandler(w http.ResponseWriter, r *http.Request) {
 
 // sendQueryToLLM calls the Grokker API to obtain a markdown-formatted text.
 func sendQueryToLLM(query string, llm string, selection, backgroundContext string, inputFiles []string, outFiles []string, wordCount int) string {
-	// Move word count handling into LLM prompt construction.
 	if wordCount == 0 {
-		// limit to 100 words by default if wordCount not specified
 		wordCount = 100
 	}
 	query = query + "\n\nPlease limit your response to " + strconv.Itoa(wordCount) + " words."
 
-	sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading."
+	sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading.  Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes."
 
 	prompt := fmt.Sprintf("---CONTEXT START---\n%s\n---CONTEXT END---\n\nNew Query: %s", backgroundContext, query)
 	if selection != "" {
@@ -591,15 +589,14 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 	return cookedResponse
 }
 
-// splitMarkdown splits the markdown input into sections separated by a horizontal rule (^---$).
+// splitMarkdown splits the markdown input into sections separated by a horizontal rule.
 func splitMarkdown(input string) []string {
 	re := regexp.MustCompile("(?m)^---$")
 	sections := re.Split(input, -1)
 	return sections
 }
 
-// collectReferences scans the markdown input for reference lines of the form "- [N] URL"
-// and returns a map of URLs keyed by the reference number.
+// collectReferences scans the markdown input for reference lines.
 func collectReferences(input string) map[string]string {
 	re := regexp.MustCompile(`(?m)^-\s+\[(\d+)\]\s+\[(http[s]?://\S+)\]`)
 	matches := re.FindAllStringSubmatch(input, -1)
@@ -612,7 +609,7 @@ func collectReferences(input string) map[string]string {
 	return refs
 }
 
-// linkifyReferences replaces occurrences of references like "[N]" with markdown links to the corresponding URL.
+// linkifyReferences replaces reference markers with markdown links.
 func linkifyReferences(input string, refs map[string]string) string {
 	re := regexp.MustCompile(`\[(\d+)\]`)
 	result := re.ReplaceAllStringFunc(input, func(match string) string {
@@ -629,24 +626,13 @@ func linkifyReferences(input string, refs map[string]string) string {
 }
 
 // markdownToHTML converts markdown text to HTML using goldmark.
-// It first splits the markdown into sections, collects any reference URLs, and replaces each "[N]"
-// with a markdown link to the corresponding URL before rendering.
 func markdownToHTML(markdown string) string {
-
-	// linkify references in the markdown
 	sections := splitMarkdown(markdown)
 	for i, sec := range sections {
 		refs := collectReferences(sec)
-		// log.Printf("Found %d references in section %d", len(refs), i)
 		sections[i] = linkifyReferences(sec, refs)
 	}
 	processed := strings.Join(sections, "\n\n---\n\n")
-
-	/*
-		// replace '^---$' with an HTML horizontal rule
-		pattern := regexp.MustCompile("(?m)^---$")
-		processed = pattern.ReplaceAllString(processed, "<hr>")
-	*/
 
 	var buf bytes.Buffer
 	if err := goldmark.Convert([]byte(processed), &buf); err != nil {

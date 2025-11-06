@@ -339,7 +339,7 @@
       });
     }
     
-    // Step 6: Initialize WebSocket connection and handlers
+    // Initialize WebSocket connection and handlers
     function initWebSocket() {
       var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       var wsUrl = protocol + '//' + window.location.host + '/ws';
@@ -351,7 +351,7 @@
         console.log('WebSocket connected');
       };
       
-      // Step 7: Handle incoming broadcast messages
+      // Handle incoming broadcast messages
       ws.onmessage = function(event) {
         try {
           var message = JSON.parse(event.data);
@@ -431,7 +431,7 @@
     // Call generateTOC and other initializations when the DOM content is loaded.
     document.addEventListener("DOMContentLoaded", function() {
       generateTOC();
-      initWebSocket(); // Step 6: Initialize WebSocket on page load
+      initWebSocket();
       
       // Toggle sidebar visibility
       var sidebar = document.getElementById("sidebar");
@@ -492,8 +492,14 @@
       generateTOC();
     }
 
-    // Send query via HTTP with UUID
+    // Send query via WebSocket
     function sendQuery(query, llm, selection, wordCount) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        console.error("WebSocket not connected");
+        showErrorSign();
+        return;
+      }
+
       // Increment global outstanding query count and update status spinner.
       outstandingQueries++;
       updateStatusSpinner();
@@ -504,34 +510,19 @@
       // Generate a unique UUID for this query
       var queryID = generateUUID();
 
-      // Send the query via HTTP POST to the /query endpoint
-      fetch("/query", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ 
-          query: query, 
-          llm: llm, 
-          selection: selection,
-          inputFiles: fileSelection.inputFiles,
-          outFiles: fileSelection.outFiles,
-          wordCount: wordCount,
-          queryID: queryID
-        })
-      }).then(function(response) {
-        return response.json();
-      }).then(function(data) {
-        // Response is handled by WebSocket broadcast messages
-        // This HTTP response is kept for backward compatibility only
-        console.log('HTTP response received, actual display handled by WebSocket');
-      }).catch(function(err) {
-        console.error("Error sending query:", err);
-        showErrorSign();
-        // Decrement counter on HTTP error since we won't get a WebSocket response
-        outstandingQueries--;
-        updateStatusSpinner();
-      });
+      // Send the query via WebSocket
+      var queryMessage = {
+        type: "query",
+        query: query,
+        llm: llm,
+        selection: selection,
+        inputFiles: fileSelection.inputFiles,
+        outFiles: fileSelection.outFiles,
+        wordCount: wordCount,
+        queryID: queryID
+      };
+
+      ws.send(JSON.stringify(queryMessage));
     }
 
     // Poll the /tokencount endpoint to update the token count.
@@ -770,5 +761,4 @@
   </script>
 </body>
 </html>
-
 
