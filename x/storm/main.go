@@ -42,7 +42,7 @@ type QueryRequest struct {
 	InputFiles []string `json:"inputFiles"`
 	OutFiles   []string `json:"outFiles"`
 	WordCount  int      `json:"wordCount"`
-	QueryID    int      `json:"queryID"`
+	QueryID    string   `json:"queryID"`
 }
 
 // QueryResponse represents the LLM's response.
