@@ -427,6 +427,14 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Removed word count manipulation from here.
 	round := chat.StartRound(req.Query, req.Selection)
+	
+	// Step 4: Broadcast the query to all connected clients
+	queryBroadcast := map[string]interface{}{
+		"type":  "query",
+		"query": round.Query,
+	}
+	clientPool.Broadcast(queryBroadcast)
+	
 	history := chat.getHistory(true)
 	// add the last TailLength characters of the chat history as context.
 	// XXX should really use embeddings and a vector db to find relevant context.
@@ -505,6 +513,13 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	
+	// Step 5: Broadcast the response to all connected clients
+	responseBroadcast := map[string]interface{}{
+		"type":     "response",
+		"response": markdownToHTML(responseText) + "\n\n<hr>\n\n",
+	}
+	clientPool.Broadcast(responseBroadcast)
 
 	resp := QueryResponse{
 		Response: markdownToHTML(responseText) + "\n\n<hr>\n\n",
