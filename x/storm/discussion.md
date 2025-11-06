@@ -5338,3 +5338,64 @@ Let me write this concisely in 100 words.
 
 ---
 
+
+
+**Add gorilla/websocket import and /ws endpoint handler in main.go**
+
+
+
+
+# Add WebSocket Support to Storm
+
+Add `github.com/gorilla/websocket` import and create `/ws` endpoint handler[1][2]. The handler upgrades HTTP connections to WebSocket, manages a client pool tracking all connected browsers, and broadcasts queries/responses to all clients[1]. Each client receives a dedicated channel for updates; when one browser sends a query, the server broadcasts it to all connected clients with a spinner. Implement a ClientPool struct with Register/Unregister channels and a broadcast mechanism using goroutines[2]. Test with multiple browser tabs to verify real-time synchronization[1].
+
+## References
+
+[1][2]
+
+## References
+
+- [1] [https://github.com/gorilla/websocket](https://github.com/gorilla/websocket)
+- [2] [https://tutorialedge.net/golang/go-websocket-tutorial/](https://tutorialedge.net/golang/go-websocket-tutorial/)
+- [3] [https://tutorialedge.net/projects/chat-system-in-go-and-react/part-4-handling-multiple-clients/](https://tutorialedge.net/projects/chat-system-in-go-and-react/part-4-handling-multiple-clients/)
+- [4] [https://pkg.go.dev/github.com/gorilla/websocket](https://pkg.go.dev/github.com/gorilla/websocket)
+- [5] [https://golangbot.com/go-websocket-server/](https://golangbot.com/go-websocket-server/)
+- [6] [https://dev.to/danielkun/go-asynchronous-and-safe-real-time-broadcasting-using-channels-and-websockets-4g5d](https://dev.to/danielkun/go-asynchronous-and-safe-real-time-broadcasting-using-channels-and-websockets-4g5d)
+
+
+
+## Reasoning
+
+The user is asking me to answer the query: "Add gorilla/websocket import and /ws endpoint handler in main.go" with a limit of 100 words.
+
+Looking at the instructions at the top:
+- I should always start my response with a markdown heading
+- I should keep my response to 100 words
+- I should enclose reference numbers in square brackets
+- I should not include empty square brackets in my response
+- The response must include complete files: 'index.html' and 'main.go'
+- The response must match a specific regex with file markers
+
+So I need to:
+1. Start with a markdown heading
+2. Provide a concise explanation (100 words)
+3. Provide complete updated files in the specified format
+
+Let me create an updated main.go that adds:
+1. Import for gorilla/websocket
+2. A /ws endpoint handler
+3. A WebSocket connection pool or client management
+
+Looking at the search results at the very beginning, [1] and [2] provide information about gorilla/websocket and implementing WebSocket handlers in Go.
+
+I'll provide:
+1. A markdown heading
+2. A brief 100-word explanation
+3. Updated main.go with WebSocket support
+4. The index.html file (unchanged but required by the regex)
+
+Let me write the response starting with a heading.
+
+
+---
+

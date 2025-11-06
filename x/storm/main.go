@@ -16,10 +16,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/stevegt/grokker/x/storm/split"
 
 	"github.com/gofrs/flock"
+	"github.com/gorilla/websocket"
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker/v3/client"
 	"github.com/stevegt/grokker/v3/core"
@@ -58,6 +60,71 @@ type Chat struct {
 	mutex    sync.RWMutex
 	history  []*ChatRound
 	filename string
+}
+
+// WebSocket client connection.
+type WSClient struct {
+	conn *websocket.Conn
+	send chan interface{}
+	pool *ClientPool
+	id   string
+}
+
+// ClientPool manages all connected WebSocket clients.
+type ClientPool struct {
+	clients    map[*WSClient]bool
+	broadcast  chan interface{}
+	register   chan *WSClient
+	unregister chan *WSClient
+	mutex      sync.RWMutex
+}
+
+// NewClientPool creates a new client pool.
+func NewClientPool() *ClientPool {
+	return &ClientPool{
+		clients:    make(map[*WSClient]bool),
+		broadcast:  make(chan interface{}, 256),
+		register:   make(chan *WSClient),
+		unregister: make(chan *WSClient),
+	}
+}
+
+// Start begins the client pool's broadcast loop.
+func (cp *ClientPool) Start() {
+	for {
+		select {
+		case client := <-cp.register:
+			cp.mutex.Lock()
+			cp.clients[client] = true
+			cp.mutex.Unlock()
+			log.Printf("Client %s registered, total clients: %d", client.id, len(cp.clients))
+
+		case client := <-cp.unregister:
+			cp.mutex.Lock()
+			if _, ok := cp.clients[client]; ok {
+				delete(cp.clients, client)
+				close(client.send)
+			}
+			cp.mutex.Unlock()
+			log.Printf("Client %s unregistered, total clients: %d", client.id, len(cp.clients))
+
+		case message := <-cp.broadcast:
+			cp.mutex.RLock()
+			for client := range cp.clients {
+				select {
+				case client.send <- message:
+				default:
+					// Client's send channel is full, skip
+				}
+			}
+			cp.mutex.RUnlock()
+		}
+	}
+}
+
+// Broadcast sends a message to all connected clients.
+func (cp *ClientPool) Broadcast(message interface{}) {
+	cp.broadcast <- message
 }
 
 // NewChat creates a new Chat instance using the given markdown filename.
@@ -188,6 +255,14 @@ func (c *Chat) getHistory(lock bool) string {
 var chat *Chat
 var grok *core.Grokker
 var srv *http.Server
+var clientPool *ClientPool
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true // Allow all origins for now
+	},
+}
 
 func main() {
 
@@ -210,6 +285,8 @@ func main() {
 	defer lock.Unlock()
 
 	chat = NewChat(*filePtr)
+	clientPool = NewClientPool()
+	go clientPool.Start()
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Received request for %s", r.URL.Path)
@@ -225,6 +302,7 @@ func main() {
 		}
 	})
 
+	http.HandleFunc("/ws", wsHandler)
 	http.HandleFunc("/query", queryHandler)
 	http.HandleFunc("/tokencount", tokenCountHandler)
 	http.HandleFunc("/rounds", roundsHandler)
@@ -236,6 +314,58 @@ func main() {
 	log.Printf("Starting server on %s\n", addr)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
+	}
+}
+
+// wsHandler handles WebSocket connections.
+func wsHandler(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WebSocket upgrade error: %v", err)
+		return
+	}
+
+	client := &WSClient{
+		conn: conn,
+		send: make(chan interface{}, 256),
+		pool: clientPool,
+		id:   fmt.Sprintf("client-%d", len(clientPool.clients)),
+	}
+
+	clientPool.register <- client
+
+	go client.writePump()
+	go client.readPump()
+}
+
+// readPump reads messages from the WebSocket client.
+func (c *WSClient) readPump() {
+	defer func() {
+		c.pool.unregister <- c
+		c.conn.Close()
+	}()
+
+	c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	for {
+		var msg map[string]interface{}
+		if err := c.conn.ReadJSON(&msg); err != nil {
+			log.Printf("WebSocket read error: %v", err)
+			break
+		}
+		// Handle incoming messages from clients
+		log.Printf("Received from %s: %v", c.id, msg)
+	}
+}
+
+// writePump writes messages to the WebSocket client.
+func (c *WSClient) writePump() {
+	defer c.conn.Close()
+
+	for message := range c.send {
+		if err := c.conn.WriteJSON(message); err != nil {
+			log.Printf("WebSocket write error: %v", err)
+			break
+		}
 	}
 }
 
