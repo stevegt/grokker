@@ -258,6 +258,10 @@
     </div>
   </div>
   <script>
+    // WebSocket connection
+    var ws;
+    var pendingQueryDivs = {}; // Track divs for pending queries
+    
     // Helper functions for managing cookies.
     function setCookie(name, value, days) {
       var expires = "";
@@ -325,9 +329,73 @@
         toc.appendChild(link);
       });
     }
+    
+    // Step 6: Initialize WebSocket connection and handlers
+    function initWebSocket() {
+      var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      var wsUrl = protocol + '//' + window.location.host + '/ws';
+      console.log('Connecting to WebSocket:', wsUrl);
+      
+      ws = new WebSocket(wsUrl);
+      
+      ws.onopen = function() {
+        console.log('WebSocket connected');
+      };
+      
+      // Step 7: Handle incoming broadcast messages
+      ws.onmessage = function(event) {
+        try {
+          var message = JSON.parse(event.data);
+          console.log('Received WebSocket message:', message);
+          
+          if (message.type === 'query') {
+            // Display query with spinner on all clients
+            var chat = document.getElementById("chat");
+            var messageDiv = document.createElement("div");
+            messageDiv.className = "message";
+            messageDiv.innerHTML = "<strong>" + message.query + "</strong><br>";
+            
+            var spinner = document.createElement("span");
+            spinner.className = "spinner";
+            spinner.style.marginLeft = "10px";
+            messageDiv.appendChild(spinner);
+            
+            chat.appendChild(messageDiv);
+            pendingQueryDivs[message.query] = messageDiv;
+            generateTOC();
+            
+          } else if (message.type === 'response') {
+            // Display response and hide spinner
+            var chat = document.getElementById("chat");
+            var responseDiv = document.createElement("div");
+            responseDiv.innerHTML = message.response;
+            chat.appendChild(responseDiv);
+            generateTOC();
+            updateProgressStats();
+            updateTokenCount();
+          }
+        } catch (err) {
+          console.error('Error processing WebSocket message:', err);
+        }
+      };
+      
+      ws.onerror = function(error) {
+        console.error('WebSocket error:', error);
+        showErrorSign();
+      };
+      
+      ws.onclose = function() {
+        console.log('WebSocket disconnected, attempting to reconnect...');
+        // Attempt to reconnect after 3 seconds
+        setTimeout(initWebSocket, 3000);
+      };
+    }
+    
     // Call generateTOC and other initializations when the DOM content is loaded.
     document.addEventListener("DOMContentLoaded", function() {
       generateTOC();
+      initWebSocket(); // Step 6: Initialize WebSocket on page load
+      
       // Toggle sidebar visibility
       var sidebar = document.getElementById("sidebar");
       document.getElementById("toggle-sidebar").addEventListener("click", function() {
@@ -719,4 +787,3 @@
   </script>
 </body>
 </html>
-

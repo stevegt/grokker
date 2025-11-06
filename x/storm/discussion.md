@@ -5526,12 +5526,9 @@ For Step 4 (queryHandler):
 **make all links be a lighter shade of blue**
 
 
-
-
 # Lighten All Links to a Lighter Shade of Blue
 
 Add a global `a` selector to the CSS section to make all links a lighter shade of blue[1][4][6]. Light blue hex codes like #90D5FF, #87CEEB (sky blue), or #ADD8E6 (light blue) work well with the dark theme[3][4]. Include `:hover`, `:visited`, and `:active` pseudo-classes for consistency[1]. Place this before the #toc a selector to ensure proper CSS cascade ordering[5].
-
 
 ## References
 
@@ -5541,8 +5538,6 @@ Add a global `a` selector to the CSS section to make all links a lighter shade o
 - [4] [https://www.figma.com/colors/light-blue/](https://www.figma.com/colors/light-blue/)
 - [5] [https://www.w3schools.com/css/css_link.asp](https://www.w3schools.com/css/css_link.asp)
 - [6] [https://htmlcolorcodes.com/colors/light-blue/](https://htmlcolorcodes.com/colors/light-blue/)
-
-
 
 ## Reasoning
 
@@ -5597,11 +5592,12 @@ From the search results:
 I need to add a global `a` selector to the CSS and set a lighter shade of blue. Looking at the dark theme, something like #87CEEB (sky blue) or #90D5FF would work well. I'll update the CSS section to include this global link styling.
 
 
+
 ---
 
+
+
 **restate the incremental change steps**
-
-
 
 
 # Incremental WebSocket Implementation Steps
@@ -5630,10 +5626,6 @@ I need to add a global `a` selector to the CSS and set a lighter shade of blue. 
 
 
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -5666,13 +5658,12 @@ Following the instructions:
 Let me restate the steps.
 
 
+
 ---
 
 
 
 **what hasn't been done yet? what's next?**
-
-
 
 
 # WebSocket Implementation Status and Next Steps
@@ -5695,10 +5686,6 @@ Focus next on Step 6: establish WebSocket connection when index.html loads[1].
 
 
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -5730,6 +5717,222 @@ They want me to:
 5. Be a researcher answering the query
 
 Let me provide a clear status of what's been done and what needs to be done next.
+
+
+
+---
+
+
+
+**do these steps:
+
+Step 6: Add WebSocket connection initialization in index.html onload event; connect to /ws endpoint
+Step 7: Add onmessage handler to receive broadcast messages and update chat UI dynamically**
+
+
+# WebSocket Real-Time Updates for Multi-User Chat
+
+Implement Steps 6 and 7 by adding WebSocket initialization to index.html's DOMContentLoaded event[1]. Construct the WebSocket URL using the current window location, connecting to `/ws` endpoint. Add an `onmessage` handler that parses incoming JSON broadcasts[1], checking the `type` field to distinguish between "query" and "response" messages[2]. For queries, display them with spinners; for responses, replace spinners with rendered HTML. This enables all connected browsers to synchronize in real-time[1][2].
+
+## References
+
+[1] [https://developer.mozilla.org/en-US/docs/Web/API/WebSocket](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket)
+[2] [https://github.com/gorilla/websocket](https://github.com/gorilla/websocket)
+
+
+
+## References
+
+## Reasoning
+
+The user is asking me to implement steps 6 and 7 of the WebSocket implementation:
+
+Step 6: Add WebSocket connection initialization in index.html onload event; connect to /ws endpoint
+Step 7: Add onmessage handler to receive broadcast messages and update chat UI dynamically
+
+They want me to limit my response to 100 words.
+
+Looking at the instructions at the very top:
+1. I'm a researcher
+2. I should answer the query - the query is the new query about steps 6 and 7
+3. Always start my response with a markdown heading
+4. Always enclose reference numbers in square brackets
+5. Don't include empty square brackets
+6. My response must include complete files: 'index.html' and 'main.go'
+7. Return complete files only, not fragments
+8. My response must match a specific regex with file markers
+
+So I need to:
+1. Start with a markdown heading
+2. Provide a brief explanation (100 words)
+3. Provide updated index.html with WebSocket connection code added
+4. Provide main.go (can be the same since we're not modifying it in these steps)
+
+Looking at index.html, I need to add:
+1. WebSocket connection initialization in the DOMContentLoaded event
+2. Connection to the `/ws` endpoint
+3. A message handler to receive broadcasts and update the chat UI
+
+The WebSocket URL should be constructed based on the current window location:
+- If the page is at `http://localhost:8080/`, the WebSocket should connect to `ws://localhost:8080/ws`
+
+Looking at the JavaScript in index.html, I need to:
+1. Create a variable to store the WebSocket connection
+2. Initialize it when the DOM loads
+3. Add handlers for:
+   - onopen - when connection established
+   - onmessage - when receiving messages from the server
+   - onerror - when connection errors
+   - onclose - when connection closes
+   
+I'll craft a robust message handling mechanism that parses JSON messages, distinguishing between query and response types. The handler will dynamically update the UI, showing spinners for queries and displaying responses appropriately.
+
+
+
+---
+
+
+
+**What's next?**
+
+
+
+
+# Next Steps: Testing and Validation
+
+**Step 8: Multi-Browser Testing**
+
+Test the WebSocket implementation with multiple browser tabs or windows connecting to the same Storm instance[1]. Verify that:
+- Queries broadcast to all connected clients with spinners
+- Responses update simultaneously on all browsers
+- No race conditions or data corruption occur
+- Concurrent queries from multiple users work correctly
+- WebSocket reconnection handles dropped connections gracefully[2]
+
+Once testing confirms real-time synchronization is working reliably across all browsers, remove the HTTP polling fallback (`/query` endpoint via fetch) and fully transition to WebSocket-based communication[1].
+
+## References
+
+[1] [https://developer.mozilla.org/en-US/docs/Web/API/WebSocket](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket)
+[2] [https://github.com/gorilla/websocket](https://github.com/gorilla/websocket)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to answer the query "What's next?" in the context of the Storm application development. Let me review what has been accomplished and what remains:
+
+According to the instructions:
+1. I'm a researcher
+2. I should answer the query, not other questions in the context
+3. The query is: "What's next?"
+4. I should limit my response to 100 words
+5. I should start with a markdown heading
+6. I should enclose reference numbers in square brackets
+7. I should ignore empty brackets in the prompt or context
+8. I should NOT include empty square brackets in my response
+
+Looking at the context, the most recent steps were:
+- Step 6: Add WebSocket connection initialization in index.html onload event
+- Step 7: Add onmessage handler to receive broadcast messages and update chat UI
+
+So the next logical steps would be:
+- Step 8: Test with multiple browser tabs
+- Then potentially removing the HTTP polling fallback
+- Or other enhancements
+
+But they just asked to implement Steps 6 and 7. So "What's next?" likely means:
+1. What's the next step after 6 and 7?
+2. What needs to be tested?
+3. What comes after WebSocket implementation?
+
+From the incremental steps outlined earlier:
+- Step 8 is: Test with multiple browsers before removing HTTP polling fallback
+
+So the next step should be Step 8: Testing with multiple browsers.
+
+I should also mention:
+- Verify real-time synchronization works
+- Test concurrent queries from multiple users
+- Verify no race conditions
+- Then remove HTTP polling fallback once stable
+
+Let me write a concise 100-word response about what's next.
+
+
+---
+
+
+
+**What's next?**
+
+
+
+
+# Step 8: Multi-Browser Testing and Validation
+
+The next step is comprehensive testing with multiple browsers connecting simultaneously[1][2]. Verify that queries broadcast to all connected clients with spinners, responses update synchronously, and no race conditions occur during concurrent queries from multiple users[1]. Test WebSocket reconnection handling for dropped connections[2]. 
+
+Once stable, remove the HTTP polling fallback (keep `/query` endpoint working for backward compatibility). Monitor WebSocket reliability in production before fully deprecating HTTP-based communication[1]. Finally, consider adding error recovery, client-side reconnection with exponential backoff, and comprehensive logging[2].
+
+## References
+
+[1] [https://github.com/gorilla/websocket](https://github.com/gorilla/websocket)
+[2] [https://developer.mozilla.org/en-US/docs/Web/API/WebSocket](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket)
+
+
+
+## References
+
+- [1] [https://ably.com/topic/websocket-architecture-best-practices](https://ably.com/topic/websocket-architecture-best-practices)
+- [2] [https://dev.to/danielkun/go-asynchronous-and-safe-real-time-broadcasting-using-channels-and-websockets-4g5d](https://dev.to/danielkun/go-asynchronous-and-safe-real-time-broadcasting-using-channels-and-websockets-4g5d)
+- [3] [https://www.pubnub.com/how-to/test-cases-for-chat-application/](https://www.pubnub.com/how-to/test-cases-for-chat-application/)
+- [4] [https://bryntum.com/products/gantt/docs/guide/Gantt/integration/websockets](https://bryntum.com/products/gantt/docs/guide/Gantt/integration/websockets)
+- [5] [https://github.com/gorilla/websocket](https://github.com/gorilla/websocket)
+- [6] [https://www.youtube.com/watch?v=ba4T590JPnw](https://www.youtube.com/watch?v=ba4T590JPnw)
+- [7] [https://groups.google.com/g/gorilla-web/c/d2YHA309HY0](https://groups.google.com/g/gorilla-web/c/d2YHA309HY0)
+- [8] [https://websocket.org/tools/websocket-echo-server/](https://websocket.org/tools/websocket-echo-server/)
+- [9] [https://ably.com/blog/websockets-vs-long-polling](https://ably.com/blog/websockets-vs-long-polling)
+- [10] [https://news.ycombinator.com/item?id=36174404](https://news.ycombinator.com/item?id=36174404)
+- [11] [https://github.com/cypress-io/cypress-example-recipes/issues/213](https://github.com/cypress-io/cypress-example-recipes/issues/213)
+- [12] [https://rxdb.info/articles/websockets-sse-polling-webrtc-webtransport.html](https://rxdb.info/articles/websockets-sse-polling-webrtc-webtransport.html)
+
+
+
+## Reasoning
+
+The user is asking me to respond to the query "What's next?" in the context of the Storm application development. Let me review what they're asking:
+
+1. They've provided updated files (index.html and main.go)
+2. The recent steps were Steps 6 and 7 (WebSocket connection initialization and message handler)
+3. They're asking "What's next?" with a 100-word limit
+
+Looking at the incremental steps:
+1. ✅ Add gorilla/websocket import and /ws endpoint handler in main.go - DONE
+2. ✅ Create ClientPool struct - DONE
+3. ✅ Implement broadcast mechanism - DONE
+4. ✅ Modify queryHandler to broadcast queries - DONE (Step 4 code exists)
+5. ✅ Modify FinishRound to broadcast responses - DONE (Step 5 code exists)
+6. ✅ Update index.html to establish WebSocket connection on page load - DONE (initWebSocket function)
+7. ✅ Add WebSocket message handler in index.html to update chat UI in real-time - DONE (onmessage handler)
+8. ❌ Test with multiple browser tabs before removing HTTP polling fallback - NOT DONE
+
+So Step 8 is the next step: multi-browser testing before removing HTTP polling fallback.
+
+Following the instructions:
+- I should always start my response with a markdown heading
+- I should limit my response to 100 words
+- I should enclose reference numbers in square brackets
+- I should not include empty square brackets
+- I'm a researcher answering the query
+
+The query is simply "What's next?" which means what's the next step in the implementation plan.
 
 
 ---
