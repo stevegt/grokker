@@ -260,7 +260,8 @@
   <script>
     // WebSocket connection
     var ws;
-    var pendingQueryDivs = {}; // Track divs for pending queries
+    var pendingQueryDivs = {}; // Track divs for pending queries by queryID
+    var queryCounter = 0;
     
     // Helper functions for managing cookies.
     function setCookie(name, value, days) {
@@ -349,7 +350,7 @@
           console.log('Received WebSocket message:', message);
           
           if (message.type === 'query') {
-            // Display query with spinner on all clients
+            // Display query with spinner and cancel button on all clients
             var chat = document.getElementById("chat");
             var messageDiv = document.createElement("div");
             messageDiv.className = "message";
@@ -360,16 +361,41 @@
             spinner.style.marginLeft = "10px";
             messageDiv.appendChild(spinner);
             
+            // Add cancel button
+            var cancelBtn = document.createElement("button");
+            cancelBtn.textContent = "Cancel";
+            cancelBtn.style.marginLeft = "5px";
+            cancelBtn.style.fontSize = "10px";
+            cancelBtn.style.padding = "5px 10px";
+            cancelBtn.addEventListener("click", function() {
+              messageDiv.remove();
+              generateTOC();
+              pendingQueryDivs[message.queryID] = null;
+              outstandingQueries--;
+              updateStatusSpinner();
+            });
+            messageDiv.appendChild(cancelBtn);
+            
             chat.appendChild(messageDiv);
-            pendingQueryDivs[message.query] = messageDiv;
+            // Store by queryID to match responses
+            pendingQueryDivs[message.queryID] = { div: messageDiv, spinner: spinner, cancelBtn: cancelBtn };
             generateTOC();
             
           } else if (message.type === 'response') {
-            // Display response and hide spinner
-            var chat = document.getElementById("chat");
-            var responseDiv = document.createElement("div");
-            responseDiv.innerHTML = message.response;
-            chat.appendChild(responseDiv);
+            // Find the corresponding query div and update it
+            var pendingQuery = pendingQueryDivs[message.queryID];
+            if (pendingQuery) {
+              // Remove spinner and cancel button
+              pendingQuery.spinner.remove();
+              pendingQuery.cancelBtn.remove();
+              
+              // Append response to the query div
+              var responseDiv = document.createElement("div");
+              responseDiv.innerHTML = message.response;
+              pendingQuery.div.appendChild(responseDiv);
+              
+              delete pendingQueryDivs[message.queryID];
+            }
             generateTOC();
             updateProgressStats();
             updateTokenCount();
@@ -455,97 +481,42 @@
       generateTOC();
     }
 
-    // Send query to the /query endpoint.
-    // Each query is immediately added to the chat with a 10px spinner and a Cancel button.
-    // When the LLM response is received the spinner is removed and replaced by the response.
+    // Send query via WebSocket and HTTP
     function sendQuery(query, llm, selection, wordCount) {
-      var chat = document.getElementById("chat");
-      var messageDiv = document.createElement("div");
-      messageDiv.className = "message";
-      if (selection === "") {
-        messageDiv.innerHTML = "<strong>" + query + "</strong>";
-      } else {
-        messageDiv.innerHTML = "<strong>" + query + " [" + selection + "]</strong>";
-      }
-      // create a <br> before the spinner and cancel button
-      messageDiv.innerHTML += "<br>";
-      // Create a spinner element next to the query.
-      var spinner = document.createElement("span");
-      spinner.className = "spinner";
-      spinner.style.marginLeft = "10px";
-      messageDiv.appendChild(spinner);
-      // Create a Cancel button next to the spinner.
-      var cancelBtn = document.createElement("button");
-      cancelBtn.textContent = "Cancel";
-      cancelBtn.style.marginLeft = "5px";
-      messageDiv.appendChild(cancelBtn);
-      chat.appendChild(messageDiv);
-      generateTOC();
-
       // Increment global outstanding query count and update status spinner.
       outstandingQueries++;
       updateStatusSpinner();
 
-      // Create an abort controller to cancel the fetch request.
-      var abortController = new AbortController();
-
-      // When the user clicks the Cancel button, abort the request and remove the message.
-      cancelBtn.addEventListener("click", function() {
-        abortController.abort();
-        messageDiv.remove();
-        // Decrement outstanding queries and update status spinner when cancelled.
-        outstandingQueries--;
-        updateStatusSpinner();
-        generateTOC();
-      });
-
       // Gather file I/O selections from the file sidebar.
       var fileSelection = getSelectedFiles();
+      
+      // Generate a unique query ID
+      var queryID = ++queryCounter;
 
+      // Send the query via HTTP POST to the /query endpoint
       fetch("/query", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
-        signal: abortController.signal,
         body: JSON.stringify({ 
           query: query, 
           llm: llm, 
           selection: selection,
           inputFiles: fileSelection.inputFiles,
           outFiles: fileSelection.outFiles,
-          wordCount: wordCount
+          wordCount: wordCount,
+          queryID: queryID
         })
       }).then(function(response) {
         return response.json();
       }).then(function(data) {
-        // Remove the spinner and cancel button once the response is received.
-        spinner.remove();
-        cancelBtn.remove();
-        var responseDiv = document.createElement("div");
-        responseDiv.innerHTML = data.response;
-        // If the messageDiv is still in the document (i.e. not cancelled), append the response.
-        if (document.body.contains(messageDiv)) {
-          messageDiv.appendChild(responseDiv);
-          updateTokenCount();
-          generateTOC();
-          updateProgressStats();
-        }
-        // Decrement outstanding queries and update status spinner.
+        // Response handled by WebSocket messages
         outstandingQueries--;
         updateStatusSpinner();
       }).catch(function(err) {
-        if (err.name === "AbortError") {
-          return;
-        }
-        spinner.remove();
-        cancelBtn.remove();
-        var errorDiv = document.createElement("div");
-        errorDiv.textContent = "Error: " + err;
-        messageDiv.appendChild(errorDiv);
-        // Show red stop sign in the status box in case of error.
+        console.error("Error sending query:", err);
         showErrorSign();
-        // Decrement outstanding queries and update status spinner.
         outstandingQueries--;
         updateStatusSpinner();
       });
@@ -787,3 +758,4 @@
   </script>
 </body>
 </html>
+

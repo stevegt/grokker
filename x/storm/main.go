@@ -42,6 +42,7 @@ type QueryRequest struct {
 	InputFiles []string `json:"inputFiles"`
 	OutFiles   []string `json:"outFiles"`
 	WordCount  int      `json:"wordCount"`
+	QueryID    int      `json:"queryID"`
 }
 
 // QueryResponse represents the LLM's response.
@@ -430,8 +431,9 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 	
 	// Step 4: Broadcast the query to all connected clients
 	queryBroadcast := map[string]interface{}{
-		"type":  "query",
-		"query": round.Query,
+		"type":    "query",
+		"query":   round.Query,
+		"queryID": req.QueryID,
 	}
 	clientPool.Broadcast(queryBroadcast)
 	
@@ -517,6 +519,7 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 	// Step 5: Broadcast the response to all connected clients
 	responseBroadcast := map[string]interface{}{
 		"type":     "response",
+		"queryID":  req.QueryID,
 		"response": markdownToHTML(responseText) + "\n\n<hr>\n\n",
 	}
 	clientPool.Broadcast(responseBroadcast)
@@ -653,3 +656,4 @@ func markdownToHTML(markdown string) string {
 
 	return buf.String()
 }
+
