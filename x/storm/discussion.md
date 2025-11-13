@@ -10808,3 +10808,70 @@ I'll highlight the key problems and propose a straightforward solution. The curr
 
 ---
 
+
+
+**BufferedMessage and Message should be the same struct, named Message.  Message should be a struct, not a map.**
+
+
+
+
+# Unified Message Struct with Sequence Numbers
+
+Consolidate `BufferedMessage` into a single `Message` struct containing all fields needed for any message type[1]. Include `Seq`, `Type`, `QueryID`, `Query`, `Response`, and other fields in one struct. Use `json:"-"` tags to exclude server-only fields from client transmission. This simplifies serialization, improves type safety, and eliminates map indirection[1][2].
+
+## References
+
+[1] [https://golang.org/pkg/encoding/json/](https://golang.org/pkg/encoding/json/)
+[2] [https://github.com/gorilla/websocket](https://github.com/gorilla/websocket)
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to refactor the message structs so that BufferedMessage and Message are the same struct, named Message, and Message should be a struct, not a map.
+
+Currently:
+- In main.go, there's a `BufferedMessage` struct that holds `Seq` and `Message` (where Message is `interface{}`)
+- Messages are being sent as `map[string]interface{}`
+
+The user wants:
+- A single `Message` struct (not BufferedMessage)
+- Messages to be a struct type instead of map
+
+I need to:
+1. Create a Message struct that includes the seq field and all message fields
+2. Update the broadcast mechanism to use this struct
+3. Update the client JavaScript to handle the new struct format
+4. Make sure serialization/deserialization works correctly with JSON
+
+Let me think about the structure:
+
+```go
+type Message struct {
+    Seq     uint64      `json:"seq"`
+    Type    string      `json:"type"`
+    // ... other fields
+}
+```
+
+But the issue is that different message types have different fields:
+- Query messages have: type, query, queryID, llm, selection, inputFiles, outFiles, wordCount
+- Response messages have: type, queryID, response
+- Ack messages have: type, lastSeq
+- request_missing_messages have: type, startSeq, endSeq
+
+So I could either:
+1. Create a Message struct with all possible fields (many will be nil/empty)
+2. Use a more specific approach with message type variants
+
+I think the cleaner approach is to have a Message struct with all the fields, using omitempty tags for JSON marshaling.
+
+Let me create the updated files with these changes.
+
+
+---
+

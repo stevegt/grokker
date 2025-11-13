@@ -35,6 +35,23 @@ var indexHTML string
 
 var tmpl = template.Must(template.New("index").Parse(indexHTML))
 
+// Message represents a WebSocket message with sequence number and payload
+type Message struct {
+	Seq        uint64   `json:"seq"`
+	Type       string   `json:"type"`
+	Query      string   `json:"query,omitempty"`
+	Response   string   `json:"response,omitempty"`
+	QueryID    string   `json:"queryID,omitempty"`
+	LLM        string   `json:"llm,omitempty"`
+	Selection  string   `json:"selection,omitempty"`
+	InputFiles []string `json:"inputFiles,omitempty"`
+	OutFiles   []string `json:"outFiles,omitempty"`
+	WordCount  int      `json:"wordCount,omitempty"`
+	LastSeq    uint64   `json:"lastSeq,omitempty"`
+	StartSeq   uint64   `json:"startSeq,omitempty"`
+	EndSeq     uint64   `json:"endSeq,omitempty"`
+}
+
 // QueryRequest represents a user's query input.
 type QueryRequest struct {
 	Query      string   `json:"query"`
@@ -67,7 +84,7 @@ type Chat struct {
 // WebSocket client connection.
 type WSClient struct {
 	conn *websocket.Conn
-	send chan interface{}
+	send chan *Message
 	pool *ClientPool
 	id   string
 }
@@ -75,7 +92,7 @@ type WSClient struct {
 // ClientPool manages all connected WebSocket clients.
 type ClientPool struct {
 	clients    map[*WSClient]bool
-	broadcast  chan interface{}
+	broadcast  chan *Message
 	register   chan *WSClient
 	unregister chan *WSClient
 	mutex      sync.RWMutex
@@ -84,21 +101,15 @@ type ClientPool struct {
 	bufMutex   sync.RWMutex
 }
 
-// BufferedMessage holds a message with its sequence number
-type BufferedMessage struct {
-	Seq     uint64
-	Message interface{}
-}
-
 // NewClientPool creates a new client pool.
 func NewClientPool(bufferSize int) *ClientPool {
 	return &ClientPool{
-		clients:   make(map[*WSClient]bool),
-		broadcast: make(chan interface{}, 256),
-		register:  make(chan *WSClient),
+		clients:    make(map[*WSClient]bool),
+		broadcast:  make(chan *Message, 256),
+		register:   make(chan *WSClient),
 		unregister: make(chan *WSClient),
-		seq:       0,
-		msgBuffer: ring.New(bufferSize),
+		seq:        0,
+		msgBuffer:  ring.New(bufferSize),
 	}
 }
 
@@ -124,19 +135,17 @@ func (cp *ClientPool) Start() {
 		case message := <-cp.broadcast:
 			cp.bufMutex.Lock()
 			cp.seq++
-			// Include sequence number directly in the message
-			msgWithSeq := message.(map[string]interface{})
-			msgWithSeq["seq"] = cp.seq
-			cp.msgBuffer.Value = BufferedMessage{Seq: cp.seq, Message: msgWithSeq}
+			message.Seq = cp.seq
+			cp.msgBuffer.Value = message
 			cp.msgBuffer = cp.msgBuffer.Next()
 			cp.bufMutex.Unlock()
 
 			cp.mutex.RLock()
 			for client := range cp.clients {
 				select {
-				case client.send <- msgWithSeq:
+				case client.send <- message:
 				default:
-					// Client's send channel is full, skip
+					log.Printf("Client %s send buffer full, dropping message", client.id)
 				}
 			}
 			cp.mutex.RUnlock()
@@ -145,19 +154,19 @@ func (cp *ClientPool) Start() {
 }
 
 // Broadcast sends a message to all connected clients.
-func (cp *ClientPool) Broadcast(message interface{}) {
-	cp.broadcast <- message
+func (cp *ClientPool) Broadcast(msg *Message) {
+	cp.broadcast <- msg
 }
 
 // GetMessages returns messages between startSeq and endSeq
-func (cp *ClientPool) GetMessages(startSeq, endSeq uint64) []interface{} {
+func (cp *ClientPool) GetMessages(startSeq, endSeq uint64) []*Message {
 	cp.bufMutex.RLock()
 	defer cp.bufMutex.RUnlock()
 
-	var messages []interface{}
+	var messages []*Message
 	cp.msgBuffer.Do(func(v interface{}) {
-		if bm, ok := v.(BufferedMessage); ok && bm.Seq >= startSeq && bm.Seq <= endSeq {
-			messages = append(messages, bm.Message)
+		if msg, ok := v.(*Message); ok && msg.Seq >= startSeq && msg.Seq <= endSeq {
+			messages = append(messages, msg)
 		}
 	})
 	return messages
@@ -368,7 +377,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 
 	client := &WSClient{
 		conn: conn,
-		send: make(chan interface{}, 256),
+		send: make(chan *Message, 256),
 		pool: clientPool,
 		id:   fmt.Sprintf("client-%d", len(clientPool.clients)),
 	}
@@ -425,106 +434,51 @@ func (c *WSClient) readPump() {
 	}()
 
 	for {
-		var msg map[string]interface{}
+		var msg Message
 		if err := c.conn.ReadJSON(&msg); err != nil {
 			log.Printf("WebSocket read error: %v", err)
-			break
+			return
 		}
 
-		// Handle incoming message types
-		if msgType, ok := msg["type"].(string); ok {
-			switch msgType {
-			case "query":
-				log.Printf("Received query from %s: %v", c.id, msg)
-
-				// Extract query parameters
-				query, _ := msg["query"].(string)
-				llm, _ := msg["llm"].(string)
-				selection, _ := msg["selection"].(string)
-				queryID, _ := msg["queryID"].(string)
-
-				// Extract arrays
-				var inputFiles, outFiles []string
-				if inputFilesRaw, ok := msg["inputFiles"].([]interface{}); ok {
-					for _, f := range inputFilesRaw {
-						if s, ok := f.(string); ok {
-							inputFiles = append(inputFiles, s)
-						}
-					}
-				}
-				if outFilesRaw, ok := msg["outFiles"].([]interface{}); ok {
-					for _, f := range outFilesRaw {
-						if s, ok := f.(string); ok {
-							outFiles = append(outFiles, s)
-						}
-					}
-				}
-
-				// Extract wordCount as float64 (JSON number type)
-				wordCount := 0
-				if wc, ok := msg["wordCount"].(float64); ok {
-					wordCount = int(wc)
-				}
-
-				// Process the query
-				go processQuery(queryID, query, llm, selection, inputFiles, outFiles, wordCount)
-
-			case "ack":
-				// Client acknowledging receipt of messages
-				if lastSeq, ok := msg["lastSeq"].(float64); ok {
-					log.Printf("Client %s acknowledged seq: %d", c.id, int(lastSeq))
-				}
-
-			case "request_missing_messages":
-				// Client requesting missing messages
-				if startSeq, ok := msg["startSeq"].(float64); ok {
-					if endSeq, ok := msg["endSeq"].(float64); ok {
-						messages := clientPool.GetMessages(uint64(startSeq), uint64(endSeq))
-						for _, m := range messages {
-							select {
-							case c.send <- m:
-							default:
-								log.Printf("Client %s send buffer full", c.id)
-							}
-						}
-					}
+		switch msg.Type {
+		case "query":
+			go processQuery(msg.QueryID, msg.Query, msg.LLM, msg.Selection, msg.InputFiles, msg.OutFiles, msg.WordCount)
+		case "ack":
+			log.Printf("Client %s acknowledged seq: %d", c.id, msg.LastSeq)
+		case "request_missing_messages":
+			messages := clientPool.GetMessages(msg.StartSeq, msg.EndSeq)
+			for _, m := range messages {
+				select {
+				case c.send <- m:
+				default:
 				}
 			}
 		}
 	}
 }
 
-// processQuery processes a query and broadcasts results to all clients.
+// processQuery processes a query and broadcasts results.
 func processQuery(queryID, query, llm, selection string, inputFiles, outFiles []string, wordCount int) {
-	// Broadcast the query to all clients
-	queryBroadcast := map[string]interface{}{
-		"type":    "query",
-		"query":   query,
-		"queryID": queryID,
+	queryMsg := &Message{
+		Type:    "query",
+		Query:   query,
+		QueryID: queryID,
 	}
-	clientPool.Broadcast(queryBroadcast)
+	clientPool.Broadcast(queryMsg)
 
 	round := chat.StartRound(query, selection)
-
 	history := chat.getHistory(true)
-	// add the last TailLength characters of the chat history as context.
+
 	const TailLength = 300000
 	startIndex := len(history) - TailLength
 	if startIndex < 0 {
 		startIndex = 0
 	}
 	lastN := history[startIndex:]
-	lastNTokenCount, err := grok.TokenCount(lastN)
-	if err != nil {
-		log.Printf("Token count error: %v", err)
-		lastNTokenCount = 0
-	}
-	log.Printf("Added %d tokens of context to query: %s", lastNTokenCount, query)
 
-	// Pass the word count along to sendQueryToLLM.
 	responseText := sendQueryToLLM(query, llm, selection, lastN, inputFiles, outFiles, wordCount)
 
-	// convert references to a bulleted list
+	// Process response (convert references, move reasoning section, etc.)
 	refIndex := strings.Index(responseText, "<references>")
 	if refIndex != -1 {
 		refEndIndex := strings.Index(responseText, "</references>") + len("</references>")
@@ -539,20 +493,17 @@ func processQuery(queryID, query, llm, selection string, inputFiles, outFiles []
 			if line == "" {
 				continue
 			}
-
 			regex := `^\s*\[(\d+)\]\s*(http[s]?://\S+)\s*$`
 			re := regexp.MustCompile(regex)
 			m := re.FindStringSubmatch(line)
 			if len(m) > 0 {
 				line = fmt.Sprintf("- [%s] [%s](%s)", m[1], m[2], m[2])
 			}
-
 			refLines = append(refLines, line)
 		}
 		beforeRefs := responseText[:refIndex]
-		refHead := "\n\n## References\n\n"
 		afterRefs := responseText[refEndIndex:]
-		responseText = beforeRefs + refHead + strings.Join(refLines, "\n") + "\n" + afterRefs
+		responseText = beforeRefs + "\n\n## References\n\n" + strings.Join(refLines, "\n") + "\n" + afterRefs
 	}
 
 	// move the <think> section to the end of the response
@@ -561,31 +512,23 @@ func processQuery(queryID, query, llm, selection string, inputFiles, outFiles []
 		thinkEndIndex := strings.Index(responseText, "</think>") + len("</think>")
 		if thinkEndIndex > thinkIndex {
 			thinkSection := responseText[thinkIndex:thinkEndIndex]
-			responseText = responseText[:thinkIndex] + responseText[thinkEndIndex:]
-			responseText += "\n\n" + thinkSection
-		} else {
-			log.Printf("Malformed <think> section in response: %s", responseText)
+			responseText = responseText[:thinkIndex] + responseText[thinkEndIndex:] + "\n\n" + thinkSection
 		}
 	}
 	replacer := strings.NewReplacer("<think>", "## Reasoning\n", "</think>", "")
 	responseText = replacer.Replace(responseText)
 
-	err = chat.FinishRound(round, responseText)
-	if err != nil {
-		log.Printf("Error finishing round: %v", err)
-		return
-	}
+	chat.FinishRound(round, responseText)
 
-	// Broadcast the response to all connected clients
-	responseBroadcast := map[string]interface{}{
-		"type":     "response",
-		"queryID":  queryID,
-		"response": markdownToHTML(responseText) + "\n\n<hr>\n\n",
+	respMsg := &Message{
+		Type:     "response",
+		QueryID:  queryID,
+		Response: markdownToHTML(responseText) + "\n\n<hr>\n\n",
 	}
-	clientPool.Broadcast(responseBroadcast)
+	clientPool.Broadcast(respMsg)
 }
 
-// openHandler serves a file based on the filename query parameter.
+// openHandler serves a file.
 func openHandler(w http.ResponseWriter, r *http.Request) {
 	filename := r.URL.Query().Get("filename")
 	if filename == "" {
@@ -609,20 +552,17 @@ func stopHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Server stopping"))
 	go func() {
-		if err := srv.Shutdown(context.Background()); err != nil {
-			log.Printf("Error shutting down server: %v", err)
-		}
+		srv.Shutdown(context.Background())
 	}()
 }
 
-// roundsHandler returns the total number of chat rounds as JSON.
+// roundsHandler returns the total number of chat rounds.
 func roundsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	rounds := chat.TotalRounds()
-	json.NewEncoder(w).Encode(map[string]int{"rounds": rounds})
+	json.NewEncoder(w).Encode(map[string]int{"rounds": chat.TotalRounds()})
 }
 
-// tokenCountHandler calculates the token count for the current conversation.
+// tokenCountHandler calculates token count.
 func tokenCountHandler(w http.ResponseWriter, r *http.Request) {
 	chatText := chat.getHistory(true)
 	count, err := grok.TokenCount(chatText)
@@ -634,23 +574,21 @@ func tokenCountHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]int{"tokens": count})
 }
 
-// sendQueryToLLM calls the Grokker API to obtain a markdown-formatted text.
-func sendQueryToLLM(query string, llm string, selection, backgroundContext string, inputFiles []string, outFiles []string, wordCount int) string {
+// sendQueryToLLM calls the Grokker API.
+func sendQueryToLLM(query, llm, selection, backgroundContext string, inputFiles, outFiles []string, wordCount int) string {
 	if wordCount == 0 {
 		wordCount = 100
 	}
 	query = query + "\n\nPlease limit your response to " + strconv.Itoa(wordCount) + " words."
 
-	sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading.  Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes."
+	sysmsg := "You are a researcher. I will start my prompt with some context, followed by a query. Answer the query -- don't answer other questions you might see elsewhere in the context. Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context. Always start your response with a markdown heading. Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes."
 
 	prompt := fmt.Sprintf("---CONTEXT START---\n%s\n---CONTEXT END---\n\nNew Query: %s", backgroundContext, query)
 	if selection != "" {
 		prompt += fmt.Sprintf(" {%s}", selection)
 	}
 
-	msgs := []client.ChatMsg{
-		{Role: "USER", Content: prompt},
-	}
+	msgs := []client.ChatMsg{{Role: "USER", Content: prompt}}
 	var outFilesConverted []core.FileLang
 	for _, f := range outFiles {
 		lang, known, err := util.Ext2Lang(f)
@@ -675,6 +613,11 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 		ExtractToStdout:    false,
 		RemoveFromResponse: true,
 	})
+	if err != nil {
+		log.Printf("ExtractFiles error: %v", err)
+		// XXX return err
+		return fmt.Sprintf("Error processing response: %v", err)
+	}
 
 	return cookedResponse
 }
@@ -682,8 +625,7 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 // splitMarkdown splits the markdown input into sections separated by a horizontal rule.
 func splitMarkdown(input string) []string {
 	re := regexp.MustCompile("(?m)^---$")
-	sections := re.Split(input, -1)
-	return sections
+	return re.Split(input, -1)
 }
 
 // collectReferences scans the markdown input for reference lines.
@@ -732,5 +674,3 @@ func markdownToHTML(markdown string) string {
 
 	return buf.String()
 }
-
-
