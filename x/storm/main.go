@@ -265,6 +265,11 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+const (
+	pingInterval = 20 * time.Second
+	pongWait     = 60 * time.Second
+)
+
 func main() {
 
 	fmt.Println("index.html length:", len(indexHTML))
@@ -332,20 +337,46 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 		id:   fmt.Sprintf("client-%d", len(clientPool.clients)),
 	}
 
+	// Set up ping/pong handlers for keepalive
+	conn.SetReadDeadline(time.Now().Add(pongWait))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
 	clientPool.register <- client
 
 	go client.writePump()
 	go client.readPump()
 }
 
-// writePump writes messages to the WebSocket client.
+// writePump writes messages to the WebSocket client and sends periodic pings.
 func (c *WSClient) writePump() {
-	defer c.conn.Close()
+	ticker := time.NewTicker(pingInterval)
+	defer func() {
+		ticker.Stop()
+		c.conn.Close()
+	}()
 
-	for message := range c.send {
-		if err := c.conn.WriteJSON(message); err != nil {
-			log.Printf("WebSocket write error: %v", err)
-			break
+	for {
+		select {
+		case message, ok := <-c.send:
+			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if !ok {
+				// Client pool closed the send channel
+				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			if err := c.conn.WriteJSON(message); err != nil {
+				log.Printf("WebSocket write error: %v", err)
+				return
+			}
+		case <-ticker.C:
+			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				log.Printf("WebSocket ping error: %v", err)
+				return
+			}
 		}
 	}
 }
@@ -357,7 +388,7 @@ func (c *WSClient) readPump() {
 		c.conn.Close()
 	}()
 
-	c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	// Remove SetReadDeadline from here - use ping/pong keepalive instead
 	for {
 		var msg map[string]interface{}
 		if err := c.conn.ReadJSON(&msg); err != nil {
@@ -642,4 +673,3 @@ func markdownToHTML(markdown string) string {
 
 	return buf.String()
 }
-
