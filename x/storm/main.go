@@ -124,18 +124,17 @@ func (cp *ClientPool) Start() {
 		case message := <-cp.broadcast:
 			cp.bufMutex.Lock()
 			cp.seq++
-			wrappedMsg := map[string]interface{}{
-				"seq":     cp.seq,
-				"message": message,
-			}
-			cp.msgBuffer.Value = BufferedMessage{Seq: cp.seq, Message: message}
+			// Include sequence number directly in the message
+			msgWithSeq := message.(map[string]interface{})
+			msgWithSeq["seq"] = cp.seq
+			cp.msgBuffer.Value = BufferedMessage{Seq: cp.seq, Message: msgWithSeq}
 			cp.msgBuffer = cp.msgBuffer.Next()
 			cp.bufMutex.Unlock()
 
 			cp.mutex.RLock()
 			for client := range cp.clients {
 				select {
-				case client.send <- wrappedMsg:
+				case client.send <- msgWithSeq:
 				default:
 					// Client's send channel is full, skip
 				}
@@ -158,10 +157,7 @@ func (cp *ClientPool) GetMessages(startSeq, endSeq uint64) []interface{} {
 	var messages []interface{}
 	cp.msgBuffer.Do(func(v interface{}) {
 		if bm, ok := v.(BufferedMessage); ok && bm.Seq >= startSeq && bm.Seq <= endSeq {
-			messages = append(messages, map[string]interface{}{
-				"seq":     bm.Seq,
-				"message": bm.Message,
-			})
+			messages = append(messages, bm.Message)
 		}
 	})
 	return messages
@@ -705,7 +701,7 @@ func collectReferences(input string) map[string]string {
 
 // linkifyReferences replaces reference markers with markdown links.
 func linkifyReferences(input string, refs map[string]string) string {
-	re := regexp.MustCompile(`\[(\d+)\]`)
+	re := regexp.MustCompile(`(?<![a-zA-Z0-9_])\[(\d+)\]`)
 	result := re.ReplaceAllStringFunc(input, func(match string) string {
 		m := re.FindStringSubmatch(match)
 		if len(m) == 2 {
@@ -736,4 +732,5 @@ func markdownToHTML(markdown string) string {
 
 	return buf.String()
 }
+
 
