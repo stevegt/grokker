@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"container/ring"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -78,15 +79,26 @@ type ClientPool struct {
 	register   chan *WSClient
 	unregister chan *WSClient
 	mutex      sync.RWMutex
+	seq        uint64
+	msgBuffer  *ring.Ring
+	bufMutex   sync.RWMutex
+}
+
+// BufferedMessage holds a message with its sequence number
+type BufferedMessage struct {
+	Seq     uint64
+	Message interface{}
 }
 
 // NewClientPool creates a new client pool.
-func NewClientPool() *ClientPool {
+func NewClientPool(bufferSize int) *ClientPool {
 	return &ClientPool{
-		clients:    make(map[*WSClient]bool),
-		broadcast:  make(chan interface{}, 256),
-		register:   make(chan *WSClient),
+		clients:   make(map[*WSClient]bool),
+		broadcast: make(chan interface{}, 256),
+		register:  make(chan *WSClient),
 		unregister: make(chan *WSClient),
+		seq:       0,
+		msgBuffer: ring.New(bufferSize),
 	}
 }
 
@@ -110,10 +122,20 @@ func (cp *ClientPool) Start() {
 			log.Printf("Client %s unregistered, total clients: %d", client.id, len(cp.clients))
 
 		case message := <-cp.broadcast:
+			cp.bufMutex.Lock()
+			cp.seq++
+			wrappedMsg := map[string]interface{}{
+				"seq":     cp.seq,
+				"message": message,
+			}
+			cp.msgBuffer.Value = BufferedMessage{Seq: cp.seq, Message: message}
+			cp.msgBuffer = cp.msgBuffer.Next()
+			cp.bufMutex.Unlock()
+
 			cp.mutex.RLock()
 			for client := range cp.clients {
 				select {
-				case client.send <- message:
+				case client.send <- wrappedMsg:
 				default:
 					// Client's send channel is full, skip
 				}
@@ -126,6 +148,23 @@ func (cp *ClientPool) Start() {
 // Broadcast sends a message to all connected clients.
 func (cp *ClientPool) Broadcast(message interface{}) {
 	cp.broadcast <- message
+}
+
+// GetMessages returns messages between startSeq and endSeq
+func (cp *ClientPool) GetMessages(startSeq, endSeq uint64) []interface{} {
+	cp.bufMutex.RLock()
+	defer cp.bufMutex.RUnlock()
+
+	var messages []interface{}
+	cp.msgBuffer.Do(func(v interface{}) {
+		if bm, ok := v.(BufferedMessage); ok && bm.Seq >= startSeq && bm.Seq <= endSeq {
+			messages = append(messages, map[string]interface{}{
+				"seq":     bm.Seq,
+				"message": bm.Message,
+			})
+		}
+	})
+	return messages
 }
 
 // NewChat creates a new Chat instance using the given markdown filename.
@@ -268,6 +307,7 @@ var upgrader = websocket.Upgrader{
 const (
 	pingInterval = 20 * time.Second
 	pongWait     = 60 * time.Second
+	bufferSize   = 1000
 )
 
 func main() {
@@ -291,7 +331,7 @@ func main() {
 	defer lock.Unlock()
 
 	chat = NewChat(*filePtr)
-	clientPool = NewClientPool()
+	clientPool = NewClientPool(bufferSize)
 	go clientPool.Start()
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -388,7 +428,6 @@ func (c *WSClient) readPump() {
 		c.conn.Close()
 	}()
 
-	// Remove SetReadDeadline from here - use ping/pong keepalive instead
 	for {
 		var msg map[string]interface{}
 		if err := c.conn.ReadJSON(&msg); err != nil {
@@ -396,41 +435,65 @@ func (c *WSClient) readPump() {
 			break
 		}
 
-		// Handle incoming query messages from clients
-		if msgType, ok := msg["type"].(string); ok && msgType == "query" {
-			log.Printf("Received query from %s: %v", c.id, msg)
+		// Handle incoming message types
+		if msgType, ok := msg["type"].(string); ok {
+			switch msgType {
+			case "query":
+				log.Printf("Received query from %s: %v", c.id, msg)
 
-			// Extract query parameters
-			query, _ := msg["query"].(string)
-			llm, _ := msg["llm"].(string)
-			selection, _ := msg["selection"].(string)
-			queryID, _ := msg["queryID"].(string)
+				// Extract query parameters
+				query, _ := msg["query"].(string)
+				llm, _ := msg["llm"].(string)
+				selection, _ := msg["selection"].(string)
+				queryID, _ := msg["queryID"].(string)
 
-			// Extract arrays
-			var inputFiles, outFiles []string
-			if inputFilesRaw, ok := msg["inputFiles"].([]interface{}); ok {
-				for _, f := range inputFilesRaw {
-					if s, ok := f.(string); ok {
-						inputFiles = append(inputFiles, s)
+				// Extract arrays
+				var inputFiles, outFiles []string
+				if inputFilesRaw, ok := msg["inputFiles"].([]interface{}); ok {
+					for _, f := range inputFilesRaw {
+						if s, ok := f.(string); ok {
+							inputFiles = append(inputFiles, s)
+						}
+					}
+				}
+				if outFilesRaw, ok := msg["outFiles"].([]interface{}); ok {
+					for _, f := range outFilesRaw {
+						if s, ok := f.(string); ok {
+							outFiles = append(outFiles, s)
+						}
+					}
+				}
+
+				// Extract wordCount as float64 (JSON number type)
+				wordCount := 0
+				if wc, ok := msg["wordCount"].(float64); ok {
+					wordCount = int(wc)
+				}
+
+				// Process the query
+				go processQuery(queryID, query, llm, selection, inputFiles, outFiles, wordCount)
+
+			case "ack":
+				// Client acknowledging receipt of messages
+				if lastSeq, ok := msg["lastSeq"].(float64); ok {
+					log.Printf("Client %s acknowledged seq: %d", c.id, int(lastSeq))
+				}
+
+			case "request_missing_messages":
+				// Client requesting missing messages
+				if startSeq, ok := msg["startSeq"].(float64); ok {
+					if endSeq, ok := msg["endSeq"].(float64); ok {
+						messages := clientPool.GetMessages(uint64(startSeq), uint64(endSeq))
+						for _, m := range messages {
+							select {
+							case c.send <- m:
+							default:
+								log.Printf("Client %s send buffer full", c.id)
+							}
+						}
 					}
 				}
 			}
-			if outFilesRaw, ok := msg["outFiles"].([]interface{}); ok {
-				for _, f := range outFilesRaw {
-					if s, ok := f.(string); ok {
-						outFiles = append(outFiles, s)
-					}
-				}
-			}
-
-			// Extract wordCount as float64 (JSON number type)
-			wordCount := 0
-			if wc, ok := msg["wordCount"].(float64); ok {
-				wordCount = int(wc)
-			}
-
-			// Process the query
-			go processQuery(queryID, query, llm, selection, inputFiles, outFiles, wordCount)
 		}
 	}
 }
@@ -673,3 +736,4 @@ func markdownToHTML(markdown string) string {
 
 	return buf.String()
 }
+

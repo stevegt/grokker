@@ -8,7 +8,7 @@
 # features
 
 - really need https://playwright.dev/ to test
-- refactor to be able to one daemon on one port number for multiple projects
+- refactor to be able to use one daemon on one port number for multiple projects
 - logins so we can support co-authored-by headers in git commits
 - "jump to end" button
 

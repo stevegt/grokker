@@ -261,6 +261,7 @@
     // WebSocket connection
     var ws;
     var pendingQueryDivs = {}; // Track divs for pending queries by queryID
+    var lastReceivedSeq = 0; // Track last received sequence number
     
     // UUID v4 generator without NPM
     function generateUUID() {
@@ -349,6 +350,8 @@
       
       ws.onopen = function() {
         console.log('WebSocket connected');
+        // Send acknowledgment of current sequence
+        ws.send(JSON.stringify({ type: "ack", lastSeq: lastReceivedSeq }));
       };
       
       // Handle incoming broadcast messages
@@ -356,6 +359,16 @@
         try {
           var message = JSON.parse(event.data);
           console.log('Received WebSocket message:', message);
+          
+          // Check for sequence number and detect gaps
+          if (message.seq !== undefined) {
+            if (message.seq > lastReceivedSeq + 1) {
+              console.warn('Detected gap in messages. Expected seq: ' + (lastReceivedSeq + 1) + ', got: ' + message.seq);
+              // Request missing messages
+              ws.send(JSON.stringify({ type: "request_missing_messages", startSeq: lastReceivedSeq + 1, endSeq: message.seq - 1 }));
+            }
+            lastReceivedSeq = Math.max(lastReceivedSeq, message.seq);
+          }
           
           if (message.type === 'query') {
             // Display query with spinner and cancel button on all clients
@@ -761,5 +774,4 @@
   </script>
 </body>
 </html>
-
 
