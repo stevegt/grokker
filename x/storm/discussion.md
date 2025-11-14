@@ -8564,8 +8564,6 @@ The gorilla/websocket library handles ping/pong natively, so I can leverage SetP
 "When new clients connect, they don't receive the existing chat history or in-flight queries[1][2]. Add a sync message in wsHandler after client registration: send current chat history plus any pending queries. In JavaScript, load messages from server on WebSocket connect before accepting real-time updates. Check the clientPool.Broadcast() loop for potential goroutine scheduling issues—ensure messages are queued atomically[1]. Add message sequence numbers to detect dropped messages. Test network delays with browser DevTools throttling to identify timing windows where clients miss broadcasts[2]."**
 
 
-
-
 # Validity Assessment of Earlier Recommendations
 
 Partially valid[1][2]. The primary issue remains: **new clients still don't receive chat history on connection**, causing them to miss prior exchanges[1]. This is the most critical gap. The broadcast mechanism is now atomic via proper channel handling, so goroutine scheduling concerns are lessened[2]. However, sequence numbers for dropped message detection are **still valid** for reliability in unstable networks. The ping/pong keepalive implementation resolves the earlier read deadline issue[1]. Recommend implementing history sync in wsHandler and WebSocket message sequencing for robustness[2].
@@ -8585,8 +8583,6 @@ Partially valid[1][2]. The primary issue remains: **new clients still don't rece
 - [4] [https://superdev.school/en/blogs/chat-history-websocket](https://superdev.school/en/blogs/chat-history-websocket)
 - [5] [https://community.developers.refinitiv.com/discussion/91071/seq-number-reset-in-websocket-api-for-price-streaming](https://community.developers.refinitiv.com/discussion/91071/seq-number-reset-in-websocket-api-for-price-streaming)
 - [6] [https://forum.nim-lang.org/t/9595](https://forum.nim-lang.org/t/9595)
-
-
 
 ## Reasoning
 
@@ -8626,6 +8622,1894 @@ So the recommendations that are STILL VALID are:
 6. Network testing - STILL USEFUL
 
 I'll focus on network testing as a critical validation strategy. Simulating network conditions helps identify potential message loss or synchronization gaps. By using browser DevTools to throttle connections, I can systematically test how the WebSocket implementation handles varied network scenarios, ensuring robust real-time communication under different connectivity challenges.
+
+
+
+---
+
+
+
+**Please summarize this project**
+
+
+
+
+# Storm Project Summary
+
+**Storm** is a Go-based multi-user LLM chat application enabling concurrent query processing with real-time synchronization[1][2]. Features include persistent markdown-based chat history, WebSocket-based real-time communication across browsers, UUID-tracked queries, file I/O integration, and token counting[1]. The architecture uses `sync.RWMutex` for efficient concurrent access, gorilla/websocket for bidirectional communication, and implements keepalive pings to maintain stable connections[2]. Multiple users see queries and responses broadcast instantaneously, supporting collaborative research and analysis workflows with various LLM backends[1].
+
+## References
+
+[1] [https://github.com/gorilla/websocket](https://github.com/gorilla/websocket)
+[2] [https://pkg.go.dev/sync](https://pkg.go.dev/sync)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to summarize the entire project after a very long conversation about building "Storm" - a multi-user LLM chat application with WebSocket support.
+
+Let me follow the instructions at the top of the context:
+1. I'm a researcher
+2. I should answer the query, which is: "Please summarize this project"
+3. Limit to 100 words
+4. Always start with a markdown heading
+5. Enclose reference numbers in square brackets
+6. Don't include empty square brackets
+
+The project "Storm" is:
+- A Go-based web application for collaborative LLM chat
+- Multi-user support with real-time synchronization via WebSocket
+- Users can send concurrent queries to LLMs (sonar, o3-mini, etc.)
+- Persistent chat history stored as markdown files
+- File I/O capabilities for input/output files
+- Features include: token counting, progress tracking, UUID-based query tracking
+- Uses gorilla/websocket for real-time communication across browsers
+- Implements RWMutex for proper concurrent access to chat history
+- Broadcasts queries and responses to all connected clients in real-time
+- Recent fixes: removed HTTP polling, implemented keepalive pings instead of read deadlines
+
+I need to summarize this in 100 words with a markdown heading.
+
+
+---
+
+
+
+**What changes would need to be made if I wanted to add a floating button that looks like a down arrow, that lets the user jump to the end of the chat? I want the button to be floating in the center bottom of the chat box (unless the chat area is already scrolled to the bottom)**
+
+
+
+
+# Add Floating Down-Arrow Scroll Button
+
+Add a floating down-arrow button that appears only when the chat isn't scrolled to the bottom[1][4]. In CSS, position it absolutely at the chat area's center-bottom with `position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%)`[1]. In JavaScript, detect scroll position via `scrollTop < (scrollHeight - clientHeight)` and toggle button visibility[4]. When clicked, use `scrollIntoView()` or smooth scroll to the chat's end[3][4]. Monitor scroll events to continuously update button visibility[1].
+
+## References
+
+[1][3][4]
+
+---FILE-START filename="index.html"---
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Grokker LLM Chat</title>
+  <style>
+    body { 
+      font-family: Arial, sans-serif; 
+      margin: 0; 
+      padding: 0; 
+      background-color: #121212; 
+      color: #e0e0e0;
+    }
+    /* Container for sidebars and main content */
+    #container { display: flex; height: 100vh; }
+    /* Left sidebar for Table of Contents */
+    #sidebar {
+      width: 250px;
+      background-color: #1e1e1e;
+      border-right: 1px solid #333;
+      overflow-y: auto;
+      transition: width 0.3s;
+      padding: 10px;
+    }
+    /* Collapsed sidebar style */
+    #sidebar.collapsed {
+      width: 10px;
+      padding: 0;
+      border: none;
+      overflow: hidden;
+    }
+    /* Shrik the heading in the sidebar */
+    #sidebar h3 { font-size: 0.9em; }
+    /* Main content area */
+    #main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    /* Right sidebar for File I/O */
+    #fileSidebar {
+      width: 250px;
+      background-color: #1e1e1e;
+      border-left: 1px solid #333;
+      padding: 10px;
+      overflow-y: auto;
+    }
+    #fileSidebar h3 { margin-top: 0; }
+    #fileSidebar table { width: 100%; border-collapse: collapse; }
+    #fileSidebar th, #fileSidebar td { border: 1px solid #555; padding: 4px; text-align: center; }
+		#fileSidebar textarea { width: 100%; height: 20%; margin-bottom: 5px; background-color: #333; color: #e0e0e0; border: 1px solid #555; }
+    /* Chat area styles */
+    #chat { padding: 20px; flex: 1; overflow-y: auto; border-bottom: 1px solid #333; position: relative; }
+    .message { 
+      margin-bottom: 10px; 
+      padding: 5px; 
+      border: 1px solid #444; 
+      border-radius: 4px; 
+      background-color: #252525; 
+    }
+    #spinner-area { padding: 10px; text-align: center; }
+    .spinner {
+      border: 4px solid #555;
+      border-top: 4px solid #3498db;
+      border-radius: 50%;
+      width: 10px;
+      height: 10px;
+      animation: spin 1s linear infinite;
+      display: inline-block;
+      margin-right: 5px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    /* Floating scroll-to-bottom button */
+    #scrollToBottomBtn {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: #3498db;
+      color: #e0e0e0;
+      border: 1px solid #555;
+      padding: 10px 15px;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      display: none;
+      cursor: pointer;
+      font-size: 20px;
+      z-index: 10;
+      align-items: center;
+      justify-content: center;
+    }
+    #scrollToBottomBtn:hover {
+      background-color: #2980b9;
+    }
+    /* Updated input area using CSS Grid to span userInput and statusBox across two rows */
+    #input-area { 
+      background: #1e1e1e; 
+      padding: 10px; 
+      box-shadow: 0 -2px 5px rgba(0,0,0,0.1);
+      display: grid;
+      grid-template-areas: 
+        "llmSelect userInput sendBtn statusBox stopBtn"
+        "wordCount   userInput  .       statusBox .";
+      grid-template-columns: auto 1fr auto auto auto;
+      grid-template-rows: auto auto;
+      gap: 5px;
+    }
+    textarea { 
+      width: 100%; 
+      height: 100%; 
+      background-color: #333;
+      color: #e0e0e0;
+      border: 1px solid #555;
+    }
+    select { 
+      background-color: #333;
+      color: #e0e0e0;
+      border: 1px solid #555;
+    }
+    input[type="number"] { 
+      width: 80px; 
+      height: 20px; 
+      font-size: 12px; 
+      padding: 5px; 
+      background-color: #333;
+      color: #e0e0e0;
+      border: 1px solid #555;
+    }
+    button {
+      background-color: #333;
+      color: #e0e0e0;
+      border: 1px solid #555;
+      padding: 10px 15px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #444;
+    }
+    /* Custom style for the stop button to shrink its size and font */
+    #stopBtn {
+      font-size: 10px;
+      padding: 5px 10px;
+    }
+    #statusBox { 
+      display: inline-block; 
+      font-size: 11px; 
+    }
+    /* Red stop sign for error indication in status box */
+    #errorSign {
+      display: none;
+      color: red;
+      font-size: 16px;
+      margin-left: 5px;
+    }
+    /* Toggle button for sidebar */
+    #toggle-sidebar {
+      background-color: #3498db;
+      color: #e0e0e0;
+      border: 1px solid #555;
+      padding: 5px 10px;
+      cursor: pointer;
+      margin-bottom: 10px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    /* Global link styling - lighter shade of blue */
+    a {
+      color: #90D5FF;
+      text-decoration: none;
+    }
+    a:visited {
+      color: #87CEEB;
+    }
+    a:hover {
+      color: #ADD8E6;
+      text-decoration: underline;
+    }
+    a:active {
+      color: #6BB6FF;
+    }
+    /* Table of Contents links */
+    #toc a {
+      text-decoration: none;
+      color: #ddd;
+      padding: 4px;
+      display: block;
+    }
+    #toc a:hover {
+      background-color: #444;
+    }
+    /* Dark scrollbar styles */
+    ::-webkit-scrollbar {
+      width: 12px;
+      height: 12px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #1e1e1e;
+    }
+    ::-webkit-scrollbar-thumb {
+      background-color: #444;
+      border: 2px solid #1e1e1e;
+      border-radius: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <div id="sidebar">
+      <button id="toggle-sidebar">TOC</button>
+      <h3>Table of Contents</h3>
+      <div id="toc">
+        <!-- TOC will be generated here -->
+      </div>
+    </div>
+    <div id="main">
+      <div id="chat">
+        <!-- Chat messages will appear here -->
+        {{.ChatHTML}}
+        <!-- Floating scroll-to-bottom button -->
+        <button id="scrollToBottomBtn">↓</button>
+      </div>
+      <div id="spinner-area">
+        <!-- Progress spinners will appear here -->
+      </div>
+      <div id="input-area">
+        <select id="llmSelect" style="grid-area: llmSelect;">
+          <option value="sonar-deep-research">sonar-deep-research</option>
+          <option value="sonar-reasoning">sonar-reasoning</option>
+          <option value="o3-mini">o3-mini</option>
+        </select>
+        <textarea id="userInput" placeholder="Enter query" style="grid-area: userInput;"></textarea>
+        <button id="sendBtn" style="grid-area: sendBtn;">Send</button>
+        <span id="statusBox" style="grid-area: statusBox;">
+          <span id="tokenCountText">Token Count: 0</span>
+          <br>
+          <span id="roundsStats">Rounds:</span>
+          <br>
+          <span id="progressStats">Progress:</span>
+          <br>
+          <span id="statusSpinner" style="display:none;" class="spinner"></span>
+          <span id="errorSign">⛔</span>
+        </span>
+        <button id="stopBtn" style="grid-area: stopBtn;">Stop<br>Server</button>
+        <div id="wordCountContainer" style="grid-area: wordCount;">
+          <label for="wordCount">Word Count</label>
+          <input type="number" id="wordCount" min="1" placeholder="100">
+          <div id="presetButtons">
+            <button type="button" class="preset-wordcount" data-word="100" style="font-size:10px; padding:2px 5px; margin:2px;">100</button>
+            <button type="button" class="preset-wordcount" data-word="300" style="font-size:10px; padding:2px 5px; margin:2px;">300</button>
+            <button type="button" class="preset-wordcount" data-word="500" style="font-size:10px; padding:2px 5px; margin:2px;">500</button>
+            <button type="button" class="preset-wordcount" data-word="700" style="font-size:10px; padding:2px 5px; margin:2px;">700</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="fileSidebar">
+      <h3>Files</h3>
+      <label style="display:block; margin-bottom:5px;"><input type="checkbox" id="selectAllFiles"> All/None</label>
+      <table>
+        <thead>
+          <tr>
+            <th>In</th>
+            <th>Out</th>
+            <th>Filename</th>
+            <th>Remove</th>
+          </tr>
+        </thead>
+        <tbody id="fileList">
+          <!-- File list will be rendered here -->
+        </tbody>
+      </table>
+      <div id="newFileEntry">
+        <label><input type="checkbox" id="newFileIn"> In</label>
+        <label><input type="checkbox" id="newFileOut"> Out</label>
+        <textarea id="newFilenames" placeholder="Enter one filename per line"></textarea>
+        <button id="addFileBtn">Add</button>
+      </div>
+    </div>
+  </div>
+  <script>
+    // WebSocket connection
+    var ws;
+    var pendingQueryDivs = {}; // Track divs for pending queries by queryID
+    
+    // UUID v4 generator without NPM
+    function generateUUID() {
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0,
+            v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
+    }
+    
+    // Helper functions for managing cookies.
+    function setCookie(name, value, days) {
+      var expires = "";
+      if (days) {
+        var date = new Date();
+        date.setTime(date.getTime() + (days*24*60*60*1000));
+        expires = "; expires=" + date.toUTCString();
+      }
+      document.cookie = name + "=" + (value || "")  + expires + "; path=/";
+    }
+    function getCookie(name) {
+      var nameEQ = name + "=";
+      var ca = document.cookie.split(';');
+      for(var i=0; i < ca.length; i++) {
+        var c = ca[i].trim();
+        if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length, c.length);
+      }
+      return null;
+    }
+
+    // Global counter for outstanding queries.
+    var outstandingQueries = 0;
+    // Updates the spinner in the status box based on the current outstanding query count.
+    function updateStatusSpinner() {
+      var spinner = document.getElementById("statusSpinner");
+      if (outstandingQueries > 0) {
+        spinner.style.display = "inline-block";
+      } else {
+        spinner.style.display = "none";
+      }
+    }
+
+    // Show the error stop sign. Once shown, it remains visible until the page is reloaded.
+    function showErrorSign() {
+      var errorSign = document.getElementById("errorSign");
+      if (errorSign) {
+        errorSign.style.display = "inline-block";
+      }
+    }
+
+    // Check if chat is scrolled to bottom
+    function isScrolledToBottom() {
+      var chat = document.getElementById("chat");
+      return chat.scrollTop >= (chat.scrollHeight - chat.clientHeight - 10);
+    }
+
+    // Update scroll-to-bottom button visibility
+    function updateScrollButtonVisibility() {
+      var btn = document.getElementById("scrollToBottomBtn");
+      if (isScrolledToBottom()) {
+        btn.style.display = "none";
+      } else {
+        btn.style.display = "flex";
+      }
+    }
+
+    // Generate a Table of Contents from headings in the chat
+    function generateTOC() {
+      var chat = document.getElementById("chat");
+      var headings = chat.querySelectorAll("h1, h2, h3, h4, h5, h6");
+      var toc = document.getElementById("toc");
+      toc.innerHTML = "";
+      headings.forEach(function(heading, index) {
+        if (!heading.id) {
+          heading.id = "heading-" + index;
+        }
+        // Determine heading level and create link with indentation and font size
+        var level = parseInt(heading.tagName.substring(1));
+        var link = document.createElement("a");
+        link.href = "#" + heading.id;
+        link.textContent = heading.textContent;
+        // Bold top-level links (h1)
+        if(level === 1) {
+          link.style.fontWeight = "bold";
+        }
+        // Indent based on level, e.g. 20px per sub-level
+        link.style.marginLeft = ((level - 1) * 20) + "px";
+        // Adjust font size based on heading level (shrunk from original values)
+        var fontSize = Math.max(1.0 - 0.1 * (level - 1), 0.7);
+        link.style.fontSize = fontSize + "em";
+        toc.appendChild(link);
+      });
+    }
+    
+    // Initialize WebSocket connection and handlers
+    function initWebSocket() {
+      var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      var wsUrl = protocol + '//' + window.location.host + '/ws';
+      console.log('Connecting to WebSocket:', wsUrl);
+      
+      ws = new WebSocket(wsUrl);
+      
+      ws.onopen = function() {
+        console.log('WebSocket connected');
+      };
+      
+      // Handle incoming broadcast messages
+      ws.onmessage = function(event) {
+        try {
+          var message = JSON.parse(event.data);
+          console.log('Received WebSocket message:', message);
+          
+          if (message.type === 'query') {
+            // Display query with spinner and cancel button on all clients
+            var chat = document.getElementById("chat");
+            var messageDiv = document.createElement("div");
+            messageDiv.className = "message";
+            messageDiv.innerHTML = "<strong>" + message.query + "</strong><br>";
+            
+            var spinner = document.createElement("span");
+            spinner.className = "spinner";
+            spinner.style.marginLeft = "10px";
+            messageDiv.appendChild(spinner);
+            
+            // Add cancel button
+            var cancelBtn = document.createElement("button");
+            cancelBtn.textContent = "Cancel";
+            cancelBtn.style.marginLeft = "5px";
+            cancelBtn.style.fontSize = "10px";
+            cancelBtn.style.padding = "5px 10px";
+            cancelBtn.addEventListener("click", function() {
+              messageDiv.remove();
+              generateTOC();
+              delete pendingQueryDivs[message.queryID];
+              outstandingQueries--;
+              updateStatusSpinner();
+            });
+            messageDiv.appendChild(cancelBtn);
+            
+            chat.appendChild(messageDiv);
+            // Store by queryID to match responses
+            pendingQueryDivs[message.queryID] = { div: messageDiv, spinner: spinner, cancelBtn: cancelBtn };
+            generateTOC();
+            updateScrollButtonVisibility();
+            
+          } else if (message.type === 'response') {
+            // Find the corresponding query div and update it
+            var pendingQuery = pendingQueryDivs[message.queryID];
+            if (pendingQuery) {
+              // Remove spinner and cancel button
+              pendingQuery.spinner.remove();
+              pendingQuery.cancelBtn.remove();
+              
+              // Append response to the query div
+              var responseDiv = document.createElement("div");
+              responseDiv.innerHTML = message.response;
+              pendingQuery.div.appendChild(responseDiv);
+              
+              delete pendingQueryDivs[message.queryID];
+            }
+            // Decrement outstanding queries when response arrives via WebSocket
+            outstandingQueries--;
+            updateStatusSpinner();
+            generateTOC();
+            updateProgressStats();
+            updateTokenCount();
+            updateScrollButtonVisibility();
+          }
+        } catch (err) {
+          console.error('Error processing WebSocket message:', err);
+        }
+      };
+      
+      ws.onerror = function(error) {
+        console.error('WebSocket error:', error);
+        showErrorSign();
+      };
+      
+      ws.onclose = function() {
+        console.log('WebSocket disconnected, attempting to reconnect...');
+        // Attempt to reconnect after 3 seconds
+        setTimeout(initWebSocket, 3000);
+      };
+    }
+    
+    // Call generateTOC and other initializations when the DOM content is loaded.
+    document.addEventListener("DOMContentLoaded", function() {
+      generateTOC();
+      initWebSocket();
+      
+      // Toggle sidebar visibility
+      var sidebar = document.getElementById("sidebar");
+      document.getElementById("toggle-sidebar").addEventListener("click", function() {
+        if (sidebar.classList.contains("collapsed")) {
+          sidebar.classList.remove("collapsed");
+        } else {
+          sidebar.classList.add("collapsed");
+        }
+      });
+      // Add preset word count buttons functionality.
+      document.querySelectorAll('.preset-wordcount').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          document.getElementById('wordCount').value = this.getAttribute('data-word');
+        });
+      });
+      // Initialize All/None checkbox for file list.
+      var selectAll = document.getElementById("selectAllFiles");
+      if (selectAll) {
+        selectAll.addEventListener("change", function() {
+          var checked = this.checked;
+          var fileInCheckboxes = document.querySelectorAll("#fileList input.fileIn");
+          var fileOutCheckboxes = document.querySelectorAll("#fileList input.fileOut");
+          fileInCheckboxes.forEach(function(cb) {
+            cb.checked = checked;
+            cb.dispatchEvent(new Event("change"));
+          });
+          fileOutCheckboxes.forEach(function(cb) {
+            cb.checked = false;
+            cb.dispatchEvent(new Event("change"));
+          });
+        });
+      }
+      // scroll to the bookmarked round 
+      var bookmark = getCookie("bookmark_round");
+      if (bookmark) {
+        var round = parseInt(bookmark);
+        var chat = document.getElementById("chat");
+        var hrTags = chat.getElementsByTagName("hr");
+        if (round > 0 && round <= hrTags.length) {
+          console.log("Scrolling to round:", round);
+          chat.scrollTop = hrTags[round - 1].offsetTop;
+        }
+      }
+      updateProgressStats();
+      initFileIO();
+      
+      // Set up scroll-to-bottom button
+      var scrollBtn = document.getElementById("scrollToBottomBtn");
+      scrollBtn.addEventListener("click", function() {
+        var chat = document.getElementById("chat");
+        chat.scrollTop = chat.scrollHeight;
+        updateScrollButtonVisibility();
+      });
+      
+      // Update button visibility on scroll
+      document.getElementById("chat").addEventListener("scroll", function() {
+        updateScrollButtonVisibility();
+        updateProgressStats();
+      });
+      
+      // Initial button visibility check
+      updateScrollButtonVisibility();
+    });
+
+    // Append a new message to the chat view without scrolling the page.
+    function appendMessage(content) {
+      var chat = document.getElementById("chat");
+      var messageDiv = document.createElement("div");
+      messageDiv.className = "message";
+      messageDiv.innerHTML = content;
+      chat.appendChild(messageDiv);
+      generateTOC();
+      updateScrollButtonVisibility();
+    }
+
+    // Send query via WebSocket
+    function sendQuery(query, llm, selection, wordCount) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        console.error("WebSocket not connected");
+        showErrorSign();
+        return;
+      }
+
+      // Increment global outstanding query count and update status spinner.
+      outstandingQueries++;
+      updateStatusSpinner();
+
+      // Gather file I/O selections from the file sidebar.
+      var fileSelection = getSelectedFiles();
+      
+      // Generate a unique UUID for this query
+      var queryID = generateUUID();
+
+      // Send the query via WebSocket
+      var queryMessage = {
+        type: "query",
+        query: query,
+        llm: llm,
+        selection: selection,
+        inputFiles: fileSelection.inputFiles,
+        outFiles: fileSelection.outFiles,
+        wordCount: wordCount,
+        queryID: queryID
+      };
+
+      ws.send(JSON.stringify(queryMessage));
+    }
+
+    // Poll the /tokencount endpoint to update the token count.
+    function updateTokenCount() {
+      fetch("/tokencount")
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+          var tokenCountText = document.getElementById("tokenCountText");
+          tokenCountText.textContent = "Token Count: " + data.tokens;
+        })
+        .catch(function(err) {
+          console.error("Error fetching token count:", err);
+        });
+    }
+
+    // Updates progress stats by counting the number of <hr> tags above the current scroll position
+    // and fetching the total round count from the server.
+    function updateProgressStats() {
+      var chatElem = document.getElementById("chat");
+      var hrTags = chatElem.getElementsByTagName("hr");
+      var currentRound = 0;
+      // Count the number of <hr> tags that are above the current scroll top
+      for (var i = 0; i < hrTags.length; i++) {
+        var hrPos = hrTags[i].offsetTop;
+        if (hrPos < chatElem.scrollTop) {
+          currentRound++;
+        }
+      }
+      // Bookmark the current round in a cookie (for one year)
+      setCookie("bookmark_round", currentRound, 365);
+      fetch("/rounds")
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+          var total = data.rounds;
+          var remaining = total - currentRound;
+          var percentage = total > 0 ? Math.round((currentRound / total) * 100) : 0;
+          var roundsElem = document.getElementById("roundsStats");
+          var progressElem = document.getElementById("progressStats");
+          if(roundsElem) {
+            // Rounds: total - current = remaining 
+            roundsElem.textContent = "Rounds: " + total + " - " + currentRound + " = " + remaining;
+          }
+          if(progressElem) {
+            // Progress: N%
+            progressElem.textContent = "Progress: " + percentage + "%";
+          }
+        })
+        .catch(function(err) {
+          console.error("Error fetching rounds count:", err);
+        });
+    }
+
+    updateTokenCount(); // Initial token count fetch
+
+    // Handle click on the Send button.
+    document.getElementById("sendBtn").addEventListener("click", function() {
+      var input = document.getElementById("userInput");
+      var query = input.value;
+      if(query.trim() === "") return;
+      var llm = document.getElementById("llmSelect").value;
+      var wordCountElem = document.getElementById("wordCount");
+      // default to 0 if empty or invalid
+      var wordCount = 0;
+      if(wordCountElem) {
+         wordCount = parseInt(wordCountElem.value, 10) || 0;
+      }
+      sendQuery(query, llm, "", wordCount);
+      input.value = "";
+    });
+
+    // Handle click on the Stop Server button.
+    document.getElementById("stopBtn").addEventListener("click", function() {
+      if(confirm("Are you sure you want to stop the server?")) {
+        fetch("/stop", { method: "POST" })
+          .then(function(response) {
+            if(response.ok) {
+              console.log("Server is stopping...");
+            }
+          })
+          .catch(function(err) {
+            console.error("Error stopping server:", err);
+          });
+      }
+    });
+
+    // --- File I/O using IndexedDB ---
+    var db;
+    function initFileIO() {
+      var request = indexedDB.open("fileIODB", 1);
+      request.onerror = function(event) {
+        console.error("IndexedDB error:", event.target.error);
+      };
+      request.onupgradeneeded = function(event) {
+        db = event.target.result;
+        if (!db.objectStoreNames.contains("files")) {
+          var store = db.createObjectStore("files", { keyPath: "filename" });
+          store.createIndex("by_filename", "filename", { unique: true });
+        }
+      };
+      request.onsuccess = function(event) {
+        db = event.target.result;
+        loadFileList();
+      };
+    }
+    function loadFileList() {
+      var transaction = db.transaction(["files"], "readonly");
+      var store = transaction.objectStore("files");
+      var request = store.getAll();
+      request.onsuccess = function(event) {
+        var files = event.target.result;
+        renderFileList(files);
+      };
+    }
+    function saveFileEntry(fileEntry) {
+      var transaction = db.transaction(["files"], "readwrite");
+      var store = transaction.objectStore("files");
+      store.put(fileEntry);
+    }
+    function removeFileEntry(filename) {
+      var transaction = db.transaction(["files"], "readwrite");
+      var store = transaction.objectStore("files");
+      var request = store.delete(filename);
+      request.onsuccess = function(event) {
+        loadFileList();
+      };
+      request.onerror = function(event) {
+        console.error("Failed to delete file:", filename);
+      };
+    }
+    function renderFileList(files) {
+      var fileListElem = document.getElementById("fileList");
+      fileListElem.innerHTML = "";
+      files.forEach(function(file) {
+        var tr = document.createElement("tr");
+        var tdIn = document.createElement("td");
+        var inCheckbox = document.createElement("input");
+        inCheckbox.type = "checkbox";
+        inCheckbox.checked = file.in || false;
+        inCheckbox.className = "fileIn";
+        inCheckbox.addEventListener("change", function() {
+          file.in = inCheckbox.checked;
+          saveFileEntry(file);
+        });
+        tdIn.appendChild(inCheckbox);
+        var tdOut = document.createElement("td");
+        var outCheckbox = document.createElement("input");
+        outCheckbox.type = "checkbox";
+        outCheckbox.checked = file.out || false;
+        outCheckbox.className = "fileOut";
+        outCheckbox.addEventListener("change", function() {
+          file.out = outCheckbox.checked;
+          saveFileEntry(file);
+        });
+        tdOut.appendChild(outCheckbox);
+        var tdName = document.createElement("td");
+        var link = document.createElement("a");
+        link.href = "/open?filename=" + encodeURIComponent(file.filename);
+        link.target = "_blank";
+        link.textContent = file.filename;
+        tdName.appendChild(link);
+        tr.appendChild(tdIn);
+        tr.appendChild(tdOut);
+        tr.appendChild(tdName);
+        var tdRemove = document.createElement("td");
+        var removeBtn = document.createElement("button");
+        removeBtn.textContent = "x";
+        removeBtn.title = "Remove this file from the list";
+        removeBtn.style.fontSize = "10px";
+        removeBtn.style.padding = "2px 5px";
+        removeBtn.addEventListener("click", function() {
+          removeFileEntry(file.filename);
+        });
+        tdRemove.appendChild(removeBtn);
+        tr.appendChild(tdRemove);
+        fileListElem.appendChild(tr);
+      });
+    }
+    // Function to check if a file exists on the server using a HEAD request.
+    function checkFileExists(filename) {
+      return fetch("/open?filename=" + encodeURIComponent(filename), { method: "HEAD" })
+        .then(function(response) {
+          return response.status === 200;
+        })
+        .catch(function(err) {
+          return false;
+        });
+    }
+    // Modified event listener for bulk-adding filenames.
+    document.getElementById("addFileBtn").addEventListener("click", function() {
+      var text = document.getElementById("newFilenames").value;
+      var lines = text.split("\n").map(function(line) { return line.trim(); }).filter(function(line) { return line !== ""; });
+      if(lines.length === 0) return;
+      // Check existence of each filename.
+      Promise.all(lines.map(function(fn) { return checkFileExists(fn); }))
+      .then(function(results) {
+        for (var i = 0; i < results.length; i++) {
+          if (!results[i]) {
+            alert("File does not exist: " + lines[i]);
+            return;
+          }
+        }
+        // If all files exist, add each to the file list.
+        lines.forEach(function(newFilename) {
+          var newFileEntry = {
+            filename: newFilename,
+            in: document.getElementById("newFileIn").checked,
+            out: document.getElementById("newFileOut").checked
+          };
+          saveFileEntry(newFileEntry);
+        });
+        loadFileList();
+        document.getElementById("newFilenames").value = "";
+        document.getElementById("newFileIn").checked = false;
+        document.getElementById("newFileOut").checked = false;
+      });
+    });
+    function getSelectedFiles() {
+      var inputFiles = [];
+      var outFiles = [];
+      var rows = document.getElementById("fileList").getElementsByTagName("tr");
+      for (var i = 0; i < rows.length; i++) {
+        var cells = rows[i].getElementsByTagName("td");
+        if(cells.length < 3) continue;
+        var inChecked = cells.querySelector("input").checked;
+        var outChecked = cells[1].querySelector("input").checked;
+        var filename = cells[2].textContent;
+        if(inChecked) inputFiles.push(filename);
+        if(outChecked) outFiles.push(filename);
+      }
+      return { inputFiles: inputFiles, outFiles: outFiles };
+    }
+    // --- End File I/O code ---
+  </script>
+</body>
+</html>
+
+---FILE-END filename="index.html"---
+
+---FILE-START filename="main.go"---
+package main
+
+import (
+	"bytes"
+	"context"
+	_ "embed"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"html/template"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"os"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/stevegt/grokker/x/storm/split"
+
+	"github.com/gofrs/flock"
+	"github.com/gorilla/websocket"
+	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/v3/client"
+	"github.com/stevegt/grokker/v3/core"
+	"github.com/stevegt/grokker/v3/util"
+	"github.com/yuin/goldmark"
+)
+
+//go:embed index.html
+var indexHTML string
+
+var tmpl = template.Must(template.New("index").Parse(indexHTML))
+
+// QueryRequest represents a user's query input.
+type QueryRequest struct {
+	Query      string   `json:"query"`
+	LLM        string   `json:"llm"`
+	Selection  string   `json:"selection"`
+	InputFiles []string `json:"inputFiles"`
+	OutFiles   []string `json:"outFiles"`
+	WordCount  int      `json:"wordCount"`
+	QueryID    string   `json:"queryID"`
+}
+
+// QueryResponse represents the LLM's response.
+type QueryResponse struct {
+	Response string `json:"response"`
+}
+
+// ChatRound contains a user query and its corresponding response.
+type ChatRound struct {
+	Query    string
+	Response string
+}
+
+// Chat encapsulates chat history and synchronization.
+type Chat struct {
+	mutex    sync.RWMutex
+	history  []*ChatRound
+	filename string
+}
+
+// WebSocket client connection.
+type WSClient struct {
+	conn *websocket.Conn
+	send chan interface{}
+	pool *ClientPool
+	id   string
+}
+
+// ClientPool manages all connected WebSocket clients.
+type ClientPool struct {
+	clients    map[*WSClient]bool
+	broadcast  chan interface{}
+	register   chan *WSClient
+	unregister chan *WSClient
+	mutex      sync.RWMutex
+}
+
+// NewClientPool creates a new client pool.
+func NewClientPool() *ClientPool {
+	return &ClientPool{
+		clients:    make(map[*WSClient]bool),
+		broadcast:  make(chan interface{}, 256),
+		register:   make(chan *WSClient),
+		unregister: make(chan *WSClient),
+	}
+}
+
+// Start begins the client pool's broadcast loop.
+func (cp *ClientPool) Start() {
+	for {
+		select {
+		case client := <-cp.register:
+			cp.mutex.Lock()
+			cp.clients[client] = true
+			cp.mutex.Unlock()
+			log.Printf("Client %s registered, total clients: %d", client.id, len(cp.clients))
+
+		case client := <-cp.unregister:
+			cp.mutex.Lock()
+			if _, ok := cp.clients[client]; ok {
+				delete(cp.clients, client)
+				close(client.send)
+			}
+			cp.mutex.Unlock()
+			log.Printf("Client %s unregistered, total clients: %d", client.id, len(cp.clients))
+
+		case message := <-cp.broadcast:
+			cp.mutex.RLock()
+			for client := range cp.clients {
+				select {
+				case client.send <- message:
+				default:
+					// Client's send channel is full, skip
+				}
+			}
+			cp.mutex.RUnlock()
+		}
+	}
+}
+
+// Broadcast sends a message to all connected clients.
+func (cp *ClientPool) Broadcast(message interface{}) {
+	cp.broadcast <- message
+}
+
+// NewChat creates a new Chat instance using the given markdown filename.
+// If the file exists, its content is loaded as the initial chat history.
+func NewChat(filename string) *Chat {
+	var history []*ChatRound
+	if _, err := os.Stat(filename); err == nil {
+		content, err := ioutil.ReadFile(filename)
+		if err != nil {
+			log.Printf("failed to read markdown file: %v", err)
+		} else {
+
+			// load the markdown file and parse it into chat rounds.
+			roundTrips, err := split.Parse(bytes.NewReader(content))
+			Ck(err)
+			for _, rt := range roundTrips {
+				response := Spf("%s\n\n## References\n\n%s\n\n## Reasoning\n\n%s\n\n", rt.Response, rt.References, rt.Reasoning)
+				chatRound := &ChatRound{
+					Query:    rt.Query,
+					Response: response,
+				}
+				history = append(history, chatRound)
+			}
+		}
+	}
+	return &Chat{
+		history:  history,
+		filename: filename,
+	}
+}
+
+// TotalRounds returns the total number of chat rounds.
+func (c *Chat) TotalRounds() int {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+	return len(c.history)
+}
+
+// _updateMarkdown writes the current chat history to the markdown file.
+func (c *Chat) _updateMarkdown() error {
+
+	// Convert the chat history slice into markdown content.
+	// We don't need getHistory to lock, since we're already holding
+	// the mutex, so 'false'.
+	content := c.getHistory(false)
+
+	// Write the old content to a backup file.
+	if oldContent, err := ioutil.ReadFile(c.filename); err == nil {
+		backupName := c.filename + ".bak.md"
+		if err := ioutil.WriteFile(backupName, oldContent, 0644); err != nil {
+			log.Printf("failed to create backup: %v", err)
+		}
+	}
+
+	// Write the new content to a temporary file.
+	tempFile, err := ioutil.TempFile("", "storm-chat-*.md")
+	if err != nil {
+		log.Printf("failed to create temporary file: %v", err)
+		return fmt.Errorf("failed to create temporary file: %w", err)
+	}
+	log.Printf("created temporary file %s", tempFile.Name())
+	defer os.Remove(tempFile.Name())
+	if _, err := tempFile.WriteString(content); err != nil {
+		log.Printf("failed to write to temporary file: %v", err)
+		return fmt.Errorf("failed to write to temporary file: %w", err)
+	}
+	tempFile.Close()
+	if err := os.Rename(tempFile.Name(), c.filename); err != nil {
+		log.Printf("failed to rename temporary file to %s: %v", c.filename, err)
+		return fmt.Errorf("failed to rename temporary file to %s: %w", c.filename, err)
+	}
+	log.Printf("updated markdown file %s", c.filename)
+	return nil
+}
+
+// StartRound initializes a chat round.
+func (c *Chat) StartRound(query, selection string) (r *ChatRound) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	round := &ChatRound{}
+	q := strings.TrimSpace(query)
+	if selection != "" {
+		q = fmt.Sprintf("%s: [%s]", q, selection)
+	}
+	round.Query = q
+	c.history = append(c.history, round)
+	log.Printf("started chat round: %s", query)
+	return round
+}
+
+// FinishRound finalizes a chat round.
+func (c *Chat) FinishRound(r *ChatRound, response string) error {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	if r == nil {
+		return fmt.Errorf("cannot finish a nil chat round")
+	}
+	r.Response = response
+	err := c._updateMarkdown()
+	if err != nil {
+		log.Printf("error updating markdown: %v", err)
+		return fmt.Errorf("error updating markdown: %w", err)
+	}
+	log.Printf("finished chat round: %s", r.Query)
+	return nil
+}
+
+// getHistory returns the chat history as markdown.
+func (c *Chat) getHistory(lock bool) string {
+	if lock {
+		c.mutex.RLock()
+		defer c.mutex.RUnlock()
+	}
+	var result string
+	for _, msg := range c.history {
+		// skip rounds with empty responses -- they're still pending.
+		if msg.Response == "" {
+			continue
+		}
+		if msg.Query != "" {
+			result += fmt.Sprintf("\n\n**%s**\n", msg.Query)
+		}
+		result += fmt.Sprintf("\n\n%s\n\n---\n\n", msg.Response)
+	}
+	return result
+}
+
+var chat *Chat
+var grok *core.Grokker
+var srv *http.Server
+var clientPool *ClientPool
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true // Allow all origins for now
+	},
+}
+
+const (
+	pingInterval = 20 * time.Second
+	pongWait     = 60 * time.Second
+)
+
+func main() {
+
+	fmt.Println("index.html length:", len(indexHTML))
+
+	fmt.Println("storm v0.0.75")
+	port := flag.Int("port", 8080, "port to listen on")
+	filePtr := flag.String("file", "", "markdown file to store chat history")
+	flag.Parse()
+	if *filePtr == "" {
+		log.Fatal("must provide a markdown filename with -file")
+	}
+
+	var err error
+	var lock *flock.Flock
+	grok, _, _, _, lock, err = core.Load("", true)
+	if err != nil {
+		log.Fatalf("failed to load Grokker: %v", err)
+	}
+	defer lock.Unlock()
+
+	chat = NewChat(*filePtr)
+	clientPool = NewClientPool()
+	go clientPool.Start()
+
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Received request for %s", r.URL.Path)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		chatContent := chat.getHistory(true)
+		data := struct {
+			ChatHTML template.HTML
+		}{
+			ChatHTML: template.HTML(markdownToHTML(chatContent)),
+		}
+		if err := tmpl.Execute(w, data); err != nil {
+			http.Error(w, "Template error", http.StatusInternalServerError)
+		}
+	})
+
+	http.HandleFunc("/ws", wsHandler)
+	http.HandleFunc("/tokencount", tokenCountHandler)
+	http.HandleFunc("/rounds", roundsHandler)
+	http.HandleFunc("/stop", stopHandler)
+	http.HandleFunc("/open", openHandler)
+
+	addr := fmt.Sprintf(":%d", *port)
+	srv = &http.Server{Addr: addr}
+	log.Printf("Starting server on %s\n", addr)
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatal(err)
+	}
+}
+
+// wsHandler handles WebSocket connections.
+func wsHandler(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WebSocket upgrade error: %v", err)
+		return
+	}
+
+	client := &WSClient{
+		conn: conn,
+		send: make(chan interface{}, 256),
+		pool: clientPool,
+		id:   fmt.Sprintf("client-%d", len(clientPool.clients)),
+	}
+
+	// Set up ping/pong handlers for keepalive
+	conn.SetReadDeadline(time.Now().Add(pongWait))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
+	clientPool.register <- client
+
+	go client.writePump()
+	go client.readPump()
+}
+
+// writePump writes messages to the WebSocket client and sends periodic pings.
+func (c *WSClient) writePump() {
+	ticker := time.NewTicker(pingInterval)
+	defer func() {
+		ticker.Stop()
+		c.conn.Close()
+	}()
+
+	for {
+		select {
+		case message, ok := <-c.send:
+			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if !ok {
+				// Client pool closed the send channel
+				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			if err := c.conn.WriteJSON(message); err != nil {
+				log.Printf("WebSocket write error: %v", err)
+				return
+			}
+		case <-ticker.C:
+			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				log.Printf("WebSocket ping error: %v", err)
+				return
+			}
+		}
+	}
+}
+
+// readPump reads messages from the WebSocket client and processes queries.
+func (c *WSClient) readPump() {
+	defer func() {
+		c.pool.unregister <- c
+		c.conn.Close()
+	}()
+
+	for {
+		var msg map[string]interface{}
+		if err := c.conn.ReadJSON(&msg); err != nil {
+			log.Printf("WebSocket read error: %v", err)
+			break
+		}
+
+		// Handle incoming query messages from clients
+		if msgType, ok := msg["type"].(string); ok && msgType == "query" {
+			log.Printf("Received query from %s: %v", c.id, msg)
+
+			// Extract query parameters
+			query, _ := msg["query"].(string)
+			llm, _ := msg["llm"].(string)
+			selection, _ := msg["selection"].(string)
+			queryID, _ := msg["queryID"].(string)
+
+			// Extract arrays
+			var inputFiles, outFiles []string
+			if inputFilesRaw, ok := msg["inputFiles"].([]interface{}); ok {
+				for _, f := range inputFilesRaw {
+					if s, ok := f.(string); ok {
+						inputFiles = append(inputFiles, s)
+					}
+				}
+			}
+			if outFilesRaw, ok := msg["outFiles"].([]interface{}); ok {
+				for _, f := range outFilesRaw {
+					if s, ok := f.(string); ok {
+						outFiles = append(outFiles, s)
+					}
+				}
+			}
+
+			// Extract wordCount as float64 (JSON number type)
+			wordCount := 0
+			if wc, ok := msg["wordCount"].(float64); ok {
+				wordCount = int(wc)
+			}
+
+			// Process the query
+			go processQuery(queryID, query, llm, selection, inputFiles, outFiles, wordCount)
+		}
+	}
+}
+
+// processQuery processes a query and broadcasts results to all clients.
+func processQuery(queryID, query, llm, selection string, inputFiles, outFiles []string, wordCount int) {
+	// Broadcast the query to all clients
+	queryBroadcast := map[string]interface{}{
+		"type":    "query",
+		"query":   query,
+		"queryID": queryID,
+	}
+	clientPool.Broadcast(queryBroadcast)
+
+	round := chat.StartRound(query, selection)
+
+	history := chat.getHistory(true)
+	// add the last TailLength characters of the chat history as context.
+	const TailLength = 300000
+	startIndex := len(history) - TailLength
+	if startIndex < 0 {
+		startIndex = 0
+	}
+	lastN := history[startIndex:]
+	lastNTokenCount, err := grok.TokenCount(lastN)
+	if err != nil {
+		log.Printf("Token count error: %v", err)
+		lastNTokenCount = 0
+	}
+	log.Printf("Added %d tokens of context to query: %s", lastNTokenCount, query)
+
+	// Pass the word count along to sendQueryToLLM.
+	responseText := sendQueryToLLM(query, llm, selection, lastN, inputFiles, outFiles, wordCount)
+
+	// convert references to a bulleted list
+	refIndex := strings.Index(responseText, "
+
+## References
+
+")
+if refIndex != -1 {
+refEndIndex := strings.Index(responseText, "</references>") + len("</references>")
+firstRefIndex := refIndex + len("<references>")
+references := strings.Split(responseText[firstRefIndex:], "\n")
+var refLines []string
+for _, line := range references {
+line = strings.TrimSpace(line)
+if line == "</references>" {
+break
+}
+if line == "" {
+continue
+}
+regex := `^\s*\[(\d+)\]\s*(http[s]?://\S+)\s*$`
+re := regexp.MustCompile(regex)
+m := re.FindStringSubmatch(line)
+if len(m) > 0 {
+line = fmt.Sprintf("- [%s] [%s](%s)", m[1], m[2], m[2])
+}
+refLines = append(refLines, line)
+}
+beforeRefs := responseText[:refIndex]
+refHead := "\n\n## References\n\n"
+afterRefs := responseText[refEndIndex:]
+responseText = beforeRefs + refHead + strings.Join(refLines, "\n") + "\n" + afterRefs
+}
+// move the ## Reasoning
+ section to the end of the response
+thinkIndex := strings.Index(responseText, "## Reasoning
+")
+if thinkIndex != -1 {
+thinkEndIndex := strings.Index(responseText, "") + len("")
+if thinkEndIndex > thinkIndex {
+thinkSection := responseText[thinkIndex:thinkEndIndex]
+responseText = responseText[:thinkIndex] + responseText[thinkEndIndex:]
+responseText += "\n\n" + thinkSection
+} else {
+log.Printf("Malformed ## Reasoning
+ section in response: %s", responseText)
+}
+}
+replacer := strings.NewReplacer("## Reasoning
+", "## Reasoning\n", "", "")
+responseText = replacer.Replace(responseText)
+err = chat.FinishRound(round, responseText)
+if err != nil {
+log.Printf("Error finishing round: %v", err)
+return
+}
+// Broadcast the response to all connected clients
+responseBroadcast := map[string]interface{}{
+"type":     "response",
+"queryID":  queryID,
+"response": markdownToHTML(responseText) + "\n\n<hr>\n\n",
+}
+clientPool.Broadcast(responseBroadcast)
+}
+// openHandler serves a file based on the filename query parameter.
+func openHandler(w http.ResponseWriter, r *http.Request) {
+filename := r.URL.Query().Get("filename")
+if filename == "" {
+http.Error(w, "Missing filename parameter", http.StatusBadRequest)
+return
+}
+if _, err := os.Stat(filename); os.IsNotExist(err) {
+http.Error(w, "File not found", http.StatusNotFound)
+return
+}
+http.ServeFile(w, r, filename)
+}
+// stopHandler gracefully shuts down the server.
+func stopHandler(w http.ResponseWriter, r *http.Request) {
+log.Printf("Received stop server request: %s", r.URL.Path)
+if r.Method != "POST" {
+http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+return
+}
+w.WriteHeader(http.StatusOK)
+w.Write([]byte("Server stopping"))
+go func() {
+if err := srv.Shutdown(context.Background()); err != nil {
+log.Printf("Error shutting down server: %v", err)
+}
+}()
+}
+// roundsHandler returns the total number of chat rounds as JSON.
+func roundsHandler(w http.ResponseWriter, r *http.Request) {
+w.Header().Set("Content-Type", "application/json")
+rounds := chat.TotalRounds()
+json.NewEncoder(w).Encode(map[string]int{"rounds": rounds})
+}
+// tokenCountHandler calculates the token count for the current conversation.
+func tokenCountHandler(w http.ResponseWriter, r *http.Request) {
+chatText := chat.getHistory(true)
+count, err := grok.TokenCount(chatText)
+if err != nil {
+log.Printf("Token count error: %v", err)
+count = 0
+}
+w.Header().Set("Content-Type", "application/json")
+json.NewEncoder(w).Encode(map[string]int{"tokens": count})
+}
+// sendQueryToLLM calls the Grokker API to obtain a markdown-formatted text.
+func sendQueryToLLM(query string, llm string, selection, backgroundContext string, inputFiles []string, outFiles []string, wordCount int) string {
+if wordCount == 0 {
+wordCount = 100
+}
+query = query + "\n\nPlease limit your response to " + strconv.Itoa(wordCount) + " words."
+sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading.  Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes."
+prompt := fmt.Sprintf("---CONTEXT START---\n%s\n---CONTEXT END---\n\nNew Query: %s", backgroundContext, query)
+if selection != "" {
+prompt += fmt.Sprintf(" {%s}", selection)
+}
+msgs := []client.ChatMsg{
+{Role: "USER", Content: prompt},
+}
+var outFilesConverted []core.FileLang
+for _, f := range outFiles {
+lang, known, err := util.Ext2Lang(f)
+Ck(err)
+if !known {
+log.Printf("Unknown file extension for output file %s; assuming language is %s", f, lang)
+}
+outFilesConverted = append(outFilesConverted, core.FileLang{File: f, Language: lang})
+}
+fmt.Printf("Sending query to LLM '%s'\n", llm)
+fmt.Printf("Query: %s\n", query)
+response, _, err := grok.SendWithFiles(llm, sysmsg, msgs, inputFiles, outFilesConverted)
+if err != nil {
+log.Printf("SendWithFiles error: %v", err)
+return fmt.Sprintf("Error sending query: %v", err)
+}
+fmt.Printf("Received response from LLM '%s'\n", llm)
+fmt.Printf("Response: %s\n", response)
+cookedResponse, err := core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
+DryRun:             false,
+ExtractToStdout:    false,
+RemoveFromResponse: true,
+})
+return cookedResponse
+}
+// splitMarkdown splits the markdown input into sections separated by a horizontal rule.
+func splitMarkdown(input string) []string {
+re := regexp.MustCompile("(?m)^---$")
+sections := re.Split(input, -1)
+return sections
+}
+// collectReferences scans the markdown input for reference lines.
+func collectReferences(input string) map[string]string {
+re := regexp.MustCompile(`(?m)^-\s+\[(\d+)\]\s+\[(http[s]?://\S+)\]`)
+matches := re.FindAllStringSubmatch(input, -1)
+refs := make(map[string]string)
+for _, m := range matches {
+if len(m) == 3 {
+refs[m[1]] = m[2]
+}
+}
+return refs
+}
+// linkifyReferences replaces reference markers with markdown links.
+func linkifyReferences(input string, refs map[string]string) string {
+re := regexp.MustCompile(`\[(\d+)\]`)
+result := re.ReplaceAllStringFunc(input, func(match string) string {
+m := re.FindStringSubmatch(match)
+if len(m) == 2 {
+url, ok := refs[m[1]]
+if ok && m[1] != "" && url != "" {
+return fmt.Sprintf("[[%s](%s)]", m[1], url)
+}
+}
+return match
+})
+return result
+}
+// markdownToHTML converts markdown text to HTML using goldmark.
+func markdownToHTML(markdown string) string {
+sections := splitMarkdown(markdown)
+for i, sec := range sections {
+refs := collectReferences(sec)
+sections[i] = linkifyReferences(sec, refs)
+}
+processed := strings.Join(sections, "\n\n---\n\n")
+var buf bytes.Buffer
+if err := goldmark.Convert([]byte(processed), &buf); err != nil {
+log.Printf("Markdown conversion error: %v", err)
+return "<p>Error rendering markdown</p>"
+}
+return buf.String()
+}
+---FILE-END filename="main.go"---
+<references>
+- [1] [https://blog.bitsrc.io/building-a-scrollable-chat-box-with-react-b3848a4459fc](https://blog.bitsrc.io/building-a-scrollable-chat-box-with-react-b3848a4459fc)
+- [2] [https://www.geeksforgeeks.org/jquery/how-to-detect-when-user-scrolls-to-the-bottom-of-a-div/](https://www.geeksforgeeks.org/jquery/how-to-detect-when-user-scrolls-to-the-bottom-of-a-div/)
+- [3] [https://hamidmohamadi.hashnode.dev/hide-floating-button-after-scroll-to-down-in-reactjs](https://hamidmohamadi.hashnode.dev/hide-floating-button-after-scroll-to-down-in-reactjs)
+- [4] [https://www.prompt-kit.com/docs/scroll-button](https://www.prompt-kit.com/docs/scroll-button)
+- [5] [https://developer.mozilla.org/en-US/docs/Web/API/Element/scrollIntoView](https://developer.mozilla.org/en-US/docs/Web/API/Element/scrollIntoView)
+- [6] [https://theme.co/forum/t/hide-show-button-on-scroll/31288](https://theme.co/forum/t/hide-show-button-on-scroll/31288)
+- [7] [https://www.svgrepo.com/svg/441824/down-arrow](https://www.svgrepo.com/svg/441824/down-arrow)
+- [8] [https://www.toptal.com/designers/htmlarrows/arrows/](https://www.toptal.com/designers/htmlarrows/arrows/)
+- [9] [https://css-tricks.com/forums/topic/solved-css-position-fixed-and-floating/](https://css-tricks.com/forums/topic/solved-css-position-fixed-and-floating/)
+- [10] [https://www.flaticon.com/free-icons/down-arrow-button](https://www.flaticon.com/free-icons/down-arrow-button)
+- [11] [https://www.w3schools.com/charsets/ref_utf_arrows.asp](https://www.w3schools.com/charsets/ref_utf_arrows.asp)
+- [12] [https://community.glideapps.com/t/custom-floating-buttons-3-in-a-row-at-the-bottom-of-the-screen-one-with-text/41186](https://community.glideapps.com/t/custom-floating-buttons-3-in-a-row-at-the-bottom-of-the-screen-one-with-text/41186)
+") + len("</references>")
+		firstRefIndex := refIndex + len("<references>")
+		references := strings.Split(responseText[firstRefIndex:], "\n")
+		var refLines []string
+		for _, line := range references {
+			line = strings.TrimSpace(line)
+			if line == "</references>" {
+				break
+			}
+			if line == "" {
+				continue
+			}
+
+			regex := `^\s*\[(\d+)\]\s*(http[s]?://\S+)\s*$`
+			re := regexp.MustCompile(regex)
+			m := re.FindStringSubmatch(line)
+			if len(m) > 0 {
+				line = fmt.Sprintf("- [%s] [%s](%s)", m[1], m[2], m[2])
+			}
+
+			refLines = append(refLines, line)
+		}
+		beforeRefs := responseText[:refIndex]
+		refHead := "\n\n## References\n\n"
+		afterRefs := responseText[refEndIndex:]
+		responseText = beforeRefs + refHead + strings.Join(refLines, "\n") + "\n" + afterRefs
+	}
+
+	// move the ## Reasoning
+ section to the end of the response
+	thinkIndex := strings.Index(responseText, "## Reasoning
+")
+	if thinkIndex != -1 {
+		thinkEndIndex := strings.Index(responseText, "") + len("")
+		if thinkEndIndex > thinkIndex {
+			thinkSection := responseText[thinkIndex:thinkEndIndex]
+			responseText = responseText[:thinkIndex] + responseText[thinkEndIndex:]
+			responseText += "\n\n" + thinkSection
+		} else {
+			log.Printf("Malformed ## Reasoning
+ section in response: %s", responseText)
+		}
+	}
+	replacer := strings.NewReplacer("## Reasoning
+", "## Reasoning\n", "", "")
+	responseText = replacer.Replace(responseText)
+
+	err = chat.FinishRound(round, responseText)
+	if err != nil {
+		log.Printf("Error finishing round: %v", err)
+		return
+	}
+
+	// Broadcast the response to all connected clients
+	responseBroadcast := map[string]interface{}{
+		"type":     "response",
+		"queryID":  queryID,
+		"response": markdownToHTML(responseText) + "\n\n<hr>\n\n",
+	}
+	clientPool.Broadcast(responseBroadcast)
+}
+
+// openHandler serves a file based on the filename query parameter.
+func openHandler(w http.ResponseWriter, r *http.Request) {
+	filename := r.URL.Query().Get("filename")
+	if filename == "" {
+		http.Error(w, "Missing filename parameter", http.StatusBadRequest)
+		return
+	}
+	if _, err := os.Stat(filename); os.IsNotExist(err) {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+	http.ServeFile(w, r, filename)
+}
+
+// stopHandler gracefully shuts down the server.
+func stopHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Received stop server request: %s", r.URL.Path)
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Server stopping"))
+	go func() {
+		if err := srv.Shutdown(context.Background()); err != nil {
+			log.Printf("Error shutting down server: %v", err)
+		}
+	}()
+}
+
+// roundsHandler returns the total number of chat rounds as JSON.
+func roundsHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	rounds := chat.TotalRounds()
+	json.NewEncoder(w).Encode(map[string]int{"rounds": rounds})
+}
+
+// tokenCountHandler calculates the token count for the current conversation.
+func tokenCountHandler(w http.ResponseWriter, r *http.Request) {
+	chatText := chat.getHistory(true)
+	count, err := grok.TokenCount(chatText)
+	if err != nil {
+		log.Printf("Token count error: %v", err)
+		count = 0
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]int{"tokens": count})
+}
+
+// sendQueryToLLM calls the Grokker API to obtain a markdown-formatted text.
+func sendQueryToLLM(query string, llm string, selection, backgroundContext string, inputFiles []string, outFiles []string, wordCount int) string {
+	if wordCount == 0 {
+		wordCount = 100
+	}
+	query = query + "\n\nPlease limit your response to " + strconv.Itoa(wordCount) + " words."
+
+	sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading.  Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes."
+
+	prompt := fmt.Sprintf("---CONTEXT START---\n%s\n---CONTEXT END---\n\nNew Query: %s", backgroundContext, query)
+	if selection != "" {
+		prompt += fmt.Sprintf(" {%s}", selection)
+	}
+
+	msgs := []client.ChatMsg{
+		{Role: "USER", Content: prompt},
+	}
+	var outFilesConverted []core.FileLang
+	for _, f := range outFiles {
+		lang, known, err := util.Ext2Lang(f)
+		Ck(err)
+		if !known {
+			log.Printf("Unknown file extension for output file %s; assuming language is %s", f, lang)
+		}
+		outFilesConverted = append(outFilesConverted, core.FileLang{File: f, Language: lang})
+	}
+	fmt.Printf("Sending query to LLM '%s'\n", llm)
+	fmt.Printf("Query: %s\n", query)
+	response, _, err := grok.SendWithFiles(llm, sysmsg, msgs, inputFiles, outFilesConverted)
+	if err != nil {
+		log.Printf("SendWithFiles error: %v", err)
+		return fmt.Sprintf("Error sending query: %v", err)
+	}
+	fmt.Printf("Received response from LLM '%s'\n", llm)
+	fmt.Printf("Response: %s\n", response)
+
+	cookedResponse, err := core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
+		DryRun:             false,
+		ExtractToStdout:    false,
+		RemoveFromResponse: true,
+	})
+
+	return cookedResponse
+}
+
+// splitMarkdown splits the markdown input into sections separated by a horizontal rule.
+func splitMarkdown(input string) []string {
+	re := regexp.MustCompile("(?m)^---$")
+	sections := re.Split(input, -1)
+	return sections
+}
+
+// collectReferences scans the markdown input for reference lines.
+func collectReferences(input string) map[string]string {
+	re := regexp.MustCompile(`(?m)^-\s+\[(\d+)\]\s+\[(http[s]?://\S+)\]`)
+	matches := re.FindAllStringSubmatch(input, -1)
+	refs := make(map[string]string)
+	for _, m := range matches {
+		if len(m) == 3 {
+			refs[m[1]] = m[2]
+		}
+	}
+	return refs
+}
+
+// linkifyReferences replaces reference markers with markdown links.
+func linkifyReferences(input string, refs map[string]string) string {
+	re := regexp.MustCompile(`\[(\d+)\]`)
+	result := re.ReplaceAllStringFunc(input, func(match string) string {
+		m := re.FindStringSubmatch(match)
+		if len(m) == 2 {
+			url, ok := refs[m[1]]
+			if ok && m[1] != "" && url != "" {
+				return fmt.Sprintf("[[%s](%s)]", m[1], url)
+			}
+		}
+		return match
+	})
+	return result
+}
+
+// markdownToHTML converts markdown text to HTML using goldmark.
+func markdownToHTML(markdown string) string {
+	sections := splitMarkdown(markdown)
+	for i, sec := range sections {
+		refs := collectReferences(sec)
+		sections[i] = linkifyReferences(sec, refs)
+	}
+	processed := strings.Join(sections, "\n\n---\n\n")
+
+	var buf bytes.Buffer
+	if err := goldmark.Convert([]byte(processed), &buf); err != nil {
+		log.Printf("Markdown conversion error: %v", err)
+		return "<p>Error rendering markdown</p>"
+	}
+
+	return buf.String()
+}
+
+---FILE-END filename="main.go"---
+
+<references>
+[1] https://blog.bitsrc.io/building-a-scrollable-chat-box-with-react-b3848a4459fc
+[2] https://www.geeksforgeeks.org/jquery/how-to-detect-when-user-scrolls-to-the-bottom-of-a-div/
+[3] https://hamidmohamadi.hashnode.dev/hide-floating-button-after-scroll-to-down-in-reactjs
+[4] https://www.prompt-kit.com/docs/scroll-button
+[5] https://developer.mozilla.org/en-US/docs/Web/API/Element/scrollIntoView
+[6] https://theme.co/forum/t/hide-show-button-on-scroll/31288
+[7] https://www.svgrepo.com/svg/441824/down-arrow
+[8] https://www.toptal.com/designers/htmlarrows/arrows/
+[9] https://css-tricks.com/forums/topic/solved-css-position-fixed-and-floating/
+[10] https://www.flaticon.com/free-icons/down-arrow-button
+[11] https://www.w3schools.com/charsets/ref_utf_arrows.asp
+[12] https://community.glideapps.com/t/custom-floating-buttons-3-in-a-row-at-the-bottom-of-the-screen-one-with-text/41186
+</references>
+
+
+## Reasoning
+
+The user is asking me about adding a floating button that looks like a down arrow to let users jump to the end of the chat. They want it to be a floating button in the center bottom of the chat box, but only visible when the chat area is NOT already scrolled to the bottom.
+
+This is a query from a long, complex conversation. Let me identify what I need to do:
+
+1. Start with a markdown heading
+2. Limit my response to 100 words
+3. Enclose reference numbers in square brackets
+4. Don't include empty square brackets
+5. The response should include complete files: 'index.html' and 'main.go'
+6. Return complete files only, not fragments
+7. Match the regex format with file markers
+
+The query is: "What changes would need to be made if I wanted to add a floating button that looks like a down arrow, that lets the user jump to the end of the chat? I want the button to be floating in the center bottom of the chat box (unless the chat area is already scrolled to the bottom)"
+
+Looking at the search results provided at the beginning of this interaction (before the long Storm conversation), I see references about scrollable chat boxes [1][2][3][4][5] and scroll buttons that appear when scrolling up [1][3][4].
+
+So I need to:
+1. Add CSS for a floating down-arrow button positioned at the bottom center of the chat area
+2. Add JavaScript to:
+   - Detect if the user is scrolled to the bottom
+   - Show/hide the button accordingly
+   - Scroll smoothly to the bottom when clicked
+3. Update both files accordingly
+
+Let me provide a comprehensive response with updated files.
+
+
+---
+
+
+
+**Make the code changes to add the scroll to bottom button**
+
+
+
+
+# Add Floating Scroll-to-Bottom Button
+
+Implement a floating down-arrow button that appears only when chat isn't scrolled to bottom[1][2]. Add CSS positioning the button absolutely at chat area's center-bottom. Add JavaScript to detect scroll position: if `scrollTop < scrollHeight - clientHeight`, show button; hide if scrolled to bottom[1]. Button click scrolls smoothly via `scrollTop = scrollHeight`[3]. Monitor scroll events to continuously update visibility[2].
+
+## References
+
+[1] [https://developer.mozilla.org/en-US/docs/Web/API/Element/scrollTop](https://developer.mozilla.org/en-US/docs/Web/API/Element/scrollTop)
+[2] [https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/scrollHeight](https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/scrollHeight)
+[3] [https://developer.mozilla.org/en-US/docs/Web/API/Window/scroll](https://developer.mozilla.org/en-US/docs/Web/API/Window/scroll)
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to make code changes to add a scroll to bottom button. Let me look at what needs to be done:
+
+1. They want a floating down arrow button at the center bottom of the chat box
+2. The button should only be visible when the chat is NOT scrolled to the bottom
+3. When clicked, it should scroll to the bottom
+
+Looking at the instructions at the very top of this long conversation:
+- I'm a researcher
+- I should answer the query, not other questions in the context
+- The query is: "Make the code changes to add the scroll to bottom button"
+- I should limit my response to 100 words
+- I should always start my response with a markdown heading
+- I should always enclose reference numbers in square brackets
+- I should ignore empty brackets
+- I should NOT include empty square brackets
+- My response must include complete files: 'index.html' and 'main.go'
+- Return complete files only, not fragments
+- My response must match a specific regex with file markers
+
+Looking at the current state of the code provided:
+- index.html doesn't have the scroll to bottom button CSS or JavaScript
+- The #chat div needs `position: relative` for absolute positioning of the button
+- JavaScript needs functions to detect scroll position and show/hide the button
+- A button element needs to be added to the HTML
+
+Let me add the necessary changes:
+
+1. Add CSS for the #scrollToBottomBtn
+2. Add the button HTML element inside #chat
+3. Add JavaScript functions to handle scroll button visibility and click
+
+I need to provide a 100-word response and complete files with the changes.
 
 
 ---

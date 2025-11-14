@@ -50,13 +50,42 @@
     #fileSidebar th, #fileSidebar td { border: 1px solid #555; padding: 4px; text-align: center; }
 		#fileSidebar textarea { width: 100%; height: 20%; margin-bottom: 5px; background-color: #333; color: #e0e0e0; border: 1px solid #555; }
     /* Chat area styles */
-    #chat { padding: 20px; flex: 1; overflow-y: auto; border-bottom: 1px solid #333; }
+    #chat { 
+      padding: 20px; 
+      flex: 1; 
+      overflow-y: auto; 
+      border-bottom: 1px solid #333; 
+      position: relative;
+    }
     .message { 
       margin-bottom: 10px; 
       padding: 5px; 
       border: 1px solid #444; 
       border-radius: 4px; 
       background-color: #252525; 
+    }
+    /* Floating scroll-to-bottom button */
+    #scrollToBottomBtn {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: #3498db;
+      color: #e0e0e0;
+      border: 1px solid #555;
+      padding: 10px 15px;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      display: none;
+      cursor: pointer;
+      font-size: 20px;
+      z-index: 10;
+      align-items: center;
+      justify-content: center;
+    }
+    #scrollToBottomBtn:hover {
+      background-color: #2980b9;
     }
     #spinner-area { padding: 10px; text-align: center; }
     .spinner {
@@ -198,6 +227,8 @@
       <div id="chat">
         <!-- Chat messages will appear here -->
         {{.ChatHTML}}
+        <!-- Floating scroll-to-bottom button -->
+        <button id="scrollToBottomBtn">↓</button>
       </div>
       <div id="spinner-area">
         <!-- Progress spinners will appear here -->
@@ -311,6 +342,22 @@
       }
     }
 
+    // Check if chat is scrolled to bottom
+    function isScrolledToBottom() {
+      var chat = document.getElementById("chat");
+      return chat.scrollTop >= (chat.scrollHeight - chat.clientHeight - 10);
+    }
+
+    // Update scroll-to-bottom button visibility
+    function updateScrollButtonVisibility() {
+      var btn = document.getElementById("scrollToBottomBtn");
+      if (isScrolledToBottom()) {
+        btn.style.display = "none";
+      } else {
+        btn.style.display = "flex";
+      }
+    }
+
     // Generate a Table of Contents from headings in the chat
     function generateTOC() {
       var chat = document.getElementById("chat");
@@ -388,6 +435,7 @@
             // Store by queryID to match responses
             pendingQueryDivs[message.queryID] = { div: messageDiv, spinner: spinner, cancelBtn: cancelBtn };
             generateTOC();
+            updateScrollButtonVisibility();
             
           } else if (message.type === 'response') {
             // Find the corresponding query div and update it
@@ -410,6 +458,7 @@
             generateTOC();
             updateProgressStats();
             updateTokenCount();
+            updateScrollButtonVisibility();
           }
         } catch (err) {
           console.error('Error processing WebSocket message:', err);
@@ -478,6 +527,23 @@
       }
       updateProgressStats();
       initFileIO();
+      
+      // Set up scroll-to-bottom button
+      var scrollBtn = document.getElementById("scrollToBottomBtn");
+      scrollBtn.addEventListener("click", function() {
+        var chat = document.getElementById("chat");
+        chat.scrollTop = chat.scrollHeight;
+        updateScrollButtonVisibility();
+      });
+      
+      // Update button visibility on scroll
+      document.getElementById("chat").addEventListener("scroll", function() {
+        updateScrollButtonVisibility();
+        updateProgressStats();
+      });
+      
+      // Initial button visibility check
+      updateScrollButtonVisibility();
     });
 
     // Append a new message to the chat view without scrolling the page.
@@ -486,10 +552,9 @@
       var messageDiv = document.createElement("div");
       messageDiv.className = "message";
       messageDiv.innerHTML = content;
-      // Instead of auto-scrolling or saving scroll position,
-      // we simply append the content and let the browser handle it without scrolling.
       chat.appendChild(messageDiv);
       generateTOC();
+      updateScrollButtonVisibility();
     }
 
     // Send query via WebSocket
@@ -761,5 +826,4 @@
   </script>
 </body>
 </html>
-
 

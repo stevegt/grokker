@@ -388,7 +388,6 @@ func (c *WSClient) readPump() {
 		c.conn.Close()
 	}()
 
-	// Remove SetReadDeadline from here - use ping/pong keepalive instead
 	for {
 		var msg map[string]interface{}
 		if err := c.conn.ReadJSON(&msg); err != nil {
@@ -673,3 +672,4 @@ func markdownToHTML(markdown string) string {
 
 	return buf.String()
 }
+
