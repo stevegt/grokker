@@ -36,6 +36,7 @@
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      position: relative;
     }
     /* Right sidebar for File I/O */
     #fileSidebar {
@@ -55,7 +56,6 @@
       flex: 1; 
       overflow-y: auto; 
       border-bottom: 1px solid #333; 
-      position: relative;
     }
     .message { 
       margin-bottom: 10px; 
@@ -64,10 +64,10 @@
       border-radius: 4px; 
       background-color: #252525; 
     }
-    /* Floating scroll-to-bottom button */
+    /* Floating scroll-to-bottom button - fixed to viewport frame */
     #scrollToBottomBtn {
-      position: absolute;
-      bottom: 20px;
+      position: fixed;
+      bottom: 150px;
       left: 50%;
       transform: translateX(-50%);
       background-color: #3498db;
@@ -224,11 +224,11 @@
       </div>
     </div>
     <div id="main">
+      <!-- Floating scroll-to-bottom button - fixed to viewport frame -->
+      <button id="scrollToBottomBtn">↓</button>
       <div id="chat">
         <!-- Chat messages will appear here -->
         {{.ChatHTML}}
-        <!-- Floating scroll-to-bottom button -->
-        <button id="scrollToBottomBtn">↓</button>
       </div>
       <div id="spinner-area">
         <!-- Progress spinners will appear here -->
@@ -826,4 +826,3 @@
   </script>
 </body>
 </html>
-

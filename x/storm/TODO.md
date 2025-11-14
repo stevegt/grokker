@@ -10,5 +10,10 @@
 - really need https://playwright.dev/ to test
 - refactor to be able to one daemon on one port number for multiple projects
 - logins so we can support co-authored-by headers in git commits
-- "jump to end" button
+  - let's try github oauth
+- jump to end button:
+  - DONE add "jump to end" button
+  - make "jump to end" button auto-scroll to the left as well
+  - make "jump to end" button be referenced to bottom of chat area
+    instead of bottom of main window
 
