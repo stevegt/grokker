@@ -11076,3 +11076,151 @@ Let me write a comprehensive 500-word plan for refactoring Storm to support mult
 
 ---
 
+
+
+**2025/11/22 15:23:32 http: panic serving [::1]:40122: regexp: Compile(`(?<![a-zA-Z0-9_])\[(\d+)\]`): error parsing regexp: invalid named capture: `(?<![a-zA-Z0-9_])\[(\d+)\]`**
+
+
+
+
+# Regex Lookbehind Not Supported in Go
+
+The panic occurs because Go's `regexp` package does not support lookbehind assertions (negative `(?<!...)` or positive `(?<=...)`)—only lookahead[1][2]. The error message is misleading; it reports "invalid named capture" but the real issue is the unsupported `(?<!...)` syntax in the `linkifyReferences` function[1][2].
+
+## Root Cause Analysis
+
+In main.go, the `linkifyReferences` function attempts to use a negative lookbehind assertion[2]:
+
+```go
+re := regexp.MustCompile(`(?<![a-zA-Z0-9_])\[(\d+)\]`)
+```
+
+This pattern was added to avoid matching array indices like `array[1]` when fixing the reference removal bug. However, Go's regex engine—based on RE2—explicitly disallows lookbehind for performance reasons[1][2]. When the regexp is compiled, it panics with the "invalid named capture" error[2].
+
+## Why Go Doesn't Support Lookbehind
+
+Go's `regexp` package prioritizes linear-time matching guarantees[1]. Lookbehind requires the regex engine to examine characters before the current position, which complicates backtracking and performance guarantees[1]. The RE2 engine intentionally restricts features that could cause performance degradation[1].
+
+## Solution: Leverage Existing Reference Validation
+
+The fix is straightforward—remove the lookbehind assertion and rely on the existing reference map validation[2]. The current code already checks whether a matched `[digit]` corresponds to an actual reference[1]:
+
+```go
+func linkifyReferences(input string, refs map[string]string) string {
+	re := regexp.MustCompile(`\[(\d+)\]`)  // Remove lookbehind
+	result := re.ReplaceAllStringFunc(input, func(match string) string {
+		m := re.FindStringSubmatch(match)
+		if len(m) == 2 {
+			url, ok := refs[m[1]]
+			if ok && m[1] != "" && url != "" {
+				return fmt.Sprintf("[[%s](%s)]", m[1], url)
+			}
+		}
+		return match  // Return unchanged if not a valid reference
+	})
+	return result
+}
+```
+
+**Logic flow**:
+- Pattern matches any `[digit]` sequence, including both `[1]` in `array[1]` and `[1]` in citation context
+- For each match, the code looks up the digit in the `refs` map
+- If a reference URL exists for that digit (i.e., `ok == true`), it converts to a markdown link
+- If no reference exists (as with array indices), it returns the original match unchanged[1][2]
+
+This approach provides the correct behavior: array indices are preserved because they lack corresponding entries in the references map, while actual citations are linkified[1].
+
+## Alternative Approaches
+
+If stricter pattern matching is desired, two alternatives exist[1][2]:
+
+**Option 1: Use word boundaries** (limited effectiveness):
+```go
+re := regexp.MustCompile(`\b\[(\d+)\]`)
+```
+This fails for cases like `.[1]` where punctuation precedes the bracket[2].
+
+**Option 2: Post-process with context checking**:
+Scan input character-by-character before matches to check context (preceding character type). This avoids regex limitations but adds complexity[1][2].
+
+**Option 3: Parse Markdown AST**:
+Use a proper markdown parser to identify which `[digit]` patterns appear in citation contexts versus code blocks[2]. This is overkill for the current use case but would be ideal for sophisticated document processing.
+
+## Implementation
+
+The minimal fix requires changing one line in `linkifyReferences`. No changes to logic are needed—the existing reference map validation already prevents incorrect modifications. This preserves array indices like `array[1]` while correctly linkifying actual citations like `[1]` that have corresponding reference URLs[1][2].
+
+## References
+
+[1][2]
+
+
+
+## References
+
+- [1] [https://www.regular-expressions.info/lookaround.html](https://www.regular-expressions.info/lookaround.html)
+- [2] [https://github.com/StefanSchroeder/Golang-Regex-Tutorial/issues/11](https://github.com/StefanSchroeder/Golang-Regex-Tutorial/issues/11)
+- [3] [http://allanrbo.blogspot.com/2020/01/alternative-to-negative-lookbehinds-in.html](http://allanrbo.blogspot.com/2020/01/alternative-to-negative-lookbehinds-in.html)
+- [4] [https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Errors/Regex_invalid_named_capture_reference](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Errors/Regex_invalid_named_capture_reference)
+- [5] [https://groups.google.com/g/golang-nuts/c/7qgSDWPIh_E](https://groups.google.com/g/golang-nuts/c/7qgSDWPIh_E)
+- [6] [https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Lookahead_assertion](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Lookahead_assertion)
+
+
+
+## Reasoning
+
+Looking at the query, there's a panic in the HTTP server:
+
+```
+2025/11/22 15:23:32 http: panic serving [::1]:40122: regexp: Compile(`(?<![a-zA-Z0-9_])\[(\d+)\]`): error parsing regexp: invalid named capture: `(?<![a-zA-Z0-9_])\[(\d+)\]`
+```
+
+The issue is in the `linkifyReferences` function in main.go. The regex pattern `(?<![a-zA-Z0-9_])\[(\d+)\]` uses a negative lookbehind assertion `(?<!...)`, but Go's `regexp` package does NOT support lookbehind assertions (either positive or negative). Go only supports lookahead assertions.
+
+The error message is misleading - it says "invalid named capture" but the real issue is that Go's regex engine doesn't support lookbehind at all.
+
+The line in main.go is:
+```go
+re := regexp.MustCompile(`(?<![a-zA-Z0-9_])\[(\d+)\]`)
+```
+
+This was added in an attempt to fix the reference index removal bug - to avoid matching `[1]` when it's part of an array like `array[1]`. But the lookbehind syntax isn't supported in Go.
+
+The fix is to:
+1. Remove the lookbehind assertion
+2. Use a different approach to avoid matching array indices
+
+Options:
+1. Simply remove the lookbehind and use `\[(\d+)\]` - but this brings back the original problem
+2. Only linkify if the reference exists in the refs map (which the code already does) - this would preserve array indices that aren't references
+3. Use a different approach like checking context before the match
+
+Actually, looking at the current code, it already checks if the reference exists in the refs map:
+```go
+if ok && m[1] != "" && url != "" {
+    return fmt.Sprintf("[[%s](%s)]", m[1], url)
+}
+return match
+```
+
+So if a `[1]` appears but there's no reference for `"1"` in the refs map, it returns the match unchanged. This should already solve the problem without needing lookbehind! The fix is simply to remove the lookbehind assertion and use just `\[(\d+)\]`. The check for `ok` (whether the reference exists in the map) will prevent modifying array indices that aren't actual references.
+
+Let me trace through this:
+- Input: `array[1]` with no reference for "1" -> regex matches `[1]`, looks up "1" in refs, doesn't find it, returns `[1]` unchanged ✓
+- Input: `see [1]` with reference for "1" -> regex matches `[1]`, looks up "1" in refs, finds it, replaces with `[[1](url)]` ✓
+
+So the fix is to change:
+```go
+re := regexp.MustCompile(`(?<![a-zA-Z0-9_])\[(\d+)\]`)
+```
+
+to:
+```go
+re := regexp.MustCompile(`\[(\d+)\]`)
+```
+
+The `ok` check in the replacement logic already guards against false positives, so the lookbehind is unnecessary overhead.
+
+
+---
+
