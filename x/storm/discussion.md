@@ -10512,8 +10512,6 @@ I need to provide a 100-word response and complete files with the changes.
 **The floating button should be anchored relative to the chat box frame, not the chat box content.**
 
 
-
-
 # Fix Button Anchoring to Chat Box Frame
 
 Change `#scrollToBottomBtn` from `position: absolute` to `position: fixed`[1]. This anchors the button relative to the viewport instead of the scrollable chat content. Position it using viewport coordinates: `bottom` and `left` values that align with the visible chat area frame[2]. Remove the button from inside #chat and position it via fixed coordinates that calculate the chat box's bottom edge on the page[1][2].
@@ -10524,10 +10522,6 @@ Change `#scrollToBottomBtn` from `position: absolute` to `position: fixed`[1]. T
 [2] [https://developer.mozilla.org/en-US/docs/Web/CSS/bottom](https://developer.mozilla.org/en-US/docs/Web/CSS/bottom)
 
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -10568,13 +10562,12 @@ Or simpler: I can make the button `position: fixed` and position it based on the
 The solution is to switch the button from `position: absolute` to `position: fixed`, then position it relative to the chat container's visible boundaries rather than its scrollable content. I'll need to calculate the button's coordinates based on where the #chat element sits in the viewport, keeping it centered horizontally and anchored to the bottom of the visible chat area.
 
 
+
 ---
 
 
 
 **make the changes to the code**
-
-
 
 
 # Floating Scroll-to-Bottom Button - Frame-Anchored Implementation
@@ -10587,10 +10580,6 @@ The button positioning has been corrected to use `position: fixed` instead of `p
 [2] [https://developer.mozilla.org/en-US/docs/Web/CSS/transform](https://developer.mozilla.org/en-US/docs/Web/CSS/transform)
 
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -10629,6 +10618,260 @@ The changes requested have already been implemented:
 - Shows/hides based on scroll position
 
 I'll confirm these details in my response to the user.
+
+
+
+---
+
+
+
+**discuss the TODO items, including difficulty, risk, benefit**
+
+
+
+
+# TODO Items Analysis: Difficulty, Risk, and Benefit
+
+Storm's development roadmap contains several outstanding tasks across bug fixes, testing infrastructure, and feature enhancements[1]. This analysis evaluates each item's implementation complexity, potential risks, and strategic value.
+
+## Completed Items
+
+The inconsistent message display bug—where not all users saw all prompts and responses—has been successfully resolved by replacing read deadline-based timeouts with ping/pong keepalive mechanisms[1][2]. This fix demonstrates how WebSocket protocol nuances significantly impact real-time synchronization reliability.
+
+## Remaining Bugs
+
+**Spinner in Status Box** has minimal difficulty—adding a visual indicator is straightforward DOM manipulation. Risk is negligible since it's purely UI-level. The benefit is moderate: users gain clarity on query processing status, improving perceived responsiveness even during lengthy LLM processing.
+
+**Reference Index Removal** presents higher complexity. The current code removes `[\d+]` markers from array variables during markdown-to-HTML conversion, losing important citation anchors. Fixing requires carefully distinguishing between array indices and citation markers throughout the processing pipeline. Risk is medium—incorrect refactoring could break reference linkification. Benefit is significant: proper citation preservation maintains document integrity for academic and research contexts.
+
+## Feature Backlog
+
+**Playwright Testing Infrastructure** carries moderate-to-high difficulty. Setting up end-to-end testing with Playwright requires test case design, environment configuration, and CI/CD integration[3]. Risk is moderate—poor test coverage creates false confidence. Benefit is substantial: comprehensive automation testing prevents regressions, particularly critical given Storm's multi-user, real-time synchronization requirements.
+
+**Multi-Project Daemon Architecture** represents significant refactoring effort. Currently, each project requires its own port and daemon instance. Consolidating into a single daemon serving multiple projects requires namespace isolation, per-project state management, and connection routing logic. Difficulty is high; risk is high (potential for cross-project data leaks if isolation fails); benefit is substantial for deployment scalability and resource efficiency[4].
+
+**GitHub OAuth Authentication** carries moderate difficulty. Integrating OAuth2 requires secure credential handling, session management, and callback routing. Risk is medium—improper implementation compromises security. Benefit includes supporting co-authored-by commits and multi-user attribution, improving collaboration tracking and auditability.
+
+**"Jump to End" Button Refinements** have low-to-moderate difficulty. Auto-scrolling the sidebar TOC when jumping requires calculating sidebar element positions relative to chat content changes. The frame-anchored positioning (already implemented) eliminated the primary complexity. Risk is minimal. Benefits are marginal—improved UX for users with large chat histories but minimal impact on core functionality.
+
+## Prioritization Recommendation
+
+Prioritize the reference index removal and Playwright testing, as both directly impact Storm's core value propositions—accurate research documentation and reliable multi-user functionality. The OAuth authentication feature and multi-project refactoring should follow, addressing deployment and collaboration scaling. Minor UI refinements (sidebar auto-scroll) are lowest priority, suitable for polish phases[1][3][4].
+
+## References
+
+
+
+## References
+
+- [1] [https://testomat.io/blog/test-automation-with-playwright-definition-and-benefits-of-this-testing-framework/](https://testomat.io/blog/test-automation-with-playwright-definition-and-benefits-of-this-testing-framework/)
+- [2] [https://www.datamation.com/big-data/what-is-multi-tenant-architecture/](https://www.datamation.com/big-data/what-is-multi-tenant-architecture/)
+- [3] [https://github.com/golang/oauth2](https://github.com/golang/oauth2)
+- [4] [https://playwright.dev/docs/api/class-websocket](https://playwright.dev/docs/api/class-websocket)
+- [5] [https://github.com/pterodactyl/panel/issues/1919](https://github.com/pterodactyl/panel/issues/1919)
+- [6] [https://forums.docker.com/t/reverse-proxy-for-same-port-multiple-containers/51293](https://forums.docker.com/t/reverse-proxy-for-same-port-multiple-containers/51293)
+- [7] [https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps)
+- [8] [https://json-schema.org/understanding-json-schema/reference/array](https://json-schema.org/understanding-json-schema/reference/array)
+- [9] [https://itnext.io/run-multiple-isolated-web-applications-on-containers-with-a-single-ip-for-free-52d216f3e810](https://itnext.io/run-multiple-isolated-web-applications-on-containers-with-a-single-ip-for-free-52d216f3e810)
+- [10] [https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/about-authentication-to-github](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/about-authentication-to-github)
+- [11] [https://www.w3schools.com/js/js_json_arrays.asp](https://www.w3schools.com/js/js_json_arrays.asp)
+
+
+
+## Reasoning
+
+The user is asking me to discuss the TODO items in the provided TODO.md file, including difficulty, risk, and benefit for each item.
+
+Let me look at the TODO items:
+
+# Bugs (marked as DONE or remaining):
+1. DONE - inconsistent display of prompts and responses (not all users see both)
+   - was due to read timeout setting -- replaced with ping/pong keepalive
+2. need spinner in status box
+3. need to stop removing '[\d+]' indexes from array variables
+
+# Features:
+1. really need https://playwright.dev/ to test
+2. refactor to be able to one daemon on one port number for multiple projects
+3. logins so we can support co-authored-by headers in git commits
+   - let's try github oauth
+4. jump to end button:
+   - DONE add "jump to end" button
+   - make "jump to end" button auto-scroll to the left as well
+   - make "jump to end" button be referenced to bottom of chat area instead of bottom of main window
+
+Looking at the index.html provided, I can see that the scroll-to-bottom button is already implemented with `position: fixed` and a bottom position of 150px, which anchors it relative to the viewport/frame.
+
+The user is asking me to provide a comprehensive analysis of each TODO item, discussing:
+1. Difficulty (how hard it is to implement)
+2. Risk (potential issues or side effects)
+3. Benefit (value it provides)
+
+I need to:
+1. Start with a markdown heading
+2. Limit my response to 500 words
+3. Enclose reference numbers in square brackets if applicable
+4. Provide analysis for each TODO item
+
+Let me structure this as a report analyzing each TODO item.
+
+
+---
+
+
+
+**oauth needs a callback URL at a stable address that is registered at the oauth provider?**
+
+
+
+
+# OAuth Callback URL Registration Requirement
+
+Yes, absolutely[1][3][7]. OAuth requires registering a stable callback URL (redirect URI) at the provider during application setup[1][3]. After the user authorizes your application, the OAuth provider redirects the browser to this registered URL with an authorization code[1]. This registered URL must match exactly what you send in the authorization request, or the request fails[7]. The stability requirement exists for security—preventing attackers from redirecting authorization codes to arbitrary malicious URLs[10]. Dynamic redirect URIs violate OAuth security models and are explicitly prohibited by providers like Square and GitHub[1][7].
+
+## References
+
+[1][3][7][10]
+
+
+
+## References
+
+- [1] [https://developers.google.com/identity/protocols/oauth2/web-server](https://developers.google.com/identity/protocols/oauth2/web-server)
+- [2] [https://oauth2-proxy.github.io/oauth2-proxy/7.4.x/configuration/oauth_provider/](https://oauth2-proxy.github.io/oauth2-proxy/7.4.x/configuration/oauth_provider/)
+- [3] [https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps)
+- [4] [https://help.salesforce.com/s/articleView?id=xcloud.remoteaccess_oauth_web_server_flow.htm&language=en_US&type=5](https://help.salesforce.com/s/articleView?id=xcloud.remoteaccess_oauth_web_server_flow.htm&language=en_US&type=5)
+- [5] [https://help.salesforce.com/s/articleView?id=001114821&language=en_US&type=1](https://help.salesforce.com/s/articleView?id=001114821&language=en_US&type=1)
+- [6] [https://github.com/orgs/community/discussions/24665](https://github.com/orgs/community/discussions/24665)
+- [7] [https://developer.squareup.com/forums/t/new-oauth-redirect-url-requirement-for-static-uri/3454](https://developer.squareup.com/forums/t/new-oauth-redirect-url-requirement-for-static-uri/3454)
+- [8] [https://groups.google.com/g/google-identity-toolkit/c/t4xdZb4kzQ8](https://groups.google.com/g/google-identity-toolkit/c/t4xdZb4kzQ8)
+- [9] [https://developer-community.sage.com/topic/1583-improve-local-development-with-localhost-callbacksdomains/](https://developer-community.sage.com/topic/1583-improve-local-development-with-localhost-callbacksdomains/)
+- [10] [https://www.oauth.com/oauth2-servers/redirect-uris/](https://www.oauth.com/oauth2-servers/redirect-uris/)
+- [11] [https://community.ringcentral.com/developer-platform-apis-integrations-5/setting-a-localhost-url-as-an-oauth-redirect-uri-10653](https://community.ringcentral.com/developer-platform-apis-integrations-5/setting-a-localhost-url-as-an-oauth-redirect-uri-10653)
+- [12] [https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app)
+- [13] [https://community.grafana.com/t/github-enterprise-oauth-redirect-uri-mismatch/3673](https://community.grafana.com/t/github-enterprise-oauth-redirect-uri-mismatch/3673)
+- [14] [https://ngrok.com/docs/traffic-policy/actions/oauth](https://ngrok.com/docs/traffic-policy/actions/oauth)
+- [15] [https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/about-the-user-authorization-callback-url](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/about-the-user-authorization-callback-url)
+- [16] [https://docs.github.com/en/apps/oauth-apps/maintaining-oauth-apps/troubleshooting-authorization-request-errors](https://docs.github.com/en/apps/oauth-apps/maintaining-oauth-apps/troubleshooting-authorization-request-errors)
+- [17] [https://ngrok.com/use-cases/developer-preview](https://ngrok.com/use-cases/developer-preview)
+- [18] [https://ngrok.com](https://ngrok.com)
+- [19] [https://forums.meteor.com/t/github-oauth-login-dev-vs-prod-authorization-callback-url-how-do-i-solve-this-situation/25580](https://forums.meteor.com/t/github-oauth-login-dev-vs-prod-authorization-callback-url-how-do-i-solve-this-situation/25580)
+
+
+
+## Reasoning
+
+The user is asking me a query about OAuth callback URLs. Let me identify the actual query:
+
+"oauth needs a callback URL at a stable address that is registered at the oauth provider?"
+
+This is a question asking if OAuth requires a callback URL at a stable address that must be registered at the OAuth provider.
+
+According to the instructions at the very top:
+1. I'm a researcher
+2. I should answer the query, not other questions in the context
+3. The query is: "oauth needs a callback URL at a stable address that is registered at the oauth provider?"
+4. I should limit my response to 100 words
+5. I should always start my response with a markdown heading
+6. I should always enclose reference numbers in square brackets
+7. I should ignore empty brackets
+8. I should NOT include empty square brackets in my response
+
+Looking at the search results provided at the VERY beginning of this long conversation (before all the Storm context), I can see references [1] through  about OAuth redirect URIs and callback URLs from the search results at the beginning. Those are the most relevant.
+
+From those search results:
+- [1] Google OAuth redirect URIs need to match exactly
+- [3] GitHub requires redirect URI registration
+- [4] Salesforce OAuth requires callback URL configuration
+- [7] Square OAuth requires exact matching of redirect URL
+- [10] OAuth 2.0 best practice recommends registering one or more redirect URLs
+
+So yes, OAuth requires a stable, registered callback URL. This is a security requirement to prevent malicious redirects.
+
+Let me write a 100-word response about this.
+
+
+---
+
+
+
+**what needs to be done to fix the reference index removal?**
+
+
+
+
+# Fix Reference Index Removal Bug
+
+The issue: `linkifyReferences()` uses an overly broad regex `\[(\d+)\]` that matches ALL numeric indices, including array subscripts in code like `array[1]` and variable indices[1][2]. Fix by adding a safeguard: only linkify `[N]` patterns that have a corresponding URL in the `refs` map, or better—skip linkifying inside code blocks entirely using markdown AST parsing[1]. Alternatively, tighten the regex to match reference patterns more precisely: only linkify when `[N]` appears where citation references typically occur (after text, before punctuation)[2].
+
+## References
+
+[1] [https://pkg.go.dev/regexp](https://pkg.go.dev/regexp)
+[2] [https://github.com/yuin/goldmark](https://github.com/yuin/goldmark)
+
+
+
+## References
+
+- [1] [https://learn.microsoft.com/en-us/azure/search/search-how-to-index-azure-blob-markdown](https://learn.microsoft.com/en-us/azure/search/search-how-to-index-azure-blob-markdown)
+- [2] [https://www.jetbrains.com/help/go/tutorial-finding-and-replacing-text-using-regular-expressions.html](https://www.jetbrains.com/help/go/tutorial-finding-and-replacing-text-using-regular-expressions.html)
+- [3] [https://forum.literatureandlatte.com/t/preserving-internal-document-links-when-exporting-to-multimarkdown/147151](https://forum.literatureandlatte.com/t/preserving-internal-document-links-when-exporting-to-multimarkdown/147151)
+- [4] [https://www.markdownguide.org/extended-syntax/](https://www.markdownguide.org/extended-syntax/)
+- [5] [https://pkg.go.dev/regexp](https://pkg.go.dev/regexp)
+- [6] [https://forum.sublimetext.com/t/convert-inline-markdown-links-to-reference-links/57587](https://forum.sublimetext.com/t/convert-inline-markdown-links-to-reference-links/57587)
+- [7] [https://learn.microsoft.com/en-us/dotnet/standard/base-types/best-practices-regex](https://learn.microsoft.com/en-us/dotnet/standard/base-types/best-practices-regex)
+- [8] [https://bookdown.org/yihui/rmarkdown-cookbook/bibliography.html](https://bookdown.org/yihui/rmarkdown-cookbook/bibliography.html)
+- [9] [https://www.honeybadger.io/blog/a-definitive-guide-to-regular-expressions-in-go/](https://www.honeybadger.io/blog/a-definitive-guide-to-regular-expressions-in-go/)
+- [10] [https://forum.matomo.org/t/regular-expression-for-query-parameters/8306](https://forum.matomo.org/t/regular-expression-for-query-parameters/8306)
+- [11] [https://mystmd.org/guide/citations](https://mystmd.org/guide/citations)
+
+
+
+## Reasoning
+
+Let me carefully read the instructions at the very beginning of this conversation:
+
+"You are a researcher. I will start my prompt with some context, followed by a query. Answer the query -- don't answer other questions you might see elsewhere in the context. Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context. Always start your response with a markdown heading. Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes."
+
+So the context includes:
+- TODO.md file with a list of bugs and features
+- index.html file
+- main.go file
+
+And the query is: "what needs to be done to fix the reference index removal?"
+
+Wait, let me re-read. The query section shows:
+
+"---CONTEXT END---
+
+New Query: what needs to be done to fix the reference index removal?
+
+Please limit your response to 100 words."
+
+So the query is: "what needs to be done to fix the reference index removal?"
+
+This refers to the TODO item: "need to stop removing '[\d+]' indexes from array variables"
+
+Looking at the current main.go code in the `linkifyReferences` function, I can see:
+
+```go
+func linkifyReferences(input string, refs map[string]string) string {
+	re := regexp.MustCompile(`\[(\d+)\]`)
+	result := re.ReplaceAllStringFunc(input, func(match string) string {
+		m := re.FindStringSubmatch(match)
+		if len(m) == 2 {
+			url, ok := refs[m[1]]
+			if ok && m[1] != "" && url != "" {
+				return fmt.Sprintf("[[%s](%s)]", m[1], url)
+			}
+		}
+		return match
+	})
+	return result
+}
+```
+
+The issue is that when a reference isn't found in the map, it returns the match unchanged. But the real problem is that this function is stripping away `[\d+]` patterns that are array indices in code blocks or other contexts where they shouldn't be treated as references. The TODO indicates the function needs to preserve array index notation like `[1]`, `[2]` when they're not actual reference citations. I need to understand where in the processing pipeline these indices are being incorrectly removed and add logic to distinguish between reference markers and array indices. The issue is that linkifyReferences matches any `[digit]` pattern too broadly, including array indices like `array[1]` that shouldn't be modified. The function needs to avoid processing code blocks and inline code when linkifying references, or only linkify patterns that correspond to actual references in the refs map.
 
 
 ---
