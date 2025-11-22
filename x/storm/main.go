@@ -641,7 +641,7 @@ func collectReferences(input string) map[string]string {
 
 // linkifyReferences replaces reference markers with markdown links.
 func linkifyReferences(input string, refs map[string]string) string {
-	re := regexp.MustCompile(`\[(\d+)\]`)
+	re := regexp.MustCompile(`(?<![a-zA-Z0-9_])\[(\d+)\]`)
 	result := re.ReplaceAllStringFunc(input, func(match string) string {
 		m := re.FindStringSubmatch(match)
 		if len(m) == 2 {

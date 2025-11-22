@@ -3,7 +3,7 @@
 - DONE inconsistent display of prompts and responses (not all users see both)
   - was due to read timeout setting -- replaced with ping/pong keepalive
 - need spinner in status box
-- need to stop removing '[\d+]' indexes from array variables
+- DONE need to stop removing '[\d+]' indexes from array variables
 
 # features
 
