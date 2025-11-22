@@ -10876,3 +10876,203 @@ The issue is that when a reference isn't found in the map, it returns the match 
 
 ---
 
+
+
+**plan what it would take to refactor to be able to one daemon on one port number for multiple projects**
+
+
+
+
+# Multi-Project Daemon Architecture Planning
+
+Consolidate multiple projects onto one daemon on one port by implementing URL path-based routing. The refactor requires: creating a project registry mapping project IDs to isolated state (Chat, ClientPool, WebSocket handlers)[1][2]. Modify the HTTP router to route `/project/{projectID}/ws` to project-specific handlers. Each project maintains its own Chat instance, chat history, and client connections. Implement strict namespace isolation to prevent cross-project data leaks. Add a project selection UI or homepage listing available projects. This represents high-effort, high-risk work suitable after core functionality stabilizes[1].
+
+## References
+
+[1] [https://microservices.io/patterns/apigateway.html](https://microservices.io/patterns/apigateway.html)
+[2] [https://github.com/golang/go/wiki/Modules](https://github.com/golang/go/wiki/Modules)
+
+
+
+## References
+
+- [1] [https://learn.microsoft.com/en-us/azure/architecture/guide/multitenant/considerations/tenancy-models](https://learn.microsoft.com/en-us/azure/architecture/guide/multitenant/considerations/tenancy-models)
+- [2] [https://iximiuz.com/en/posts/multiple-containers-same-port-reverse-proxy/](https://iximiuz.com/en/posts/multiple-containers-same-port-reverse-proxy/)
+- [3] [https://kubernetes.io/docs/concepts/services-networking/ingress/](https://kubernetes.io/docs/concepts/services-networking/ingress/)
+- [4] [https://frontegg.com/guides/multi-tenant-architecture](https://frontegg.com/guides/multi-tenant-architecture)
+- [5] [https://itnext.io/run-multiple-isolated-web-applications-on-containers-with-a-single-ip-for-free-52d216f3e810](https://itnext.io/run-multiple-isolated-web-applications-on-containers-with-a-single-ip-for-free-52d216f3e810)
+- [6] [https://kubernetes.io/docs/concepts/services-networking/service/](https://kubernetes.io/docs/concepts/services-networking/service/)
+- [7] [https://github.com/benc-uk/nanoproxy](https://github.com/benc-uk/nanoproxy)
+- [8] [https://github.com/gorilla/mux](https://github.com/gorilla/mux)
+- [9] [https://www.calhoun.io/path-prefix-middleware/](https://www.calhoun.io/path-prefix-middleware/)
+- [10] [https://www.gilesthomas.com/2013/07/sni-based-reverse-proxying-with-golang](https://www.gilesthomas.com/2013/07/sni-based-reverse-proxying-with-golang)
+- [11] [https://builder.aws.com/content/2dfsyEKIb0BDYauZeh4Ugo4oBIz/go-nethttp-package-a-quick-tour-of-the-server-side-apis](https://builder.aws.com/content/2dfsyEKIb0BDYauZeh4Ugo4oBIz/go-nethttp-package-a-quick-tour-of-the-server-side-apis)
+- [12] [https://forum.golangbridge.org/t/gorilla-mux-route-within-route/25510](https://forum.golangbridge.org/t/gorilla-mux-route-within-route/25510)
+
+
+
+## Reasoning
+
+The user is asking me to "plan what it would take to refactor to be able to one daemon on one port number for multiple projects". This is one of the TODO items they provided.
+
+Looking at my instructions at the very top:
+1. I'm a researcher
+2. I should answer the query - which is: "plan what it would take to refactor to be able to one daemon on one port number for multiple projects"
+3. Limit to 100 words
+4. Always start with a markdown heading
+5. Enclose reference numbers in square brackets
+6. Don't include empty square brackets
+
+The current architecture in Storm:
+- One daemon per project
+- Each daemon runs on its own port
+- They want to consolidate to one daemon on one port serving multiple projects
+
+What would need to be done:
+1. Add project identification/routing in the URL path or subdomain
+2. Implement per-project state management (separate Chat instances, clientPools, etc.)
+3. Route incoming connections to the correct project's handler
+4. Maintain separate chat histories and WebSocket connections per project
+5. Implement project isolation to prevent cross-project data leaks
+6. Add project selection UI or URL routing
+
+This is a non-trivial architectural change. Let me provide a concise plan in 100 words.
+
+
+---
+
+
+
+**write a more detailed plan**
+
+
+
+
+# Detailed Multi-Project Daemon Architecture Plan
+
+## Overview
+
+Transform Storm from a single-project-per-daemon model to a multi-project-per-daemon model by implementing URL path-based routing and project-scoped state isolation[1][2]. This enables one daemon on one port to serve unlimited projects, reducing deployment complexity and resource consumption.
+
+## Phase 1: Project Registry and State Isolation
+
+**Create a ProjectRegistry structure** that maps project IDs to isolated project states. Each project maintains its own Chat instance, ClientPool, and WebSocket handler registry[1]. This ensures complete isolation preventing data leaks across projects.
+
+```
+ProjectRegistry {
+  projects map[projectID] → ProjectState
+  ProjectState {
+    chat *Chat
+    clientPool *ClientPool
+    filename string
+    mutex sync.RWMutex
+  }
+}
+```
+
+**Implement project selection logic**: Extract the project ID from the request URL path (e.g., `/project/{projectID}/...`). Use middleware to look up the project in the registry and attach it to the request context[2].
+
+## Phase 2: Routing Architecture
+
+**Update HTTP routing** to use gorilla/mux with dynamic path parameters[3]:
+- `/project/{projectID}/` → main chat page
+- `/project/{projectID}/ws` → WebSocket endpoint
+- `/project/{projectID}/tokencount` → token count
+- `/project/{projectID}/rounds` → round count
+- `/project/{projectID}/open` → file operations
+
+**Create project middleware** that validates project IDs, retrieves the project state from the registry, and injects it into the request context[3]. If a project doesn't exist, return a 404 or redirect to a project selection page.
+
+## Phase 3: WebSocket Handler Refactoring
+
+**Extract WebSocket logic into project-scoped handlers** that accept the project state as a parameter. Each WebSocket connection registers with the correct project's ClientPool[1]:
+
+```go
+func (p *ProjectState) wsHandler(w http.ResponseWriter, r *http.Request) {
+  // Upgrade connection
+  // Register with project's ClientPool
+  // Use project's Chat instance
+}
+```
+
+**Maintain separate client registries per project** so broadcasts don't cross project boundaries[2].
+
+## Phase 4: Frontend Integration
+
+**Add project discovery UI**: Create a landing page listing available projects. Users select a project, then interact with its chat interface[2]. Alternatively, support URL-based access: `http://localhost:8080/project/project-id-123/`.
+
+**Update WebSocket connection** in index.html to use the current project's ID from the URL path when constructing the WebSocket URI.
+
+## Phase 5: Data Persistence
+
+**Project configuration file**: Store project metadata (name, description, markdown file path) in a config file. Load projects on startup[3].
+
+**File isolation**: Ensure each project's markdown file is stored separately, preventing data corruption or mixing.
+
+## Phase 6: Namespace and Security Considerations
+
+**Project ID validation**: Implement strict validation to prevent directory traversal attacks (e.g., reject `../../evil-project`)[2].
+
+**Authentication per project**: When implementing OAuth (TODO item), ensure tokens are scoped to specific projects[4].
+
+**Chat history isolation**: Ensure one project's users cannot access another project's chat history or WebSocket broadcasts[1].
+
+## Phase 7: Deployment and Migration
+
+**Backward compatibility**: Support legacy single-project deployments by auto-creating a default project if none exist.
+
+**Migration tool**: Provide a utility to convert existing single-project data into multi-project format.
+
+**Testing**: Implement integration tests verifying project isolation, concurrent multi-project operations, and data consistency[3].
+
+## Risk Mitigation
+
+**High-risk areas**: Cross-project data leaks through shared state. Mitigate by careful mutex management and thorough testing.
+
+**Performance**: Multiple projects compete for resources. Monitor goroutine count, memory usage, and implement per-project rate limiting if needed.
+
+## Implementation Timeline
+
+- **Phase 1-2**: 2-3 days (core infrastructure)
+- **Phase 3-4**: 2-3 days (WebSocket refactoring + UI)
+- **Phase 5-6**: 1-2 days (persistence + security)
+- **Phase 7**: 1-2 days (testing + migration tools)
+
+**Total estimate**: 1-2 weeks for full implementation and testing.
+
+## References
+
+[1] [https://microservices.io/patterns/apigateway.html](https://microservices.io/patterns/apigateway.html)
+[2] [https://learn.microsoft.com/en-us/azure/architecture/guide/multitenant/considerations/tenancy-models](https://learn.microsoft.com/en-us/azure/architecture/guide/multitenant/considerations/tenancy-models)
+[3] [https://github.com/gorilla/mux](https://github.com/gorilla/mux)
+[4] [https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to write a more detailed plan for refactoring the Storm application to enable one daemon on one port number for multiple projects. They want 500 words and have provided the TODO.md file along with current index.html and main.go files.
+
+Looking at the instructions at the very top of this very long conversation:
+1. I'm a researcher
+2. I should answer the query, not other questions in the context
+3. The query is: "write a more detailed plan"
+4. I should limit my response to 500 words
+5. I should always start my response with a markdown heading
+6. I should always enclose reference numbers in square brackets
+7. I should ignore empty brackets in the prompt or context
+8. I should NOT include empty square brackets in my response
+
+The context shows TODO.md, index.html, and main.go files. The query is asking for a more detailed plan for the multi-project daemon architecture.
+
+Let me write a comprehensive 500-word plan for refactoring Storm to support multiple projects on a single daemon running on a single port.
+
+
+---
+
