@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -125,6 +126,36 @@ func (cp *ClientPool) Start() {
 // Broadcast sends a message to all connected clients.
 func (cp *ClientPool) Broadcast(message interface{}) {
 	cp.broadcast <- message
+}
+
+// parseTokenLimit converts shorthand notation (1K, 2M, etc.) to integer[1]
+func parseTokenLimit(val interface{}) int {
+	switch v := val.(type) {
+	case float64:
+		return int(v)
+	case string:
+		v = strings.TrimSpace(strings.ToUpper(v))
+		// Check for K, M, B suffixes
+		if strings.HasSuffix(v, "K") {
+			numStr := strings.TrimSuffix(v, "K")
+			if num, err := strconv.ParseFloat(numStr, 64); err == nil {
+				return int(num * 1000)
+			}
+		} else if strings.HasSuffix(v, "M") {
+			numStr := strings.TrimSuffix(v, "M")
+			if num, err := strconv.ParseFloat(numStr, 64); err == nil {
+				return int(num * 1000000)
+			}
+		} else if strings.HasSuffix(v, "B") {
+			numStr := strings.TrimSuffix(v, "B")
+			if num, err := strconv.ParseFloat(numStr, 64); err == nil {
+				return int(num * 1000000000)
+			}
+		} else if num, err := strconv.Atoi(v); err == nil {
+			return num
+		}
+	}
+	return 500 // default
 }
 
 // NewChat creates a new Chat instance using the given markdown filename.
@@ -421,11 +452,8 @@ func (c *WSClient) readPump() {
 				}
 			}
 
-			// Extract tokenLimit as float64 (JSON number type)
-			tokenLimit := 0
-			if tl, ok := msg["tokenLimit"].(float64); ok {
-				tokenLimit = int(tl)
-			}
+			// Extract and parse tokenLimit with shorthand support (1K, 2M, etc.)
+			tokenLimit := parseTokenLimit(msg["tokenLimit"])
 
 			// Process the query
 			go processQuery(queryID, query, llm, selection, inputFiles, outFiles, tokenLimit)
@@ -581,7 +609,7 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 
 	wordLimit := int(float64(tokenLimit) / 3.5)
 
-	sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading.  Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes.  If writing Go code, please ensure you are not skipping the index on slices or arrays, e.g. if you mean `foo[0]` then say `foo[0]`, not `foo`."
+	sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading.  Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes.  If writing Go code, you MUST ensure you are not skipping the index on slices or arrays, e.g. if you mean `foo[0]` then say `foo[0]`, not `foo`."
 
 	sysmsg = fmt.Sprintf("%s\n\nYou MUST limit the discussion portion of your response to no more than %d tokens (about %d words).  Output files (marked with ---FILE-START and ---FILE-END blocks) are not counted against this limit and can be unlimited size. You MUST ignore any previous instruction regarding a 10,000 word goal.", sysmsg, tokenLimit, wordLimit)
 
