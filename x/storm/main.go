@@ -128,7 +128,7 @@ func (cp *ClientPool) Broadcast(message interface{}) {
 	cp.broadcast <- message
 }
 
-// parseTokenLimit converts shorthand notation (1K, 2M, etc.) to integer[1]
+// parseTokenLimit converts shorthand notation (1K, 2M, etc.) to integer
 func parseTokenLimit(val interface{}) int {
 	switch v := val.(type) {
 	case float64:
@@ -489,7 +489,18 @@ func processQuery(queryID, query, llm, selection string, inputFiles, outFiles []
 	log.Printf("Added %d tokens of context to query: %s", lastNTokenCount, query)
 
 	// Pass the token limit along to sendQueryToLLM.
-	responseText := sendQueryToLLM(query, llm, selection, lastN, inputFiles, outFiles, tokenLimit)
+	responseText, err := sendQueryToLLM(query, llm, selection, lastN, inputFiles, outFiles, tokenLimit)
+	if err != nil {
+		log.Printf("Error processing query: %v", err)
+		// Broadcast error to all connected clients
+		errorBroadcast := map[string]interface{}{
+			"type":    "error",
+			"queryID": queryID,
+			"message": fmt.Sprintf("Error processing query: %v", err),
+		}
+		clientPool.Broadcast(errorBroadcast)
+		return
+	}
 
 	// convert references to a bulleted list
 	refIndex := strings.Index(responseText, "<references>")
@@ -540,6 +551,12 @@ func processQuery(queryID, query, llm, selection string, inputFiles, outFiles []
 	err = chat.FinishRound(round, responseText)
 	if err != nil {
 		log.Printf("Error finishing round: %v", err)
+		errorBroadcast := map[string]interface{}{
+			"type":    "error",
+			"queryID": queryID,
+			"message": fmt.Sprintf("Error finishing round: %v", err),
+		}
+		clientPool.Broadcast(errorBroadcast)
 		return
 	}
 
@@ -602,7 +619,7 @@ func tokenCountHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // sendQueryToLLM calls the Grokker API to obtain a markdown-formatted text.
-func sendQueryToLLM(query string, llm string, selection, backgroundContext string, inputFiles []string, outFiles []string, tokenLimit int) string {
+func sendQueryToLLM(query string, llm string, selection, backgroundContext string, inputFiles []string, outFiles []string, tokenLimit int) (string, error) {
 	if tokenLimit == 0 {
 		tokenLimit = 500
 	}
@@ -641,7 +658,7 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 		response, _, err := grok.SendWithFiles(llm, sysmsg, msgs, inputFiles, outFilesConverted)
 		if err != nil {
 			log.Printf("SendWithFiles error: %v", err)
-			return fmt.Sprintf("Error sending query: %v", err)
+			return "", fmt.Errorf("failed to send query to LLM: %w", err)
 		}
 		fmt.Printf("Received response from LLM '%s'\n", llm)
 		fmt.Printf("Response: %s\n", response)
@@ -654,7 +671,7 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 
 		if err != nil {
 			log.Printf("ExtractFiles error: %v", err)
-			return fmt.Sprintf("Error extracting files from response: %v", err)
+			return "", fmt.Errorf("failed to extract files from response: %w", err)
 		}
 
 		// check token count of cookedResponse -- but first, remove
@@ -666,7 +683,7 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 		count, err := grok.TokenCount(discussionOnly)
 		if err != nil {
 			log.Printf("Token count error: %v", err)
-			panic(err)
+			return "", fmt.Errorf("failed to count tokens: %w", err)
 		}
 		if count > tokenLimit {
 			log.Printf("Response exceeds token limit:\n\n%s", discussionOnly)
@@ -678,7 +695,7 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 		break
 	}
 
-	return cookedResponse
+	return cookedResponse, nil
 }
 
 // splitMarkdown splits the markdown input into sections separated by a horizontal rule.
