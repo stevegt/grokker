@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -15,10 +16,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/stevegt/grokker/x/storm/split"
 
 	"github.com/gofrs/flock"
+	"github.com/gorilla/websocket"
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker/v3/client"
 	"github.com/stevegt/grokker/v3/core"
@@ -26,714 +29,10 @@ import (
 	"github.com/yuin/goldmark"
 )
 
-var tmpl = template.Must(template.New("index").Parse(`
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Grokker LLM Chat</title>
-  <style>
-    body { 
-      font-family: Arial, sans-serif; 
-      margin: 0; 
-      padding: 0; 
-      background-color: #121212; 
-      color: #e0e0e0;
-    }
-    /* Container for sidebars and main content */
-    #container { display: flex; height: 100vh; }
-    /* Left sidebar for Table of Contents */
-    #sidebar {
-      width: 250px;
-      background-color: #1e1e1e;
-      border-right: 1px solid #333;
-      overflow-y: auto;
-      transition: width 0.3s;
-      padding: 10px;
-    }
-    /* Collapsed sidebar style */
-    #sidebar.collapsed {
-      width: 10px;
-      padding: 0;
-      border: none;
-      overflow: hidden;
-    }
-    /* Shrik the heading in the sidebar */
-    #sidebar h3 { font-size: 0.9em; }
-    /* Main content area */
-    #main {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
-    /* Right sidebar for File I/O */
-    #fileSidebar {
-      width: 250px;
-      background-color: #1e1e1e;
-      border-left: 1px solid #333;
-      padding: 10px;
-      overflow-y: auto;
-    }
-    #fileSidebar h3 { margin-top: 0; }
-    #fileSidebar table { width: 100%; border-collapse: collapse; }
-    #fileSidebar th, #fileSidebar td { border: 1px solid #555; padding: 4px; text-align: center; }
-		#fileSidebar textarea { width: 100%; height: 20%; margin-bottom: 5px; background-color: #333; color: #e0e0e0; border: 1px solid #555; }
-    /* Chat area styles */
-    #chat { padding: 20px; flex: 1; overflow-y: auto; border-bottom: 1px solid #333; }
-    .message { 
-      margin-bottom: 10px; 
-      padding: 5px; 
-      border: 1px solid #444; 
-      border-radius: 4px; 
-      background-color: #252525; 
-    }
-    #spinner-area { padding: 10px; text-align: center; }
-    .spinner {
-      border: 4px solid #555;
-      border-top: 4px solid #3498db;
-      border-radius: 50%;
-      width: 10px;
-      height: 10px;
-      animation: spin 1s linear infinite;
-      display: inline-block;
-      margin-right: 5px;
-    }
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-    /* Updated input area using CSS Grid to span userInput and statusBox across two rows */
-    #input-area { 
-      background: #1e1e1e; 
-      padding: 10px; 
-      box-shadow: 0 -2px 5px rgba(0,0,0,0.1);
-      display: grid;
-      grid-template-areas: 
-        "llmSelect userInput sendBtn statusBox stopBtn"
-        "wordCount   userInput  .       statusBox .";
-      grid-template-columns: auto 1fr auto auto auto;
-      grid-template-rows: auto auto;
-      gap: 5px;
-    }
-    textarea { 
-      width: 100%; 
-      height: 100%; 
-      background-color: #333;
-      color: #e0e0e0;
-      border: 1px solid #555;
-    }
-    select { 
-      background-color: #333;
-      color: #e0e0e0;
-      border: 1px solid #555;
-    }
-    input[type="number"] { 
-      width: 80px; 
-      height: 20px; 
-      font-size: 12px; 
-      padding: 5px; 
-      background-color: #333;
-      color: #e0e0e0;
-      border: 1px solid #555;
-    }
-    button {
-      background-color: #333;
-      color: #e0e0e0;
-      border: 1px solid #555;
-      padding: 10px 15px;
-      cursor: pointer;
-    }
-    button:hover {
-      background-color: #444;
-    }
-    /* Custom style for the stop button to shrink its size and font */
-    #stopBtn {
-      font-size: 10px;
-      padding: 5px 10px;
-    }
-    #statusBox { 
-      display: inline-block; 
-      font-size: 11px; 
-    }
-    /* Red stop sign for error indication in status box */
-    #errorSign {
-      display: none;
-      color: red;
-      font-size: 16px;
-      margin-left: 5px;
-    }
-    /* Toggle button for sidebar */
-    #toggle-sidebar {
-      background-color: #3498db;
-      color: #e0e0e0;
-      border: 1px solid #555;
-      padding: 5px 10px;
-      cursor: pointer;
-      margin-bottom: 10px;
-      position: sticky;
-      top: 0;
-      z-index: 100;
-    }
-    /* Table of Contents links */
-    #toc a {
-      text-decoration: none;
-      color: #ddd;
-      padding: 4px;
-      display: block;
-    }
-    #toc a:hover {
-      background-color: #444;
-    }
-    /* Dark scrollbar styles */
-    ::-webkit-scrollbar {
-      width: 12px;
-      height: 12px;
-    }
-    ::-webkit-scrollbar-track {
-      background: #1e1e1e;
-    }
-    ::-webkit-scrollbar-thumb {
-      background-color: #444;
-      border: 2px solid #1e1e1e;
-      border-radius: 6px;
-    }
-  </style>
-</head>
-<body>
-  <div id="container">
-    <div id="sidebar">
-      <button id="toggle-sidebar">TOC</button>
-      <h3>Table of Contents</h3>
-      <div id="toc">
-        <!-- TOC will be generated here -->
-      </div>
-    </div>
-    <div id="main">
-      <div id="chat">
-        <!-- Chat messages will appear here -->
-        {{.ChatHTML}}
-      </div>
-      <div id="spinner-area">
-        <!-- Progress spinners will appear here -->
-      </div>
-      <div id="input-area">
-        <select id="llmSelect" style="grid-area: llmSelect;">
-          <option value="sonar-deep-research">sonar-deep-research</option>
-          <option value="sonar-reasoning">sonar-reasoning</option>
-          <option value="o3-mini">o3-mini</option>
-        </select>
-        <textarea id="userInput" placeholder="Enter query" style="grid-area: userInput;"></textarea>
-        <button id="sendBtn" style="grid-area: sendBtn;">Send</button>
-        <span id="statusBox" style="grid-area: statusBox;">
-          <span id="tokenCountText">Token Count: 0</span>
-          <br>
-          <span id="roundsStats">Rounds:</span>
-          <br>
-          <span id="progressStats">Progress:</span>
-          <br>
-          <span id="statusSpinner" style="display:none;" class="spinner"></span>
-          <span id="errorSign">⛔</span>
-        </span>
-        <button id="stopBtn" style="grid-area: stopBtn;">Stop<br>Server</button>
-        <div id="wordCountContainer" style="grid-area: wordCount;">
-          <label for="wordCount">Word Count</label>
-          <input type="number" id="wordCount" min="1" placeholder="100">
-          <div id="presetButtons">
-            <button type="button" class="preset-wordcount" data-word="100" style="font-size:10px; padding:2px 5px; margin:2px;">100</button>
-            <button type="button" class="preset-wordcount" data-word="300" style="font-size:10px; padding:2px 5px; margin:2px;">300</button>
-            <button type="button" class="preset-wordcount" data-word="500" style="font-size:10px; padding:2px 5px; margin:2px;">500</button>
-            <button type="button" class="preset-wordcount" data-word="700" style="font-size:10px; padding:2px 5px; margin:2px;">700</button>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div id="fileSidebar">
-      <h3>Files</h3>
-      <label style="display:block; margin-bottom:5px;"><input type="checkbox" id="selectAllFiles"> All/None</label>
-      <table>
-        <thead>
-          <tr>
-            <th>In</th>
-            <th>Out</th>
-            <th>Filename</th>
-            <th>Remove</th>
-          </tr>
-        </thead>
-        <tbody id="fileList">
-          <!-- File list will be rendered here -->
-        </tbody>
-      </table>
-      <div id="newFileEntry">
-        <label><input type="checkbox" id="newFileIn"> In</label>
-        <label><input type="checkbox" id="newFileOut"> Out</label>
-        <textarea id="newFilenames" placeholder="Enter one filename per line"></textarea>
-        <button id="addFileBtn">Add</button>
-      </div>
-    </div>
-  </div>
-  <script>
-    // Helper functions for managing cookies.
-    function setCookie(name, value, days) {
-      var expires = "";
-      if (days) {
-        var date = new Date();
-        date.setTime(date.getTime() + (days*24*60*60*1000));
-        expires = "; expires=" + date.toUTCString();
-      }
-      document.cookie = name + "=" + (value || "")  + expires + "; path=/";
-    }
-    function getCookie(name) {
-      var nameEQ = name + "=";
-      var ca = document.cookie.split(';');
-      for(var i=0; i < ca.length; i++) {
-        var c = ca[i].trim();
-        if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length, c.length);
-      }
-      return null;
-    }
+//go:embed index.html
+var indexHTML string
 
-    // Global counter for outstanding queries.
-    var outstandingQueries = 0;
-    // Updates the spinner in the status box based on the current outstanding query count.
-    function updateStatusSpinner() {
-      var spinner = document.getElementById("statusSpinner");
-      if (outstandingQueries > 0) {
-        spinner.style.display = "inline-block";
-      } else {
-        spinner.style.display = "none";
-      }
-    }
-
-    // Show the error stop sign. Once shown, it remains visible until the page is reloaded.
-    function showErrorSign() {
-      var errorSign = document.getElementById("errorSign");
-      if (errorSign) {
-        errorSign.style.display = "inline-block";
-      }
-    }
-
-    // Generate a Table of Contents from headings in the chat
-    function generateTOC() {
-      var chat = document.getElementById("chat");
-      var headings = chat.querySelectorAll("h1, h2, h3, h4, h5, h6");
-      var toc = document.getElementById("toc");
-      toc.innerHTML = "";
-      headings.forEach(function(heading, index) {
-        if (!heading.id) {
-          heading.id = "heading-" + index;
-        }
-        // Determine heading level and create link with indentation and font size
-        var level = parseInt(heading.tagName.substring(1));
-        var link = document.createElement("a");
-        link.href = "#" + heading.id;
-        link.textContent = heading.textContent;
-        // Bold top-level links (h1)
-        if(level === 1) {
-          link.style.fontWeight = "bold";
-        }
-        // Indent based on level, e.g. 20px per sub-level
-        link.style.marginLeft = ((level - 1) * 20) + "px";
-        // Adjust font size based on heading level (shrunk from original values)
-        var fontSize = Math.max(1.0 - 0.1 * (level - 1), 0.7);
-        link.style.fontSize = fontSize + "em";
-        toc.appendChild(link);
-      });
-    }
-    // Call generateTOC and other initializations when the DOM content is loaded.
-    document.addEventListener("DOMContentLoaded", function() {
-      generateTOC();
-      // Toggle sidebar visibility
-      var sidebar = document.getElementById("sidebar");
-      document.getElementById("toggle-sidebar").addEventListener("click", function() {
-        if (sidebar.classList.contains("collapsed")) {
-          sidebar.classList.remove("collapsed");
-        } else {
-          sidebar.classList.add("collapsed");
-        }
-      });
-      // Add preset word count buttons functionality.
-      document.querySelectorAll('.preset-wordcount').forEach(function(btn) {
-        btn.addEventListener('click', function() {
-          document.getElementById('wordCount').value = this.getAttribute('data-word');
-        });
-      });
-      // Initialize All/None checkbox for file list.
-      var selectAll = document.getElementById("selectAllFiles");
-      if (selectAll) {
-        selectAll.addEventListener("change", function() {
-          var checked = this.checked;
-          var fileInCheckboxes = document.querySelectorAll("#fileList input.fileIn");
-          var fileOutCheckboxes = document.querySelectorAll("#fileList input.fileOut");
-          fileInCheckboxes.forEach(function(cb) {
-            cb.checked = checked;
-            cb.dispatchEvent(new Event("change"));
-          });
-          fileOutCheckboxes.forEach(function(cb) {
-            cb.checked = false;
-            cb.dispatchEvent(new Event("change"));
-          });
-        });
-      }
-      // scroll to the bookmarked round 
-      var bookmark = getCookie("bookmark_round");
-      if (bookmark) {
-        var round = parseInt(bookmark);
-        var chat = document.getElementById("chat");
-        var hrTags = chat.getElementsByTagName("hr");
-        if (round > 0 && round <= hrTags.length) {
-          console.log("Scrolling to round:", round);
-          chat.scrollTop = hrTags[round - 1].offsetTop;
-        }
-      }
-      updateProgressStats();
-      initFileIO();
-    });
-
-    // Append a new message to the chat view without scrolling the page.
-    function appendMessage(content) {
-      var chat = document.getElementById("chat");
-      var messageDiv = document.createElement("div");
-      messageDiv.className = "message";
-      messageDiv.innerHTML = content;
-      // Instead of auto-scrolling or saving scroll position,
-      // we simply append the content and let the browser handle it without scrolling.
-      chat.appendChild(messageDiv);
-      generateTOC();
-    }
-
-    // Send query to the /query endpoint.
-    // Each query is immediately added to the chat with a 10px spinner and a Cancel button.
-    // When the LLM response is received the spinner is removed and replaced by the response.
-    function sendQuery(query, llm, selection, wordCount) {
-      var chat = document.getElementById("chat");
-      var messageDiv = document.createElement("div");
-      messageDiv.className = "message";
-      if (selection === "") {
-        messageDiv.innerHTML = "<strong>" + query + "</strong>";
-      } else {
-        messageDiv.innerHTML = "<strong>" + query + " [" + selection + "]</strong>";
-      }
-      // create a <br> before the spinner and cancel button
-      messageDiv.innerHTML += "<br>";
-      // Create a spinner element next to the query.
-      var spinner = document.createElement("span");
-      spinner.className = "spinner";
-      spinner.style.marginLeft = "10px";
-      messageDiv.appendChild(spinner);
-      // Create a Cancel button next to the spinner.
-      var cancelBtn = document.createElement("button");
-      cancelBtn.textContent = "Cancel";
-      cancelBtn.style.marginLeft = "5px";
-      messageDiv.appendChild(cancelBtn);
-      chat.appendChild(messageDiv);
-      generateTOC();
-
-      // Increment global outstanding query count and update status spinner.
-      outstandingQueries++;
-      updateStatusSpinner();
-
-      // Create an abort controller to cancel the fetch request.
-      var abortController = new AbortController();
-
-      // When the user clicks the Cancel button, abort the request and remove the message.
-      cancelBtn.addEventListener("click", function() {
-        abortController.abort();
-        messageDiv.remove();
-        // Decrement outstanding queries and update status spinner when cancelled.
-        outstandingQueries--;
-        updateStatusSpinner();
-        generateTOC();
-      });
-
-      // Gather file I/O selections from the file sidebar.
-      var fileSelection = getSelectedFiles();
-
-      fetch("/query", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        signal: abortController.signal,
-        body: JSON.stringify({ 
-          query: query, 
-          llm: llm, 
-          selection: selection,
-          inputFiles: fileSelection.inputFiles,
-          outFiles: fileSelection.outFiles,
-          wordCount: wordCount
-        })
-      }).then(function(response) {
-        return response.json();
-      }).then(function(data) {
-        // Remove the spinner and cancel button once the response is received.
-        spinner.remove();
-        cancelBtn.remove();
-        var responseDiv = document.createElement("div");
-        responseDiv.innerHTML = data.response;
-        // If the messageDiv is still in the document (i.e. not cancelled), append the response.
-        if (document.body.contains(messageDiv)) {
-          messageDiv.appendChild(responseDiv);
-          updateTokenCount();
-          generateTOC();
-          updateProgressStats();
-        }
-        // Decrement outstanding queries and update status spinner.
-        outstandingQueries--;
-        updateStatusSpinner();
-      }).catch(function(err) {
-        if (err.name === "AbortError") {
-          return;
-        }
-        spinner.remove();
-        cancelBtn.remove();
-        var errorDiv = document.createElement("div");
-        errorDiv.textContent = "Error: " + err;
-        messageDiv.appendChild(errorDiv);
-        // Show red stop sign in the status box in case of error.
-        showErrorSign();
-        // Decrement outstanding queries and update status spinner.
-        outstandingQueries--;
-        updateStatusSpinner();
-      });
-    }
-
-    // Poll the /tokencount endpoint to update the token count.
-    function updateTokenCount() {
-      fetch("/tokencount")
-        .then(function(response) { return response.json(); })
-        .then(function(data) {
-          var tokenCountText = document.getElementById("tokenCountText");
-          tokenCountText.textContent = "Token Count: " + data.tokens;
-        })
-        .catch(function(err) {
-          console.error("Error fetching token count:", err);
-        });
-    }
-
-    // Updates progress stats by counting the number of <hr> tags above the current scroll position
-    // and fetching the total round count from the server.
-    function updateProgressStats() {
-      var chatElem = document.getElementById("chat");
-      var hrTags = chatElem.getElementsByTagName("hr");
-      var currentRound = 0;
-      // Count the number of <hr> tags that are above the current scroll top
-      for (var i = 0; i < hrTags.length; i++) {
-        var hrPos = hrTags[i].offsetTop;
-        if (hrPos < chatElem.scrollTop) {
-          currentRound++;
-        }
-      }
-      // Bookmark the current round in a cookie (for one year)
-      setCookie("bookmark_round", currentRound, 365);
-      fetch("/rounds")
-        .then(function(response) { return response.json(); })
-        .then(function(data) {
-          var total = data.rounds;
-          var remaining = total - currentRound;
-          var percentage = total > 0 ? Math.round((currentRound / total) * 100) : 0;
-          var roundsElem = document.getElementById("roundsStats");
-          var progressElem = document.getElementById("progressStats");
-          if(roundsElem) {
-            // Rounds: total - current = remaining 
-            roundsElem.textContent = "Rounds: " + total + " - " + currentRound + " = " + remaining;
-          }
-          if(progressElem) {
-            // Progress: N%
-            progressElem.textContent = "Progress: " + percentage + "%";
-          }
-        })
-        .catch(function(err) {
-          console.error("Error fetching rounds count:", err);
-        });
-    }
-
-    // Add scroll event listener on the chat element to update progress stats and update bookmark.
-    document.getElementById("chat").addEventListener("scroll", updateProgressStats);
-    updateTokenCount(); // Initial token count fetch
-
-    // Handle click on the Send button.
-    document.getElementById("sendBtn").addEventListener("click", function() {
-      var input = document.getElementById("userInput");
-      var query = input.value;
-      if(query.trim() === "") return;
-      var llm = document.getElementById("llmSelect").value;
-      var wordCountElem = document.getElementById("wordCount");
-      // default to 0 if empty or invalid
-      var wordCount = 0;
-      if(wordCountElem) {
-         wordCount = parseInt(wordCountElem.value, 10) || 0;
-      }
-      sendQuery(query, llm, "", wordCount);
-      input.value = "";
-      // Do not clear the word count input so the value persists.
-    });
-
-    // Handle click on the Stop Server button.
-    document.getElementById("stopBtn").addEventListener("click", function() {
-      if(confirm("Are you sure you want to stop the server?")) {
-        fetch("/stop", { method: "POST" })
-          .then(function(response) {
-            if(response.ok) {
-              console.log("Server is stopping...");
-            }
-          })
-          .catch(function(err) {
-            console.error("Error stopping server:", err);
-          });
-      }
-    });
-
-    // --- File I/O using IndexedDB ---
-    var db;
-    function initFileIO() {
-      var request = indexedDB.open("fileIODB", 1);
-      request.onerror = function(event) {
-        console.error("IndexedDB error:", event.target.error);
-      };
-      request.onupgradeneeded = function(event) {
-        db = event.target.result;
-        if (!db.objectStoreNames.contains("files")) {
-          var store = db.createObjectStore("files", { keyPath: "filename" });
-          store.createIndex("by_filename", "filename", { unique: true });
-        }
-      };
-      request.onsuccess = function(event) {
-        db = event.target.result;
-        loadFileList();
-      };
-    }
-    function loadFileList() {
-      var transaction = db.transaction(["files"], "readonly");
-      var store = transaction.objectStore("files");
-      var request = store.getAll();
-      request.onsuccess = function(event) {
-        var files = event.target.result;
-        renderFileList(files);
-      };
-    }
-    function saveFileEntry(fileEntry) {
-      var transaction = db.transaction(["files"], "readwrite");
-      var store = transaction.objectStore("files");
-      store.put(fileEntry);
-    }
-    function removeFileEntry(filename) {
-      var transaction = db.transaction(["files"], "readwrite");
-      var store = transaction.objectStore("files");
-      var request = store.delete(filename);
-      request.onsuccess = function(event) {
-        loadFileList();
-      };
-      request.onerror = function(event) {
-        console.error("Failed to delete file:", filename);
-      };
-    }
-    function renderFileList(files) {
-      var fileListElem = document.getElementById("fileList");
-      fileListElem.innerHTML = "";
-      files.forEach(function(file) {
-        var tr = document.createElement("tr");
-        var tdIn = document.createElement("td");
-        var inCheckbox = document.createElement("input");
-        inCheckbox.type = "checkbox";
-        inCheckbox.checked = file.in || false;
-        inCheckbox.className = "fileIn";
-        inCheckbox.addEventListener("change", function() {
-          file.in = inCheckbox.checked;
-          saveFileEntry(file);
-        });
-        tdIn.appendChild(inCheckbox);
-        var tdOut = document.createElement("td");
-        var outCheckbox = document.createElement("input");
-        outCheckbox.type = "checkbox";
-        outCheckbox.checked = file.out || false;
-        outCheckbox.className = "fileOut";
-        outCheckbox.addEventListener("change", function() {
-          file.out = outCheckbox.checked;
-          saveFileEntry(file);
-        });
-        tdOut.appendChild(outCheckbox);
-        var tdName = document.createElement("td");
-        var link = document.createElement("a");
-        link.href = "/open?filename=" + encodeURIComponent(file.filename);
-        link.target = "_blank";
-        link.textContent = file.filename;
-        tdName.appendChild(link);
-        tr.appendChild(tdIn);
-        tr.appendChild(tdOut);
-        tr.appendChild(tdName);
-        var tdRemove = document.createElement("td");
-        var removeBtn = document.createElement("button");
-        removeBtn.textContent = "x";
-        removeBtn.title = "Remove this file from the list";
-        removeBtn.style.fontSize = "10px";
-        removeBtn.style.padding = "2px 5px";
-        removeBtn.addEventListener("click", function() {
-          removeFileEntry(file.filename);
-        });
-        tdRemove.appendChild(removeBtn);
-        tr.appendChild(tdRemove);
-        fileListElem.appendChild(tr);
-      });
-    }
-    // Function to check if a file exists on the server using a HEAD request.
-    function checkFileExists(filename) {
-      return fetch("/open?filename=" + encodeURIComponent(filename), { method: "HEAD" })
-        .then(function(response) {
-          return response.status === 200;
-        })
-        .catch(function(err) {
-          return false;
-        });
-    }
-    // Modified event listener for bulk-adding filenames.
-    document.getElementById("addFileBtn").addEventListener("click", function() {
-      var text = document.getElementById("newFilenames").value;
-      var lines = text.split("\n").map(function(line) { return line.trim(); }).filter(function(line) { return line !== ""; });
-      if(lines.length === 0) return;
-      // Check existence of each filename.
-      Promise.all(lines.map(function(fn) { return checkFileExists(fn); }))
-      .then(function(results) {
-        for (var i = 0; i < results.length; i++) {
-          if (!results[i]) {
-            alert("File does not exist: " + lines[i]);
-            return;
-          }
-        }
-        // If all files exist, add each to the file list.
-        lines.forEach(function(newFilename) {
-          var newFileEntry = {
-            filename: newFilename,
-            in: document.getElementById("newFileIn").checked,
-            out: document.getElementById("newFileOut").checked
-          };
-          saveFileEntry(newFileEntry);
-        });
-        loadFileList();
-        document.getElementById("newFilenames").value = "";
-        document.getElementById("newFileIn").checked = false;
-        document.getElementById("newFileOut").checked = false;
-      });
-    });
-    function getSelectedFiles() {
-      var inputFiles = [];
-      var outFiles = [];
-      var rows = document.getElementById("fileList").getElementsByTagName("tr");
-      for (var i = 0; i < rows.length; i++) {
-        var cells = rows[i].getElementsByTagName("td");
-        if(cells.length < 3) continue;
-        var inChecked = cells[0].querySelector("input").checked;
-        var outChecked = cells[1].querySelector("input").checked;
-        var filename = cells[2].textContent;
-        if(inChecked) inputFiles.push(filename);
-        if(outChecked) outFiles.push(filename);
-      }
-      return { inputFiles: inputFiles, outFiles: outFiles };
-    }
-    // --- End File I/O code ---
-  </script>
-</body>
-</html>
-`))
+var tmpl = template.Must(template.New("index").Parse(indexHTML))
 
 // QueryRequest represents a user's query input.
 type QueryRequest struct {
@@ -742,7 +41,8 @@ type QueryRequest struct {
 	Selection  string   `json:"selection"`
 	InputFiles []string `json:"inputFiles"`
 	OutFiles   []string `json:"outFiles"`
-	WordCount  int      `json:"wordCount"`
+	TokenLimit int      `json:"tokenLimit"`
+	QueryID    string   `json:"queryID"`
 }
 
 // QueryResponse represents the LLM's response.
@@ -758,9 +58,104 @@ type ChatRound struct {
 
 // Chat encapsulates chat history and synchronization.
 type Chat struct {
-	mutex    sync.Mutex
+	mutex    sync.RWMutex
 	history  []*ChatRound
 	filename string
+}
+
+// WebSocket client connection.
+type WSClient struct {
+	conn *websocket.Conn
+	send chan interface{}
+	pool *ClientPool
+	id   string
+}
+
+// ClientPool manages all connected WebSocket clients.
+type ClientPool struct {
+	clients    map[*WSClient]bool
+	broadcast  chan interface{}
+	register   chan *WSClient
+	unregister chan *WSClient
+	mutex      sync.RWMutex
+}
+
+// NewClientPool creates a new client pool.
+func NewClientPool() *ClientPool {
+	return &ClientPool{
+		clients:    make(map[*WSClient]bool),
+		broadcast:  make(chan interface{}, 256),
+		register:   make(chan *WSClient),
+		unregister: make(chan *WSClient),
+	}
+}
+
+// Start begins the client pool's broadcast loop.
+func (cp *ClientPool) Start() {
+	for {
+		select {
+		case client := <-cp.register:
+			cp.mutex.Lock()
+			cp.clients[client] = true
+			cp.mutex.Unlock()
+			log.Printf("Client %s registered, total clients: %d", client.id, len(cp.clients))
+
+		case client := <-cp.unregister:
+			cp.mutex.Lock()
+			if _, ok := cp.clients[client]; ok {
+				delete(cp.clients, client)
+				close(client.send)
+			}
+			cp.mutex.Unlock()
+			log.Printf("Client %s unregistered, total clients: %d", client.id, len(cp.clients))
+
+		case message := <-cp.broadcast:
+			cp.mutex.RLock()
+			for client := range cp.clients {
+				select {
+				case client.send <- message:
+				default:
+					// Client's send channel is full, skip
+				}
+			}
+			cp.mutex.RUnlock()
+		}
+	}
+}
+
+// Broadcast sends a message to all connected clients.
+func (cp *ClientPool) Broadcast(message interface{}) {
+	cp.broadcast <- message
+}
+
+// parseTokenLimit converts shorthand notation (1K, 2M, etc.) to integer
+func parseTokenLimit(val interface{}) int {
+	switch v := val.(type) {
+	case float64:
+		return int(v)
+	case string:
+		v = strings.TrimSpace(strings.ToUpper(v))
+		// Check for K, M, B suffixes
+		if strings.HasSuffix(v, "K") {
+			numStr := strings.TrimSuffix(v, "K")
+			if num, err := strconv.ParseFloat(numStr, 64); err == nil {
+				return int(num * 1000)
+			}
+		} else if strings.HasSuffix(v, "M") {
+			numStr := strings.TrimSuffix(v, "M")
+			if num, err := strconv.ParseFloat(numStr, 64); err == nil {
+				return int(num * 1000000)
+			}
+		} else if strings.HasSuffix(v, "B") {
+			numStr := strings.TrimSuffix(v, "B")
+			if num, err := strconv.ParseFloat(numStr, 64); err == nil {
+				return int(num * 1000000000)
+			}
+		} else if num, err := strconv.Atoi(v); err == nil {
+			return num
+		}
+	}
+	return 500 // default
 }
 
 // NewChat creates a new Chat instance using the given markdown filename.
@@ -794,8 +189,8 @@ func NewChat(filename string) *Chat {
 
 // TotalRounds returns the total number of chat rounds.
 func (c *Chat) TotalRounds() int {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
 	return len(c.history)
 }
 
@@ -871,8 +266,8 @@ func (c *Chat) FinishRound(r *ChatRound, response string) error {
 // getHistory returns the chat history as markdown.
 func (c *Chat) getHistory(lock bool) string {
 	if lock {
-		c.mutex.Lock()
-		defer c.mutex.Unlock()
+		c.mutex.RLock()
+		defer c.mutex.RUnlock()
 	}
 	var result string
 	for _, msg := range c.history {
@@ -891,8 +286,24 @@ func (c *Chat) getHistory(lock bool) string {
 var chat *Chat
 var grok *core.Grokker
 var srv *http.Server
+var clientPool *ClientPool
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true // Allow all origins for now
+	},
+}
+
+const (
+	pingInterval = 20 * time.Second
+	pongWait     = 60 * time.Second
+)
 
 func main() {
+
+	fmt.Println("index.html length:", len(indexHTML))
+
 	fmt.Println("storm v0.0.75")
 	port := flag.Int("port", 8080, "port to listen on")
 	filePtr := flag.String("file", "", "markdown file to store chat history")
@@ -910,6 +321,8 @@ func main() {
 	defer lock.Unlock()
 
 	chat = NewChat(*filePtr)
+	clientPool = NewClientPool()
+	go clientPool.Start()
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Received request for %s", r.URL.Path)
@@ -925,7 +338,7 @@ func main() {
 		}
 	})
 
-	http.HandleFunc("/query", queryHandler)
+	http.HandleFunc("/ws", wsHandler)
 	http.HandleFunc("/tokencount", tokenCountHandler)
 	http.HandleFunc("/rounds", roundsHandler)
 	http.HandleFunc("/stop", stopHandler)
@@ -937,6 +350,223 @@ func main() {
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
+}
+
+// wsHandler handles WebSocket connections.
+func wsHandler(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WebSocket upgrade error: %v", err)
+		return
+	}
+
+	client := &WSClient{
+		conn: conn,
+		send: make(chan interface{}, 256),
+		pool: clientPool,
+		id:   fmt.Sprintf("client-%d", len(clientPool.clients)),
+	}
+
+	// Set up ping/pong handlers for keepalive
+	conn.SetReadDeadline(time.Now().Add(pongWait))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
+	clientPool.register <- client
+
+	go client.writePump()
+	go client.readPump()
+}
+
+// writePump writes messages to the WebSocket client and sends periodic pings.
+func (c *WSClient) writePump() {
+	ticker := time.NewTicker(pingInterval)
+	defer func() {
+		ticker.Stop()
+		c.conn.Close()
+	}()
+
+	for {
+		select {
+		case message, ok := <-c.send:
+			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if !ok {
+				// Client pool closed the send channel
+				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			if err := c.conn.WriteJSON(message); err != nil {
+				log.Printf("WebSocket write error: %v", err)
+				return
+			}
+		case <-ticker.C:
+			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				log.Printf("WebSocket ping error: %v", err)
+				return
+			}
+		}
+	}
+}
+
+// readPump reads messages from the WebSocket client and processes queries.
+func (c *WSClient) readPump() {
+	defer func() {
+		c.pool.unregister <- c
+		c.conn.Close()
+	}()
+
+	for {
+		var msg map[string]interface{}
+		if err := c.conn.ReadJSON(&msg); err != nil {
+			log.Printf("WebSocket read error: %v", err)
+			break
+		}
+
+		// Handle incoming query messages from clients
+		if msgType, ok := msg["type"].(string); ok && msgType == "query" {
+			log.Printf("Received query from %s: %v", c.id, msg)
+
+			// Extract query parameters
+			query, _ := msg["query"].(string)
+			llm, _ := msg["llm"].(string)
+			selection, _ := msg["selection"].(string)
+			queryID, _ := msg["queryID"].(string)
+
+			// Extract arrays
+			var inputFiles, outFiles []string
+			if inputFilesRaw, ok := msg["inputFiles"].([]interface{}); ok {
+				for _, f := range inputFilesRaw {
+					if s, ok := f.(string); ok {
+						inputFiles = append(inputFiles, s)
+					}
+				}
+			}
+			if outFilesRaw, ok := msg["outFiles"].([]interface{}); ok {
+				for _, f := range outFilesRaw {
+					if s, ok := f.(string); ok {
+						outFiles = append(outFiles, s)
+					}
+				}
+			}
+
+			// Extract and parse tokenLimit with shorthand support (1K, 2M, etc.)
+			tokenLimit := parseTokenLimit(msg["tokenLimit"])
+
+			// Process the query
+			go processQuery(queryID, query, llm, selection, inputFiles, outFiles, tokenLimit)
+		}
+	}
+}
+
+// processQuery processes a query and broadcasts results to all clients.
+func processQuery(queryID, query, llm, selection string, inputFiles, outFiles []string, tokenLimit int) {
+	// Broadcast the query to all clients
+	queryBroadcast := map[string]interface{}{
+		"type":    "query",
+		"query":   query,
+		"queryID": queryID,
+	}
+	clientPool.Broadcast(queryBroadcast)
+
+	round := chat.StartRound(query, selection)
+
+	history := chat.getHistory(true)
+	// add the last TailLength characters of the chat history as context.
+	const TailLength = 300000
+	startIndex := len(history) - TailLength
+	if startIndex < 0 {
+		startIndex = 0
+	}
+	lastN := history[startIndex:]
+	lastNTokenCount, err := grok.TokenCount(lastN)
+	if err != nil {
+		log.Printf("Token count error: %v", err)
+		lastNTokenCount = 0
+	}
+	log.Printf("Added %d tokens of context to query: %s", lastNTokenCount, query)
+
+	// Pass the token limit along to sendQueryToLLM.
+	responseText, err := sendQueryToLLM(query, llm, selection, lastN, inputFiles, outFiles, tokenLimit)
+	if err != nil {
+		log.Printf("Error processing query: %v", err)
+		// Broadcast error to all connected clients
+		errorBroadcast := map[string]interface{}{
+			"type":    "error",
+			"queryID": queryID,
+			"message": fmt.Sprintf("Error processing query: %v", err),
+		}
+		clientPool.Broadcast(errorBroadcast)
+		return
+	}
+
+	// convert references to a bulleted list
+	refIndex := strings.Index(responseText, "<references>")
+	if refIndex != -1 {
+		refEndIndex := strings.Index(responseText, "</references>") + len("</references>")
+		firstRefIndex := refIndex + len("<references>")
+		references := strings.Split(responseText[firstRefIndex:], "\n")
+		var refLines []string
+		for _, line := range references {
+			line = strings.TrimSpace(line)
+			if line == "</references>" {
+				break
+			}
+			if line == "" {
+				continue
+			}
+
+			regex := `^\s*\[(\d+)\]\s*(http[s]?://\S+)\s*$`
+			re := regexp.MustCompile(regex)
+			m := re.FindStringSubmatch(line)
+			if len(m) > 0 {
+				line = fmt.Sprintf("- [%s] [%s](%s)", m[1], m[2], m[2])
+			}
+
+			refLines = append(refLines, line)
+		}
+		beforeRefs := responseText[:refIndex]
+		refHead := "\n\n## References\n\n"
+		afterRefs := responseText[refEndIndex:]
+		responseText = beforeRefs + refHead + strings.Join(refLines, "\n") + "\n" + afterRefs
+	}
+
+	// move the <think> section to the end of the response
+	thinkIndex := strings.Index(responseText, "<think>")
+	if thinkIndex != -1 {
+		thinkEndIndex := strings.Index(responseText, "</think>") + len("</think>")
+		if thinkEndIndex > thinkIndex {
+			thinkSection := responseText[thinkIndex:thinkEndIndex]
+			responseText = responseText[:thinkIndex] + responseText[thinkEndIndex:]
+			responseText += "\n\n" + thinkSection
+		} else {
+			log.Printf("Malformed <think> section in response: %s", responseText)
+		}
+	}
+	replacer := strings.NewReplacer("<think>", "## Reasoning\n", "</think>", "")
+	responseText = replacer.Replace(responseText)
+
+	err = chat.FinishRound(round, responseText)
+	if err != nil {
+		log.Printf("Error finishing round: %v", err)
+		errorBroadcast := map[string]interface{}{
+			"type":    "error",
+			"queryID": queryID,
+			"message": fmt.Sprintf("Error finishing round: %v", err),
+		}
+		clientPool.Broadcast(errorBroadcast)
+		return
+	}
+
+	// Broadcast the response to all connected clients
+	responseBroadcast := map[string]interface{}{
+		"type":     "response",
+		"queryID":  queryID,
+		"response": markdownToHTML(responseText) + "\n\n<hr>\n\n",
+	}
+	clientPool.Broadcast(responseBroadcast)
 }
 
 // openHandler serves a file based on the filename query parameter.
@@ -962,7 +592,6 @@ func stopHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Server stopping"))
-	// Shutdown the server gracefully in a separate goroutine.
 	go func() {
 		if err := srv.Shutdown(context.Background()); err != nil {
 			log.Printf("Error shutting down server: %v", err)
@@ -977,116 +606,9 @@ func roundsHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]int{"rounds": rounds})
 }
 
-var TailLength = 300000
-
-// queryHandler processes each query, sends it to the Grokker API,
-// updates the markdown file with the current chat state, and returns the LLM response as HTML.
-func queryHandler(w http.ResponseWriter, r *http.Request) {
-	log.Printf("Received query request: %s", r.URL.Path)
-	if r.Method != "POST" {
-		log.Printf("Method not allowed: %s", r.Method)
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	var req QueryRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Printf("error decoding request body: %v", err)
-		http.Error(w, "Bad request: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// Removed word count manipulation from here.
-	round := chat.StartRound(req.Query, req.Selection)
-	history := chat.getHistory(false)
-	// add the last TailLength characters of the chat history as context.
-	// XXX should really use embeddings and a vector db to find relevant context.
-	startIndex := len(history) - TailLength
-	if startIndex < 0 {
-		startIndex = 0
-	}
-	lastN := history[startIndex:]
-	lastNTokenCount, err := grok.TokenCount(lastN)
-	if err != nil {
-		log.Printf("Token count error: %v", err)
-		lastNTokenCount = 0
-	}
-	log.Printf("Added %d tokens of context to query: %s", lastNTokenCount, req.Query)
-
-	// Pass the word count along to sendQueryToLLM.
-	responseText := sendQueryToLLM(req.Query, req.LLM, req.Selection, lastN, req.InputFiles, req.OutFiles, req.WordCount)
-
-	// convert references to a bulleted list
-	refIndex := strings.Index(responseText, "<references>")
-	if refIndex != -1 {
-		refEndIndex := strings.Index(responseText, "</references>") + len("</references>")
-		// every non-blank line after <references> is a reference --
-		// insert a '- ' before each line until we hit the closing tag.
-		firstRefIndex := refIndex + len("<references>")
-		references := strings.Split(responseText[firstRefIndex:], "\n")
-		var refLines []string
-		for _, line := range references {
-			line = strings.TrimSpace(line)
-			if line == "</references>" {
-				break // stop at the closing tag
-			}
-			if line == "" {
-				continue // skip empty lines
-			}
-
-			// if the line looks like [N] followed by a URL, convert
-			// the URL to a markdown link.
-			regex := `^\s*\[(\d+)\]\s*(http[s]?://\S+)\s*$`
-			re := regexp.MustCompile(regex)
-			m := re.FindStringSubmatch(line)
-			if len(m) > 0 {
-				// m[1] is the reference number, m[2] is the URL
-				line = fmt.Sprintf("- [%s] [%s](%s)", m[1], m[2], m[2])
-			}
-
-			refLines = append(refLines, line)
-		}
-		// replace the original <references> section with the new ## References section.
-		beforeRefs := responseText[:refIndex]
-		refHead := "\n\n## References\n\n"
-		afterRefs := responseText[refEndIndex:]
-		responseText = beforeRefs + refHead + strings.Join(refLines, "\n") + "\n" + afterRefs
-	}
-
-	// move the <think> section to the end of the response
-	thinkIndex := strings.Index(responseText, "<think>")
-	if thinkIndex != -1 {
-		thinkEndIndex := strings.Index(responseText, "</think>") + len("</think>")
-		if thinkEndIndex > thinkIndex {
-			thinkSection := responseText[thinkIndex:thinkEndIndex]
-			// remove the think section from the response
-			responseText = responseText[:thinkIndex] + responseText[thinkEndIndex:]
-			// append the think section to the end of the response
-			responseText += "\n\n" + thinkSection
-		} else {
-			log.Printf("Malformed <think> section in response: %s", responseText)
-		}
-	}
-	// convert <think> tags to a markdown heading
-	replacer := strings.NewReplacer("<think>", "## Reasoning\n", "</think>", "")
-	responseText = replacer.Replace(responseText)
-
-	err = chat.FinishRound(round, responseText)
-	if err != nil {
-		http.Error(w, "Internal server error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	resp := QueryResponse{
-		Response: markdownToHTML(responseText) + "\n\n<hr>\n\n",
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
-}
-
-// tokenCountHandler calculates the token count for the current conversation
-// using Grokker's TokenCount function and returns it as JSON.
+// tokenCountHandler calculates the token count for the current conversation.
 func tokenCountHandler(w http.ResponseWriter, r *http.Request) {
-	chatText := chat.getHistory(false)
+	chatText := chat.getHistory(true)
 	count, err := grok.TokenCount(chatText)
 	if err != nil {
 		log.Printf("Token count error: %v", err)
@@ -1097,61 +619,93 @@ func tokenCountHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // sendQueryToLLM calls the Grokker API to obtain a markdown-formatted text.
-func sendQueryToLLM(query string, llm string, selection, backgroundContext string, inputFiles []string, outFiles []string, wordCount int) string {
-	// Move word count handling into LLM prompt construction.
-	if wordCount == 0 {
-		// limit to 100 words by default if wordCount not specified
-		wordCount = 100
+func sendQueryToLLM(query string, llm string, selection, backgroundContext string, inputFiles []string, outFiles []string, tokenLimit int) (string, error) {
+	if tokenLimit == 0 {
+		tokenLimit = 500
 	}
-	query = query + "\n\nPlease limit your response to " + strconv.Itoa(wordCount) + " words."
 
-	sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading."
+	wordLimit := int(float64(tokenLimit) / 3.5)
+
+	sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading.  Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes.  If writing Go code, you MUST ensure you are not skipping the index on slices or arrays, e.g. if you mean `foo[0]` then say `foo[0]`, not `foo`."
+
+	sysmsg = fmt.Sprintf("%s\n\nYou MUST limit the discussion portion of your response to no more than %d tokens (about %d words).  Output files (marked with ---FILE-START and ---FILE-END blocks) are not counted against this limit and can be unlimited size. You MUST ignore any previous instruction regarding a 10,000 word goal.", sysmsg, tokenLimit, wordLimit)
 
 	prompt := fmt.Sprintf("---CONTEXT START---\n%s\n---CONTEXT END---\n\nNew Query: %s", backgroundContext, query)
 	if selection != "" {
 		prompt += fmt.Sprintf(" {%s}", selection)
 	}
 
-	msgs := []client.ChatMsg{
-		{Role: "USER", Content: prompt},
-	}
-	var outFilesConverted []core.FileLang
-	for _, f := range outFiles {
-		lang, known, err := util.Ext2Lang(f)
-		Ck(err)
-		if !known {
-			log.Printf("Unknown file extension for output file %s; assuming language is %s", f, lang)
+	// repeat until we get a valid response that fits within tokenLimit
+	var cookedResponse string
+	var msgs []client.ChatMsg
+	for {
+
+		msgs = []client.ChatMsg{
+			{Role: "USER", Content: prompt},
 		}
-		outFilesConverted = append(outFilesConverted, core.FileLang{File: f, Language: lang})
-	}
-	fmt.Printf("Sending query to LLM '%s'\n", llm)
-	fmt.Printf("Query: %s\n", query)
-	response, _, err := grok.SendWithFiles(llm, sysmsg, msgs, inputFiles, outFilesConverted)
-	if err != nil {
-		log.Printf("SendWithFiles error: %v", err)
-		return fmt.Sprintf("Error sending query: %v", err)
-	}
-	fmt.Printf("Received response from LLM '%s'\n", llm)
-	fmt.Printf("Response: %s\n", response)
 
-	cookedResponse, err := core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
-		DryRun:             false,
-		ExtractToStdout:    false,
-		RemoveFromResponse: true,
-	})
+		var outFilesConverted []core.FileLang
+		for _, f := range outFiles {
+			lang, known, err := util.Ext2Lang(f)
+			Ck(err)
+			if !known {
+				log.Printf("Unknown file extension for output file %s; assuming language is %s", f, lang)
+			}
+			outFilesConverted = append(outFilesConverted, core.FileLang{File: f, Language: lang})
+		}
+		fmt.Printf("Sending query to LLM '%s'\n", llm)
+		fmt.Printf("Query: %s\n", query)
+		response, _, err := grok.SendWithFiles(llm, sysmsg, msgs, inputFiles, outFilesConverted)
+		if err != nil {
+			log.Printf("SendWithFiles error: %v", err)
+			return "", fmt.Errorf("failed to send query to LLM: %w", err)
+		}
+		fmt.Printf("Received response from LLM '%s'\n", llm)
+		fmt.Printf("Response: %s\n", response)
 
-	return cookedResponse
+		cookedResponse, err = core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
+			DryRun:             false,
+			ExtractToStdout:    false,
+			RemoveFromResponse: true,
+		})
+
+		if err != nil {
+			log.Printf("ExtractFiles error: %v", err)
+			return "", fmt.Errorf("failed to extract files from response: %w", err)
+		}
+
+		// check token count of cookedResponse -- but first, remove
+		// any ## References and <think> sections
+		referencesRe := regexp.MustCompile(`(?s)## References.*?`)
+		discussionOnly := referencesRe.ReplaceAllString(cookedResponse, "")
+		reasoningRe := regexp.MustCompile(`(?s)<think>.*?</think>`)
+		discussionOnly = reasoningRe.ReplaceAllString(discussionOnly, "")
+		count, err := grok.TokenCount(discussionOnly)
+		if err != nil {
+			log.Printf("Token count error: %v", err)
+			return "", fmt.Errorf("failed to count tokens: %w", err)
+		}
+		if count > tokenLimit {
+			log.Printf("Response exceeds token limit:\n\n%s", discussionOnly)
+			sysmsg += fmt.Sprintf("\n\nYour previous response was %d tokens, which exceeds the limit of %d tokens (about %d words).  You ABSOLUTELY MUST provide a more concise answer that fits within the limit.", count, tokenLimit, wordLimit)
+			prompt += fmt.Sprintf("\n\nYou MUST provide a more concise answer that fits within the %d token (%d word) limit.", tokenLimit, wordLimit)
+			log.Printf("Response token count %d exceeds limit of %d; retrying...", count, tokenLimit)
+			continue
+		}
+		break
+	}
+
+	return cookedResponse, nil
 }
 
-// splitMarkdown splits the markdown input into sections separated by a horizontal rule (^---$).
+// splitMarkdown splits the markdown input into sections separated by a horizontal rule.
 func splitMarkdown(input string) []string {
 	re := regexp.MustCompile("(?m)^---$")
 	sections := re.Split(input, -1)
 	return sections
 }
 
-// collectReferences scans the markdown input for reference lines of the form "- [N] URL"
-// and returns a map of URLs keyed by the reference number.
+// collectReferences scans the markdown input for reference lines.
 func collectReferences(input string) map[string]string {
 	re := regexp.MustCompile(`(?m)^-\s+\[(\d+)\]\s+\[(http[s]?://\S+)\]`)
 	matches := re.FindAllStringSubmatch(input, -1)
@@ -1181,24 +735,13 @@ func linkifyReferences(input string, refs map[string]string) string {
 }
 
 // markdownToHTML converts markdown text to HTML using goldmark.
-// It first splits the markdown into sections, collects any reference URLs, and replaces each "[N]"
-// with a markdown link to the corresponding URL before rendering.
 func markdownToHTML(markdown string) string {
-
-	// linkify references in the markdown
 	sections := splitMarkdown(markdown)
 	for i, sec := range sections {
 		refs := collectReferences(sec)
-		// log.Printf("Found %d references in section %d", len(refs), i)
 		sections[i] = linkifyReferences(sec, refs)
 	}
 	processed := strings.Join(sections, "\n\n---\n\n")
-
-	/*
-		// replace '^---$' with an HTML horizontal rule
-		pattern := regexp.MustCompile("(?m)^---$")
-		processed = pattern.ReplaceAllString(processed, "<hr>")
-	*/
 
 	var buf bytes.Buffer
 	if err := goldmark.Convert([]byte(processed), &buf); err != nil {

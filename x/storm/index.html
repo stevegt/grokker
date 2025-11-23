@@ -1,0 +1,829 @@
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Grokker LLM Chat</title>
+  <style>
+    body { 
+      font-family: Arial, sans-serif; 
+      margin: 0; 
+      padding: 0; 
+      background-color: #121212; 
+      color: #e0e0e0;
+    }
+    /* Container for sidebars and main content */
+    #container { display: flex; height: 100vh; }
+    /* Left sidebar for Table of Contents */
+    #sidebar {
+      width: 250px;
+      background-color: #1e1e1e;
+      border-right: 1px solid #333;
+      overflow-y: auto;
+      transition: width 0.3s;
+      padding: 10px;
+    }
+    /* Collapsed sidebar style */
+    #sidebar.collapsed {
+      width: 10px;
+      padding: 0;
+      border: none;
+      overflow: hidden;
+    }
+    /* Shrik the heading in the sidebar */
+    #sidebar h3 { font-size: 0.9em; }
+    /* Main content area */
+    #main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+    /* Right sidebar for File I/O */
+    #fileSidebar {
+      width: 250px;
+      background-color: #1e1e1e;
+      border-left: 1px solid #333;
+      padding: 10px;
+      overflow-y: auto;
+    }
+    #fileSidebar h3 { margin-top: 0; }
+    #fileSidebar table { width: 100%; border-collapse: collapse; }
+    #fileSidebar th, #fileSidebar td { border: 1px solid #555; padding: 4px; text-align: center; }
+		#fileSidebar textarea { width: 100%; height: 20%; margin-bottom: 5px; background-color: #333; color: #e0e0e0; border: 1px solid #555; }
+    /* Chat area styles */
+    #chat { 
+      padding: 20px; 
+      flex: 1; 
+      overflow-y: auto; 
+      border-bottom: 1px solid #333; 
+    }
+    .message { 
+      margin-bottom: 10px; 
+      padding: 5px; 
+      border: 1px solid #444; 
+      border-radius: 4px; 
+      background-color: #252525; 
+    }
+    /* Floating scroll-to-bottom button - fixed to viewport frame */
+    #scrollToBottomBtn {
+      position: fixed;
+      bottom: 150px;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: #3498db;
+      color: #e0e0e0;
+      border: 1px solid #555;
+      padding: 10px 15px;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      display: none;
+      cursor: pointer;
+      font-size: 20px;
+      z-index: 10;
+      align-items: center;
+      justify-content: center;
+    }
+    #scrollToBottomBtn:hover {
+      background-color: #2980b9;
+    }
+    #spinner-area { padding: 10px; text-align: center; }
+    .spinner {
+      border: 4px solid #555;
+      border-top: 4px solid #3498db;
+      border-radius: 50%;
+      width: 10px;
+      height: 10px;
+      animation: spin 1s linear infinite;
+      display: inline-block;
+      margin-right: 5px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    /* Updated input area using CSS Grid to span userInput and statusBox across two rows */
+    #input-area { 
+      background: #1e1e1e; 
+      padding: 10px; 
+      box-shadow: 0 -2px 5px rgba(0,0,0,0.1);
+      display: grid;
+      grid-template-areas: 
+        "llmSelect userInput sendBtn statusBox stopBtn"
+        "tokenLimit   userInput  .       statusBox .";
+      grid-template-columns: auto 1fr auto auto auto;
+      grid-template-rows: auto auto;
+      gap: 5px;
+    }
+    textarea { 
+      width: 100%; 
+      height: 100%; 
+      background-color: #333;
+      color: #e0e0e0;
+      border: 1px solid #555;
+    }
+    select { 
+      background-color: #333;
+      color: #e0e0e0;
+      border: 1px solid #555;
+    }
+    input[type="number"] { 
+      width: 80px; 
+      height: 20px; 
+      font-size: 12px; 
+      padding: 5px; 
+      background-color: #333;
+      color: #e0e0e0;
+      border: 1px solid #555;
+    }
+    button {
+      background-color: #333;
+      color: #e0e0e0;
+      border: 1px solid #555;
+      padding: 10px 15px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #444;
+    }
+    /* Custom style for the stop button to shrink its size and font */
+    #stopBtn {
+      font-size: 10px;
+      padding: 5px 10px;
+    }
+    #statusBox { 
+      display: inline-block; 
+      font-size: 11px; 
+    }
+    /* Red stop sign for error indication in status box */
+    #errorSign {
+      display: none;
+      color: red;
+      font-size: 16px;
+      margin-left: 5px;
+    }
+    /* Toggle button for sidebar */
+    #toggle-sidebar {
+      background-color: #3498db;
+      color: #e0e0e0;
+      border: 1px solid #555;
+      padding: 5px 10px;
+      cursor: pointer;
+      margin-bottom: 10px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    /* Global link styling - lighter shade of blue */
+    a {
+      color: #90D5FF;
+      text-decoration: none;
+    }
+    a:visited {
+      color: #87CEEB;
+    }
+    a:hover {
+      color: #ADD8E6;
+      text-decoration: underline;
+    }
+    a:active {
+      color: #6BB6FF;
+    }
+    /* Table of Contents links */
+    #toc a {
+      text-decoration: none;
+      color: #ddd;
+      padding: 4px;
+      display: block;
+    }
+    #toc a:hover {
+      background-color: #444;
+    }
+    /* Dark scrollbar styles */
+    ::-webkit-scrollbar {
+      width: 12px;
+      height: 12px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #1e1e1e;
+    }
+    ::-webkit-scrollbar-thumb {
+      background-color: #444;
+      border: 2px solid #1e1e1e;
+      border-radius: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <div id="sidebar">
+      <button id="toggle-sidebar">TOC</button>
+      <h3>Table of Contents</h3>
+      <div id="toc">
+        <!-- TOC will be generated here -->
+      </div>
+    </div>
+    <div id="main">
+      <!-- Floating scroll-to-bottom button - fixed to viewport frame -->
+      <button id="scrollToBottomBtn">↓</button>
+      <div id="chat">
+        <!-- Chat messages will appear here -->
+        {{.ChatHTML}}
+      </div>
+      <div id="spinner-area">
+        <!-- Progress spinners will appear here -->
+      </div>
+      <div id="input-area">
+        <select id="llmSelect" style="grid-area: llmSelect;">
+          <option value="sonar-deep-research">sonar-deep-research</option>
+          <option value="sonar-reasoning">sonar-reasoning</option>
+          <option value="o3-mini">o3-mini</option>
+        </select>
+        <textarea id="userInput" placeholder="Enter query" style="grid-area: userInput;"></textarea>
+        <button id="sendBtn" style="grid-area: sendBtn;">Send</button>
+        <span id="statusBox" style="grid-area: statusBox;">
+          <span id="tokenCountText">Token Count: 0</span>
+          <br>
+          <span id="roundsStats">Rounds:</span>
+          <br>
+          <span id="progressStats">Progress:</span>
+          <br>
+          <span id="statusSpinner" style="display:none;" class="spinner"></span>
+          <span id="errorSign">⛔</span>
+        </span>
+        <button id="stopBtn" style="grid-area: stopBtn;">Stop<br>Server</button>
+        <div id="tokenLimitContainer" style="grid-area: tokenLimit;">
+          <label for="tokenLimit">Token Limit</label>
+          <input type="number" id="tokenLimit" min="1" placeholder="500">
+          <div id="presetButtons">
+            <button type="button" class="preset-tokencount" data-token="500" style="font-size:10px; padding:2px 5px; margin:2px;">500</button>
+            <button type="button" class="preset-tokencount" data-token="1000" style="font-size:10px; padding:2px 5px; margin:2px;">1K</button>
+            <button type="button" class="preset-tokencount" data-token="2000" style="font-size:10px; padding:2px 5px; margin:2px;">2K</button>
+            <button type="button" class="preset-tokencount" data-token="4000" style="font-size:10px; padding:2px 5px; margin:2px;">4K</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="fileSidebar">
+      <h3>Files</h3>
+      <label style="display:block; margin-bottom:5px;"><input type="checkbox" id="selectAllFiles"> All/None</label>
+      <table>
+        <thead>
+          <tr>
+            <th>In</th>
+            <th>Out</th>
+            <th>Filename</th>
+            <th>Remove</th>
+          </tr>
+        </thead>
+        <tbody id="fileList">
+          <!-- File list will be rendered here -->
+        </tbody>
+      </table>
+      <div id="newFileEntry">
+        <label><input type="checkbox" id="newFileIn"> In</label>
+        <label><input type="checkbox" id="newFileOut"> Out</label>
+        <textarea id="newFilenames" placeholder="Enter one filename per line"></textarea>
+        <button id="addFileBtn">Add</button>
+      </div>
+    </div>
+  </div>
+  <script>
+    // WebSocket connection
+    var ws;
+    var pendingQueryDivs = {}; // Track divs for pending queries by queryID
+    
+    // UUID v4 generator without NPM
+    function generateUUID() {
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0,
+            v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
+    }
+    
+    // Helper functions for managing cookies.
+    function setCookie(name, value, days) {
+      var expires = "";
+      if (days) {
+        var date = new Date();
+        date.setTime(date.getTime() + (days*24*60*60*1000));
+        expires = "; expires=" + date.toUTCString();
+      }
+      document.cookie = name + "=" + (value || "")  + expires + "; path=/";
+    }
+    function getCookie(name) {
+      var nameEQ = name + "=";
+      var ca = document.cookie.split(';');
+      for(var i=0; i < ca.length; i++) {
+        var c = ca[i].trim();
+        if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length, c.length);
+      }
+      return null;
+    }
+
+    // Global counter for outstanding queries.
+    var outstandingQueries = 0;
+    // Updates the spinner in the status box based on the current outstanding query count.
+    function updateStatusSpinner() {
+      var spinner = document.getElementById("statusSpinner");
+      if (outstandingQueries > 0) {
+        spinner.style.display = "inline-block";
+      } else {
+        spinner.style.display = "none";
+      }
+    }
+
+    // Show the error stop sign. Once shown, it remains visible until the page is reloaded.
+    function showErrorSign() {
+      var errorSign = document.getElementById("errorSign");
+      if (errorSign) {
+        errorSign.style.display = "inline-block";
+      }
+    }
+
+    // Check if chat is scrolled to bottom
+    function isScrolledToBottom() {
+      var chat = document.getElementById("chat");
+      return chat.scrollTop >= (chat.scrollHeight - chat.clientHeight - 10);
+    }
+
+    // Update scroll-to-bottom button visibility
+    function updateScrollButtonVisibility() {
+      var btn = document.getElementById("scrollToBottomBtn");
+      if (isScrolledToBottom()) {
+        btn.style.display = "none";
+      } else {
+        btn.style.display = "flex";
+      }
+    }
+
+    // Generate a Table of Contents from headings in the chat
+    function generateTOC() {
+      var chat = document.getElementById("chat");
+      var headings = chat.querySelectorAll("h1, h2, h3, h4, h5, h6");
+      var toc = document.getElementById("toc");
+      toc.innerHTML = "";
+      headings.forEach(function(heading, index) {
+        if (!heading.id) {
+          heading.id = "heading-" + index;
+        }
+        // Determine heading level and create link with indentation and font size
+        var level = parseInt(heading.tagName.substring(1));
+        var link = document.createElement("a");
+        link.href = "#" + heading.id;
+        link.textContent = heading.textContent;
+        // Bold top-level links (h1)
+        if(level === 1) {
+          link.style.fontWeight = "bold";
+        }
+        // Indent based on level, e.g. 20px per sub-level
+        link.style.marginLeft = ((level - 1) * 20) + "px";
+        // Adjust font size based on heading level (shrunk from original values)
+        var fontSize = Math.max(1.0 - 0.1 * (level - 1), 0.7);
+        link.style.fontSize = fontSize + "em";
+        toc.appendChild(link);
+      });
+    }
+    
+    // Initialize WebSocket connection and handlers
+    function initWebSocket() {
+      var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      var wsUrl = protocol + '//' + window.location.host + '/ws';
+      console.log('Connecting to WebSocket:', wsUrl);
+      
+      ws = new WebSocket(wsUrl);
+      
+      ws.onopen = function() {
+        console.log('WebSocket connected');
+      };
+      
+      // Handle incoming broadcast messages
+      ws.onmessage = function(event) {
+        try {
+          var message = JSON.parse(event.data);
+          console.log('Received WebSocket message:', message);
+          
+          if (message.type === 'query') {
+            // Display query with spinner and cancel button on all clients
+            var chat = document.getElementById("chat");
+            var messageDiv = document.createElement("div");
+            messageDiv.className = "message";
+            messageDiv.innerHTML = "<strong>" + message.query + "</strong><br>";
+            
+            var spinner = document.createElement("span");
+            spinner.className = "spinner";
+            spinner.style.marginLeft = "10px";
+            messageDiv.appendChild(spinner);
+            
+            // Add cancel button
+            var cancelBtn = document.createElement("button");
+            cancelBtn.textContent = "Cancel";
+            cancelBtn.style.marginLeft = "5px";
+            cancelBtn.style.fontSize = "10px";
+            cancelBtn.style.padding = "5px 10px";
+            cancelBtn.addEventListener("click", function() {
+              messageDiv.remove();
+              generateTOC();
+              delete pendingQueryDivs[message.queryID];
+              outstandingQueries--;
+              updateStatusSpinner();
+            });
+            messageDiv.appendChild(cancelBtn);
+            
+            chat.appendChild(messageDiv);
+            // Store by queryID to match responses
+            pendingQueryDivs[message.queryID] = { div: messageDiv, spinner: spinner, cancelBtn: cancelBtn };
+            generateTOC();
+            updateScrollButtonVisibility();
+            
+          } else if (message.type === 'response') {
+            // Find the corresponding query div and update it
+            var pendingQuery = pendingQueryDivs[message.queryID];
+            if (pendingQuery) {
+              // Remove spinner and cancel button
+              pendingQuery.spinner.remove();
+              pendingQuery.cancelBtn.remove();
+              
+              // Append response to the query div
+              var responseDiv = document.createElement("div");
+              responseDiv.innerHTML = message.response;
+              pendingQuery.div.appendChild(responseDiv);
+              
+              delete pendingQueryDivs[message.queryID];
+            }
+            // Decrement outstanding queries when response arrives via WebSocket
+            outstandingQueries--;
+            updateStatusSpinner();
+            generateTOC();
+            updateProgressStats();
+            updateTokenCount();
+            updateScrollButtonVisibility();
+          }
+        } catch (err) {
+          console.error('Error processing WebSocket message:', err);
+        }
+      };
+      
+      ws.onerror = function(error) {
+        console.error('WebSocket error:', error);
+        showErrorSign();
+      };
+      
+      ws.onclose = function() {
+        console.log('WebSocket disconnected, attempting to reconnect...');
+        // Attempt to reconnect after 3 seconds
+        setTimeout(initWebSocket, 3000);
+      };
+    }
+    
+    // Call generateTOC and other initializations when the DOM content is loaded.
+    document.addEventListener("DOMContentLoaded", function() {
+      generateTOC();
+      initWebSocket();
+      
+      // Toggle sidebar visibility
+      var sidebar = document.getElementById("sidebar");
+      document.getElementById("toggle-sidebar").addEventListener("click", function() {
+        if (sidebar.classList.contains("collapsed")) {
+          sidebar.classList.remove("collapsed");
+        } else {
+          sidebar.classList.add("collapsed");
+        }
+      });
+      // Add preset token limit buttons functionality.
+      document.querySelectorAll('.preset-tokencount').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          document.getElementById('tokenLimit').value = this.getAttribute('data-token');
+        });
+      });
+      // Initialize All/None checkbox for file list.
+      var selectAll = document.getElementById("selectAllFiles");
+      if (selectAll) {
+        selectAll.addEventListener("change", function() {
+          var checked = this.checked;
+          var fileInCheckboxes = document.querySelectorAll("#fileList input.fileIn");
+          var fileOutCheckboxes = document.querySelectorAll("#fileList input.fileOut");
+          fileInCheckboxes.forEach(function(cb) {
+            cb.checked = checked;
+            cb.dispatchEvent(new Event("change"));
+          });
+          fileOutCheckboxes.forEach(function(cb) {
+            cb.checked = false;
+            cb.dispatchEvent(new Event("change"));
+          });
+        });
+      }
+      // scroll to the bookmarked round 
+      var bookmark = getCookie("bookmark_round");
+      if (bookmark) {
+        var round = parseInt(bookmark);
+        var chat = document.getElementById("chat");
+        var hrTags = chat.getElementsByTagName("hr");
+        if (round > 0 && round <= hrTags.length) {
+          console.log("Scrolling to round:", round);
+          chat.scrollTop = hrTags[round - 1].offsetTop;
+        }
+      }
+      updateProgressStats();
+      initFileIO();
+      
+      // Set up scroll-to-bottom button
+      var scrollBtn = document.getElementById("scrollToBottomBtn");
+      scrollBtn.addEventListener("click", function() {
+        var chat = document.getElementById("chat");
+        chat.scrollTop = chat.scrollHeight;
+        updateScrollButtonVisibility();
+      });
+      
+      // Update button visibility on scroll
+      document.getElementById("chat").addEventListener("scroll", function() {
+        updateScrollButtonVisibility();
+        updateProgressStats();
+      });
+      
+      // Initial button visibility check
+      updateScrollButtonVisibility();
+    });
+
+    // Append a new message to the chat view without scrolling the page.
+    function appendMessage(content) {
+      var chat = document.getElementById("chat");
+      var messageDiv = document.createElement("div");
+      messageDiv.className = "message";
+      messageDiv.innerHTML = content;
+      chat.appendChild(messageDiv);
+      generateTOC();
+      updateScrollButtonVisibility();
+    }
+
+    // Send query via WebSocket
+    function sendQuery(query, llm, selection, tokenLimit) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        console.error("WebSocket not connected");
+        showErrorSign();
+        return;
+      }
+
+      // Increment global outstanding query count and update status spinner.
+      outstandingQueries++;
+      updateStatusSpinner();
+
+      // Gather file I/O selections from the file sidebar.
+      var fileSelection = getSelectedFiles();
+      
+      // Generate a unique UUID for this query
+      var queryID = generateUUID();
+
+      // Send the query via WebSocket
+      var queryMessage = {
+        type: "query",
+        query: query,
+        llm: llm,
+        selection: selection,
+        inputFiles: fileSelection.inputFiles,
+        outFiles: fileSelection.outFiles,
+        tokenLimit: tokenLimit,
+        queryID: queryID
+      };
+
+      ws.send(JSON.stringify(queryMessage));
+    }
+
+    // Poll the /tokencount endpoint to update the token count.
+    function updateTokenCount() {
+      fetch("/tokencount")
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+          var tokenCountText = document.getElementById("tokenCountText");
+          tokenCountText.textContent = "Token Count: " + data.tokens;
+        })
+        .catch(function(err) {
+          console.error("Error fetching token count:", err);
+        });
+    }
+
+    // Updates progress stats by counting the number of <hr> tags above the current scroll position
+    // and fetching the total round count from the server.
+    function updateProgressStats() {
+      var chatElem = document.getElementById("chat");
+      var hrTags = chatElem.getElementsByTagName("hr");
+      var currentRound = 0;
+      // Count the number of <hr> tags that are above the current scroll top
+      for (var i = 0; i < hrTags.length; i++) {
+        var hrPos = hrTags[i].offsetTop;
+        if (hrPos < chatElem.scrollTop) {
+          currentRound++;
+        }
+      }
+      // Bookmark the current round in a cookie (for one year)
+      setCookie("bookmark_round", currentRound, 365);
+      fetch("/rounds")
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+          var total = data.rounds;
+          var remaining = total - currentRound;
+          var percentage = total > 0 ? Math.round((currentRound / total) * 100) : 0;
+          var roundsElem = document.getElementById("roundsStats");
+          var progressElem = document.getElementById("progressStats");
+          if(roundsElem) {
+            // Rounds: total - current = remaining 
+            roundsElem.textContent = "Rounds: " + total + " - " + currentRound + " = " + remaining;
+          }
+          if(progressElem) {
+            // Progress: N%
+            progressElem.textContent = "Progress: " + percentage + "%";
+          }
+        })
+        .catch(function(err) {
+          console.error("Error fetching rounds count:", err);
+        });
+    }
+
+    // Add scroll event listener on the chat element to update progress stats and update bookmark.
+    document.getElementById("chat").addEventListener("scroll", updateProgressStats);
+    updateTokenCount(); // Initial token count fetch
+
+    // Handle click on the Send button.
+    document.getElementById("sendBtn").addEventListener("click", function() {
+      var input = document.getElementById("userInput");
+      var query = input.value;
+      if(query.trim() === "") return;
+      var llm = document.getElementById("llmSelect").value;
+      var tokenLimitElem = document.getElementById("tokenLimit");
+      // default to 0 if empty or invalid
+      var tokenLimit = 0;
+      if(tokenLimitElem) {
+         tokenLimit = parseInt(tokenLimitElem.value, 10) || 0;
+      }
+      sendQuery(query, llm, "", tokenLimit);
+      input.value = "";
+      // Do not clear the token limit input so the value persists.
+    });
+
+    // Handle click on the Stop Server button.
+    document.getElementById("stopBtn").addEventListener("click", function() {
+      if(confirm("Are you sure you want to stop the server?")) {
+        fetch("/stop", { method: "POST" })
+          .then(function(response) {
+            if(response.ok) {
+              console.log("Server is stopping...");
+            }
+          })
+          .catch(function(err) {
+            console.error("Error stopping server:", err);
+          });
+      }
+    });
+
+    // --- File I/O using IndexedDB ---
+    var db;
+    function initFileIO() {
+      var request = indexedDB.open("fileIODB", 1);
+      request.onerror = function(event) {
+        console.error("IndexedDB error:", event.target.error);
+      };
+      request.onupgradeneeded = function(event) {
+        db = event.target.result;
+        if (!db.objectStoreNames.contains("files")) {
+          var store = db.createObjectStore("files", { keyPath: "filename" });
+          store.createIndex("by_filename", "filename", { unique: true });
+        }
+      };
+      request.onsuccess = function(event) {
+        db = event.target.result;
+        loadFileList();
+      };
+    }
+    function loadFileList() {
+      var transaction = db.transaction(["files"], "readonly");
+      var store = transaction.objectStore("files");
+      var request = store.getAll();
+      request.onsuccess = function(event) {
+        var files = event.target.result;
+        renderFileList(files);
+      };
+    }
+    function saveFileEntry(fileEntry) {
+      var transaction = db.transaction(["files"], "readwrite");
+      var store = transaction.objectStore("files");
+      store.put(fileEntry);
+    }
+    function removeFileEntry(filename) {
+      var transaction = db.transaction(["files"], "readwrite");
+      var store = transaction.objectStore("files");
+      var request = store.delete(filename);
+      request.onsuccess = function(event) {
+        loadFileList();
+      };
+      request.onerror = function(event) {
+        console.error("Failed to delete file:", filename);
+      };
+    }
+    function renderFileList(files) {
+      var fileListElem = document.getElementById("fileList");
+      fileListElem.innerHTML = "";
+      files.forEach(function(file) {
+        var tr = document.createElement("tr");
+        var tdIn = document.createElement("td");
+        var inCheckbox = document.createElement("input");
+        inCheckbox.type = "checkbox";
+        inCheckbox.checked = file.in || false;
+        inCheckbox.className = "fileIn";
+        inCheckbox.addEventListener("change", function() {
+          file.in = inCheckbox.checked;
+          saveFileEntry(file);
+        });
+        tdIn.appendChild(inCheckbox);
+        var tdOut = document.createElement("td");
+        var outCheckbox = document.createElement("input");
+        outCheckbox.type = "checkbox";
+        outCheckbox.checked = file.out || false;
+        outCheckbox.className = "fileOut";
+        outCheckbox.addEventListener("change", function() {
+          file.out = outCheckbox.checked;
+          saveFileEntry(file);
+        });
+        tdOut.appendChild(outCheckbox);
+        var tdName = document.createElement("td");
+        var link = document.createElement("a");
+        link.href = "/open?filename=" + encodeURIComponent(file.filename);
+        link.target = "_blank";
+        link.textContent = file.filename;
+        tdName.appendChild(link);
+        tr.appendChild(tdIn);
+        tr.appendChild(tdOut);
+        tr.appendChild(tdName);
+        var tdRemove = document.createElement("td");
+        var removeBtn = document.createElement("button");
+        removeBtn.textContent = "x";
+        removeBtn.title = "Remove this file from the list";
+        removeBtn.style.fontSize = "10px";
+        removeBtn.style.padding = "2px 5px";
+        removeBtn.addEventListener("click", function() {
+          removeFileEntry(file.filename);
+        });
+        tdRemove.appendChild(removeBtn);
+        tr.appendChild(tdRemove);
+        fileListElem.appendChild(tr);
+      });
+    }
+    // Function to check if a file exists on the server using a HEAD request.
+    function checkFileExists(filename) {
+      return fetch("/open?filename=" + encodeURIComponent(filename), { method: "HEAD" })
+        .then(function(response) {
+          return response.status === 200;
+        })
+        .catch(function(err) {
+          return false;
+        });
+    }
+    // Modified event listener for bulk-adding filenames.
+    document.getElementById("addFileBtn").addEventListener("click", function() {
+      var text = document.getElementById("newFilenames").value;
+      var lines = text.split("\n").map(function(line) { return line.trim(); }).filter(function(line) { return line !== ""; });
+      if(lines.length === 0) return;
+      // Check existence of each filename.
+      Promise.all(lines.map(function(fn) { return checkFileExists(fn); }))
+      .then(function(results) {
+        for (var i = 0; i < results.length; i++) {
+          if (!results[i]) {
+            alert("File does not exist: " + lines[i]);
+            return;
+          }
+        }
+        // If all files exist, add each to the file list.
+        lines.forEach(function(newFilename) {
+          var newFileEntry = {
+            filename: newFilename,
+            in: document.getElementById("newFileIn").checked,
+            out: document.getElementById("newFileOut").checked
+          };
+          saveFileEntry(newFileEntry);
+        });
+        loadFileList();
+        document.getElementById("newFilenames").value = "";
+        document.getElementById("newFileIn").checked = false;
+        document.getElementById("newFileOut").checked = false;
+      });
+    });
+    function getSelectedFiles() {
+      var inputFiles = [];
+      var outFiles = [];
+      var rows = document.getElementById("fileList").getElementsByTagName("tr");
+      for (var i = 0; i < rows.length; i++) {
+        var cells = rows[i].getElementsByTagName("td");
+        if(cells.length < 3) continue;
+        var inChecked = cells[0].querySelector("input").checked;
+        var outChecked = cells[1].querySelector("input").checked;
+        var filename = cells[2].textContent;
+        if(inChecked) inputFiles.push(filename);
+        if(outChecked) outFiles.push(filename);
+      }
+      return { inputFiles: inputFiles, outFiles: outFiles };
+    }
+    // --- End File I/O code ---
+  </script>
+</body>
+</html>
+
