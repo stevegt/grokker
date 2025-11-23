@@ -110,7 +110,7 @@
       display: grid;
       grid-template-areas: 
         "llmSelect userInput sendBtn statusBox stopBtn"
-        "wordCount   userInput  .       statusBox .";
+        "tokenLimit   userInput  .       statusBox .";
       grid-template-columns: auto 1fr auto auto auto;
       grid-template-rows: auto auto;
       gap: 5px;
@@ -252,14 +252,14 @@
           <span id="errorSign">⛔</span>
         </span>
         <button id="stopBtn" style="grid-area: stopBtn;">Stop<br>Server</button>
-        <div id="wordCountContainer" style="grid-area: wordCount;">
-          <label for="wordCount">Word Count</label>
-          <input type="number" id="wordCount" min="1" placeholder="100">
+        <div id="tokenLimitContainer" style="grid-area: tokenLimit;">
+          <label for="tokenLimit">Token Limit</label>
+          <input type="number" id="tokenLimit" min="1" placeholder="500">
           <div id="presetButtons">
-            <button type="button" class="preset-wordcount" data-word="100" style="font-size:10px; padding:2px 5px; margin:2px;">100</button>
-            <button type="button" class="preset-wordcount" data-word="300" style="font-size:10px; padding:2px 5px; margin:2px;">300</button>
-            <button type="button" class="preset-wordcount" data-word="500" style="font-size:10px; padding:2px 5px; margin:2px;">500</button>
-            <button type="button" class="preset-wordcount" data-word="700" style="font-size:10px; padding:2px 5px; margin:2px;">700</button>
+            <button type="button" class="preset-tokencount" data-token="500" style="font-size:10px; padding:2px 5px; margin:2px;">500</button>
+            <button type="button" class="preset-tokencount" data-token="1000" style="font-size:10px; padding:2px 5px; margin:2px;">1K</button>
+            <button type="button" class="preset-tokencount" data-token="2000" style="font-size:10px; padding:2px 5px; margin:2px;">2K</button>
+            <button type="button" class="preset-tokencount" data-token="4000" style="font-size:10px; padding:2px 5px; margin:2px;">4K</button>
           </div>
         </div>
       </div>
@@ -491,10 +491,10 @@
           sidebar.classList.add("collapsed");
         }
       });
-      // Add preset word count buttons functionality.
-      document.querySelectorAll('.preset-wordcount').forEach(function(btn) {
+      // Add preset token limit buttons functionality.
+      document.querySelectorAll('.preset-tokencount').forEach(function(btn) {
         btn.addEventListener('click', function() {
-          document.getElementById('wordCount').value = this.getAttribute('data-word');
+          document.getElementById('tokenLimit').value = this.getAttribute('data-token');
         });
       });
       // Initialize All/None checkbox for file list.
@@ -558,7 +558,7 @@
     }
 
     // Send query via WebSocket
-    function sendQuery(query, llm, selection, wordCount) {
+    function sendQuery(query, llm, selection, tokenLimit) {
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         console.error("WebSocket not connected");
         showErrorSign();
@@ -583,7 +583,7 @@
         selection: selection,
         inputFiles: fileSelection.inputFiles,
         outFiles: fileSelection.outFiles,
-        wordCount: wordCount,
+        tokenLimit: tokenLimit,
         queryID: queryID
       };
 
@@ -650,15 +650,15 @@
       var query = input.value;
       if(query.trim() === "") return;
       var llm = document.getElementById("llmSelect").value;
-      var wordCountElem = document.getElementById("wordCount");
+      var tokenLimitElem = document.getElementById("tokenLimit");
       // default to 0 if empty or invalid
-      var wordCount = 0;
-      if(wordCountElem) {
-         wordCount = parseInt(wordCountElem.value, 10) || 0;
+      var tokenLimit = 0;
+      if(tokenLimitElem) {
+         tokenLimit = parseInt(tokenLimitElem.value, 10) || 0;
       }
-      sendQuery(query, llm, "", wordCount);
+      sendQuery(query, llm, "", tokenLimit);
       input.value = "";
-      // Do not clear the word count input so the value persists.
+      // Do not clear the token limit input so the value persists.
     });
 
     // Handle click on the Stop Server button.
@@ -826,3 +826,4 @@
   </script>
 </body>
 </html>
+

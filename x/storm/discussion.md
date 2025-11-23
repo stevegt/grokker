@@ -11536,8 +11536,6 @@ The codebase already has infrastructure for this—`core.ExtractFiles()` removes
 **examine the new sysmsg and estimate whether it will work, or if it needs improvement**
 
 
-
-
 # System Message Analysis: Discussion Limit Strategy
 
 The new sysmsg will **partially work** but has notable weaknesses[1][2]. Strengths: it explicitly separates discussion from output files and uses emphatic language ("MUST") that LLMs tend to respect better[2]. The override instruction ("ignore any previous instruction regarding 10,000 word goal") is clever for preventing prompt injection[1].
@@ -11572,10 +11570,6 @@ This clarifies: token estimation, file format expectations, and structural organ
 
 
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -11616,5 +11610,223 @@ Let me analyze this:
 5. Build in a truncation strategy if the model exceeds limits despite the constraints.
 
 
+
 ---
 
+
+
+**plan what needs to be changed to replace word count with token count in index.html and main.go.**
+
+
+# Plan: Replace Word Count with Token Count
+
+## Frontend Changes (index.html)
+
+**UI Updates**: Rename "Word Count" label to "Token Limit". Update preset buttons from `data-word="100"` to `data-token="500"` with token-based defaults (typical token limits: 500, 1000, 2000, 4000). Change the input field placeholder and labels accordingly to reflect tokens instead of words.
+
+**JavaScript Updates**: Rename `wordCount` variable to `tokenLimit` throughout. Update `sendQuery()` to pass `tokenLimit` instead of `wordCount` in the WebSocket message. Rename `preset-wordcount` class to `preset-tokencount` for semantic clarity.
+
+## Backend Changes (main.go)
+
+**Type Updates**: Rename `QueryRequest.WordCount` to `QueryRequest.TokenLimit`. Update JSON tags accordingly. Rename all function parameters from `wordCount` to `tokenLimit`.
+
+**System Message**: Replace the word-based constraint with token-based language: instead of `"Please limit your response to N words"`, use `"Limit discussion to approximately N tokens. Output files marked with ~~~FILENAME blocks are excluded from this limit."` This aligns with how LLMs actually process content.
+
+**Response Validation**: After `core.ExtractFiles()` extracts output files, validate the remaining discussion portion using `grok.TokenCount(discussionText)`. If tokens exceed the limit, truncate or reject with a warning message that includes the actual token count.
+
+**Constant Updates**: Update comments and variable names from "word" to "token" for consistency.
+
+## Implementation Order
+
+1. Update `QueryRequest` struct and rename variables in main.go
+2. Update system message with token-based constraints
+3. Add post-extraction token validation logic
+4. Update index.html UI labels and presets
+5. Update JavaScript variable names and WebSocket message format
+6. Test with various token limits to verify accuracy
+
+This approach maintains the separation of discussion from output file constraints while using the correct measurement unit (tokens) aligned with actual API costs.
+
+## References
+
+- [1] [https://api-docs.deepseek.com/quick_start/token_usage](https://api-docs.deepseek.com/quick_start/token_usage)
+- [2] [https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them](https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them)
+- [3] [https://skywork.ai/skypage/en/The-Ultimate-Guide-to-LLM-Token-Counters-Your-Key-to-Unlocking-AI-Efficiency-and-Cost-Control/1975590557433524224](https://skywork.ai/skypage/en/The-Ultimate-Guide-to-LLM-Token-Counters-Your-Key-to-Unlocking-AI-Efficiency-and-Cost-Control/1975590557433524224)
+- [4] [https://winder.ai/calculating-token-counts-llm-context-windows-practical-guide/](https://winder.ai/calculating-token-counts-llm-context-windows-practical-guide/)
+- [5] [https://platform.openai.com/tokenizer](https://platform.openai.com/tokenizer)
+- [6] [https://docs.aws.amazon.com/bedrock/latest/userguide/count-tokens.html](https://docs.aws.amazon.com/bedrock/latest/userguide/count-tokens.html)
+
+## Reasoning
+
+The user is asking me to plan what needs to be changed to replace word count with token count in index.html and main.go.
+
+Let me understand the context:
+1. Currently, the system uses "word count" as a way to limit response size
+2. The user wants to replace this with "token count"
+3. The issue is that tokens are the actual unit that LLMs use and that APIs charge for
+4. Word count is a rough approximation but doesn't match what actually gets sent to/from the API
+
+The query is: "plan what needs to be changed to replace word count with token count in index.html and main.go."
+
+They want me to limit my response to 300 words.
+
+Let me follow the instructions at the very top:
+1. I'm a researcher
+2. Start with a markdown heading
+3. Limit to 300 words (they specified this)
+4. Enclose reference numbers in square brackets
+5. Don't include empty square brackets
+
+I need to create a comprehensive plan for replacing word count with token count throughout the Storm application.
+
+Changes needed:
+
+**In index.html:**
+1. Change the label from "Word Count" to "Token Limit"
+2. Update the placeholder text from "100" (words) to something like "500" (tokens)
+3. Change the preset button labels/values to reflect tokens instead of words
+4. Update the sendQuery function to send tokenLimit instead of wordCount
+5. Update the variable names from wordCount to tokenLimit throughout
+
+**In main.go:**
+1. Change QueryRequest.WordCount to QueryRequest.TokenLimit
+2. Update the system message to talk about tokens instead of words
+3. In sendQueryToLLM, change how the constraint is phrased - instead of "limit your response to N words", use "limit discussion to N tokens"
+4. After extracting files from the response, validate that the discussion portion doesn't exceed the token limit
+5. Add token counting after response extraction: `grok.TokenCount(discussionText)` to validate
+
+
+6. Rename all wordCount variables to tokenLimit and update terminology from "word" to "token" throughout both files
+
+This requires careful coordination between frontend and backend to ensure the constraint flows properly from user input through to the API call.
+
+
+
+---
+
+
+
+**that's not a bad plan, but if grok.TokenCount() exceeds the limit, then we want to automatically retry the LLM query, with additional emphasis on obeying the limit, without writing anything to disk.**
+
+
+# Implement Automatic Token-Limited Retries
+
+**Modify `processQuery()` flow**: Instead of immediately calling `chat.FinishRound()` after `sendQueryToLLM()`, first validate token count on the discussion portion (post-file extraction). Only write to disk after validation succeeds[1][2].
+
+**Validation logic**: Extract files from response, then check `grok.TokenCount()` on remaining discussion. If tokens exceed `wordCount`, increment retry counter and call `sendQueryToLLM()` again with enhanced system message—no disk write occurs[1].
+
+**Enhanced retry system message**: Add context about previous failure:
+```
+sysmsg += fmt.Sprintf("\n\nREQUIRED: Your previous response exceeded the %d word/token limit. 
+YOU MUST strictly constrain discussion to under %d tokens. 
+Output files (marked with ~~~FILENAME~~~) are excluded from this limit.", wordCount, wordCount)
+```
+
+**Retry limits**: Set maximum retry attempts (e.g., 3 attempts) to prevent infinite loops. After max retries, either truncate the response or broadcast an error to clients[2].
+
+**Refactor `sendQueryToLLM()` signature**: Accept retry count and adjust system message emphasis based on retry number. Higher retry numbers get stricter language ("You ABSOLUTELY MUST..." vs. "You MUST...")[1].
+
+**No disk writes until success**: Only call `chat.FinishRound()` after validation passes, ensuring no partial/failed responses persist in the markdown file[2].
+
+This approach validates before persistence, automatically recovers from token overages, and maintains audit trail of actual successful responses only[1][2].
+
+## References
+
+[1][2]
+
+
+
+## References
+
+- [1] [https://github.com/avast/retry-go](https://github.com/avast/retry-go)
+- [2] [https://python.useinstructor.com/concepts/retrying/](https://python.useinstructor.com/concepts/retrying/)
+- [3] [https://winder.ai/calculating-token-counts-llm-context-windows-practical-guide/](https://winder.ai/calculating-token-counts-llm-context-windows-practical-guide/)
+- [4] [https://pkg.go.dev/github.com/sethvargo/go-retry](https://pkg.go.dev/github.com/sethvargo/go-retry)
+- [5] [https://hackernoon.com/openais-rate-limit-a-guide-to-exponential-backoff-for-llm-evaluation](https://hackernoon.com/openais-rate-limit-a-guide-to-exponential-backoff-for-llm-evaluation)
+- [6] [https://docs.aws.amazon.com/bedrock/latest/userguide/count-tokens.html](https://docs.aws.amazon.com/bedrock/latest/userguide/count-tokens.html)
+
+## Reasoning
+
+The user is asking me to plan for implementing automatic retries when token count exceeds the limit. Specifically, they want to:
+
+1. When `grok.TokenCount()` exceeds the limit, automatically retry the LLM query
+2. Add additional emphasis on obeying the limit
+3. NOT write anything to disk during retries
+
+They want me to limit my response to 300 words and follow the format requirements.
+
+The context is a long conversation about the Storm LLM chat application, and they've provided index.html and main.go files.
+
+Let me identify the query: "that's not a bad plan, but if grok.TokenCount() exceeds the limit, then we want to automatically retry the LLM query, with additional emphasis on obeying the limit, without writing anything to disk."
+
+So they want me to plan an approach that:
+1. Checks token count after LLM response
+2. If exceeded, retry with stronger constraints
+3. Don't write to disk until we have a valid response
+4. Add extra emphasis to the system message on retries
+
+Let me write a plan for this implementation.
+
+
+
+---
+
+
+
+**make the changes to replace word count with token count in index.html and main.go.**
+
+
+# Replace Word Count with Token Count
+
+Replace word-based limiting with token count throughout Storm[1][2]. Update UI labels, preset buttons, and system message to reference tokens instead of words. The LLM will receive explicit token constraints in the system message. After `ExtractFiles()` removes output files, validate the remaining discussion portion using `grok.TokenCount()` to enforce hard limits[1].
+
+## References
+
+[1] [https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them](https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them)
+[2] [https://platform.openai.com/docs/guides/rate-limits](https://platform.openai.com/docs/guides/rate-limits)
+
+## References
+
+## Reasoning
+
+The user is asking me to make changes to replace word count with token count in index.html and main.go.
+
+Let me review the instructions:
+1. I'm a researcher
+2. I should answer the query: "make the changes to replace word count with token count in index.html and main.go."
+3. I should limit my response to no more than 300 words
+4. I should always start my response with a markdown heading
+5. I should enclose reference numbers in square brackets
+6. I should ignore empty brackets in the prompt or context
+7. I should NOT include empty square brackets in my response
+8. My response must include complete files: 'index.html' and 'main.go'
+9. Return complete files only, not fragments
+10. My response must match the specific regex pattern with file markers
+
+The query is: "make the changes to replace word count with token count in index.html and main.go."
+
+Looking at the current code:
+- In index.html: There's a "Word Count" label, preset buttons with data-word attributes, variable names like wordCount, etc.
+- In main.go: There's wordCount parameters, "Please limit your response to N words" in the system message, etc.
+
+I need to replace these with token count terminology throughout both files.
+
+Changes needed:
+1. In index.html:
+   - Change label from "Word Count" to "Token Limit"
+   - Update preset button data attributes from data-word to data-token
+   - Update preset values (maybe from 100, 300, 500, 700 to 500, 1000, 2000, 4000)
+   - Update variable names from wordCount to tokenLimit
+   - Update placeholder text
+   - Update the sendQuery function parameter name
+
+2. In main.go:
+   - Change system message from "limit your response to N words" to "limit discussion to N tokens"
+   - Keep the variable names consistent but the terminology needs to shift in comments/strings
+   - The system message should clarify that output files are excluded from the token count
+
+The user wants the LLM to receive a token limit upfront in the system message, with validation of the discussion portion happening post-extraction using grok.TokenCount(). I'll update the UI labels to reflect "Token Limit" instead of "Word Count" and adjust the system message to reference tokens rather than words.
+
+
+
+---

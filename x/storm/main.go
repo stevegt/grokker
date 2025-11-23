@@ -40,7 +40,7 @@ type QueryRequest struct {
 	Selection  string   `json:"selection"`
 	InputFiles []string `json:"inputFiles"`
 	OutFiles   []string `json:"outFiles"`
-	WordCount  int      `json:"wordCount"`
+	TokenLimit int      `json:"tokenLimit"`
 	QueryID    string   `json:"queryID"`
 }
 
@@ -421,20 +421,20 @@ func (c *WSClient) readPump() {
 				}
 			}
 
-			// Extract wordCount as float64 (JSON number type)
-			wordCount := 0
-			if wc, ok := msg["wordCount"].(float64); ok {
-				wordCount = int(wc)
+			// Extract tokenLimit as float64 (JSON number type)
+			tokenLimit := 0
+			if tl, ok := msg["tokenLimit"].(float64); ok {
+				tokenLimit = int(tl)
 			}
 
 			// Process the query
-			go processQuery(queryID, query, llm, selection, inputFiles, outFiles, wordCount)
+			go processQuery(queryID, query, llm, selection, inputFiles, outFiles, tokenLimit)
 		}
 	}
 }
 
 // processQuery processes a query and broadcasts results to all clients.
-func processQuery(queryID, query, llm, selection string, inputFiles, outFiles []string, wordCount int) {
+func processQuery(queryID, query, llm, selection string, inputFiles, outFiles []string, tokenLimit int) {
 	// Broadcast the query to all clients
 	queryBroadcast := map[string]interface{}{
 		"type":    "query",
@@ -460,8 +460,8 @@ func processQuery(queryID, query, llm, selection string, inputFiles, outFiles []
 	}
 	log.Printf("Added %d tokens of context to query: %s", lastNTokenCount, query)
 
-	// Pass the word count along to sendQueryToLLM.
-	responseText := sendQueryToLLM(query, llm, selection, lastN, inputFiles, outFiles, wordCount)
+	// Pass the token limit along to sendQueryToLLM.
+	responseText := sendQueryToLLM(query, llm, selection, lastN, inputFiles, outFiles, tokenLimit)
 
 	// convert references to a bulleted list
 	refIndex := strings.Index(responseText, "<references>")
@@ -574,47 +574,80 @@ func tokenCountHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // sendQueryToLLM calls the Grokker API to obtain a markdown-formatted text.
-func sendQueryToLLM(query string, llm string, selection, backgroundContext string, inputFiles []string, outFiles []string, wordCount int) string {
-	if wordCount == 0 {
-		wordCount = 100
+func sendQueryToLLM(query string, llm string, selection, backgroundContext string, inputFiles []string, outFiles []string, tokenLimit int) string {
+	if tokenLimit == 0 {
+		tokenLimit = 500
 	}
+
+	wordLimit := tokenLimit / 4
 
 	sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading.  Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes.  If writing Go code, please ensure you are not skipping the index on slices or arrays, e.g. if you mean `foo[0]` then say `foo[0]`, not `foo`."
 
-	sysmsg = fmt.Sprintf("%s\n\nYou MUST limit the discussion portion of your response to no more than %d words.  Output files are not counted against this limit. You MUST ignore any previous instruction regarding a 10,000 word goal.", sysmsg, wordCount)
+	sysmsg = fmt.Sprintf("%s\n\nYou MUST limit the discussion portion of your response to no more than %d tokens (about %d words).  Output files (marked with ---FILE-START and ---FILE-END blocks) are not counted against this limit and can be unlimited size. You MUST ignore any previous instruction regarding a 10,000 word goal.", sysmsg, tokenLimit, wordLimit)
 
 	prompt := fmt.Sprintf("---CONTEXT START---\n%s\n---CONTEXT END---\n\nNew Query: %s", backgroundContext, query)
 	if selection != "" {
 		prompt += fmt.Sprintf(" {%s}", selection)
 	}
 
-	msgs := []client.ChatMsg{
-		{Role: "USER", Content: prompt},
-	}
-	var outFilesConverted []core.FileLang
-	for _, f := range outFiles {
-		lang, known, err := util.Ext2Lang(f)
-		Ck(err)
-		if !known {
-			log.Printf("Unknown file extension for output file %s; assuming language is %s", f, lang)
-		}
-		outFilesConverted = append(outFilesConverted, core.FileLang{File: f, Language: lang})
-	}
-	fmt.Printf("Sending query to LLM '%s'\n", llm)
-	fmt.Printf("Query: %s\n", query)
-	response, _, err := grok.SendWithFiles(llm, sysmsg, msgs, inputFiles, outFilesConverted)
-	if err != nil {
-		log.Printf("SendWithFiles error: %v", err)
-		return fmt.Sprintf("Error sending query: %v", err)
-	}
-	fmt.Printf("Received response from LLM '%s'\n", llm)
-	fmt.Printf("Response: %s\n", response)
+	// repeat until we get a valid response that is less than tokenLimit
+	var cookedResponse string
+	var msgs []client.ChatMsg
+	for {
 
-	cookedResponse, err := core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
-		DryRun:             false,
-		ExtractToStdout:    false,
-		RemoveFromResponse: true,
-	})
+		msgs = append(msgs, client.ChatMsg{Role: "USER", Content: prompt})
+
+		var outFilesConverted []core.FileLang
+		for _, f := range outFiles {
+			lang, known, err := util.Ext2Lang(f)
+			Ck(err)
+			if !known {
+				log.Printf("Unknown file extension for output file %s; assuming language is %s", f, lang)
+			}
+			outFilesConverted = append(outFilesConverted, core.FileLang{File: f, Language: lang})
+		}
+		fmt.Printf("Sending query to LLM '%s'\n", llm)
+		fmt.Printf("Query: %s\n", query)
+		response, _, err := grok.SendWithFiles(llm, sysmsg, msgs, inputFiles, outFilesConverted)
+		if err != nil {
+			log.Printf("SendWithFiles error: %v", err)
+			return fmt.Sprintf("Error sending query: %v", err)
+		}
+		fmt.Printf("Received response from LLM '%s'\n", llm)
+		fmt.Printf("Response: %s\n", response)
+
+		cookedResponse, err = core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
+			DryRun:             false,
+			ExtractToStdout:    false,
+			RemoveFromResponse: true,
+		})
+
+		if err != nil {
+			log.Printf("ExtractFiles error: %v", err)
+			return fmt.Sprintf("Error extracting files from response: %v", err)
+		}
+
+		// check token count of cookedResponse -- but first, remove
+		// any ## References and <reasoning> sections
+		referencesRe := regexp.MustCompile(`(?s)## References.*?(---|<reasoning>|$)`)
+		discussionOnly := referencesRe.ReplaceAllString(cookedResponse, "")
+		reasoningRe := regexp.MustCompile(`(?s)<reasoning>.*?</reasoning>`)
+		discussionOnly = reasoningRe.ReplaceAllString(discussionOnly, "")
+		count, err := grok.TokenCount(discussionOnly)
+		if err != nil {
+			log.Printf("Token count error: %v", err)
+			panic(err)
+		}
+		if count > tokenLimit {
+			sysmsg += fmt.Sprintf("\n\nYour previous response was %d tokens, which exceeds the limit of %d tokens (about %d words).  You ABSOLUTELY MUST provide a more concise answer that fits within the limit.", count, tokenLimit, wordLimit)
+			prompt += fmt.Sprintf("\n\nYou MUST provide a more concise answer that fits within the %d token (%d word) limit.", tokenLimit, wordLimit)
+			log.Printf("Response token count %d exceeds limit of %d; retrying...", count, tokenLimit)
+			log.Printf("Updated sysmsg: %s", sysmsg)
+			msgs = append(msgs, client.ChatMsg{Role: "ASSISTANT", Content: discussionOnly})
+			continue
+		}
+		break
+	}
 
 	return cookedResponse
 }
