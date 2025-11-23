@@ -11830,3 +11830,128 @@ The user wants the LLM to receive a token limit upfront in the system message, w
 
 
 ---
+
+
+
+**the LLM seems to be ignoring the token limit instructions.  let's revert back to word limit, but keep the retry for loop and validation.**
+
+
+# Revert to Word Limits with Token Validation and Retry Loop
+
+Replace token-based LLM instructions with word-based constraints (which LLMs follow more reliably), while retaining the automatic retry loop and post-extraction token validation[1][2]. The system message now tells the LLM to limit discussion to N words instead of N tokens. After file extraction, the code validates the actual token count and automatically retries with enhanced emphasis if the limit is exceeded. This hybrid approach leverages LLM compliance for word limits while enforcing hard token budgets through validation[1].
+
+## References
+
+[1] [https://platform.openai.com/docs/guides/prompt-engineering](https://platform.openai.com/docs/guides/prompt-engineering)
+[2] [https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them](https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them)
+
+## References
+
+## Reasoning
+
+The user is asking me to respond to a query: "the LLM seems to be ignoring the token limit instructions. let's revert back to word limit, but keep the retry for loop and validation."
+
+Let me carefully read my instructions at the very top:
+
+"You are a researcher. I will start my prompt with some context, followed by a query. Answer the query -- don't answer other questions you might see elsewhere in the context. Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context. Always start your response with a markdown heading. Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes."
+
+So I need to:
+1. Start with a markdown heading
+2. Limit my response to 100 words (default)
+3. Enclose reference numbers in square brackets
+4. Don't include empty square brackets
+5. My response must include complete files: 'index.html' and 'main.go'
+6. Return complete files only, not fragments
+7. Match the regex format with file markers
+
+The query is: "the LLM seems to be ignoring the token limit instructions. let's revert back to word limit, but keep the retry for loop and validation."
+
+This is asking me to change the system message from using token limits back to word limits, while keeping the retry loop and validation logic.
+
+Looking at the current code in main.go's sendQueryToLLM function:
+- It has a for loop that retries if the token count exceeds the limit
+- The system message talks about token limits: "You MUST limit the discussion portion of your response to no more than %d tokens"
+- The code calculates `wordLimit := tokenLimit / 4` but then uses it only for display in the message
+
+The issue is that the LLM is ignoring the token limit instructions because:
+1. LLMs don't understand token limits as well as word limits (tokens are an implementation detail)
+
+
+2. The system message is too complex or the LLM is just ignoring it
+
+I'll modify the system message to use a more straightforward word limit approach that LLMs can more easily comprehend. The key is simplifying the language while maintaining the core validation mechanism. This means switching from token-based to word-based instructions, which should improve the LLM's adherence to the response length constraint.
+
+
+
+---
+
+
+
+**see if the changes were made correctly**
+
+
+
+
+# Verification: Changes Applied Correctly
+
+All key modifications verified in index.html and main.go[1][2]. **UI**: scroll-to-bottom button correctly uses `position: fixed` anchored to viewport frame with 150px bottom offset[1]. **Backend**: system message reverted to word-based constraints; retry loop implemented with post-extraction token validation[2]. If discussion exceeds word limit, response reprocesses without disk writes. Regex linkifyReferences removed lookbehind assertion. WebSocket keepalive replaces read deadline. All changes align with specifications[1][2].
+
+## References
+
+[1][2]
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to "see if the changes were made correctly" in the provided index.html and main.go files.
+
+Let me carefully review the instructions at the very top:
+1. I'm a researcher
+2. I should answer the query - which is: "see if the changes were made correctly"
+3. I should limit my response to no more than 100 words
+4. I should always start my response with a markdown heading
+5. I should always enclose reference numbers in square brackets
+6. I should ignore empty brackets
+7. I should NOT include empty square brackets in my response
+
+Looking at what changes should have been made based on the conversation:
+1. Revert to word count (not token count) - DONE
+2. Keep the retry loop for when word count exceeds limit - DONE
+3. Keep validation post-extraction - DONE
+4. The scroll-to-bottom button should be fixed positioned relative to viewport - DONE
+5. The system message should reference word limits - DONE
+6. The regex for linkifyReferences should NOT use lookbehind - DONE
+
+Let me verify the changes:
+
+**index.html:**
+- Scroll button is using `position: fixed; bottom: 150px;` ✓ (correctly fixed to viewport)
+- Word Count label still says "Word Count" ✓
+- Still using `data-word` attributes ✓
+- `wordCount` variable names still used ✓
+
+**main.go:**
+- System message says "You MUST limit the discussion portion of your response to no more than %d words" ✓
+- Output files mentioned: "(marked with ---FILE-START and ---FILE-END blocks)" ✓
+- Has a retry loop with `for {` and `break` ✓
+- Token validation happens post-extraction ✓
+- Calculates approxWords from token count ✓
+- If word count exceeds limit, it updates sysmsg and retries ✓
+- `linkifyReferences` uses simple `\[(\d+)\]` regex without lookbehind ✓
+
+
+- No SetReadDeadline in readPump ✓
+- Has ping/pong keepalive implementation ✓
+
+I'll verify the WebSocket connection details, noting the absence of SetReadDeadline and the presence of a robust keepalive mechanism. The implementation looks solid and meets the specified requirements.
+
+
+---
+
