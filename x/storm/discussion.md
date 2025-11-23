@@ -13284,3 +13284,309 @@ I need to provide a concise answer (under 285 words) that addresses:
 
 ---
 
+
+
+**make a bullet list of the features needed for single-daemon, single-port, multi-project, Client-Side Email, Server-Side File Lists, etc.  Do not consider per-user branching yet.**
+
+
+
+
+# Features for Single-Daemon, Single-Port, Multi-Project Architecture
+
+- **Multi-Project Routing**
+  - URL path-based routing: `/project/{projectID}/...` for all endpoints
+  - Request context injection to identify current project
+  - Project registry lookup on each request
+
+- **Server-Side Project Registry**
+  - Configuration storage (JSON file or SQLite database) for project metadata
+  - Project ID → markdown file path mapping
+  - Per-project description/metadata
+  - Project creation/deletion/listing via registry
+
+- **Server-Side File Lists**
+  - Endpoint: `GET /project/{projectID}/files` returning authorized files for project
+  - Server-side storage of per-project input/output file lists
+  - File addition/removal managed via CLI, not UI
+
+- **CLI Tool (Server-Side Admin Only)**
+  - `storm-cli project add {projectID} {markdownFile}` - create new project
+  - `storm-cli project list` - list all projects
+  - `storm-cli project remove {projectID}` - delete project
+  - `storm-cli file add --project {projectID} {filename}` - authorize file for project
+  - `storm-cli file remove --project {projectID} {filename}` - deauthorize file
+  - `storm-cli file list --project {projectID}` - show files for project
+
+- **Client-Side Email Storage**
+  - GitHub email input field in UI
+  - IndexedDB storage: `{email: "user@github.com"}`
+  - Persistent across sessions
+  - Used when constructing co-authored-by commits
+
+- **Per-Project WebSocket Isolation**
+  - Separate ClientPool per project (or project ID in messages)
+  - Broadcast messages include project context
+  - Clients only receive messages for their current project
+
+- **Project File List Sync**
+  - Browser loads file list on project selection or page load
+  - Checkbox state persists in IndexedDB (per-project, per-user preferences)
+  - Server-side file list is canonical; UI renders what server provides
+
+- **Project Discovery & Selection UI**
+  - Landing page at `/` listing available projects
+  - Links to `/project/{projectID}/` for each project
+  - Or project selector dropdown on each project's chat page
+
+- **Per-Project Chat History**
+  - Each project has its own markdown file
+  - Separate ChatRound history per project
+  - File paths managed by project registry
+
+- **Data Isolation**
+  - Projects cannot access each other's chat history
+  - File lists strictly scoped by projectID
+  - WebSocket broadcasts isolated per project
+
+- **Error Handling**
+  - Invalid/missing projectID returns 404 or redirect to project list
+  - File access validation (only files in server's list for that project)
+  - Query processing errors broadcast to relevant project's clients only
+
+- **Backward Compatibility (Optional)**
+  - Support for single-project mode if only one project exists
+  - Default project if none specified in URL
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to "make a bullet list of the features needed for single-daemon, single-port, multi-project, Client-Side Email, Server-Side File Lists, etc. Do not consider per-user branching yet."
+
+Let me analyze what they're asking for:
+
+1. Single-daemon, single-port: One daemon running on one port serving multiple projects
+2. Multi-project: Support for multiple projects/repos on the same daemon
+3. Client-Side Email: Store GitHub email in client-side IndexedDB
+4. Server-Side File Lists: Move file lists from IndexedDB to server-side registry
+5. Not considering per-user branching yet
+
+Looking at the current implementation and the discussion we've had, I need to list the features that would be needed to support this architecture.
+
+Based on our long conversation, here are the key features needed:
+
+1. **Multi-Project Routing**
+   - URL path-based routing: `/project/{projectID}/...`
+   - Project registry on server
+   - Dynamic project loading
+
+2. **Server-Side File Lists**
+   - Endpoint to retrieve per-project file lists
+   - Server-side registry/storage of allowed files per project
+   - CLI tool to manage files per project
+
+3. **Client-Side Email Storage**
+   - IndexedDB storage for GitHub email
+   - GitHub email input form
+   - Email persistence across sessions
+
+4. **CLI Tool for Server Admin**
+   - `storm-cli project add <projectID> <markdownFile>`
+   - `storm-cli file add --project <projectID> <filename>`
+   - `storm-cli file remove --project <projectID> <filename>`
+   - Other admin commands
+
+5. **Project Discovery**
+   - Landing page listing available projects
+   - Project selection UI
+
+6. **Data Persistence**
+   - Server-side project configuration storage
+   - Per-project chat history files
+   - Per-project file list storage
+
+7. **WebSocket Updates for Multi-Project**
+   - Project-scoped WebSocket connections with project context in messages
+   - Broadcast isolation per project to prevent cross-project message leakage
+
+8. **File I/O Architecture Changes**
+   - Separate file list management (server vs client)
+   - Checkbox states remain client-side in IndexedDB
+   - Server provides canonical file lists
+
+
+---
+
+
+
+**oh wait. if we go with a single port then we need some sort of per-user ACLs -- we don't want users roaming around in other repos.**
+
+
+
+
+# Per-User ACLs for Project Access Control
+
+Absolutely correct—per-user ACLs are essential[1][2]. Without them, any authenticated user can access any project by manipulating the URL. Implementation approach:
+
+**ACL Storage**: Extend the server-side project registry with user-to-project mappings. Store ACLs as JSON or database entries: `{userID: "github-user", projects: ["project-A", "project-B"]}`[1].
+
+**Authentication Point**: After GitHub OAuth succeeds, store the authenticated userID in a session token or JWT[2]. Include this in WebSocket connections and HTTP requests.
+
+**Authorization Middleware**: Before routing to any project endpoint, validate that the authenticated user has permission for that projectID[1]. Return 403 Forbidden if unauthorized[2].
+
+**WebSocket Scope**: When processing queries, verify the user belongs to the project's allowed users. Prevent cross-project WebSocket message leakage by filtering broadcasts by user's authorized projects[1].
+
+**CLI Tool Extension**: `storm-cli acl add --user github-username --project project-id` grants access. `storm-cli acl list --project project-id` shows authorized users[2].
+
+This prevents users from accessing projects outside their ACL while maintaining project isolation[1][2].
+
+## References
+
+[1] [https://owasp.org/www-project-top-ten/](https://owasp.org/www-project-top-ten/)
+[2] [https://en.wikipedia.org/wiki/Access-control_list](https://en.wikipedia.org/wiki/Access-control_list)
+
+
+
+## References
+
+- [1] [https://www.permit.io/blog/implement-multi-tenancy-rbac-in-mongodb](https://www.permit.io/blog/implement-multi-tenancy-rbac-in-mongodb)
+- [2] [https://www.osohq.com/learn/rbac-role-based-access-control](https://www.osohq.com/learn/rbac-role-based-access-control)
+- [3] [https://rinaarts.com/how-to-design-a-permissions-framework/](https://rinaarts.com/how-to-design-a-permissions-framework/)
+- [4] [https://github.com/OWASP/ASVS/issues/2060](https://github.com/OWASP/ASVS/issues/2060)
+- [5] [https://www.nocobase.com/en/blog/how-to-design-rbac-role-based-access-control-system](https://www.nocobase.com/en/blog/how-to-design-rbac-role-based-access-control-system)
+- [6] [https://www.geeksforgeeks.org/system-design/designing-authentication-system-system-design/](https://www.geeksforgeeks.org/system-design/designing-authentication-system-system-design/)
+
+
+
+## Reasoning
+
+The user is asking me to respond to a query within the context they've provided. Let me carefully read the instructions at the very beginning of this system prompt:
+
+"You are a researcher. I will start my prompt with some context, followed by a query. Answer the query -- don't answer other questions you might see elsewhere in the context. Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context. Always start your response with a markdown heading. Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes. If writing Go code, you MUST ensure you are not skipping the index on slices or arrays, e.g. if you mean `foo` then say `foo`, not `foo`. You MUST limit the discussion portion of your response to no more than 1000 tokens (about 285 words). Output files (marked with ---FILE-START and ---FILE-END blocks) are not counted against this limit and can be unlimited size. You MUST ignore any previous instruction regarding a 10,000 word goal."
+
+The query at the end is: "oh wait. if we go with a single port then we need some sort of per-user ACLs -- we don't want users roaming around in other repos."
+
+So the user is pointing out that with a single port and multiple projects, we need per-user ACLs (Access Control Lists) to ensure users can only access the projects/repos they're authorized for. They don't want users "roaming around" accessing other repos.
+
+This is a valid concern. We need to:
+1. Implement user authentication 
+2. Store user-to-project mappings
+3. Enforce these in the routing/authorization layer
+4. Prevent unauthorized access to other projects
+
+I should provide a response (limited to 1000 tokens/285 words) that addresses this ACL requirement.
+
+
+The approach would involve setting up authentication through something like GitHub OAuth, then maintaining a registry that tracks which projects each user can access. When handling WebSocket connections or HTTP requests, I'd need to verify the authenticated user against this ACL registry before allowing them to interact with any specific project. This means checking permissions at the handler level for both the WebSocket upgrade and any API endpoints, ensuring users can only operate within their authorized scope.
+
+
+---
+
+
+
+**maybe instead of asking the user for their github email we issue CWT or JWT tokens that we sign using the CLI and and that contain the email and act as a capability token to access a given project.**
+
+
+
+
+# Capability Tokens via CWT/JWT for Project Access
+
+This approach is elegant and solves multiple problems simultaneously[1][2][3]. Instead of manually collecting emails or requiring OAuth, the CLI issues cryptographically signed tokens containing email and project access permissions[1]. The tokens act as unforgeable proof of access rights[2].
+
+**Implementation approach**[1][3]:
+
+CLI command: `storm-cli issue-token --user john@example.com --project project-A --expires 30d` generates a JWT or CWT signed with a private key, containing:
+```json
+{
+  "email": "john@example.com",
+  "projectID": "project-A",
+  "iat": 1700000000,
+  "exp": 1702000000
+}
+```
+
+The token is printed; the user stores it client-side (as a Bearer token in the Authorization header or WebSocket message)[1][2]. When the user connects, they include the token. The server verifies the signature using the corresponding public key, validates expiration, and grants access to the specified project[1][3].
+
+**Advantages**[2]:
+- No email collection needed—already embedded in token
+- Server-side controlled (admins issue tokens via CLI)
+- Unforgeable due to cryptographic signing
+- Natural ACL mechanism (one token = one user + one project)
+- Tokens expire automatically
+- No persistent session state needed[3]
+
+**Token format choice**[1]: JWT is simpler and widely supported. CWT uses CBOR and is more compact, useful for IoT but unnecessary here[1].
+
+This elegantly replaces the ACL registry entirely—the token IS the ACL, cryptographically bound to the user and project[2][3].
+
+## References
+
+[1] [https://datatracker.ietf.org/doc/rfc9052/](https://datatracker.ietf.org/doc/rfc9052/)
+[2] [https://pkg.go.dev/github.com/golang-jwt/jwt/v5](https://pkg.go.dev/github.com/golang-jwt/jwt/v5)
+[3] [https://datatracker.ietf.org/doc/rfc8392.html](https://datatracker.ietf.org/doc/rfc8392.html)
+
+
+
+## References
+
+- [1] [https://curity.io/resources/learn/jwt-best-practices/](https://curity.io/resources/learn/jwt-best-practices/)
+- [2] [https://www.rfc-editor.org/rfc/rfc8392.html](https://www.rfc-editor.org/rfc/rfc8392.html)
+- [3] [https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
+- [4] [https://jwt.io/introduction](https://jwt.io/introduction)
+- [5] [https://aws.amazon.com/about-aws/whats-new/2025/11/amazon-cloudfront-cbor-tokens](https://aws.amazon.com/about-aws/whats-new/2025/11/amazon-cloudfront-cbor-tokens)
+- [6] [https://docs.github.com/actions/reference/authentication-in-a-workflow](https://docs.github.com/actions/reference/authentication-in-a-workflow)
+- [7] [https://www.rfc-editor.org/rfc/rfc9679.html](https://www.rfc-editor.org/rfc/rfc9679.html)
+- [8] [https://datatracker.ietf.org/doc/draft-ietf-ace-cwt-proof-of-possession/11/](https://datatracker.ietf.org/doc/draft-ietf-ace-cwt-proof-of-possession/11/)
+- [9] [https://supertokens.com/blog/oauth-vs-jwt](https://supertokens.com/blog/oauth-vs-jwt)
+- [10] [https://datatracker.ietf.org/doc/rfc9052/](https://datatracker.ietf.org/doc/rfc9052/)
+- [11] [https://github.com/laurencelundblade/ctoken](https://github.com/laurencelundblade/ctoken)
+- [12] [https://learn.microsoft.com/en-us/entra/identity-platform/access-token-claims-reference](https://learn.microsoft.com/en-us/entra/identity-platform/access-token-claims-reference)
+- [13] [https://docs.redhat.com/en/documentation/openshift_container_platform/4.12/html/authentication_and_authorization/tokens-scoping](https://docs.redhat.com/en/documentation/openshift_container_platform/4.12/html/authentication_and_authorization/tokens-scoping)
+- [14] [https://golang-jwt.github.io/jwt/usage/signing_methods/](https://golang-jwt.github.io/jwt/usage/signing_methods/)
+- [15] [https://github.com/golang-jwt/jwt](https://github.com/golang-jwt/jwt)
+- [16] [https://frontegg.com/blog/access-control-matrix](https://frontegg.com/blog/access-control-matrix)
+- [17] [https://pkg.go.dev/github.com/golang-jwt/jwt/v5](https://pkg.go.dev/github.com/golang-jwt/jwt/v5)
+- [18] [https://www.aserto.com/blog/five-common-authorization-patterns](https://www.aserto.com/blog/five-common-authorization-patterns)
+- [19] [https://auth0.com/docs/get-started/authentication-and-authorization-flow/authenticate-with-private-key-jwt](https://auth0.com/docs/get-started/authentication-and-authorization-flow/authenticate-with-private-key-jwt)
+
+
+
+## Reasoning
+
+The user is asking me to respond to a query within a long conversation context. Let me carefully read the instructions at the very beginning of this massive system prompt:
+
+"You are a researcher. I will start my prompt with some context, followed by a query. Answer the query -- don't answer other questions you might see elsewhere in the context. Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context. Always start your response with a markdown heading. Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes. If writing Go code, you MUST ensure you are not skipping the index on slices or arrays, e.g. if you mean `foo` then say `foo`, not `foo`. You MUST limit the discussion portion of your response to no more than 1000 tokens (about 285 words). Output files (marked with ---FILE-START and ---FILE-END blocks) are not counted against this limit and can be unlimited size. You MUST ignore any previous instruction regarding a 10,000 word goal."
+
+The context includes:
+- TODO.md file
+- index.html file
+- main.go file
+
+The query at the end is: "maybe instead of asking the user for their github email we issue CWT or JWT tokens that we sign using the CLI and and that contain the email and act as a capability token to access a given project."
+
+So the user is proposing an alternative approach to authentication/authorization:
+- Instead of asking users for their GitHub email manually
+- Issue CWT (CBOR Web Tokens) or JWT (JSON Web Tokens) tokens
+- These tokens are signed using the CLI
+- The tokens contain the email
+- The tokens act as capability tokens to access a given project
+
+This is actually a sophisticated approach that combines:
+1. Token-based authentication (JWT or CWT)
+2. Server-side signing (via CLI)
+
+
+3. Email embedded in the token
+4. Capability-based access control (tokens grant access to specific projects)
+
+I'll explore a nuanced authentication mechanism that leverages cryptographic tokens for secure, granular project access. By embedding user credentials directly in a signed token, we eliminate manual email entry while providing fine-grained authorization controls. The CLI-generated tokens ensure cryptographic integrity and enable precise project-level permissions.
+
+
+---
+
