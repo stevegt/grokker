@@ -5,7 +5,6 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"html/template"
 	"io/ioutil"
@@ -22,6 +21,7 @@ import (
 
 	"github.com/gofrs/flock"
 	"github.com/gorilla/websocket"
+	"github.com/spf13/cobra"
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker/v3/client"
 	"github.com/stevegt/grokker/v3/core"
@@ -33,6 +33,26 @@ import (
 var indexHTML string
 
 var tmpl = template.Must(template.New("index").Parse(indexHTML))
+
+// Global variables for serve subcommand
+var (
+	chat       *Chat
+	grok       *core.Grokker
+	srv        *http.Server
+	clientPool *ClientPool
+	upgrader   = websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			return true // Allow all origins for now
+		},
+	}
+)
+
+const (
+	pingInterval = 20 * time.Second
+	pongWait     = 60 * time.Second
+)
 
 // QueryRequest represents a user's query input.
 type QueryRequest struct {
@@ -283,44 +303,118 @@ func (c *Chat) getHistory(lock bool) string {
 	return result
 }
 
-var chat *Chat
-var grok *core.Grokker
-var srv *http.Server
-var clientPool *ClientPool
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins for now
-	},
-}
-
-const (
-	pingInterval = 20 * time.Second
-	pongWait     = 60 * time.Second
-)
-
 func main() {
+	fmt.Println("storm v0.0.76")
 
-	fmt.Println("index.html length:", len(indexHTML))
-
-	fmt.Println("storm v0.0.75")
-	port := flag.Int("port", 8080, "port to listen on")
-	filePtr := flag.String("file", "", "markdown file to store chat history")
-	flag.Parse()
-	if *filePtr == "" {
-		log.Fatal("must provide a markdown filename with -file")
+	rootCmd := &cobra.Command{
+		Use:   "storm",
+		Short: "Storm - Multi-project LLM chat application",
+		Long:  `Storm is a single-daemon, single-port multi-project chat application for interacting with LLMs and local files.`,
 	}
 
+	// Serve command
+	var port int
+	var file string
+	serveCmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Start the Storm server",
+		Long:  `Start the Storm server on the specified port with the given markdown file.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if file == "" {
+				// XXX must not require or accept a file on startup -- files are per-project now.
+				return fmt.Errorf("must provide a markdown filename with --file")
+			}
+			return serveRun(port, file)
+		},
+	}
+
+	serveCmd.Flags().IntVar(&port, "port", 8080, "port to listen on")
+	// XXX no file on startup
+	serveCmd.Flags().StringVar(&file, "file", "", "markdown file to store chat history")
+	serveCmd.MarkFlagRequired("file")
+
+	rootCmd.AddCommand(serveCmd)
+
+	// Project command (placeholder for future implementation)
+	projectCmd := &cobra.Command{
+		Use:   "project",
+		Short: "Manage projects",
+		Long:  `Manage Storm projects.`,
+	}
+
+	projectAddCmd := &cobra.Command{
+		Use:   "add [projectID] [baseDir] [markdownFile]",
+		Short: "Add a new project",
+		Long:  `Add a new project to the registry.`,
+		Args:  cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fmt.Printf("Would add project: %s with baseDir: %s and markdown file: %s\n", args[0], args[1], args[2])
+			return nil
+		},
+	}
+
+	projectListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List all projects",
+		Long:  `List all registered projects.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fmt.Println("Would list all projects")
+			return nil
+		},
+	}
+
+	projectCmd.AddCommand(projectAddCmd, projectListCmd)
+	rootCmd.AddCommand(projectCmd)
+
+	// File command (placeholder)
+	fileCmd := &cobra.Command{
+		Use:   "file",
+		Short: "Manage project files",
+		Long:  `Manage files associated with projects.`,
+	}
+
+	fileAddCmd := &cobra.Command{
+		Use:   "add",
+		Short: "Add a file to a project",
+		Long:  `Add an authorized file to a project.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fmt.Println("Would add file to project")
+			return nil
+		},
+	}
+
+	fileCmd.AddCommand(fileAddCmd)
+	rootCmd.AddCommand(fileCmd)
+
+	// Token command (placeholder)
+	tokenCmd := &cobra.Command{
+		Use:   "issue-token",
+		Short: "Issue a CWT token",
+		Long:  `Issue a CBOR Web Token for project access.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fmt.Println("Would issue CWT token")
+			return nil
+		},
+	}
+
+	rootCmd.AddCommand(tokenCmd)
+
+	if err := rootCmd.Execute(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// serveRun implements the serve command
+func serveRun(port int, markdownFile string) error {
 	var err error
 	var lock *flock.Flock
 	grok, _, _, _, lock, err = core.Load("", true)
 	if err != nil {
-		log.Fatalf("failed to load Grokker: %v", err)
+		return fmt.Errorf("failed to load LLM core: %w", err)
 	}
 	defer lock.Unlock()
 
-	chat = NewChat(*filePtr)
+	chat = NewChat(markdownFile)
 	clientPool = NewClientPool()
 	go clientPool.Start()
 
@@ -344,12 +438,13 @@ func main() {
 	http.HandleFunc("/stop", stopHandler)
 	http.HandleFunc("/open", openHandler)
 
-	addr := fmt.Sprintf(":%d", *port)
+	addr := fmt.Sprintf(":%d", port)
 	srv = &http.Server{Addr: addr}
 	log.Printf("Starting server on %s\n", addr)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatal(err)
+		return err
 	}
+	return nil
 }
 
 // wsHandler handles WebSocket connections.
