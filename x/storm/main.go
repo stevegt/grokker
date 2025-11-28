@@ -314,24 +314,16 @@ func main() {
 
 	// Serve command
 	var port int
-	var file string
 	serveCmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the Storm server",
-		Long:  `Start the Storm server on the specified port with the given markdown file.`,
+		Long:  `Start the Storm server on the specified port.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if file == "" {
-				// XXX must not require or accept a file on startup -- files are per-project now.
-				return fmt.Errorf("must provide a markdown filename with --file")
-			}
-			return serveRun(port, file)
+			return serveRun(port)
 		},
 	}
 
 	serveCmd.Flags().IntVar(&port, "port", 8080, "port to listen on")
-	// XXX no file on startup
-	serveCmd.Flags().StringVar(&file, "file", "", "markdown file to store chat history")
-	serveCmd.MarkFlagRequired("file")
 
 	rootCmd.AddCommand(serveCmd)
 
@@ -348,7 +340,21 @@ func main() {
 		Long:  `Add a new project to the registry.`,
 		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Printf("Would add project: %s with baseDir: %s and markdown file: %s\n", args[0], args[1], args[2])
+			projectID := args[0]
+			baseDir := args[1]
+			markdownFile := args[2]
+
+			// Call projectAdd to initialize the project
+			chatInstance, err := projectAdd(projectID, baseDir, markdownFile)
+			if err != nil {
+				return fmt.Errorf("failed to add project: %w", err)
+			}
+
+			fmt.Printf("Project %s added successfully\n", projectID)
+			fmt.Printf("  Base directory: %s\n", baseDir)
+			fmt.Printf("  Markdown file: %s\n", markdownFile)
+			fmt.Printf("  Chat rounds loaded: %d\n", len(chatInstance.history))
+			// TODO put chatInstance in a Project struct in a map of projects
 			return nil
 		},
 	}
@@ -405,7 +411,7 @@ func main() {
 }
 
 // serveRun implements the serve command
-func serveRun(port int, markdownFile string) error {
+func serveRun(port int) error {
 	var err error
 	var lock *flock.Flock
 	grok, _, _, _, lock, err = core.Load("", true)
@@ -414,13 +420,17 @@ func serveRun(port int, markdownFile string) error {
 	}
 	defer lock.Unlock()
 
-	chat = NewChat(markdownFile)
 	clientPool = NewClientPool()
 	go clientPool.Start()
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Received request for %s", r.URL.Path)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		// TODO chat should be per-project
+		if chat == nil {
+			http.Error(w, "No project loaded. Use 'storm project add' to create a project.", http.StatusServiceUnavailable)
+			return
+		}
 		chatContent := chat.getHistory(true)
 		data := struct {
 			ChatHTML template.HTML
@@ -558,6 +568,17 @@ func (c *WSClient) readPump() {
 
 // processQuery processes a query and broadcasts results to all clients.
 func processQuery(queryID, query, llm, selection string, inputFiles, outFiles []string, tokenLimit int) {
+	// TODO processQuery should be a Project method
+	if chat == nil {
+		errorBroadcast := map[string]interface{}{
+			"type":    "error",
+			"queryID": queryID,
+			"message": "No project loaded",
+		}
+		clientPool.Broadcast(errorBroadcast)
+		return
+	}
+
 	// Broadcast the query to all clients
 	queryBroadcast := map[string]interface{}{
 		"type":    "query",
@@ -697,19 +718,29 @@ func stopHandler(w http.ResponseWriter, r *http.Request) {
 // roundsHandler returns the total number of chat rounds as JSON.
 func roundsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	rounds := chat.TotalRounds()
+	rounds := 0
+	// TODO chat should be per-project
+	if chat != nil {
+		rounds = chat.TotalRounds()
+	}
 	json.NewEncoder(w).Encode(map[string]int{"rounds": rounds})
 }
 
 // tokenCountHandler calculates the token count for the current conversation.
+// TODO this should be a Project method
 func tokenCountHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	// TODO chat should be per-project
+	if chat == nil {
+		json.NewEncoder(w).Encode(map[string]int{"tokens": 0})
+		return
+	}
 	chatText := chat.getHistory(true)
 	count, err := grok.TokenCount(chatText)
 	if err != nil {
 		log.Printf("Token count error: %v", err)
 		count = 0
 	}
-	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]int{"tokens": count})
 }
 
