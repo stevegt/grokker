@@ -20,6 +20,7 @@ import (
 	"github.com/stevegt/grokker/x/storm/split"
 
 	"github.com/gofrs/flock"
+	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
 	. "github.com/stevegt/goadapt"
@@ -36,11 +37,12 @@ var tmpl = template.Must(template.New("index").Parse(indexHTML))
 
 // Global variables for serve subcommand
 var (
-	chat       *Chat
-	grok       *core.Grokker
-	srv        *http.Server
-	clientPool *ClientPool
-	upgrader   = websocket.Upgrader{
+	grok         *core.Grokker
+	srv          *http.Server
+	projects     = make(map[string]*Project) // projectID -> Project
+	projectsLock sync.RWMutex
+
+	upgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
 		CheckOrigin: func(r *http.Request) bool {
@@ -63,6 +65,7 @@ type QueryRequest struct {
 	OutFiles   []string `json:"outFiles"`
 	TokenLimit int      `json:"tokenLimit"`
 	QueryID    string   `json:"queryID"`
+	ProjectID  string   `json:"projectID"`
 }
 
 // QueryResponse represents the LLM's response.
@@ -83,15 +86,26 @@ type Chat struct {
 	filename string
 }
 
-// WebSocket client connection.
-type WSClient struct {
-	conn *websocket.Conn
-	send chan interface{}
-	pool *ClientPool
-	id   string
+// Project encapsulates project-specific data and state.
+type Project struct {
+	ID      string
+	BaseDir string
+	// TODO : add markdown file path
+	// TODO : add authorized files list
+	Chat       *Chat
+	ClientPool *ClientPool
 }
 
-// ClientPool manages all connected WebSocket clients.
+// WebSocket client connection.
+type WSClient struct {
+	conn      *websocket.Conn
+	send      chan interface{}
+	pool      *ClientPool
+	id        string
+	projectID string
+}
+
+// ClientPool manages all connected WebSocket clients for a project.
 type ClientPool struct {
 	clients    map[*WSClient]bool
 	broadcast  chan interface{}
@@ -345,6 +359,7 @@ func main() {
 			markdownFile := args[2]
 
 			// Call projectAdd to initialize the project
+			// TODO: projectAdd should return the project instance
 			chatInstance, err := projectAdd(projectID, baseDir, markdownFile)
 			if err != nil {
 				return fmt.Errorf("failed to add project: %w", err)
@@ -354,7 +369,6 @@ func main() {
 			fmt.Printf("  Base directory: %s\n", baseDir)
 			fmt.Printf("  Markdown file: %s\n", markdownFile)
 			fmt.Printf("  Chat rounds loaded: %d\n", len(chatInstance.history))
-			// TODO put chatInstance in a Project struct in a map of projects
 			return nil
 		},
 	}
@@ -420,36 +434,35 @@ func serveRun(port int) error {
 	}
 	defer lock.Unlock()
 
-	clientPool = NewClientPool()
-	go clientPool.Start()
+	// Create router for multi-project routing
+	router := mux.NewRouter()
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Received request for %s", r.URL.Path)
+	// Root handler for project list or landing page
+	router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		// TODO chat should be per-project
-		if chat == nil {
-			http.Error(w, "No project loaded. Use 'storm project add' to create a project.", http.StatusServiceUnavailable)
-			return
+		fmt.Fprintf(w, "<h1>Storm Projects</h1><ul>")
+		projectsLock.RLock()
+		for projectID := range projects {
+			// TODO : show id, basedir, markdown file
+			fmt.Fprintf(w, "<li><a href='/project/%s/'>%s</a></li>", projectID, projectID)
 		}
-		chatContent := chat.getHistory(true)
-		data := struct {
-			ChatHTML template.HTML
-		}{
-			ChatHTML: template.HTML(markdownToHTML(chatContent)),
-		}
-		if err := tmpl.Execute(w, data); err != nil {
-			http.Error(w, "Template error", http.StatusInternalServerError)
-		}
+		projectsLock.RUnlock()
+		fmt.Fprintf(w, "</ul>")
 	})
 
-	http.HandleFunc("/ws", wsHandler)
-	http.HandleFunc("/tokencount", tokenCountHandler)
-	http.HandleFunc("/rounds", roundsHandler)
-	http.HandleFunc("/stop", stopHandler)
-	http.HandleFunc("/open", openHandler)
+	// Project-specific routes
+	projectRouter := router.PathPrefix("/project/{projectID}").Subrouter()
+	projectRouter.HandleFunc("/", projectHandler)
+	projectRouter.HandleFunc("/ws", wsHandler)
+	projectRouter.HandleFunc("/tokencount", tokenCountHandler)
+	projectRouter.HandleFunc("/rounds", roundsHandler)
+	projectRouter.HandleFunc("/open", openHandler)
+
+	// Global routes
+	router.HandleFunc("/stop", stopHandler)
 
 	addr := fmt.Sprintf(":%d", port)
-	srv = &http.Server{Addr: addr}
+	srv = &http.Server{Addr: addr, Handler: router}
 	log.Printf("Starting server on %s\n", addr)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
@@ -457,8 +470,48 @@ func serveRun(port int) error {
 	return nil
 }
 
-// wsHandler handles WebSocket connections.
+// projectHandler handles the main chat page for a project
+// TODO : decide if this should move to project.go
+func projectHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	projectID := vars["projectID"]
+
+	projectsLock.RLock()
+	project, exists := projects[projectID]
+	projectsLock.RUnlock()
+
+	if !exists {
+		http.Error(w, fmt.Sprintf("Project %s not found", projectID), http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	chatContent := project.Chat.getHistory(true)
+	data := struct {
+		ChatHTML template.HTML
+	}{
+		ChatHTML: template.HTML(markdownToHTML(chatContent)),
+	}
+	if err := tmpl.Execute(w, data); err != nil {
+		http.Error(w, "Template error", http.StatusInternalServerError)
+	}
+}
+
+// wsHandler handles WebSocket connections for a project
+// TODO : decide if this should move to project.go
 func wsHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	projectID := vars["projectID"]
+
+	projectsLock.RLock()
+	project, exists := projects[projectID]
+	projectsLock.RUnlock()
+
+	if !exists {
+		http.Error(w, fmt.Sprintf("Project %s not found", projectID), http.StatusNotFound)
+		return
+	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade error: %v", err)
@@ -466,10 +519,11 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := &WSClient{
-		conn: conn,
-		send: make(chan interface{}, 256),
-		pool: clientPool,
-		id:   fmt.Sprintf("client-%d", len(clientPool.clients)),
+		conn:      conn,
+		send:      make(chan interface{}, 256),
+		pool:      project.ClientPool,
+		id:        fmt.Sprintf("client-%d", len(project.ClientPool.clients)),
+		projectID: projectID,
 	}
 
 	// Set up ping/pong handlers for keepalive
@@ -479,10 +533,10 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 
-	clientPool.register <- client
+	project.ClientPool.register <- client
 
 	go client.writePump()
-	go client.readPump()
+	go client.readPump(project)
 }
 
 // writePump writes messages to the WebSocket client and sends periodic pings.
@@ -517,7 +571,7 @@ func (c *WSClient) writePump() {
 }
 
 // readPump reads messages from the WebSocket client and processes queries.
-func (c *WSClient) readPump() {
+func (c *WSClient) readPump(project *Project) {
 	defer func() {
 		c.pool.unregister <- c
 		c.conn.Close()
@@ -532,7 +586,7 @@ func (c *WSClient) readPump() {
 
 		// Handle incoming query messages from clients
 		if msgType, ok := msg["type"].(string); ok && msgType == "query" {
-			log.Printf("Received query from %s: %v", c.id, msg)
+			log.Printf("Received query from %s in project %s: %v", c.id, c.projectID, msg)
 
 			// Extract query parameters
 			query, _ := msg["query"].(string)
@@ -561,35 +615,26 @@ func (c *WSClient) readPump() {
 			tokenLimit := parseTokenLimit(msg["tokenLimit"])
 
 			// Process the query
-			go processQuery(queryID, query, llm, selection, inputFiles, outFiles, tokenLimit)
+			go processQuery(c.projectID, project, queryID, query, llm, selection, inputFiles, outFiles, tokenLimit)
 		}
 	}
 }
 
-// processQuery processes a query and broadcasts results to all clients.
-func processQuery(queryID, query, llm, selection string, inputFiles, outFiles []string, tokenLimit int) {
-	// TODO processQuery should be a Project method
-	if chat == nil {
-		errorBroadcast := map[string]interface{}{
-			"type":    "error",
-			"queryID": queryID,
-			"message": "No project loaded",
-		}
-		clientPool.Broadcast(errorBroadcast)
-		return
-	}
-
-	// Broadcast the query to all clients
+// processQuery processes a query and broadcasts results to all clients in the project.
+// TODO projectID and project are redundant
+func processQuery(projectID string, project *Project, queryID, query, llm, selection string, inputFiles, outFiles []string, tokenLimit int) {
+	// Broadcast the query to all clients in this project
 	queryBroadcast := map[string]interface{}{
-		"type":    "query",
-		"query":   query,
-		"queryID": queryID,
+		"type":      "query",
+		"query":     query,
+		"queryID":   queryID,
+		"projectID": projectID,
 	}
-	clientPool.Broadcast(queryBroadcast)
+	project.ClientPool.Broadcast(queryBroadcast)
 
-	round := chat.StartRound(query, selection)
+	round := project.Chat.StartRound(query, selection)
 
-	history := chat.getHistory(true)
+	history := project.Chat.getHistory(true)
 	// add the last TailLength characters of the chat history as context.
 	const TailLength = 300000
 	startIndex := len(history) - TailLength
@@ -610,11 +655,12 @@ func processQuery(queryID, query, llm, selection string, inputFiles, outFiles []
 		log.Printf("Error processing query: %v", err)
 		// Broadcast error to all connected clients
 		errorBroadcast := map[string]interface{}{
-			"type":    "error",
-			"queryID": queryID,
-			"message": fmt.Sprintf("Error processing query: %v", err),
+			"type":      "error",
+			"queryID":   queryID,
+			"message":   fmt.Sprintf("Error processing query: %v", err),
+			"projectID": projectID,
 		}
-		clientPool.Broadcast(errorBroadcast)
+		project.ClientPool.Broadcast(errorBroadcast)
 		return
 	}
 
@@ -664,29 +710,45 @@ func processQuery(queryID, query, llm, selection string, inputFiles, outFiles []
 	replacer := strings.NewReplacer("<think>", "## Reasoning\n", "</think>", "")
 	responseText = replacer.Replace(responseText)
 
-	err = chat.FinishRound(round, responseText)
+	err = project.Chat.FinishRound(round, responseText)
 	if err != nil {
 		log.Printf("Error finishing round: %v", err)
 		errorBroadcast := map[string]interface{}{
-			"type":    "error",
-			"queryID": queryID,
-			"message": fmt.Sprintf("Error finishing round: %v", err),
+			"type":      "error",
+			"queryID":   queryID,
+			"message":   fmt.Sprintf("Error finishing round: %v", err),
+			"projectID": projectID,
 		}
-		clientPool.Broadcast(errorBroadcast)
+		project.ClientPool.Broadcast(errorBroadcast)
 		return
 	}
 
-	// Broadcast the response to all connected clients
+	// Broadcast the response to all connected clients in this project
 	responseBroadcast := map[string]interface{}{
-		"type":     "response",
-		"queryID":  queryID,
-		"response": markdownToHTML(responseText) + "\n\n<hr>\n\n",
+		"type":      "response",
+		"queryID":   queryID,
+		"response":  markdownToHTML(responseText) + "\n\n<hr>\n\n",
+		"projectID": projectID,
 	}
-	clientPool.Broadcast(responseBroadcast)
+	project.ClientPool.Broadcast(responseBroadcast)
 }
 
 // openHandler serves a file based on the filename query parameter.
+// TODO should be a Project method?
 func openHandler(w http.ResponseWriter, r *http.Request) {
+	// TODO what populates mux.Vars?
+	vars := mux.Vars(r)
+	projectID := vars["projectID"]
+
+	projectsLock.RLock()
+	project, exists := projects[projectID]
+	projectsLock.RUnlock()
+
+	if !exists {
+		http.Error(w, fmt.Sprintf("Project %s not found", projectID), http.StatusNotFound)
+		return
+	}
+
 	filename := r.URL.Query().Get("filename")
 	if filename == "" {
 		http.Error(w, "Missing filename parameter", http.StatusBadRequest)
@@ -716,26 +778,39 @@ func stopHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // roundsHandler returns the total number of chat rounds as JSON.
+// TODO should be a Project method?
 func roundsHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	projectID := vars["projectID"]
+
+	projectsLock.RLock()
+	project, exists := projects[projectID]
+	projectsLock.RUnlock()
+
 	w.Header().Set("Content-Type", "application/json")
 	rounds := 0
-	// TODO chat should be per-project
-	if chat != nil {
-		rounds = chat.TotalRounds()
+	if exists && project.Chat != nil {
+		rounds = project.Chat.TotalRounds()
 	}
 	json.NewEncoder(w).Encode(map[string]int{"rounds": rounds})
 }
 
 // tokenCountHandler calculates the token count for the current conversation.
-// TODO this should be a Project method
+// TODO should be a Project method?
 func tokenCountHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	projectID := vars["projectID"]
+
+	projectsLock.RLock()
+	project, exists := projects[projectID]
+	projectsLock.RUnlock()
+
 	w.Header().Set("Content-Type", "application/json")
-	// TODO chat should be per-project
-	if chat == nil {
+	if !exists || project.Chat == nil {
 		json.NewEncoder(w).Encode(map[string]int{"tokens": 0})
 		return
 	}
-	chatText := chat.getHistory(true)
+	chatText := project.Chat.getHistory(true)
 	count, err := grok.TokenCount(chatText)
 	if err != nil {
 		log.Printf("Token count error: %v", err)

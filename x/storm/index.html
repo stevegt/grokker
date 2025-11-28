@@ -293,6 +293,9 @@
     var ws;
     var pendingQueryDivs = {}; // Track divs for pending queries by queryID
     
+    // Extract projectID from URL path
+    var projectID = window.location.pathname.split('/')[2] || 'default';
+    
     // UUID v4 generator without NPM
     function generateUUID() {
       return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
@@ -389,13 +392,13 @@
     // Initialize WebSocket connection and handlers
     function initWebSocket() {
       var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      var wsUrl = protocol + '//' + window.location.host + '/ws';
+      var wsUrl = protocol + '//' + window.location.host + '/project/' + projectID + '/ws';
       console.log('Connecting to WebSocket:', wsUrl);
       
       ws = new WebSocket(wsUrl);
       
       ws.onopen = function() {
-        console.log('WebSocket connected');
+        console.log('WebSocket connected for project:', projectID);
       };
       
       // Handle incoming broadcast messages
@@ -584,15 +587,16 @@
         inputFiles: fileSelection.inputFiles,
         outFiles: fileSelection.outFiles,
         tokenLimit: tokenLimit,
-        queryID: queryID
+        queryID: queryID,
+        projectID: projectID
       };
 
       ws.send(JSON.stringify(queryMessage));
     }
 
-    // Poll the /tokencount endpoint to update the token count.
+    // Poll the /project/{projectID}/tokencount endpoint to update the token count.
     function updateTokenCount() {
-      fetch("/tokencount")
+      fetch("/project/" + projectID + "/tokencount")
         .then(function(response) { return response.json(); })
         .then(function(data) {
           var tokenCountText = document.getElementById("tokenCountText");
@@ -618,7 +622,7 @@
       }
       // Bookmark the current round in a cookie (for one year)
       setCookie("bookmark_round", currentRound, 365);
-      fetch("/rounds")
+      fetch("/project/" + projectID + "/rounds")
         .then(function(response) { return response.json(); })
         .then(function(data) {
           var total = data.rounds;
@@ -747,7 +751,7 @@
         tdOut.appendChild(outCheckbox);
         var tdName = document.createElement("td");
         var link = document.createElement("a");
-        link.href = "/open?filename=" + encodeURIComponent(file.filename);
+        link.href = "/project/" + projectID + "/open?filename=" + encodeURIComponent(file.filename);
         link.target = "_blank";
         link.textContent = file.filename;
         tdName.appendChild(link);
@@ -770,7 +774,7 @@
     }
     // Function to check if a file exists on the server using a HEAD request.
     function checkFileExists(filename) {
-      return fetch("/open?filename=" + encodeURIComponent(filename), { method: "HEAD" })
+      return fetch("/project/" + projectID + "/open?filename=" + encodeURIComponent(filename), { method: "HEAD" })
         .then(function(response) {
           return response.status === 200;
         })
@@ -826,4 +830,3 @@
   </script>
 </body>
 </html>
-
