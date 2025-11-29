@@ -4,11 +4,24 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
 )
 
-// projectAdd creates a new project and initializes its chat history
-// TODO should be a method of Projects map?
-func projectAdd(projectID, baseDir, markdownFile string) (*Chat, error) {
+// Projects is a thread-safe wrapper around project registry
+type Projects struct {
+	data  map[string]*Project
+	mutex sync.RWMutex
+}
+
+// NewProjects creates a new Projects registry
+func NewProjects() *Projects {
+	return &Projects{
+		data: make(map[string]*Project),
+	}
+}
+
+// Add adds a new project to the registry
+func (p *Projects) Add(projectID, baseDir, markdownFile string) (*Project, error) {
 	if projectID == "" {
 		return nil, fmt.Errorf("projectID cannot be empty")
 	}
@@ -38,20 +51,84 @@ func projectAdd(projectID, baseDir, markdownFile string) (*Chat, error) {
 
 	// Create Project struct
 	project := &Project{
-		ID:         projectID,
-		BaseDir:    baseDir,
-		Chat:       chatInstance,
-		ClientPool: clientPool,
+		ID:              projectID,
+		BaseDir:         baseDir,
+		MarkdownFile:    markdownFile,
+		AuthorizedFiles: []string{},
+		Chat:            chatInstance,
+		ClientPool:      clientPool,
 	}
 
-	// Register project in the projects registry
-	projectsLock.Lock()
-	projects[projectID] = project
-	projectsLock.Unlock()
+	// Register project in the registry
+	p.mutex.Lock()
+	p.data[projectID] = project
+	p.mutex.Unlock()
 
 	log.Printf("Successfully registered project %s with %d chat rounds", projectID, len(chatInstance.history))
 
-	// TODO: Store project metadata in registry (KV store)
+	// TODO: Store project metadata in KV store for persistence
 
-	return chatInstance, nil
+	return project, nil
 }
+
+// Get retrieves a project by ID
+func (p *Projects) Get(projectID string) (*Project, bool) {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+	project, exists := p.data[projectID]
+	return project, exists
+}
+
+// List returns all project IDs
+func (p *Projects) List() []string {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+	var ids []string
+	for id := range p.data {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// Remove removes a project by ID
+func (p *Projects) Remove(projectID string) error {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	if _, exists := p.data[projectID]; !exists {
+		return fmt.Errorf("project %s not found", projectID)
+	}
+	delete(p.data, projectID)
+	log.Printf("Removed project %s", projectID)
+	return nil
+}
+
+// GetChat returns the Chat instance for a project
+func (p *Project) GetChat() *Chat {
+	return p.Chat
+}
+
+// GetClientPool returns the ClientPool for a project
+func (p *Project) GetClientPool() *ClientPool {
+	return p.ClientPool
+}
+
+// GetFiles returns the authorized files list for a project
+func (p *Project) GetFiles() []string {
+	return p.AuthorizedFiles
+}
+
+// AddFile adds a file to the authorized files list
+func (p *Project) AddFile(filename string) error {
+	if filename == "" {
+		return fmt.Errorf("filename cannot be empty")
+	}
+	for _, f := range p.AuthorizedFiles {
+		if f == filename {
+			return fmt.Errorf("file %s already in authorized list", filename)
+		}
+	}
+	p.AuthorizedFiles = append(p.AuthorizedFiles, filename)
+	log.Printf("Added file %s to project %s", filename, p.ID)
+	return nil
+}
+

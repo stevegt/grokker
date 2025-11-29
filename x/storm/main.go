@@ -30,6 +30,8 @@ import (
 	"github.com/yuin/goldmark"
 )
 
+// TODO `storm serve` starts daemon, other commands to manage projects, files, tokens, etc. communicate with daemon via HTTP API.
+
 //go:embed index.html
 var indexHTML string
 
@@ -37,10 +39,9 @@ var tmpl = template.Must(template.New("index").Parse(indexHTML))
 
 // Global variables for serve subcommand
 var (
-	grok         *core.Grokker
-	srv          *http.Server
-	projects     = make(map[string]*Project) // projectID -> Project
-	projectsLock sync.RWMutex
+	grok     *core.Grokker
+	srv      *http.Server
+	projects *Projects
 
 	upgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -88,12 +89,12 @@ type Chat struct {
 
 // Project encapsulates project-specific data and state.
 type Project struct {
-	ID      string
-	BaseDir string
-	// TODO : add markdown file path
-	// TODO : add authorized files list
-	Chat       *Chat
-	ClientPool *ClientPool
+	ID              string
+	BaseDir         string
+	MarkdownFile    string
+	AuthorizedFiles []string
+	Chat            *Chat
+	ClientPool      *ClientPool
 }
 
 // WebSocket client connection.
@@ -341,7 +342,7 @@ func main() {
 
 	rootCmd.AddCommand(serveCmd)
 
-	// Project command (placeholder for future implementation)
+	// Project command
 	projectCmd := &cobra.Command{
 		Use:   "project",
 		Short: "Manage projects",
@@ -358,9 +359,13 @@ func main() {
 			baseDir := args[1]
 			markdownFile := args[2]
 
-			// Call projectAdd to initialize the project
-			// TODO: projectAdd should return the project instance
-			chatInstance, err := projectAdd(projectID, baseDir, markdownFile)
+			// Initialize projects if needed
+			if projects == nil {
+				projects = NewProjects()
+			}
+
+			// Call projects.Add to initialize the project
+			project, err := projects.Add(projectID, baseDir, markdownFile)
 			if err != nil {
 				return fmt.Errorf("failed to add project: %w", err)
 			}
@@ -368,7 +373,7 @@ func main() {
 			fmt.Printf("Project %s added successfully\n", projectID)
 			fmt.Printf("  Base directory: %s\n", baseDir)
 			fmt.Printf("  Markdown file: %s\n", markdownFile)
-			fmt.Printf("  Chat rounds loaded: %d\n", len(chatInstance.history))
+			fmt.Printf("  Chat rounds loaded: %d\n", len(project.Chat.history))
 			return nil
 		},
 	}
@@ -378,7 +383,21 @@ func main() {
 		Short: "List all projects",
 		Long:  `List all registered projects.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("Would list all projects")
+			if projects == nil {
+				fmt.Println("No projects registered")
+				return nil
+			}
+			projectIDs := projects.List()
+			if len(projectIDs) == 0 {
+				fmt.Println("No projects registered")
+				return nil
+			}
+			fmt.Println("Registered projects:")
+			for _, id := range projectIDs {
+				if project, ok := projects.Get(id); ok {
+					fmt.Printf("  - %s (baseDir: %s)\n", id, project.BaseDir)
+				}
+			}
 			return nil
 		},
 	}
@@ -386,7 +405,7 @@ func main() {
 	projectCmd.AddCommand(projectAddCmd, projectListCmd)
 	rootCmd.AddCommand(projectCmd)
 
-	// File command (placeholder)
+	// File command
 	fileCmd := &cobra.Command{
 		Use:   "file",
 		Short: "Manage project files",
@@ -406,7 +425,7 @@ func main() {
 	fileCmd.AddCommand(fileAddCmd)
 	rootCmd.AddCommand(fileCmd)
 
-	// Token command (placeholder)
+	// Token command
 	tokenCmd := &cobra.Command{
 		Use:   "issue-token",
 		Short: "Issue a CWT token",
@@ -434,6 +453,9 @@ func serveRun(port int) error {
 	}
 	defer lock.Unlock()
 
+	// Initialize projects registry
+	projects = NewProjects()
+
 	// Create router for multi-project routing
 	router := mux.NewRouter()
 
@@ -441,22 +463,20 @@ func serveRun(port int) error {
 	router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprintf(w, "<h1>Storm Projects</h1><ul>")
-		projectsLock.RLock()
-		for projectID := range projects {
-			// TODO : show id, basedir, markdown file
+		projectIDs := projects.List()
+		for _, projectID := range projectIDs {
 			fmt.Fprintf(w, "<li><a href='/project/%s/'>%s</a></li>", projectID, projectID)
 		}
-		projectsLock.RUnlock()
 		fmt.Fprintf(w, "</ul>")
 	})
 
 	// Project-specific routes
 	projectRouter := router.PathPrefix("/project/{projectID}").Subrouter()
-	projectRouter.HandleFunc("/", projectHandler)
-	projectRouter.HandleFunc("/ws", wsHandler)
-	projectRouter.HandleFunc("/tokencount", tokenCountHandler)
-	projectRouter.HandleFunc("/rounds", roundsHandler)
-	projectRouter.HandleFunc("/open", openHandler)
+	projectRouter.HandleFunc("/", projectHandlerFunc)
+	projectRouter.HandleFunc("/ws", wsHandlerFunc)
+	projectRouter.HandleFunc("/tokencount", tokenCountHandlerFunc)
+	projectRouter.HandleFunc("/rounds", roundsHandlerFunc)
+	projectRouter.HandleFunc("/open", openHandlerFunc)
 
 	// Global routes
 	router.HandleFunc("/stop", stopHandler)
@@ -470,21 +490,22 @@ func serveRun(port int) error {
 	return nil
 }
 
-// projectHandler handles the main chat page for a project
-// TODO : decide if this should move to project.go
-func projectHandler(w http.ResponseWriter, r *http.Request) {
+// projectHandlerFunc is a wrapper to extract project and call handler
+func projectHandlerFunc(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	projectID := vars["projectID"]
 
-	projectsLock.RLock()
-	project, exists := projects[projectID]
-	projectsLock.RUnlock()
-
+	project, exists := projects.Get(projectID)
 	if !exists {
 		http.Error(w, fmt.Sprintf("Project %s not found", projectID), http.StatusNotFound)
 		return
 	}
 
+	projectHandler(w, r, project)
+}
+
+// projectHandler handles the main chat page for a project
+func projectHandler(w http.ResponseWriter, r *http.Request, project *Project) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	chatContent := project.Chat.getHistory(true)
 	data := struct {
@@ -497,21 +518,22 @@ func projectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// wsHandler handles WebSocket connections for a project
-// TODO : decide if this should move to project.go
-func wsHandler(w http.ResponseWriter, r *http.Request) {
+// wsHandlerFunc is a wrapper to extract project and call handler
+func wsHandlerFunc(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	projectID := vars["projectID"]
 
-	projectsLock.RLock()
-	project, exists := projects[projectID]
-	projectsLock.RUnlock()
-
+	project, exists := projects.Get(projectID)
 	if !exists {
 		http.Error(w, fmt.Sprintf("Project %s not found", projectID), http.StatusNotFound)
 		return
 	}
 
+	wsHandler(w, r, project)
+}
+
+// wsHandler handles WebSocket connections for a project
+func wsHandler(w http.ResponseWriter, r *http.Request, project *Project) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade error: %v", err)
@@ -523,7 +545,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 		send:      make(chan interface{}, 256),
 		pool:      project.ClientPool,
 		id:        fmt.Sprintf("client-%d", len(project.ClientPool.clients)),
-		projectID: projectID,
+		projectID: project.ID,
 	}
 
 	// Set up ping/pong handlers for keepalive
@@ -615,20 +637,19 @@ func (c *WSClient) readPump(project *Project) {
 			tokenLimit := parseTokenLimit(msg["tokenLimit"])
 
 			// Process the query
-			go processQuery(c.projectID, project, queryID, query, llm, selection, inputFiles, outFiles, tokenLimit)
+			go processQuery(project, queryID, query, llm, selection, inputFiles, outFiles, tokenLimit)
 		}
 	}
 }
 
 // processQuery processes a query and broadcasts results to all clients in the project.
-// TODO projectID and project are redundant
-func processQuery(projectID string, project *Project, queryID, query, llm, selection string, inputFiles, outFiles []string, tokenLimit int) {
+func processQuery(project *Project, queryID, query, llm, selection string, inputFiles, outFiles []string, tokenLimit int) {
 	// Broadcast the query to all clients in this project
 	queryBroadcast := map[string]interface{}{
 		"type":      "query",
 		"query":     query,
 		"queryID":   queryID,
-		"projectID": projectID,
+		"projectID": project.ID,
 	}
 	project.ClientPool.Broadcast(queryBroadcast)
 
@@ -658,7 +679,7 @@ func processQuery(projectID string, project *Project, queryID, query, llm, selec
 			"type":      "error",
 			"queryID":   queryID,
 			"message":   fmt.Sprintf("Error processing query: %v", err),
-			"projectID": projectID,
+			"projectID": project.ID,
 		}
 		project.ClientPool.Broadcast(errorBroadcast)
 		return
@@ -717,7 +738,7 @@ func processQuery(projectID string, project *Project, queryID, query, llm, selec
 			"type":      "error",
 			"queryID":   queryID,
 			"message":   fmt.Sprintf("Error finishing round: %v", err),
-			"projectID": projectID,
+			"projectID": project.ID,
 		}
 		project.ClientPool.Broadcast(errorBroadcast)
 		return
@@ -728,27 +749,27 @@ func processQuery(projectID string, project *Project, queryID, query, llm, selec
 		"type":      "response",
 		"queryID":   queryID,
 		"response":  markdownToHTML(responseText) + "\n\n<hr>\n\n",
-		"projectID": projectID,
+		"projectID": project.ID,
 	}
 	project.ClientPool.Broadcast(responseBroadcast)
 }
 
-// openHandler serves a file based on the filename query parameter.
-// TODO should be a Project method?
-func openHandler(w http.ResponseWriter, r *http.Request) {
-	// TODO what populates mux.Vars?
+// openHandlerFunc is a wrapper to extract project and call handler
+func openHandlerFunc(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	projectID := vars["projectID"]
 
-	projectsLock.RLock()
-	project, exists := projects[projectID]
-	projectsLock.RUnlock()
-
+	project, exists := projects.Get(projectID)
 	if !exists {
 		http.Error(w, fmt.Sprintf("Project %s not found", projectID), http.StatusNotFound)
 		return
 	}
 
+	openHandler(w, r, project)
+}
+
+// openHandler serves a file based on the filename query parameter.
+func openHandler(w http.ResponseWriter, r *http.Request, project *Project) {
 	filename := r.URL.Query().Get("filename")
 	if filename == "" {
 		http.Error(w, "Missing filename parameter", http.StatusBadRequest)
@@ -777,36 +798,48 @@ func stopHandler(w http.ResponseWriter, r *http.Request) {
 	}()
 }
 
-// roundsHandler returns the total number of chat rounds as JSON.
-// TODO should be a Project method?
-func roundsHandler(w http.ResponseWriter, r *http.Request) {
+// roundsHandlerFunc is a wrapper to extract project and call handler
+func roundsHandlerFunc(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	projectID := vars["projectID"]
 
-	projectsLock.RLock()
-	project, exists := projects[projectID]
-	projectsLock.RUnlock()
+	project, exists := projects.Get(projectID)
+	if !exists {
+		http.Error(w, fmt.Sprintf("Project %s not found", projectID), http.StatusNotFound)
+		return
+	}
 
+	roundsHandler(w, r, project)
+}
+
+// roundsHandler returns the total number of chat rounds as JSON.
+func roundsHandler(w http.ResponseWriter, r *http.Request, project *Project) {
 	w.Header().Set("Content-Type", "application/json")
 	rounds := 0
-	if exists && project.Chat != nil {
+	if project.Chat != nil {
 		rounds = project.Chat.TotalRounds()
 	}
 	json.NewEncoder(w).Encode(map[string]int{"rounds": rounds})
 }
 
-// tokenCountHandler calculates the token count for the current conversation.
-// TODO should be a Project method?
-func tokenCountHandler(w http.ResponseWriter, r *http.Request) {
+// tokenCountHandlerFunc is a wrapper to extract project and call handler
+func tokenCountHandlerFunc(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	projectID := vars["projectID"]
 
-	projectsLock.RLock()
-	project, exists := projects[projectID]
-	projectsLock.RUnlock()
+	project, exists := projects.Get(projectID)
+	if !exists {
+		http.Error(w, fmt.Sprintf("Project %s not found", projectID), http.StatusNotFound)
+		return
+	}
 
+	tokenCountHandler(w, r, project)
+}
+
+// tokenCountHandler calculates the token count for the current conversation.
+func tokenCountHandler(w http.ResponseWriter, r *http.Request, project *Project) {
 	w.Header().Set("Content-Type", "application/json")
-	if !exists || project.Chat == nil {
+	if project.Chat == nil {
 		json.NewEncoder(w).Encode(map[string]int{"tokens": 0})
 		return
 	}
