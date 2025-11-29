@@ -1,0 +1,11 @@
+basePath: /
+host: localhost:8080
+info:
+  contact: {}
+  description: Single-daemon, single-port multi-project LLM chat application
+  title: Storm API
+  version: 0.0.76
+paths: {}
+schemes:
+- http
+swagger: "2.0"

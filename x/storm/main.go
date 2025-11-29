@@ -1,3 +1,9 @@
+// @title           Storm API
+// @version         0.0.76
+// @description     Single-daemon, single-port multi-project LLM chat application
+// @host            localhost:8080
+// @basePath         /
+// @schemes          http
 package main
 
 import (
@@ -1091,3 +1097,4 @@ func markdownToHTML(markdown string) string {
 
 	return buf.String()
 }
+
