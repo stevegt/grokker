@@ -32,4 +32,3 @@ test:
 	go test -v ./...
 
 .DEFAULT_GOAL := help
-

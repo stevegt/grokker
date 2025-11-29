@@ -33,6 +33,8 @@ import (
 	"github.com/stevegt/grokker/v3/client"
 	"github.com/stevegt/grokker/v3/core"
 	"github.com/stevegt/grokker/v3/util"
+	_ "github.com/stevegt/grokker/x/storm/docs"
+	swaggerFiles "github.com/swaggo/files"
 	"github.com/yuin/goldmark"
 )
 
@@ -524,6 +526,9 @@ func serveRun(port int) error {
 		}
 		fmt.Fprintf(w, "</ul>")
 	})
+
+	// Swagger UI handler
+	router.PathPrefix("/swagger").Handler(http.StripPrefix("/swagger", http.FileServer(swaggerFiles.FS)))
 
 	// API endpoints for project management
 	apiRouter := router.PathPrefix("/api").Subrouter()
@@ -1097,4 +1102,3 @@ func markdownToHTML(markdown string) string {
 
 	return buf.String()
 }
-
