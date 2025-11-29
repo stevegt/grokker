@@ -624,6 +624,8 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 		tokenLimit = 500
 	}
 
+	var err error // TODO need to return err
+
 	wordLimit := int(float64(tokenLimit) / 3.5)
 
 	sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading.  Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes.  If writing Go code, you MUST ensure you are not skipping the index on slices or arrays, e.g. if you mean `foo[0]` then say `foo[0]`, not `foo`."
@@ -646,10 +648,18 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 
 		var outFilesConverted []core.FileLang
 		for _, f := range outFiles {
-			lang, known, err := util.Ext2Lang(f)
-			Ck(err)
-			if !known {
-				log.Printf("Unknown file extension for output file %s; assuming language is %s", f, lang)
+			// TODO temporarily work around bug in util.Ext2Lang by
+			// recognizing Makefile explicitly.
+			var lang string
+			if f == "Makefile" {
+				lang = "makefile"
+			} else {
+				var known bool
+				lang, known, err = util.Ext2Lang(f)
+				Ck(err)
+				if !known {
+					log.Printf("Unknown file extension for output file %s; assuming language is %s", f, lang)
+				}
 			}
 			outFilesConverted = append(outFilesConverted, core.FileLang{File: f, Language: lang})
 		}
