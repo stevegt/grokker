@@ -14,7 +14,7 @@ help:
 build:
 	go build -o bin/storm .
 
-serve: build swag
+serve: swag build
 	./bin/storm serve --port 8080
 
 # generate Swagger documentation

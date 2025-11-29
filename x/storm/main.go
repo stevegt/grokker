@@ -529,7 +529,8 @@ func serveRun(port int) error {
 		fmt.Fprintf(w, "</ul>")
 	})
 
-	// Swagger UI handler - serve swagger files at /swagger
+	// Swagger UI handler - serves swagger files
+	// router.PathPrefix("/swagger").Handler(swaggerFiles.Handler)
 	// Note: swaggerFiles.Handler serves the swagger UI and must be prefixed correctly
 	router.PathPrefix("/swagger").Handler(http.StripPrefix("/swagger", swaggerFiles.Handler))
 
