@@ -519,7 +519,9 @@ func serveRun(port int) error {
 	// Root handler for project list or landing page
 	router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprintf(w, "<h1>Storm Projects</h1><ul>")
+		fmt.Fprintf(w, "<h1>Storm Projects</h1>")
+		fmt.Fprintf(w, "<p><a href='/swagger/index.html'>API Documentation</a></p>")
+		fmt.Fprintf(w, "<ul>")
 		projectIDs := projects.List()
 		for _, projectID := range projectIDs {
 			fmt.Fprintf(w, "<li><a href='/project/%s/'>%s</a></li>", projectID, projectID)
@@ -527,8 +529,9 @@ func serveRun(port int) error {
 		fmt.Fprintf(w, "</ul>")
 	})
 
-	// Swagger UI handler - use swaggerFiles.Handler directly
-	router.PathPrefix("/swagger").Handler(swaggerFiles.Handler)
+	// Swagger UI handler - serve swagger files at /swagger
+	// Note: swaggerFiles.Handler serves the swagger UI and must be prefixed correctly
+	router.PathPrefix("/swagger").Handler(http.StripPrefix("/swagger", swaggerFiles.Handler))
 
 	// API endpoints for project management
 	apiRouter := router.PathPrefix("/api").Subrouter()

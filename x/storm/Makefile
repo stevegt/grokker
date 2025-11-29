@@ -1,4 +1,4 @@
-.PHONY: help build run serve swag clean test
+.PHONY: help build run serve clean test
 
 help:
 	@echo "Storm - Multi-project LLM chat application"
@@ -14,9 +14,10 @@ help:
 build:
 	go build -o bin/storm .
 
-serve: swag
+serve: build swag
 	./bin/storm serve --port 8080
 
+# generate Swagger documentation
 swag:
 	swag init
 
