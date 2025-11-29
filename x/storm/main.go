@@ -365,10 +365,13 @@ func main() {
 				daemonURL = "http://localhost:8080"
 			}
 
+			// TODO ensure baseDir exists
+			// TODO cannonicalize baseDir and markdownFile to absolute paths
+			// TODO add a `mv` subcommand?
+
 			// Make HTTP POST request to daemon
 			payload := map[string]string{
-				"projectID": projectID,
-				// TODO validate baseDir exists and is canonicalized
+				"projectID":    projectID,
 				"baseDir":      baseDir,
 				"markdownFile": markdownFile,
 			}
