@@ -527,8 +527,8 @@ func serveRun(port int) error {
 		fmt.Fprintf(w, "</ul>")
 	})
 
-	// Swagger UI handler
-	router.PathPrefix("/swagger").Handler(http.StripPrefix("/swagger", http.FileServer(swaggerFiles.FS)))
+	// Swagger UI handler - use swaggerFiles.Handler directly
+	router.PathPrefix("/swagger").Handler(swaggerFiles.Handler)
 
 	// API endpoints for project management
 	apiRouter := router.PathPrefix("/api").Subrouter()
