@@ -30,8 +30,6 @@ import (
 	"github.com/yuin/goldmark"
 )
 
-// TODO `storm serve` starts daemon, other commands to manage projects, files, tokens, etc. communicate with daemon via HTTP API.
-
 //go:embed index.html
 var indexHTML string
 
@@ -352,28 +350,55 @@ func main() {
 	projectAddCmd := &cobra.Command{
 		Use:   "add [projectID] [baseDir] [markdownFile]",
 		Short: "Add a new project",
-		Long:  `Add a new project to the registry.`,
+		Long:  `Add a new project to the registry via HTTP API.`,
 		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			projectID := args[0]
 			baseDir := args[1]
 			markdownFile := args[2]
 
-			// Initialize projects if needed
-			if projects == nil {
-				projects = NewProjects()
+			// Get daemon URL from environment or use default
+			// TODO use a config file, PID file, or flag -- maybe use viper
+			// TODO allow for multiple storm daemons on different ports, add an 'ls' command to show running daemons and their pids/ports.  registry should support multiple daemons.
+			daemonURL := os.Getenv("STORM_DAEMON_URL")
+			if daemonURL == "" {
+				daemonURL = "http://localhost:8080"
 			}
 
-			// Call projects.Add to initialize the project
-			project, err := projects.Add(projectID, baseDir, markdownFile)
+			// Make HTTP POST request to daemon
+			payload := map[string]string{
+				"projectID": projectID,
+				// TODO validate baseDir exists and is canonicalized
+				"baseDir":      baseDir,
+				"markdownFile": markdownFile,
+			}
+			jsonData, err := json.Marshal(payload)
 			if err != nil {
-				return fmt.Errorf("failed to add project: %w", err)
+				return fmt.Errorf("failed to marshal request: %w", err)
+			}
+
+			resp, err := http.Post(daemonURL+"/api/projects", "application/json", bytes.NewReader(jsonData))
+			if err != nil {
+				return fmt.Errorf("failed to connect to daemon at %s: %w", daemonURL, err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+				body, _ := ioutil.ReadAll(resp.Body)
+				return fmt.Errorf("daemon returned error: %s", string(body))
+			}
+
+			var result map[string]interface{}
+			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+				return fmt.Errorf("failed to decode response: %w", err)
 			}
 
 			fmt.Printf("Project %s added successfully\n", projectID)
 			fmt.Printf("  Base directory: %s\n", baseDir)
 			fmt.Printf("  Markdown file: %s\n", markdownFile)
-			fmt.Printf("  Chat rounds loaded: %d\n", len(project.Chat.history))
+			if rounds, ok := result["chatRounds"].(float64); ok {
+				fmt.Printf("  Chat rounds loaded: %d\n", int(rounds))
+			}
 			return nil
 		},
 	}
@@ -381,21 +406,42 @@ func main() {
 	projectListCmd := &cobra.Command{
 		Use:   "list",
 		Short: "List all projects",
-		Long:  `List all registered projects.`,
+		Long:  `List all registered projects via HTTP API.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if projects == nil {
+			// Get daemon URL from environment or use default
+			daemonURL := os.Getenv("STORM_DAEMON_URL")
+			if daemonURL == "" {
+				daemonURL = "http://localhost:8080"
+			}
+
+			// Make HTTP GET request to daemon
+			resp, err := http.Get(daemonURL + "/api/projects")
+			if err != nil {
+				return fmt.Errorf("failed to connect to daemon at %s: %w", daemonURL, err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				body, _ := ioutil.ReadAll(resp.Body)
+				return fmt.Errorf("daemon returned error: %s", string(body))
+			}
+
+			var projects []map[string]interface{}
+			if err := json.NewDecoder(resp.Body).Decode(&projects); err != nil {
+				return fmt.Errorf("failed to decode response: %w", err)
+			}
+
+			if len(projects) == 0 {
 				fmt.Println("No projects registered")
 				return nil
 			}
-			projectIDs := projects.List()
-			if len(projectIDs) == 0 {
-				fmt.Println("No projects registered")
-				return nil
-			}
+
 			fmt.Println("Registered projects:")
-			for _, id := range projectIDs {
-				if project, ok := projects.Get(id); ok {
-					fmt.Printf("  - %s (baseDir: %s)\n", id, project.BaseDir)
+			for _, proj := range projects {
+				if id, ok := proj["id"].(string); ok {
+					if baseDir, ok := proj["baseDir"].(string); ok {
+						fmt.Printf("  - %s (baseDir: %s)\n", id, baseDir)
+					}
 				}
 			}
 			return nil
@@ -417,7 +463,7 @@ func main() {
 		Short: "Add a file to a project",
 		Long:  `Add an authorized file to a project.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("Would add file to project")
+			fmt.Println("Would add file to project via HTTP API")
 			return nil
 		},
 	}
@@ -431,7 +477,7 @@ func main() {
 		Short: "Issue a CWT token",
 		Long:  `Issue a CBOR Web Token for project access.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("Would issue CWT token")
+			fmt.Println("Would issue CWT token via HTTP API")
 			return nil
 		},
 	}
@@ -469,6 +515,63 @@ func serveRun(port int) error {
 		}
 		fmt.Fprintf(w, "</ul>")
 	})
+
+	// API endpoints for project management
+	apiRouter := router.PathPrefix("/api").Subrouter()
+
+	// POST /api/projects - add a new project
+	apiRouter.HandleFunc("/projects", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var payload map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		projectID := payload["projectID"]
+		baseDir := payload["baseDir"]
+		markdownFile := payload["markdownFile"]
+
+		project, err := projects.Add(projectID, baseDir, markdownFile)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":         project.ID,
+			"baseDir":    project.BaseDir,
+			"chatRounds": len(project.Chat.history),
+		})
+	}).Methods("POST")
+
+	// GET /api/projects - list all projects
+	apiRouter.HandleFunc("/projects", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		projectIDs := projects.List()
+		var result []map[string]interface{}
+		for _, id := range projectIDs {
+			if project, ok := projects.Get(id); ok {
+				result = append(result, map[string]interface{}{
+					"id":      project.ID,
+					"baseDir": project.BaseDir,
+				})
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
+	}).Methods("GET")
 
 	// Project-specific routes
 	projectRouter := router.PathPrefix("/project/{projectID}").Subrouter()
