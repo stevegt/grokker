@@ -514,6 +514,46 @@ func main() {
 	}
 }
 
+// rootHandler serves the landing page listing all projects
+func rootHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, "<h1>Storm Projects</h1><ul>")
+	projectIDs := projects.List()
+	for _, projectID := range projectIDs {
+		fmt.Fprintf(w, "<li><a href='/project/%s/'>%s</a></li>", projectID, projectID)
+	}
+	fmt.Fprintf(w, "</ul>")
+}
+
+// postProjectsHandler handles POST /api/projects - add a new project
+func postProjectsHandler(ctx context.Context, req *ProjectAddRequest) (*ProjectResponse, error) {
+	project, err := projects.Add(req.ProjectID, req.BaseDir, req.MarkdownFile)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Failed to add project", err)
+	}
+
+	return &ProjectResponse{
+		ID:        project.ID,
+		BaseDir:   project.BaseDir,
+		ChatRound: len(project.Chat.history),
+	}, nil
+}
+
+// getProjectsHandler handles GET /api/projects - list all projects
+func getProjectsHandler(ctx context.Context, input *EmptyInput) (*ProjectListResponse, error) {
+	projectIDs := projects.List()
+	var projectInfos []ProjectInfo
+	for _, id := range projectIDs {
+		if project, ok := projects.Get(id); ok {
+			projectInfos = append(projectInfos, ProjectInfo{
+				ID:      project.ID,
+				BaseDir: project.BaseDir,
+			})
+		}
+	}
+	return &ProjectListResponse{Projects: projectInfos}, nil
+}
+
 // serveRun implements the serve command
 func serveRun(port int) error {
 	var err error
@@ -536,43 +576,11 @@ func serveRun(port int) error {
 	api := humachi.New(chiRouter, config)
 
 	// Root handler for project list or landing page
-	chiRouter.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprintf(w, "<h1>Storm Projects</h1><ul>")
-		projectIDs := projects.List()
-		for _, projectID := range projectIDs {
-			fmt.Fprintf(w, "<li><a href='/project/%s/'>%s</a></li>", projectID, projectID)
-		}
-		fmt.Fprintf(w, "</ul>")
-	})
+	chiRouter.HandleFunc("/", rootHandler)
 
 	// Huma API endpoints for project management
-	huma.Post(api, "/api/projects", func(ctx context.Context, req *ProjectAddRequest) (*ProjectResponse, error) {
-		project, err := projects.Add(req.ProjectID, req.BaseDir, req.MarkdownFile)
-		if err != nil {
-			return nil, huma.Error400BadRequest("Failed to add project", err)
-		}
-
-		return &ProjectResponse{
-			ID:        project.ID,
-			BaseDir:   project.BaseDir,
-			ChatRound: len(project.Chat.history),
-		}, nil
-	})
-
-	huma.Get(api, "/api/projects", func(ctx context.Context, input *EmptyInput) (*ProjectListResponse, error) {
-		projectIDs := projects.List()
-		var projectInfos []ProjectInfo
-		for _, id := range projectIDs {
-			if project, ok := projects.Get(id); ok {
-				projectInfos = append(projectInfos, ProjectInfo{
-					ID:      project.ID,
-					BaseDir: project.BaseDir,
-				})
-			}
-		}
-		return &ProjectListResponse{Projects: projectInfos}, nil
-	})
+	huma.Post(api, "/api/projects", postProjectsHandler)
+	huma.Get(api, "/api/projects", getProjectsHandler)
 
 	// Project-specific routes (non-Huma for now, using chi directly)
 	projectRouter := chiRouter.Route("/project/{projectID}", func(r chi.Router) {
