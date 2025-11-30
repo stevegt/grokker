@@ -19611,3 +19611,83 @@ The most critical step is ensuring precise annotation syntax matches swaggo expe
 
 ---
 
+
+
+**are there any more-popular equivalents to go-fastapi?  i'm finding github.com/swaggo/http-swagger to be cantakerous to deal with.**
+
+
+
+
+# Go-FastAPI Alternatives with Better Documentation
+
+**Huma** is the most FastAPI-like alternative[1]. It auto-generates OpenAPI 3.1 specs from Go types with zero annotations, provides interactive `/docs` endpoint, and supports content negotiation like FastAPI[1][2]. Built for REST/RPC APIs with excellent developer experience.
+
+**go-swagger** (separate CLI tool) generates complete server stubs from OpenAPI specs—opposite approach but more explicit than swaggo's annotation parsing[2][3].
+
+**Kin-OpenAPI** provides OpenAPI spec generation without framework coupling—write your spec, then use it with any Go router[3].
+
+**Recommendation**: Try **Huma**—it's designed specifically as FastAPI's Go equivalent, with built-in OpenAPI generation and `/docs` UI out-of-box[1][2]. Avoids the annotation parsing brittleness that plagues swaggo.
+
+**Why swaggo is frustrating**: It relies on comment parsing which breaks easily and gives no error feedback when docs don't generate[2]. Huma and go-swagger are more transparent[1][3].
+
+## References
+
+[1][2][3]
+
+
+
+## References
+
+- [1] [https://fastapi.tiangolo.com/alternatives/](https://fastapi.tiangolo.com/alternatives/)
+- [2] [https://github.com/swaggo/swag](https://github.com/swaggo/swag)
+- [3] [https://go.libhunt.com/go-swagger-alternatives](https://go.libhunt.com/go-swagger-alternatives)
+- [4] [https://daily.dev/blog/top-8-go-web-frameworks-compared-2024](https://daily.dev/blog/top-8-go-web-frameworks-compared-2024)
+- [5] [https://nordicapis.com/8-tools-to-automatically-generate-api-documentation/](https://nordicapis.com/8-tools-to-automatically-generate-api-documentation/)
+- [6] [https://github.com/gorilla/mux/issues/452](https://github.com/gorilla/mux/issues/452)
+
+
+
+## Reasoning
+
+The user has provided a VERY long context with extensive discussion about a Storm LLM chat application built in Go. At the very end, they're asking a new query:
+
+"are there any more-popular equivalents to go-fastapi? i'm finding github.com/swaggo/http-swagger to be cantankerous to deal with."
+
+Let me carefully follow the instructions at the very top of this system prompt:
+
+1. I'm a researcher
+2. I should answer ONLY the query at the end
+3. The query is: "are there any more-popular equivalents to go-fastapi? i'm finding github.com/swaggo/http-swagger to be cantakerous to deal with."
+4. I MUST limit the discussion portion to no more than 500 tokens (about 142 words)
+5. Always start with a markdown heading
+6. Enclose reference numbers in square brackets
+7. Don't include empty square brackets
+8. Output files not counted against token limit
+9. Ignore the 10,000 word goal from the initial system message
+
+The user is asking for alternatives to go-fastapi because they're frustrated with swaggo/http-swagger. They want libraries that:
+1. Are more popular than go-fastapi
+2. Provide automatic API documentation like FastAPI does
+3. Are easier to work with than swaggo/http-swagger
+
+Looking at the search results provided at the very beginning of this conversation, I have references to various Go web frameworks:
+[1] FastAPI alternatives document
+[3] GoSwagger alternatives page
+[4] Top 8 Go Web Frameworks Compared 2024
+[5] 8 Tools To Automatically Generate API Documentation
+
+From the search results, I can see discussions of various Go frameworks and their API documentation capabilities. Some alternatives to go-fastapi and swaggo/http-swagger might include:
+
+- go-swagger (separate tool, generates code)
+- Huma (modern, simple, flexible micro framework for HTTP REST/RPC APIs)
+
+
+- Gin with swaggo (widely adopted)
+- Echo with swaggo (lightweight and flexible)
+- Fiber (Express-inspired, high performance)
+
+I should provide a concise answer within 142 words about Go-based FastAPI equivalents that handle automatic API documentation better than swaggo.
+
+
+---
+
