@@ -18,6 +18,9 @@ const docTemplate = `{
         "/project/{projectID}/": {
             "get": {
                 "description": "Returns the main chat page for a project",
+                "produces": [
+                    "text/html"
+                ],
                 "tags": [
                     "projects"
                 ],
@@ -50,6 +53,9 @@ const docTemplate = `{
         "/project/{projectID}/open": {
             "get": {
                 "description": "Returns the contents of a file",
+                "produces": [
+                    "text/plain"
+                ],
                 "tags": [
                     "files"
                 ],
@@ -89,6 +95,9 @@ const docTemplate = `{
         "/project/{projectID}/rounds": {
             "get": {
                 "description": "Returns total number of chat rounds",
+                "produces": [
+                    "application/json"
+                ],
                 "tags": [
                     "projects"
                 ],
@@ -124,6 +133,9 @@ const docTemplate = `{
         "/project/{projectID}/tokencount": {
             "get": {
                 "description": "Calculates token count for current conversation",
+                "produces": [
+                    "application/json"
+                ],
                 "tags": [
                     "projects"
                 ],

@@ -15,6 +15,8 @@ paths:
         name: projectID
         required: true
         type: string
+      produces:
+      - text/html
       responses:
         "200":
           description: HTML content
@@ -41,6 +43,8 @@ paths:
         name: filename
         required: true
         type: string
+      produces:
+      - text/plain
       responses:
         "200":
           description: File content
@@ -62,6 +66,8 @@ paths:
         name: projectID
         required: true
         type: string
+      produces:
+      - application/json
       responses:
         "200":
           description: OK
@@ -85,6 +91,8 @@ paths:
         name: projectID
         required: true
         type: string
+      produces:
+      - application/json
       responses:
         "200":
           description: OK

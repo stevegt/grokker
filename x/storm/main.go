@@ -519,6 +519,7 @@ func serveRun(port int) error {
 	// @Summary Get projects list
 	// @Description Returns HTML page listing all available projects
 	// @Tags projects
+	// @Produce html
 	// @Success 200 {string} string "HTML content"
 	// @Router / [get]
 	router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -531,7 +532,7 @@ func serveRun(port int) error {
 			fmt.Fprintf(w, "<li><a href='/project/%s/'>%s</a></li>", projectID, projectID)
 		}
 		fmt.Fprintf(w, "</ul>")
-	})
+	}).Methods("GET")
 
 	// Swagger UI handler - use http-swagger package
 	router.PathPrefix("/swagger").Handler(httpSwagger.Handler())
@@ -544,7 +545,7 @@ func serveRun(port int) error {
 	// @Tags projects
 	// @Accept json
 	// @Produce json
-	// @Param request body map[string]string true "Project details" SchemaExample({"projectID":"proj1","baseDir":"/path","markdownFile":"chat.md"})
+	// @Param payload body object true "Project details"
 	// @Success 201 {object} map[string]interface{}
 	// @Router /api/projects [post]
 	apiRouter.HandleFunc("/projects", func(w http.ResponseWriter, r *http.Request) {
@@ -607,14 +608,14 @@ func serveRun(port int) error {
 
 	// Project-specific routes
 	projectRouter := router.PathPrefix("/project/{projectID}").Subrouter()
-	projectRouter.HandleFunc("/", projectHandlerFunc)
-	projectRouter.HandleFunc("/ws", wsHandlerFunc)
-	projectRouter.HandleFunc("/tokencount", tokenCountHandlerFunc)
-	projectRouter.HandleFunc("/rounds", roundsHandlerFunc)
-	projectRouter.HandleFunc("/open", openHandlerFunc)
+	projectRouter.HandleFunc("/", projectHandlerFunc).Methods("GET")
+	projectRouter.HandleFunc("/ws", wsHandlerFunc).Methods("GET")
+	projectRouter.HandleFunc("/tokencount", tokenCountHandlerFunc).Methods("GET")
+	projectRouter.HandleFunc("/rounds", roundsHandlerFunc).Methods("GET")
+	projectRouter.HandleFunc("/open", openHandlerFunc).Methods("GET")
 
 	// Global routes
-	router.HandleFunc("/stop", stopHandler)
+	router.HandleFunc("/stop", stopHandler).Methods("POST")
 
 	addr := fmt.Sprintf(":%d", port)
 	srv = &http.Server{Addr: addr, Handler: router}
@@ -628,6 +629,7 @@ func serveRun(port int) error {
 // @Summary Get project chat page
 // @Description Returns the main chat page for a project
 // @Tags projects
+// @Produce html
 // @Param projectID path string true "Project ID"
 // @Success 200 {string} string "HTML content"
 // @Failure 404 {string} string "Project not found"
@@ -904,6 +906,7 @@ func processQuery(project *Project, queryID, query, llm, selection string, input
 // @Summary Open a file
 // @Description Returns the contents of a file
 // @Tags files
+// @Produce plain
 // @Param projectID path string true "Project ID"
 // @Param filename query string true "File path"
 // @Success 200 {string} string "File content"
@@ -943,10 +946,6 @@ func openHandler(w http.ResponseWriter, r *http.Request, project *Project) {
 // @Router /stop [post]
 func stopHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Received stop server request: %s", r.URL.Path)
-	if r.Method != "POST" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Server stopping"))
 	go func() {
@@ -959,6 +958,7 @@ func stopHandler(w http.ResponseWriter, r *http.Request) {
 // @Summary Get chat rounds
 // @Description Returns total number of chat rounds
 // @Tags projects
+// @Produce json
 // @Param projectID path string true "Project ID"
 // @Success 200 {object} map[string]int
 // @Failure 404 {string} string "Project not found"
@@ -989,6 +989,7 @@ func roundsHandler(w http.ResponseWriter, r *http.Request, project *Project) {
 // @Summary Get token count
 // @Description Calculates token count for current conversation
 // @Tags projects
+// @Produce json
 // @Param projectID path string true "Project ID"
 // @Success 200 {object} map[string]int
 // @Failure 404 {string} string "Project not found"
