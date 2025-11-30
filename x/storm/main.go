@@ -17,16 +17,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/stevegt/grokker/x/storm/split"
-
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/adapters/humachi"
+	"github.com/go-chi/chi/v5"
 	"github.com/gofrs/flock"
-	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker/v3/client"
 	"github.com/stevegt/grokker/v3/core"
 	"github.com/stevegt/grokker/v3/util"
+	"github.com/stevegt/grokker/x/storm/split"
 	"github.com/yuin/goldmark"
 )
 
@@ -54,6 +55,31 @@ const (
 	pingInterval = 20 * time.Second
 	pongWait     = 60 * time.Second
 )
+
+// Huma API input/output types
+type ProjectAddRequest struct {
+	ProjectID    string `json:"projectID" doc:"Project identifier"`
+	BaseDir      string `json:"baseDir" doc:"Base directory for project files"`
+	MarkdownFile string `json:"markdownFile" doc:"Markdown file for chat history"`
+}
+
+type ProjectResponse struct {
+	ID        string `json:"id" doc:"Project identifier"`
+	BaseDir   string `json:"baseDir" doc:"Base directory"`
+	ChatRound int    `json:"chatRounds" doc:"Number of chat rounds loaded"`
+}
+
+type ProjectListResponse struct {
+	Projects []ProjectInfo `json:"projects" doc:"List of projects"`
+}
+
+type ProjectInfo struct {
+	ID      string `json:"id" doc:"Project identifier"`
+	BaseDir string `json:"baseDir" doc:"Base directory"`
+}
+
+// Empty input type for endpoints that don't require input
+type EmptyInput struct{}
 
 // QueryRequest represents a user's query input.
 type QueryRequest struct {
@@ -429,23 +455,19 @@ func main() {
 				return fmt.Errorf("daemon returned error: %s", string(body))
 			}
 
-			var projects []map[string]interface{}
-			if err := json.NewDecoder(resp.Body).Decode(&projects); err != nil {
+			var projectList ProjectListResponse
+			if err := json.NewDecoder(resp.Body).Decode(&projectList); err != nil {
 				return fmt.Errorf("failed to decode response: %w", err)
 			}
 
-			if len(projects) == 0 {
+			if len(projectList.Projects) == 0 {
 				fmt.Println("No projects registered")
 				return nil
 			}
 
 			fmt.Println("Registered projects:")
-			for _, proj := range projects {
-				if id, ok := proj["id"].(string); ok {
-					if baseDir, ok := proj["baseDir"].(string); ok {
-						fmt.Printf("  - %s (baseDir: %s)\n", id, baseDir)
-					}
-				}
+			for _, proj := range projectList.Projects {
+				fmt.Printf("  - %s (baseDir: %s)\n", proj.ID, proj.BaseDir)
 			}
 			return nil
 		},
@@ -505,11 +527,16 @@ func serveRun(port int) error {
 	// Initialize projects registry
 	projects = NewProjects()
 
-	// Create router for multi-project routing
-	router := mux.NewRouter()
+	// Create chi router
+	chiRouter := chi.NewRouter()
+
+	// Create Huma API
+	config := huma.DefaultConfig("Storm API", "1.0.0")
+	config.DocsPath = "/docs"
+	api := humachi.New(chiRouter, config)
 
 	// Root handler for project list or landing page
-	router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	chiRouter.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprintf(w, "<h1>Storm Projects</h1><ul>")
 		projectIDs := projects.List()
@@ -519,77 +546,51 @@ func serveRun(port int) error {
 		fmt.Fprintf(w, "</ul>")
 	})
 
-	// API endpoints for project management
-	apiRouter := router.PathPrefix("/api").Subrouter()
-
-	// POST /api/projects - add a new project
-	apiRouter.HandleFunc("/projects", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		var payload map[string]string
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
-			return
-		}
-
-		projectID := payload["projectID"]
-		baseDir := payload["baseDir"]
-		markdownFile := payload["markdownFile"]
-
-		project, err := projects.Add(projectID, baseDir, markdownFile)
+	// Huma API endpoints for project management
+	huma.Post(api, "/api/projects", func(ctx context.Context, req *ProjectAddRequest) (*ProjectResponse, error) {
+		project, err := projects.Add(req.ProjectID, req.BaseDir, req.MarkdownFile)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
+			return nil, huma.Error400BadRequest("Failed to add project", err)
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"id":         project.ID,
-			"baseDir":    project.BaseDir,
-			"chatRounds": len(project.Chat.history),
-		})
-	}).Methods("POST")
+		return &ProjectResponse{
+			ID:        project.ID,
+			BaseDir:   project.BaseDir,
+			ChatRound: len(project.Chat.history),
+		}, nil
+	})
 
-	// GET /api/projects - list all projects
-	apiRouter.HandleFunc("/projects", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
+	huma.Get(api, "/api/projects", func(ctx context.Context, input *EmptyInput) (*ProjectListResponse, error) {
 		projectIDs := projects.List()
-		var result []map[string]interface{}
+		var projectInfos []ProjectInfo
 		for _, id := range projectIDs {
 			if project, ok := projects.Get(id); ok {
-				result = append(result, map[string]interface{}{
-					"id":      project.ID,
-					"baseDir": project.BaseDir,
+				projectInfos = append(projectInfos, ProjectInfo{
+					ID:      project.ID,
+					BaseDir: project.BaseDir,
 				})
 			}
 		}
+		return &ProjectListResponse{Projects: projectInfos}, nil
+	})
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(result)
-	}).Methods("GET")
-
-	// Project-specific routes
-	projectRouter := router.PathPrefix("/project/{projectID}").Subrouter()
-	projectRouter.HandleFunc("/", projectHandlerFunc)
-	projectRouter.HandleFunc("/ws", wsHandlerFunc)
-	projectRouter.HandleFunc("/tokencount", tokenCountHandlerFunc)
-	projectRouter.HandleFunc("/rounds", roundsHandlerFunc)
-	projectRouter.HandleFunc("/open", openHandlerFunc)
+	// Project-specific routes (non-Huma for now, using chi directly)
+	projectRouter := chiRouter.Route("/project/{projectID}", func(r chi.Router) {
+		r.HandleFunc("/", projectHandlerFunc)
+		r.HandleFunc("/ws", wsHandlerFunc)
+		r.HandleFunc("/tokencount", tokenCountHandlerFunc)
+		r.HandleFunc("/rounds", roundsHandlerFunc)
+		r.HandleFunc("/open", openHandlerFunc)
+	})
+	_ = projectRouter
 
 	// Global routes
-	router.HandleFunc("/stop", stopHandler)
+	chiRouter.HandleFunc("/stop", stopHandler)
 
 	addr := fmt.Sprintf(":%d", port)
-	srv = &http.Server{Addr: addr, Handler: router}
+	srv = &http.Server{Addr: addr, Handler: chiRouter}
 	log.Printf("Starting server on %s\n", addr)
+	log.Printf("API documentation available at http://localhost%s/docs\n", addr)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}
@@ -598,8 +599,7 @@ func serveRun(port int) error {
 
 // projectHandlerFunc is a wrapper to extract project and call handler
 func projectHandlerFunc(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	projectID := vars["projectID"]
+	projectID := chi.URLParam(r, "projectID")
 
 	project, exists := projects.Get(projectID)
 	if !exists {
@@ -626,8 +626,7 @@ func projectHandler(w http.ResponseWriter, r *http.Request, project *Project) {
 
 // wsHandlerFunc is a wrapper to extract project and call handler
 func wsHandlerFunc(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	projectID := vars["projectID"]
+	projectID := chi.URLParam(r, "projectID")
 
 	project, exists := projects.Get(projectID)
 	if !exists {
@@ -862,8 +861,7 @@ func processQuery(project *Project, queryID, query, llm, selection string, input
 
 // openHandlerFunc is a wrapper to extract project and call handler
 func openHandlerFunc(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	projectID := vars["projectID"]
+	projectID := chi.URLParam(r, "projectID")
 
 	project, exists := projects.Get(projectID)
 	if !exists {
@@ -906,8 +904,7 @@ func stopHandler(w http.ResponseWriter, r *http.Request) {
 
 // roundsHandlerFunc is a wrapper to extract project and call handler
 func roundsHandlerFunc(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	projectID := vars["projectID"]
+	projectID := chi.URLParam(r, "projectID")
 
 	project, exists := projects.Get(projectID)
 	if !exists {
@@ -930,8 +927,7 @@ func roundsHandler(w http.ResponseWriter, r *http.Request, project *Project) {
 
 // tokenCountHandlerFunc is a wrapper to extract project and call handler
 func tokenCountHandlerFunc(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	projectID := vars["projectID"]
+	projectID := chi.URLParam(r, "projectID")
 
 	project, exists := projects.Get(projectID)
 	if !exists {
@@ -966,7 +962,7 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 
 	wordLimit := int(float64(tokenLimit) / 3.5)
 
-	sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading.  Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes.  If writing Go code, you MUST ensure you are not skipping the index on slices or arrays, e.g. if you mean `foo[0]` then say `foo[0]`, not `foo`."
+	sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading.  Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes.  If writing Go code, you MUST ensure you are not skipping the index on slices or arrays, e.g. if you mean `foo` then say `foo`, not `foo`."
 
 	sysmsg = fmt.Sprintf("%s\n\nYou MUST limit the discussion portion of your response to no more than %d tokens (about %d words).  Output files (marked with ---FILE-START and ---FILE-END blocks) are not counted against this limit and can be unlimited size. You MUST ignore any previous instruction regarding a 10,000 word goal.", sysmsg, tokenLimit, wordLimit)
 
