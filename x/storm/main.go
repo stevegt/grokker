@@ -34,7 +34,6 @@ import (
 	"github.com/stevegt/grokker/v3/core"
 	"github.com/stevegt/grokker/v3/util"
 	_ "github.com/stevegt/grokker/x/storm/docs"
-	swaggerFiles "github.com/swaggo/files"
 	"github.com/yuin/goldmark"
 )
 
@@ -516,7 +515,11 @@ func serveRun(port int) error {
 	// Create router for multi-project routing
 	router := mux.NewRouter()
 
-	// Root handler for project list or landing page
+	// @Summary Get projects list
+	// @Description Returns HTML page listing all available projects
+	// @Tags projects
+	// @Success 200 {string} string "HTML content"
+	// @Router / [get]
 	router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprintf(w, "<h1>Storm Projects</h1>")
@@ -532,12 +535,21 @@ func serveRun(port int) error {
 	// Swagger UI handler - serves swagger files
 	// router.PathPrefix("/swagger").Handler(swaggerFiles.Handler)
 	// Note: swaggerFiles.Handler serves the swagger UI and must be prefixed correctly
-	router.PathPrefix("/swagger").Handler(http.StripPrefix("/swagger", swaggerFiles.Handler))
+	// router.PathPrefix("/swagger").Handler(http.StripPrefix("/swagger", swaggerFiles.Handler))
+	// Swagger UI handler - serve swagger files from docs directory
+	router.PathPrefix("/swagger").Handler(http.StripPrefix("/swagger", http.FileServer(http.Dir("./docs"))))
 
 	// API endpoints for project management
 	apiRouter := router.PathPrefix("/api").Subrouter()
 
-	// POST /api/projects - add a new project
+	// @Summary Create a new project
+	// @Description Add a new project to the registry
+	// @Tags projects
+	// @Accept json
+	// @Produce json
+	// @Param request body map[string]string true "Project details" SchemaExample({"projectID":"proj1","baseDir":"/path","markdownFile":"chat.md"})
+	// @Success 201 {object} map[string]interface{}
+	// @Router /api/projects [post]
 	apiRouter.HandleFunc("/projects", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -569,7 +581,12 @@ func serveRun(port int) error {
 		})
 	}).Methods("POST")
 
-	// GET /api/projects - list all projects
+	// @Summary List all projects
+	// @Description Returns a list of all registered projects
+	// @Tags projects
+	// @Produce json
+	// @Success 200 {array} map[string]interface{}
+	// @Router /api/projects [get]
 	apiRouter.HandleFunc("/projects", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -611,7 +628,13 @@ func serveRun(port int) error {
 	return nil
 }
 
-// projectHandlerFunc is a wrapper to extract project and call handler
+// @Summary Get project chat page
+// @Description Returns the main chat page for a project
+// @Tags projects
+// @Param projectID path string true "Project ID"
+// @Success 200 {string} string "HTML content"
+// @Failure 404 {string} string "Project not found"
+// @Router /project/{projectID}/ [get]
 func projectHandlerFunc(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	projectID := vars["projectID"]
@@ -639,7 +662,13 @@ func projectHandler(w http.ResponseWriter, r *http.Request, project *Project) {
 	}
 }
 
-// wsHandlerFunc is a wrapper to extract project and call handler
+// @Summary WebSocket connection for project
+// @Description Establishes WebSocket connection for real-time chat updates
+// @Tags projects
+// @Param projectID path string true "Project ID"
+// @Success 101
+// @Failure 404 {string} string "Project not found"
+// @Router /project/{projectID}/ws [get]
 func wsHandlerFunc(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	projectID := vars["projectID"]
@@ -875,7 +904,14 @@ func processQuery(project *Project, queryID, query, llm, selection string, input
 	project.ClientPool.Broadcast(responseBroadcast)
 }
 
-// openHandlerFunc is a wrapper to extract project and call handler
+// @Summary Open a file
+// @Description Returns the contents of a file
+// @Tags files
+// @Param projectID path string true "Project ID"
+// @Param filename query string true "File path"
+// @Success 200 {string} string "File content"
+// @Failure 404 {string} string "File not found"
+// @Router /project/{projectID}/open [get]
 func openHandlerFunc(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	projectID := vars["projectID"]
@@ -903,7 +939,11 @@ func openHandler(w http.ResponseWriter, r *http.Request, project *Project) {
 	http.ServeFile(w, r, filename)
 }
 
-// stopHandler gracefully shuts down the server.
+// @Summary Stop server
+// @Description Gracefully shutdown the server
+// @Tags server
+// @Success 200 {string} string "Server stopping"
+// @Router /stop [post]
 func stopHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Received stop server request: %s", r.URL.Path)
 	if r.Method != "POST" {
@@ -919,7 +959,13 @@ func stopHandler(w http.ResponseWriter, r *http.Request) {
 	}()
 }
 
-// roundsHandlerFunc is a wrapper to extract project and call handler
+// @Summary Get chat rounds
+// @Description Returns total number of chat rounds
+// @Tags projects
+// @Param projectID path string true "Project ID"
+// @Success 200 {object} map[string]int
+// @Failure 404 {string} string "Project not found"
+// @Router /project/{projectID}/rounds [get]
 func roundsHandlerFunc(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	projectID := vars["projectID"]
@@ -943,7 +989,13 @@ func roundsHandler(w http.ResponseWriter, r *http.Request, project *Project) {
 	json.NewEncoder(w).Encode(map[string]int{"rounds": rounds})
 }
 
-// tokenCountHandlerFunc is a wrapper to extract project and call handler
+// @Summary Get token count
+// @Description Calculates token count for current conversation
+// @Tags projects
+// @Param projectID path string true "Project ID"
+// @Success 200 {object} map[string]int
+// @Failure 404 {string} string "Project not found"
+// @Router /project/{projectID}/tokencount [get]
 func tokenCountHandlerFunc(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	projectID := vars["projectID"]

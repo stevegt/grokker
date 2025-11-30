@@ -5,7 +5,130 @@ info:
   description: Single-daemon, single-port multi-project LLM chat application
   title: Storm API
   version: 0.0.76
-paths: {}
+paths:
+  /project/{projectID}/:
+    get:
+      description: Returns the main chat page for a project
+      parameters:
+      - description: Project ID
+        in: path
+        name: projectID
+        required: true
+        type: string
+      responses:
+        "200":
+          description: HTML content
+          schema:
+            type: string
+        "404":
+          description: Project not found
+          schema:
+            type: string
+      summary: Get project chat page
+      tags:
+      - projects
+  /project/{projectID}/open:
+    get:
+      description: Returns the contents of a file
+      parameters:
+      - description: Project ID
+        in: path
+        name: projectID
+        required: true
+        type: string
+      - description: File path
+        in: query
+        name: filename
+        required: true
+        type: string
+      responses:
+        "200":
+          description: File content
+          schema:
+            type: string
+        "404":
+          description: File not found
+          schema:
+            type: string
+      summary: Open a file
+      tags:
+      - files
+  /project/{projectID}/rounds:
+    get:
+      description: Returns total number of chat rounds
+      parameters:
+      - description: Project ID
+        in: path
+        name: projectID
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: integer
+            type: object
+        "404":
+          description: Project not found
+          schema:
+            type: string
+      summary: Get chat rounds
+      tags:
+      - projects
+  /project/{projectID}/tokencount:
+    get:
+      description: Calculates token count for current conversation
+      parameters:
+      - description: Project ID
+        in: path
+        name: projectID
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: integer
+            type: object
+        "404":
+          description: Project not found
+          schema:
+            type: string
+      summary: Get token count
+      tags:
+      - projects
+  /project/{projectID}/ws:
+    get:
+      description: Establishes WebSocket connection for real-time chat updates
+      parameters:
+      - description: Project ID
+        in: path
+        name: projectID
+        required: true
+        type: string
+      responses:
+        "101":
+          description: Switching Protocols
+        "404":
+          description: Project not found
+          schema:
+            type: string
+      summary: WebSocket connection for project
+      tags:
+      - projects
+  /stop:
+    post:
+      description: Gracefully shutdown the server
+      responses:
+        "200":
+          description: Server stopping
+          schema:
+            type: string
+      summary: Stop server
+      tags:
+      - server
 schemes:
 - http
 swagger: "2.0"
