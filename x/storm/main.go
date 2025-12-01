@@ -57,10 +57,14 @@ const (
 )
 
 // Huma API input/output types
-type ProjectAddRequest struct {
-	ProjectID    string `json:"projectID" doc:"Project identifier"`
-	BaseDir      string `json:"baseDir" doc:"Base directory for project files"`
-	MarkdownFile string `json:"markdownFile" doc:"Markdown file for chat history"`
+type ProjectAddInputBody struct {
+	ProjectID    string `json:"projectID" doc:"Project identifier" required:"true"`
+	BaseDir      string `json:"baseDir" doc:"Base directory for project files" required:"true"`
+	MarkdownFile string `json:"markdownFile" doc:"Markdown file for chat history" required:"true"`
+}
+
+type ProjectAddInput struct {
+	Body ProjectAddInputBody `doc:"Project details"`
 }
 
 type ProjectResponse struct {
@@ -396,10 +400,12 @@ func main() {
 			// TODO add a `mv` subcommand?
 
 			// Make HTTP POST request to daemon
-			payload := map[string]string{
-				"projectID":    projectID,
-				"baseDir":      baseDir,
-				"markdownFile": markdownFile,
+			payload := map[string]interface{}{
+				"body": map[string]string{
+					"projectID":    projectID,
+					"baseDir":      baseDir,
+					"markdownFile": markdownFile,
+				},
 			}
 			jsonData, err := json.Marshal(payload)
 			if err != nil {
@@ -414,7 +420,7 @@ func main() {
 
 			if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 				body, _ := ioutil.ReadAll(resp.Body)
-				return fmt.Errorf("daemon returned error: %s", string(body))
+				return fmt.Errorf("daemon returned status %d: %s", resp.StatusCode, string(body))
 			}
 
 			var result map[string]interface{}
@@ -450,12 +456,9 @@ func main() {
 			}
 			defer resp.Body.Close()
 
-			// Add debug logging
-			body, _ := ioutil.ReadAll(resp.Body)
-			log.Printf("DEBUG: HTTP Status: %d, Body: %s", resp.StatusCode, string(body))
-
 			// Accept both 200 and 204 as valid responses
 			if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+				body, _ := ioutil.ReadAll(resp.Body)
 				return fmt.Errorf("daemon returned status %d: %s", resp.StatusCode, string(body))
 			}
 
@@ -464,9 +467,6 @@ func main() {
 				fmt.Println("No projects registered")
 				return nil
 			}
-
-			// Re-read body for JSON decode (200 OK case)
-			resp.Body = ioutil.NopCloser(bytes.NewReader(body))
 
 			var projectList ProjectListResponse
 			if err := json.NewDecoder(resp.Body).Decode(&projectList); err != nil {
@@ -539,8 +539,8 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // postProjectsHandler handles POST /api/projects - add a new project
-func postProjectsHandler(ctx context.Context, req *ProjectAddRequest) (*ProjectResponse, error) {
-	project, err := projects.Add(req.ProjectID, req.BaseDir, req.MarkdownFile)
+func postProjectsHandler(ctx context.Context, input *ProjectAddInput) (*ProjectResponse, error) {
+	project, err := projects.Add(input.Body.ProjectID, input.Body.BaseDir, input.Body.MarkdownFile)
 	if err != nil {
 		return nil, huma.Error400BadRequest("Failed to add project", err)
 	}
