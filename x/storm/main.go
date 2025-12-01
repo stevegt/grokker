@@ -450,10 +450,23 @@ func main() {
 			}
 			defer resp.Body.Close()
 
-			if resp.StatusCode != http.StatusOK {
-				body, _ := ioutil.ReadAll(resp.Body)
-				return fmt.Errorf("daemon returned error: %s", string(body))
+			// Add debug logging
+			body, _ := ioutil.ReadAll(resp.Body)
+			log.Printf("DEBUG: HTTP Status: %d, Body: %s", resp.StatusCode, string(body))
+
+			// Accept both 200 and 204 as valid responses
+			if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+				return fmt.Errorf("daemon returned status %d: %s", resp.StatusCode, string(body))
 			}
+
+			// Handle 204 No Content (empty project list)
+			if resp.StatusCode == http.StatusNoContent {
+				fmt.Println("No projects registered")
+				return nil
+			}
+
+			// Re-read body for JSON decode (200 OK case)
+			resp.Body = ioutil.NopCloser(bytes.NewReader(body))
 
 			var projectList ProjectListResponse
 			if err := json.NewDecoder(resp.Body).Decode(&projectList); err != nil {
