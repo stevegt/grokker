@@ -19286,3 +19286,89 @@ The solution involves a two-pronged approach: restructuring the input type and r
 
 ---
 
+
+
+**$ go run . project add test1 /tmp/project1 /tmp/project1/foo.md
+storm v0.0.76
+Error: daemon returned status 422: {"$schema":"http://localhost:8080/schemas/ErrorModel.json","title":"Unprocessable Entity","status":422,"detail":"validation failed","errors":[{"message":"expected required property baseDir to be present","location":"body","value":{"body":{"baseDir":"/tmp/project1","markdownFile":"/tmp/project1/foo.md","projectID":"test1"}}},{"message":"expected required property markdownFile to be present","location":"body","value":{"body":{"baseDir":"/tmp/project1","markdownFile":"/tmp/project1/foo.md","projectID":"test1"}}},{"message":"expected required property projectID to be present","location":"body","value":{"body":{"baseDir":"/tmp/project1","markdownFile":"/tmp/project1/foo.md","projectID":"test1"}}},{"message":"unexpected property","location":"body.body","value":{"body":{"baseDir":"/tmp/project1","markdownFile":"/tmp/project1/foo.md","projectID":"test1"}}}]}
+
+Usage:
+  storm project add [projectID] [baseDir] [markdownFile] [flags]
+
+Flags:
+  -h, --help   help for add
+
+2025/12/01 11:25:11 daemon returned status 422: {"$schema":"http://localhost:8080/schemas/ErrorModel.json","title":"Unprocessable Entity","status":422,"detail":"validation failed","errors":[{"message":"expected required property baseDir to be present","location":"body","value":{"body":{"baseDir":"/tmp/project1","markdownFile":"/tmp/project1/foo.md","projectID":"test1"}}},{"message":"expected required property markdownFile to be present","location":"body","value":{"body":{"baseDir":"/tmp/project1","markdownFile":"/tmp/project1/foo.md","projectID":"test1"}}},{"message":"expected required property projectID to be present","location":"body","value":{"body":{"baseDir":"/tmp/project1","markdownFile":"/tmp/project1/foo.md","projectID":"test1"}}},{"message":"unexpected property","location":"body.body","value":{"body":{"baseDir":"/tmp/project1","markdownFile":"/tmp/project1/foo.md","projectID":"test1"}}}]}
+exit status 1**
+
+
+
+
+# Fix Huma Request Body Structure and CLI Argument Bug
+
+The issue is twofold[1][2]:
+
+1. **CLI bug**: Line `projectID := args` should be `projectID := args` to extract the first argument, not the entire slice[1].
+
+2. **Huma handler signature**: The handler receives the full request body but Huma expects a top-level input type. Change the handler to accept `*ProjectAddRequest` directly since Huma automatically unmarshals the JSON body into it[2].
+
+The error "body.body" indicates double-wrapping of the request structure[2].
+
+## References
+
+- [1] [https://github.com/gorilla/mux](https://github.com/gorilla/mux)
+- [2] [https://leapcell.io/blog/building-a-scalable-go-websocket-service-for-thousands-of-concurrent-connections](https://leapcell.io/blog/building-a-scalable-go-websocket-service-for-thousands-of-concurrent-connections)
+- [3] [https://pkg.go.dev/github.com/c0rtexR/GoRegistry](https://pkg.go.dev/github.com/c0rtexR/GoRegistry)
+- [4] [https://blog.logrocket.com/routing-go-gorilla-mux/](https://blog.logrocket.com/routing-go-gorilla-mux/)
+- [5] [https://dev.to/neelp03/using-websockets-in-go-for-real-time-communication-4b3l](https://dev.to/neelp03/using-websockets-in-go-for-real-time-communication-4b3l)
+- [6] [https://dev.to/leapcell/effective-design-patterns-in-go-20d7](https://dev.to/leapcell/effective-design-patterns-in-go-20d7)
+- [7] [https://dev.to/kengowada/go-routing-101-handling-and-grouping-routes-with-nethttp-4k0e](https://dev.to/kengowada/go-routing-101-handling-and-grouping-routes-with-nethttp-4k0e)
+- [8] [https://yalantis.com/blog/how-to-build-websockets-in-go/](https://yalantis.com/blog/how-to-build-websockets-in-go/)
+- [9] [https://benhoyt.com/writings/go-routing/](https://benhoyt.com/writings/go-routing/)
+- [10] [https://www.jetbrains.com/guide/go/tutorials/rest_api_series/gorilla-mux/](https://www.jetbrains.com/guide/go/tutorials/rest_api_series/gorilla-mux/)
+- [11] [https://github.com/gorilla/websocket](https://github.com/gorilla/websocket)
+- [12] [https://github.com/asdine/storm](https://github.com/asdine/storm)
+- [13] [https://news.ycombinator.com/item?id=8735684](https://news.ycombinator.com/item?id=8735684)
+- [14] [https://datatracker.ietf.org/doc/html/rfc8392](https://datatracker.ietf.org/doc/html/rfc8392)
+- [15] [https://dev.to/wiliamvj/the-power-of-the-cli-with-golang-and-cobra-cli-148k](https://dev.to/wiliamvj/the-power-of-the-cli-with-golang-and-cobra-cli-148k)
+- [16] [https://github.com/boltdb/bolt](https://github.com/boltdb/bolt)
+- [17] [https://github.com/laurencelundblade/ctoken](https://github.com/laurencelundblade/ctoken)
+- [18] [https://dev.to/shrsv/learning-go-concurrency-through-a-thread-safe-map-implementation-mcp](https://dev.to/shrsv/learning-go-concurrency-through-a-thread-safe-map-implementation-mcp)
+
+
+
+## Reasoning
+
+The user is showing me a compilation error from their Storm project. Let me analyze what's happening:
+
+```
+$ go run . project add test1 /tmp/project1 /tmp/project1/foo.md
+Error: daemon returned status 422: {"$schema":"http://localhost:8080/schemas/ErrorModel.json","title":"Unprocessable Entity","status":422,"detail":"validation failed","errors":[{"message":"expected required property baseDir to be present","location":"body","value":{"body":{"baseDir":"/tmp/project1","markdownFile":"/tmp/project1/foo.md","projectID":"test1"}}},{"message":"expected required property markdownFile to be present","location":"body","value":{"body":{"baseDir":"/tmp/project1","markdownFile":"/tmp/project1/foo.md","projectID":"test1"}}},{"message":"expected required property projectID to be present","location":"body","value":{"body":{"baseDir":"/tmp/project1","markdownFile":"/tmp/project1/foo.md","projectID":"test1"}}}]}
+```
+
+The error shows that Huma is receiving `{"body":{"baseDir":"/tmp/project1","markdownFile":"/tmp/project1/foo.md","projectID":"test1"}}` but it's expecting the properties at the top level, not nested under `body`.
+
+The issue is that the CLI is sending:
+```go
+payload := map[string]string{
+    "projectID":    projectID,
+    "baseDir":      baseDir,
+    "markdownFile": markdownFile,
+}
+```
+
+But the Huma handler expects input of type `*ProjectAddRequest` which gets wrapped in the request body by Huma.
+
+The problem is that the request is coming in with a `body` wrapper when it shouldn't have one. The CLI is sending the flat JSON, but somewhere it's getting wrapped in another `body` layer.
+ 
+I see the Huma handler defines a structured input type with specific JSON tags. The `postProjectsHandler` function expects a direct `ProjectAddRequest` with project details mapped to top-level fields. This suggests the JSON serialization or request handling is introducing an unexpected nested structure that conflicts with the expected input format.
+
+The error message reveals a double-nested body payload, where project details are wrapped under an additional `body` key. This indicates a potential issue in either the CLI request generation or the Huma request parsing configuration. The solution likely involves either adjusting the handler's input type or modifying how the CLI constructs the request payload.
+
+The key observation is the mismatch between the expected flat request structure and the actual nested JSON being sent, which is causing the "unexpected property" error during request processing.
+
+I'll need to modify the code to correctly extract the project ID and ensure proper request unmarshaling, focusing on two critical changes: fixing the argument extraction and aligning the request structure with Huma's expectations.
+
+
+---
+

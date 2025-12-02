@@ -57,14 +57,10 @@ const (
 )
 
 // Huma API input/output types
-type ProjectAddInputBody struct {
+type ProjectAddRequest struct {
 	ProjectID    string `json:"projectID" doc:"Project identifier" required:"true"`
 	BaseDir      string `json:"baseDir" doc:"Base directory for project files" required:"true"`
 	MarkdownFile string `json:"markdownFile" doc:"Markdown file for chat history" required:"true"`
-}
-
-type ProjectAddInput struct {
-	Body ProjectAddInputBody `doc:"Project details"`
 }
 
 type ProjectResponse struct {
@@ -400,12 +396,10 @@ func main() {
 			// TODO add a `mv` subcommand?
 
 			// Make HTTP POST request to daemon
-			payload := map[string]interface{}{
-				"body": map[string]string{
-					"projectID":    projectID,
-					"baseDir":      baseDir,
-					"markdownFile": markdownFile,
-				},
+			payload := map[string]string{
+				"projectID":    projectID,
+				"baseDir":      baseDir,
+				"markdownFile": markdownFile,
 			}
 			jsonData, err := json.Marshal(payload)
 			if err != nil {
@@ -539,8 +533,8 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // postProjectsHandler handles POST /api/projects - add a new project
-func postProjectsHandler(ctx context.Context, input *ProjectAddInput) (*ProjectResponse, error) {
-	project, err := projects.Add(input.Body.ProjectID, input.Body.BaseDir, input.Body.MarkdownFile)
+func postProjectsHandler(ctx context.Context, input *ProjectAddRequest) (*ProjectResponse, error) {
+	project, err := projects.Add(input.ProjectID, input.BaseDir, input.MarkdownFile)
 	if err != nil {
 		return nil, huma.Error400BadRequest("Failed to add project", err)
 	}
@@ -555,7 +549,7 @@ func postProjectsHandler(ctx context.Context, input *ProjectAddInput) (*ProjectR
 // getProjectsHandler handles GET /api/projects - list all projects
 func getProjectsHandler(ctx context.Context, input *EmptyInput) (*ProjectListResponse, error) {
 	projectIDs := projects.List()
-	var projectInfos []ProjectInfo
+	projectInfos := []ProjectInfo{}
 	for _, id := range projectIDs {
 		if project, ok := projects.Get(id); ok {
 			projectInfos = append(projectInfos, ProjectInfo{
