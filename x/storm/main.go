@@ -57,10 +57,14 @@ const (
 )
 
 // Huma API input/output types
-type ProjectAddRequest struct {
-	ProjectID    string `json:"projectID" doc:"Project identifier" required:"true"`
-	BaseDir      string `json:"baseDir" doc:"Base directory for project files" required:"true"`
-	MarkdownFile string `json:"markdownFile" doc:"Markdown file for chat history" required:"true"`
+
+// ProjectAddInput uses explicit Body field for Huma request body control
+type ProjectAddInput struct {
+	Body struct {
+		ProjectID    string `json:"projectID" doc:"Project identifier" required:"true"`
+		BaseDir      string `json:"baseDir" doc:"Base directory for project files" required:"true"`
+		MarkdownFile string `json:"markdownFile" doc:"Markdown file for chat history" required:"true"`
+	} `doc:"Project details"`
 }
 
 type ProjectResponse struct {
@@ -533,8 +537,8 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // postProjectsHandler handles POST /api/projects - add a new project
-func postProjectsHandler(ctx context.Context, input *ProjectAddRequest) (*ProjectResponse, error) {
-	project, err := projects.Add(input.ProjectID, input.BaseDir, input.MarkdownFile)
+func postProjectsHandler(ctx context.Context, input *ProjectAddInput) (*ProjectResponse, error) {
+	project, err := projects.Add(input.Body.ProjectID, input.Body.BaseDir, input.Body.MarkdownFile)
 	if err != nil {
 		return nil, huma.Error400BadRequest("Failed to add project", err)
 	}
@@ -1071,18 +1075,21 @@ func collectReferences(input string) map[string]string {
 
 // linkifyReferences replaces reference markers with markdown links.
 func linkifyReferences(input string, refs map[string]string) string {
-	re := regexp.MustCompile(`\[(\d+)\]`)
-	result := re.ReplaceAllStringFunc(input, func(match string) string {
-		m := re.FindStringSubmatch(match)
-		if len(m) == 2 {
-			url, ok := refs[m[1]]
-			if ok && m[1] != "" && url != "" {
-				return fmt.Sprintf("[[%s](%s)]", m[1], url)
+	return input
+	/*
+		re := regexp.MustCompile(`\[(\d+)\]`)
+		result := re.ReplaceAllStringFunc(input, func(match string) string {
+			m := re.FindStringSubmatch(match)
+			if len(m) == 2 {
+				url, ok := refs[m[1]]
+				if ok && m[1] != "" && url != "" {
+					return fmt.Sprintf("[[%s](%s)]", m[1], url)
+				}
 			}
-		}
-		return match
-	})
-	return result
+			return match
+		})
+		return result
+	*/
 }
 
 // markdownToHTML converts markdown text to HTML using goldmark.
