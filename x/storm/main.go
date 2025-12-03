@@ -68,9 +68,11 @@ type ProjectAddInput struct {
 }
 
 type ProjectResponse struct {
-	ID        string `json:"id" doc:"Project identifier"`
-	BaseDir   string `json:"baseDir" doc:"Base directory"`
-	ChatRound int    `json:"chatRounds" doc:"Number of chat rounds loaded"`
+	Body struct {
+		ID        string `json:"id" doc:"Project identifier"`
+		BaseDir   string `json:"baseDir" doc:"Base directory"`
+		ChatRound int    `json:"chatRounds" doc:"Number of chat rounds"`
+	} `doc:"Project details"`
 }
 
 type ProjectListResponse struct {
@@ -543,11 +545,13 @@ func postProjectsHandler(ctx context.Context, input *ProjectAddInput) (*ProjectR
 		return nil, huma.Error400BadRequest("Failed to add project", err)
 	}
 
-	return &ProjectResponse{
-		ID:        project.ID,
-		BaseDir:   project.BaseDir,
-		ChatRound: len(project.Chat.history),
-	}, nil
+	res := &ProjectResponse{}
+	res.Body.ID = project.ID
+	res.Body.BaseDir = project.BaseDir
+	res.Body.ChatRound = len(project.Chat.history)
+
+	log.Printf("DEBUG: Returning response with ID=%s, BaseDir=%s, ChatRound=%d", res.Body.ID, res.Body.BaseDir, res.Body.ChatRound)
+	return res, nil
 }
 
 // getProjectsHandler handles GET /api/projects - list all projects
