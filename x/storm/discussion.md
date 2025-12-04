@@ -20768,3 +20768,117 @@ Key areas to address include verifying the flag parsing mechanism, correcting an
 
 ---
 
+
+
+**$ go run . file add --project test1 /tmp/project1/bar.csv 
+storm v0.0.76
+Error: daemon returned status 500: {"$schema":"http://localhost:8080/schemas/ErrorModel.json","title":"Internal Server Error","status":500,"detail":"Unable to extract HTTP request"}
+
+Usage:
+  storm file add [files...] [flags]
+
+Flags:
+  -h, --help             help for add
+      --project string   Project ID (required)
+
+2025/12/04 08:41:29 daemon returned status 500: {"$schema":"http://localhost:8080/schemas/ErrorModel.json","title":"Internal Server Error","status":500,"detail":"Unable to extract HTTP request"}
+exit status 1**
+
+
+
+
+# Fix File Add Handler - Extract ProjectID from URL Path
+
+The error "Unable to extract HTTP request" means the context doesn't contain the HTTP request under the key `"http.Request"`[1].
+
+**Solution**: In Huma, path parameters should be extracted automatically and made available in the input struct via tags[1]. Modify `FileAddInput` to include the `projectID` as a path parameter[1]:
+
+```go
+type FileAddInput struct {
+	ProjectID string `path:"projectID" doc:"Project identifier" required:"true"`
+	Body struct {
+		Filenames []string `json:"filenames" doc:"List of files to add" required:"true"`
+	} `doc:"Files to add"`
+}
+
+func postProjectFilesHandler(ctx context.Context, input *FileAddInput) (*FileAddResponse, error) {
+	projectID := input.ProjectID  // Extract from input, not from context
+	
+	project, exists := projects.Get(projectID)
+	if !exists {
+		return nil, huma.Error404NotFound("Project not found")
+	}
+	
+	res := &FileAddResponse{}
+	res.Body.ProjectID = projectID
+	res.Body.Added = []string{}
+	res.Body.Failed = []string{}
+	
+	for _, filename := range input.Body.Filenames {
+		if err := project.AddFile(filename); err != nil {
+			res.Body.Failed = append(res.Body.Failed, filename)
+		} else {
+			res.Body.Added = append(res.Body.Added, filename)
+		}
+	}
+	
+	return res, nil
+}
+```
+
+This lets Huma automatically extract `projectID` from the `/api/projects/{projectID}/files` path and populate `input.ProjectID`[1].
+
+## References
+
+[1] [https://huma.rocks/features/request-inputs/](https://huma.rocks/features/request-inputs/)
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is showing me an error when trying to run `storm file add --project test1 /tmp/project1/bar.csv`:
+
+```
+$ go run . file add --project test1 /tmp/project1/bar.csv 
+storm v0.0.76
+Error: daemon returned status 500: {"$schema":"http://localhost:8080/schemas/ErrorModel.json","title":"Internal Server Error","status":500,"detail":"Unable to extract HTTP request"}
+```
+
+Looking at the `postProjectFilesHandler` function in main.go:
+
+```go
+func postProjectFilesHandler(ctx context.Context, input *FileAddInput) (*FileAddResponse, error) {
+	// Extract projectID from the HTTP request URL
+	req, ok := ctx.Value("http.Request").(*http.Request)
+	if !ok {
+		return nil, huma.Error500InternalServerError("Unable to extract HTTP request")
+	}
+
+	projectID := chi.URLParam(req, "projectID")
+	...
+}
+```
+
+The issue is that Huma provides the HTTP request in the context, but the key might not be `"http.Request"`. Let me think about how Huma works with chi...
+
+When using Huma with chi via humachi adapter, the context should have the request available. The standard key in Go's net/http is `http.Request` (as a type, not a string). But Huma might use a different approach.
+
+Looking at the Huma documentation and chi integration, when Huma wraps a chi router, the request should be available in the context. The error "Unable to extract HTTP request" means the type assertion `ctx.Value("http.Request").(*http.Request)` is failing.
+
+The correct way to get the request in a Huma handler when using chi might be different. Let me check what the actual context key should be.
+
+Actually, looking at Huma's approach and chi integration, the request should be accessible via `huma.ContextRequest` or similar. 
+
+I could pass the projectID through the request body instead of extracting it from the URL path, but that's redundant. The real issue is figuring out how Huma exposes the request context when integrated with chi. The handler signature `func postProjectFilesHandler(ctx context.Context, input *FileAddInput)` suggests I need to find the right way to access the request from the context that Huma provides.
+
+Looking at how Huma integrates with chi, URL parameters might need to be injected into the context through middleware before the handler runs, or there's a specific pattern Huma uses to make the request available within the handler's context. able through that context, but the key might not be `"http.Request"`. 
+
+The real issue is that `chi.URLParam` requires the actual `*http.Request` object, not just the context. Since the type assertion is failing, the request isn't stored under that key. I could either check what Huma actually injects into the context, refactor to avoid `URLParam` altogether, or pass the projectID through the input struct directly. The cleanest path forward is probably modifying how the route gets registered or restructuring the parameter extraction to work with what Huma provides. The underlying HTTP request isn't directly accessible in a Huma handler context the way it would be in a standard chi handler. Instead, path parameters like `projectID` should be automatically extracted by Huma and made available through the input struct. Adding a `ProjectID` field to `FileAddInput` with the appropriate tag should allow Huma to populate it from the URL path.
+
+
+---
+

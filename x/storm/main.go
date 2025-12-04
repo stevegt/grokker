@@ -84,8 +84,9 @@ type ProjectInfo struct {
 	BaseDir string `json:"baseDir" doc:"Base directory"`
 }
 
-// FileAddInput for adding files to a project
+// FileAddInput for adding files to a project - extract projectID from path parameter
 type FileAddInput struct {
+	ProjectID string `path:"projectID" doc:"Project identifier" required:"true"`
 	Body struct {
 		Filenames []string `json:"filenames" doc:"List of files to add" required:"true"`
 	} `doc:"Files to add"`
@@ -635,16 +636,7 @@ func getProjectsHandler(ctx context.Context, input *EmptyInput) (*ProjectListRes
 
 // postProjectFilesHandler handles POST /api/projects/{projectID}/files - add files to project
 func postProjectFilesHandler(ctx context.Context, input *FileAddInput) (*FileAddResponse, error) {
-	// Extract projectID from the HTTP request URL
-	req, ok := ctx.Value("http.Request").(*http.Request)
-	if !ok {
-		return nil, huma.Error500InternalServerError("Unable to extract HTTP request")
-	}
-
-	projectID := chi.URLParam(req, "projectID")
-	if projectID == "" {
-		return nil, huma.Error400BadRequest("Missing projectID")
-	}
+	projectID := input.ProjectID
 
 	project, exists := projects.Get(projectID)
 	if !exists {
