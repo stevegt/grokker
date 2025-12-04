@@ -87,7 +87,7 @@ type ProjectInfo struct {
 // FileAddInput for adding files to a project - extract projectID from path parameter
 type FileAddInput struct {
 	ProjectID string `path:"projectID" doc:"Project identifier" required:"true"`
-	Body struct {
+	Body      struct {
 		Filenames []string `json:"filenames" doc:"List of files to add" required:"true"`
 	} `doc:"Files to add"`
 }
@@ -373,6 +373,14 @@ func main() {
 		Long:  `Storm is a single-daemon, single-port multi-project chat application for interacting with LLMs and local files.`,
 	}
 
+	// Get daemon URL from environment or use default
+	// TODO use a config file, PID file, or flag -- maybe use viper
+	// TODO allow for multiple storm daemons on different ports, add an 'ls' command to show running daemons and their pids/ports.  registry should support multiple daemons.
+	daemonURL := os.Getenv("STORM_DAEMON_URL")
+	if daemonURL == "" {
+		daemonURL = "http://localhost:8080"
+	}
+
 	// Serve command
 	var port int
 	serveCmd := &cobra.Command{
@@ -393,14 +401,6 @@ func main() {
 		Use:   "project",
 		Short: "Manage projects",
 		Long:  `Manage Storm projects.`,
-	}
-
-	// Get daemon URL from environment or use default
-	// TODO use a config file, PID file, or flag -- maybe use viper
-	// TODO allow for multiple storm daemons on different ports, add an 'ls' command to show running daemons and their pids/ports.  registry should support multiple daemons.
-	daemonURL := os.Getenv("STORM_DAEMON_URL")
-	if daemonURL == "" {
-		daemonURL = "http://localhost:8080"
 	}
 
 	projectAddCmd := &cobra.Command{
