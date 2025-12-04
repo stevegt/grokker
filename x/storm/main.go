@@ -84,6 +84,21 @@ type ProjectInfo struct {
 	BaseDir string `json:"baseDir" doc:"Base directory"`
 }
 
+// FileAddInput for adding files to a project
+type FileAddInput struct {
+	Body struct {
+		Filenames []string `json:"filenames" doc:"List of files to add" required:"true"`
+	} `doc:"Files to add"`
+}
+
+type FileAddResponse struct {
+	Body struct {
+		ProjectID string   `json:"projectID" doc:"Project identifier"`
+		Added     []string `json:"added" doc:"List of successfully added files"`
+		Failed    []string `json:"failed" doc:"List of files that failed to add"`
+	} `doc:"Result of file additions"`
+}
+
 // Empty input type for endpoints that don't require input
 type EmptyInput struct{}
 
@@ -379,6 +394,14 @@ func main() {
 		Long:  `Manage Storm projects.`,
 	}
 
+	// Get daemon URL from environment or use default
+	// TODO use a config file, PID file, or flag -- maybe use viper
+	// TODO allow for multiple storm daemons on different ports, add an 'ls' command to show running daemons and their pids/ports.  registry should support multiple daemons.
+	daemonURL := os.Getenv("STORM_DAEMON_URL")
+	if daemonURL == "" {
+		daemonURL = "http://localhost:8080"
+	}
+
 	projectAddCmd := &cobra.Command{
 		Use:   "add [projectID] [baseDir] [markdownFile]",
 		Short: "Add a new project",
@@ -388,14 +411,6 @@ func main() {
 			projectID := args[0]
 			baseDir := args[1]
 			markdownFile := args[2]
-
-			// Get daemon URL from environment or use default
-			// TODO use a config file, PID file, or flag -- maybe use viper
-			// TODO allow for multiple storm daemons on different ports, add an 'ls' command to show running daemons and their pids/ports.  registry should support multiple daemons.
-			daemonURL := os.Getenv("STORM_DAEMON_URL")
-			if daemonURL == "" {
-				daemonURL = "http://localhost:8080"
-			}
 
 			// TODO ensure baseDir exists
 			// TODO cannonicalize baseDir and markdownFile to absolute paths
@@ -496,16 +511,65 @@ func main() {
 		Long:  `Manage files associated with projects.`,
 	}
 
+	// TODO default projectID to current repo -- would need
+	// .storm file or directory in repo top
+	var projectID string
+
 	fileAddCmd := &cobra.Command{
-		Use:   "add",
-		Short: "Add a file to a project",
-		Long:  `Add an authorized file to a project.`,
+		Use:   "add [files...]",
+		Short: "Add files to a project",
+		Long:  `Add one or more authorized files to a project.`,
+		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("Would add file to project via HTTP API")
+			if projectID == "" {
+				return fmt.Errorf("--project flag is required")
+			}
+
+			// Make HTTP POST request to daemon
+			payload := map[string]interface{}{
+				"filenames": args,
+			}
+			jsonData, err := json.Marshal(payload)
+			if err != nil {
+				return fmt.Errorf("failed to marshal request: %w", err)
+			}
+
+			url := fmt.Sprintf("%s/api/projects/%s/files", daemonURL, projectID)
+			resp, err := http.Post(url, "application/json", bytes.NewReader(jsonData))
+			if err != nil {
+				return fmt.Errorf("failed to connect to daemon at %s: %w", daemonURL, err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+				body, _ := ioutil.ReadAll(resp.Body)
+				return fmt.Errorf("daemon returned status %d: %s", resp.StatusCode, string(body))
+			}
+
+			var result map[string]interface{}
+			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+				return fmt.Errorf("failed to decode response: %w", err)
+			}
+
+			fmt.Printf("Files added to project %s:\n", projectID)
+			if added, ok := result["added"].([]interface{}); ok {
+				for _, f := range added {
+					fmt.Printf("  + %s\n", f)
+				}
+			}
+			if failed, ok := result["failed"].([]interface{}); ok {
+				if len(failed) > 0 {
+					fmt.Printf("Failed to add:\n")
+					for _, f := range failed {
+						fmt.Printf("  - %s\n", f)
+					}
+				}
+			}
 			return nil
 		},
 	}
 
+	fileAddCmd.Flags().StringVar(&projectID, "project", "", "Project ID (required)")
 	fileCmd.AddCommand(fileAddCmd)
 	rootCmd.AddCommand(fileCmd)
 
@@ -569,6 +633,40 @@ func getProjectsHandler(ctx context.Context, input *EmptyInput) (*ProjectListRes
 	return &ProjectListResponse{Projects: projectInfos}, nil
 }
 
+// postProjectFilesHandler handles POST /api/projects/{projectID}/files - add files to project
+func postProjectFilesHandler(ctx context.Context, input *FileAddInput) (*FileAddResponse, error) {
+	// Extract projectID from the HTTP request URL
+	req, ok := ctx.Value("http.Request").(*http.Request)
+	if !ok {
+		return nil, huma.Error500InternalServerError("Unable to extract HTTP request")
+	}
+
+	projectID := chi.URLParam(req, "projectID")
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("Missing projectID")
+	}
+
+	project, exists := projects.Get(projectID)
+	if !exists {
+		return nil, huma.Error404NotFound("Project not found")
+	}
+
+	res := &FileAddResponse{}
+	res.Body.ProjectID = projectID
+	res.Body.Added = []string{}
+	res.Body.Failed = []string{}
+
+	for _, filename := range input.Body.Filenames {
+		if err := project.AddFile(filename); err != nil {
+			res.Body.Failed = append(res.Body.Failed, filename)
+		} else {
+			res.Body.Added = append(res.Body.Added, filename)
+		}
+	}
+
+	return res, nil
+}
+
 // serveRun implements the serve command
 func serveRun(port int) error {
 	var err error
@@ -596,6 +694,7 @@ func serveRun(port int) error {
 	// Huma API endpoints for project management
 	huma.Post(api, "/api/projects", postProjectsHandler)
 	huma.Get(api, "/api/projects", getProjectsHandler)
+	huma.Post(api, "/api/projects/{projectID}/files", postProjectFilesHandler)
 
 	// Project-specific routes (non-Huma for now, using chi directly)
 	projectRouter := chiRouter.Route("/project/{projectID}", func(r chi.Router) {
@@ -605,6 +704,7 @@ func serveRun(port int) error {
 		r.HandleFunc("/rounds", roundsHandlerFunc)
 		r.HandleFunc("/open", openHandlerFunc)
 	})
+
 	_ = projectRouter
 
 	// Global routes

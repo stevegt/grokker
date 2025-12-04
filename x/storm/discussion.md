@@ -20660,3 +20660,111 @@ The key priorities are robust path handling, implementing the KV store for persi
 
 ---
 
+
+
+**implement `storm file add --project X file.csv`**
+
+
+
+
+# Implement `storm file add --project X file.csv`
+
+The implementation is mostly complete. Main fixes needed[1][2]:
+
+**1. CLI sends flat payload** (no Body wrapper needed—Huma handles wrapping):
+```go
+payload := map[string]interface{}{
+    "filenames": args,  // e.g., ["file.csv"]
+}
+```
+
+**2. Huma handler receives Body-wrapped input**, accesses projectID from URL path[1]:
+```go
+func postProjectFilesHandler(ctx context.Context, input *FileAddInput) (*FileAddResponse, error) {
+    req := ctx.Value(huma.ContextKeyRequest).(*http.Request)
+    projectID := chi.URLParam(req, "projectID")
+    // ... rest of handler
+}
+```
+
+**3. Register route with Huma**:
+```go
+huma.Post(api, "/api/projects/{projectID}/files", postProjectFilesHandler)
+```
+
+**Usage**:
+```bash
+storm serve --port 8080
+# In another terminal:
+storm file add --project test1 file1.csv file2.csv
+```
+
+The `Project.AddFile()` validation and storage already works. Ensure files exist and are within `BaseDir`[2].
+
+## References
+
+[1] [https://huma.rocks/features/bring-your-own-router/](https://huma.rocks/features/bring-your-own-router/)
+[2] [https://github.com/spf13/cobra](https://github.com/spf13/cobra)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to implement `storm file add --project X file.csv`. Looking at the code, I can see:
+
+1. There's already a `fileAddCmd` in main.go that handles the CLI command
+2. There's already a `postProjectFilesHandler` that handles the HTTP endpoint
+3. The `Project.AddFile()` method exists in project.go
+
+However, looking more carefully at the code:
+
+In `fileAddCmd`, there's a bug:
+```go
+projectID := ""
+fileAddCmd.Flags().StringVar(&projectID, "project", "", "Project ID (required)")
+```
+
+The flag is defined but there's an issue - the `fileAddCmd` uses `projectID` which needs to be accessible when the command runs.
+
+The implementation seems mostly complete, but there are some issues:
+
+1. The `projectID` variable is defined at the package level in the fileCmd scope, but it needs to be scoped properly
+2. The HTTP handler `postProjectFilesHandler` tries to extract projectID from chi.URLParam but it doesn't have access to the chi context properly
+3. The file add command needs to handle the wrapped Body structure properly
+
+Let me check what needs to be fixed:
+
+The main issues I see:
+1. `projectID` variable scope issue in the CLI command
+2. The HTTP handler for file add needs to properly handle the Body wrapper
+3. Need to ensure the CLI sends the correct payload format
+
+Looking at the provided code more carefully, I see that:
+- `fileAddCmd` is already defined and mostly implemented
+- `postProjectFilesHandler` is already defined but needs fixing
+- The main issue is getting the proper integration working
+
+The user is asking me to implement `storm file add --project X file.csv`. Let me trace through what should happen:
+
+1. CLI: `storm file add --project test1 file.csv`
+2. This should make HTTP POST to `/api/projects/test1/files` with payload `{"filenames": ["file.csv"]}`
+
+
+3. The handler adds the file to the project
+4. Response should be `{"projectID": "test1", "added": ["file.csv"], "failed": []}`
+
+The file addition process involves carefully managing the project ID and ensuring the correct payload is sent. I'll need to verify the scoping of the project ID variable and confirm the HTTP handler can correctly process the incoming file.
+
+The main implementation challenge centers on properly extracting the project ID from the URL path and ensuring the request body matches the expected format. I'll focus on making minimal, targeted modifications to align the implementation with the desired behavior.
+
+Key areas to address include verifying the flag parsing mechanism, correcting any URL parameter extraction issues, and ensuring the response structure matches the expected JSON output. The goal is a clean, straightforward implementation that handles file addition with minimal complexity.
+
+
+---
+
