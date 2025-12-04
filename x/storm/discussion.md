@@ -20564,3 +20564,99 @@ The response fields are appearing as HTTP headers instead of JSON. This suggests
 
 ---
 
+
+
+**what's next?**
+
+
+
+
+# Next Steps for Storm
+
+**Immediate (Test Current Fix)**[1]:
+
+1. **Verify HTTP response fix**: Test `curl -X POST http://localhost:8080/api/projects` again. Should now return 200 OK with JSON body (not 204 with headers). The `ProjectResponse` Body wrapper should fix this[1].
+
+2. **Update CLI to accept 200 OK only**: Modify `projectAddCmd` to expect `http.StatusOK` (200), since the server should now return proper 200 responses[1][2].
+
+3. **Test full workflow**: `storm serve` → `storm project add test1 /tmp/project1 /tmp/project1/foo.md` → verify response parses correctly[2].
+
+**Phase 1 Priorities**[1][2]:
+
+4. **Implement remaining CLI commands**: `storm file add --project X file.csv` and `storm issue-token --user email@x.com --project X` (stub implementations in place)[2]
+
+5. **KV Store Persistence**: Implement `Projects.Persist()` using BBolt to save registry across daemon restarts[1]
+
+6. **Error handling**: Add path validation (ensure baseDir exists), canonicalize paths to absolute[1]
+
+**Testing**: Run full project creation → chat → file operations flow[2].
+
+## References
+
+[1] [https://pkg.go.dev/go.etcd.io/bbolt](https://pkg.go.dev/go.etcd.io/bbolt)
+[2] [https://github.com/spf13/cobra](https://github.com/spf13/cobra)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user has provided a massive context about a Storm LLM chat application with code files (index.html, main.go, project.go), and they're asking "what's next?" at the end.
+
+Let me carefully read the special instructions at the very top:
+
+"You are Perplexity, a large language model created by Perplexity AI.
+
+Style guidelines:
+- Prefer not to generate links in your answer. If the user asks for a file that you do not have direct access to, you should indicate that to the user instead of making up a download link.
+
+Current date: Wednesday, December 03, 2025, 7:21:20 PM UTC"
+
+Then there's a massive amount of context about a conversation on Storm, and at the end:
+
+"New Query: what's next?"
+
+The user has been debugging issues with HTTP response body serialization in Huma. The last few exchanges were about:
+1. The server returning 204 No Content with response data in HTTP headers instead of JSON body
+2. The fix was to wrap both ProjectAddInput and ProjectResponse in Body structs
+3. The curl output showed: `Id: test2`, `Basedir: /tmp/project2`, `Chatround: 0` as HTTP headers
+
+Looking at the current code:
+- ProjectAddInput has a Body struct ✓
+- ProjectResponse has a Body struct ✓
+- The handlers are updated to use input.Body and set res.Body fields ✓
+- The curl output showed headers instead of JSON body (but this may have been from an earlier iteration)
+
+The user is now asking "what's next?" - meaning what should they do next with the Storm project.
+
+Given the 142-word token limit (about 500 tokens max), I should provide a concise list of next steps.
+
+Looking at the TODO comments in main.go:
+1. "use a config file, PID file, or flag -- maybe use viper"
+2. "allow for multiple storm daemons on different ports, add an 'ls' command to show running daemons and their pids/ports"
+
+
+3. "ensure baseDir exists"
+4. "canonicalize baseDir and markdownFile to absolute paths"
+5. "add a `mv` subcommand?"
+6. In project.go: "Store project metadata in KV store for persistence"
+
+The immediate issues to address:
+1. Test the current implementation with the fixed Body struct wrapping
+2. Verify that the HTTP response is now 200 OK with JSON body (not 204 with headers)
+3. Implement file add and issue-token CLI commands
+4. Implement KV store persistence
+5. Add error handling and validation
+
+I'll focus on implementing path canonicalization and directory validation first. I'll create utility functions to check and normalize base directories, ensuring they exist and are absolute. This involves adding checks in the project creation handler to validate the base directory path before proceeding with project initialization.
+
+The key priorities are robust path handling, implementing the KV store for persistence, and expanding CLI functionality with new subcommands like file addition and project movement.
+
+
+---
+
