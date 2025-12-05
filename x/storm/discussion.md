@@ -21524,3 +21524,104 @@ Let me make these changes to main.go.
 
 ---
 
+
+
+**$ go run . project list
+storm v0.0.76
+Error: failed to decode response: json: cannot unmarshal object into Go value of type main.ProjectInfos
+Usage:
+  storm project list [flags]
+
+Flags:
+  -h, --help   help for list
+
+2025/12/04 14:25:32 failed to decode response: json: cannot unmarshal object into Go value of type main.ProjectInfos
+exit status 1**
+
+
+
+
+# Fix JSON Unmarshaling Error - Remove ProjectInfos Type
+
+The error references a `ProjectInfos` type that doesn't exist in the provided code[1]. The projectListCmd correctly uses `ProjectListResponse`, so the issue is likely an outdated type definition.
+
+**Fix**: Ensure projectListCmd is using `ProjectListResponse` (it already is) and remove any old `ProjectInfos` type definitions that might exist in your codebase[1].
+
+The code provided is correct—the response structure matches the decoder. Rebuild with `go run . project list` after confirming no stale `ProjectInfos` definitions remain[1].
+
+
+## References
+
+- [1] [https://huma.rocks/features/request-inputs/](https://huma.rocks/features/request-inputs/)
+- [2] [https://huma.rocks/features/request-validation/](https://huma.rocks/features/request-validation/)
+- [3] [https://huma.rocks/tutorial/your-first-api/](https://huma.rocks/tutorial/your-first-api/)
+- [4] [https://github.com/danielgtaylor/huma/issues/285](https://github.com/danielgtaylor/huma/issues/285)
+- [5] [https://github.com/danielgtaylor/huma/discussions/874](https://github.com/danielgtaylor/huma/discussions/874)
+- [6] [https://docs.bump.sh/guides/bump-sh-tutorials/huma/](https://docs.bump.sh/guides/bump-sh-tutorials/huma/)
+
+
+
+## Reasoning
+
+The user is showing me an error when running `go run . project list`:
+
+```
+$ go run . project list
+storm v0.0.76
+Error: failed to decode response: json: cannot unmarshal object into Go value of type main.ProjectInfos
+```
+
+The error says `cannot unmarshal object into Go value of type main.ProjectInfos`. But looking at the provided main.go file, I don't see a `ProjectInfos` type defined. 
+
+Looking at the projectListCmd in main.go:
+
+```go
+var projectList ProjectListResponse
+if err := json.NewDecoder(resp.Body).Decode(&projectList); err != nil {
+	return fmt.Errorf("failed to decode response: %w", err)
+}
+
+if len(projectList.Body.Projects) == 0 {
+	fmt.Println("No projects registered")
+	return nil
+}
+
+fmt.Println("Registered projects:")
+for _, proj := range projectList.Body.Projects {
+	fmt.Printf("  - %s (baseDir: %s)\n", proj.ID, proj.BaseDir)
+}
+```
+
+This looks correct. It's trying to unmarshal into `ProjectListResponse`.
+
+But the error says `main.ProjectInfos`. Looking at the code, I see `ProjectInfo` (singular) not `ProjectInfos` (plural). 
+
+Wait, looking more carefully at the error message - it says "cannot unmarshal object into Go value of type main.ProjectInfos". This suggests that somewhere in the code, there's a reference to `ProjectInfos` (plural) instead of `ProjectListResponse`.
+
+Looking at the main.go file provided, I see:
+
+```go
+type ProjectListResponse struct {
+	Body struct {
+		Projects []ProjectInfo `json:"projects" doc:"List of projects"`
+	} `doc:"Projects list"`
+}
+```
+
+So the definition is `ProjectListResponse` with a `Body` field containing `Projects []ProjectInfo`.
+ 
+I suspect there might be a mismatch between the compiled code and the source code. The discrepancy between `ProjectInfos` in the error and `ProjectListResponse` in the source suggests an outdated binary or a hidden type definition somewhere in the project. This could indicate a stale build or a version conflict that's causing the unmarshaling error.
+
+The key problem appears to be a type mismatch during JSON decoding. The server likely returns a JSON structure that doesn't align with the current `ProjectListResponse` type, potentially due to lingering old code or an uncleared build cache.
+
+To resolve this, I'll need to verify the exact JSON structure and ensure all type definitions are consistent across the project.
+
+The critical steps involve checking the server response format, confirming the client-side type definitions match exactly, and potentially cleaning up any stale type references that might be causing the unmarshaling error.
+
+The most likely culprit is an outdated `ProjectInfos` type that's still being referenced somewhere in the codebase, preventing clean JSON decoding of the project list response.
+
+I'll focus on ensuring type consistency between the server response structure and the client-side type definitions, verifying that `ProjectListResponse` is the correct type for unmarshaling the JSON payload.
+
+
+---
+

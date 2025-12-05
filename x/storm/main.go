@@ -75,17 +75,15 @@ type ProjectResponse struct {
 	} `doc:"Project details"`
 }
 
-type ProjectInfos []ProjectInfo
-
-type ProjectListResponse struct {
-	Body struct {
-		Projects ProjectInfos `json:"projects" doc:"List of projects"`
-	} `doc:"Projects list"`
-}
-
 type ProjectInfo struct {
 	ID      string `json:"id" doc:"Project identifier"`
 	BaseDir string `json:"baseDir" doc:"Base directory"`
+}
+
+type ProjectListResponse struct {
+	Body struct {
+		Projects []ProjectInfo `json:"projects" doc:"List of projects"`
+	} `doc:"Projects list"`
 }
 
 // FileAddInput for adding files to a project - extract projectID from path parameter
@@ -488,18 +486,18 @@ func main() {
 				return nil
 			}
 
-			var projectInfos ProjectInfos
-			if err := json.NewDecoder(resp.Body).Decode(&projectInfos); err != nil {
+			var projectList ProjectListResponse
+			if err := json.NewDecoder(resp.Body).Decode(&projectList); err != nil {
 				return fmt.Errorf("failed to decode response: %w", err)
 			}
 
-			if len(projectInfos) == 0 {
+			if len(projectList.Body.Projects) == 0 {
 				fmt.Println("No projects registered")
 				return nil
 			}
 
 			fmt.Println("Registered projects:")
-			for _, proj := range projectInfos {
+			for _, proj := range projectList.Body.Projects {
 				fmt.Printf("  - %s (baseDir: %s)\n", proj.ID, proj.BaseDir)
 			}
 			return nil
@@ -626,7 +624,7 @@ func postProjectsHandler(ctx context.Context, input *ProjectAddInput) (*ProjectR
 // getProjectsHandler handles GET /api/projects - list all projects
 func getProjectsHandler(ctx context.Context, input *EmptyInput) (*ProjectListResponse, error) {
 	projectIDs := projects.List()
-	var projectInfos ProjectInfos
+	var projectInfos []ProjectInfo
 	for _, id := range projectIDs {
 		if project, ok := projects.Get(id); ok {
 			projectInfos = append(projectInfos, ProjectInfo{
