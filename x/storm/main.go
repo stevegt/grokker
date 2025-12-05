@@ -1173,6 +1173,7 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 	}
 
 	// repeat until we get a valid response that fits within tokenLimit
+	// but increase tokenLimit each time as well, up to 5 tries
 	var cookedResponse string
 	var msgs []client.ChatMsg
 	for i := 0; i < 5; i++ {
@@ -1200,8 +1201,9 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 		fmt.Printf("Received response from LLM '%s'\n", llm)
 		fmt.Printf("Response: %s\n", response)
 
+		// run ExtractFiles first as a dry run to see if we fit in token limit
 		cookedResponse, err = core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
-			DryRun:             false,
+			DryRun:             true,
 			ExtractToStdout:    false,
 			RemoveFromResponse: true,
 		})
@@ -1227,8 +1229,17 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 			sysmsg += fmt.Sprintf("\n\nYour previous response was %d tokens, which exceeds the limit of %d tokens (about %d words).  You ABSOLUTELY MUST provide a more concise answer that fits within the limit.", count, tokenLimit, wordLimit)
 			prompt += fmt.Sprintf("\n\nYou MUST provide a more concise answer that fits within the %d token (%d word) limit.", tokenLimit, wordLimit)
 			log.Printf("Response token count %d exceeds limit of %d; retrying...", count, tokenLimit)
+			tokenLimit *= 2
 			continue
 		}
+
+		// successful response within token limit, so now run ExtractFiles for real
+		cookedResponse, err = core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
+			DryRun:             false,
+			ExtractToStdout:    false,
+			RemoveFromResponse: true,
+		})
+
 		break
 	}
 
