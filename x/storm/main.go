@@ -86,6 +86,10 @@ type ProjectListResponse struct {
 	} `doc:"Projects list"`
 }
 
+type ProjectList struct {
+	Projects []ProjectInfo `json:"projects" doc:"List of projects"`
+}
+
 // FileAddInput for adding files to a project - extract projectID from path parameter
 type FileAddInput struct {
 	ProjectID string `path:"projectID" doc:"Project identifier" required:"true"`
@@ -486,18 +490,18 @@ func main() {
 				return nil
 			}
 
-			var projectList ProjectListResponse
+			var projectList ProjectList
 			if err := json.NewDecoder(resp.Body).Decode(&projectList); err != nil {
 				return fmt.Errorf("failed to decode response: %w", err)
 			}
 
-			if len(projectList.Body.Projects) == 0 {
+			if len(projectList.Projects) == 0 {
 				fmt.Println("No projects registered")
 				return nil
 			}
 
 			fmt.Println("Registered projects:")
-			for _, proj := range projectList.Body.Projects {
+			for _, proj := range projectList.Projects {
 				fmt.Printf("  - %s (baseDir: %s)\n", proj.ID, proj.BaseDir)
 			}
 			return nil

@@ -21625,3 +21625,109 @@ I'll focus on ensuring type consistency between the server response structure an
 
 ---
 
+
+
+**give me the curl command for testing the project list API**
+
+
+
+
+# Test Project List API with curl
+
+```bash
+curl -X GET http://localhost:8080/api/projects \
+  -H "Content-Type: application/json" \
+  -v
+```
+
+**To test with a running daemon**:
+
+Terminal 1 - Start the daemon:
+```bash
+go run . serve --port 8080
+```
+
+Terminal 2 - Test the API:
+```bash
+curl http://localhost:8080/api/projects
+```
+
+**Expected responses**:
+
+- **200 OK** with project list (if projects exist):
+```json
+{
+  "body": {
+    "projects": [
+      {
+        "id": "test1",
+        "baseDir": "/tmp/project1"
+      }
+    ]
+  }
+}
+```
+
+- **200 OK** with empty list (if no projects exist):
+```json
+{
+  "body": {
+    "projects": []
+  }
+}
+```
+
+The `-v` flag shows verbose output including response headers. The API should return a proper JSON structure with the Body wrapper, as defined in `ProjectListResponse`.
+
+
+## References
+
+- [1] [https://huma.rocks/features/request-inputs/](https://huma.rocks/features/request-inputs/)
+- [2] [https://pkg.go.dev/github.com/leonzaher/huma](https://pkg.go.dev/github.com/leonzaher/huma)
+- [3] [https://pkg.go.dev/github.com/danielgtaylor/huma](https://pkg.go.dev/github.com/danielgtaylor/huma)
+- [4] [https://github.com/danielgtaylor/huma/issues/285](https://github.com/danielgtaylor/huma/issues/285)
+- [5] [https://huma.rocks/tutorial/service-configuration/](https://huma.rocks/tutorial/service-configuration/)
+- [6] [https://github.com/danielgtaylor/huma/issues/749](https://github.com/danielgtaylor/huma/issues/749)
+- [7] [https://huma.rocks/features/operations/](https://huma.rocks/features/operations/)
+- [8] [https://groups.google.com/g/golang-nuts/c/2RIBD4phgqA](https://groups.google.com/g/golang-nuts/c/2RIBD4phgqA)
+- [9] [https://dev.to/programmingdecoded/adding-filter-query-parameters-in-go-huma-249m](https://dev.to/programmingdecoded/adding-filter-query-parameters-in-go-huma-249m)
+- [10] [https://huma.rocks/tutorial/your-first-api/](https://huma.rocks/tutorial/your-first-api/)
+- [11] [https://github.com/danielgtaylor/huma/issues/313](https://github.com/danielgtaylor/huma/issues/313)
+- [12] [https://huma.rocks/features/schema-customization/](https://huma.rocks/features/schema-customization/)
+- [13] [https://github.com/danielgtaylor/huma/blob/main/huma_test.go](https://github.com/danielgtaylor/huma/blob/main/huma_test.go)
+- [14] [https://github.com/danielgtaylor/huma/issues/219](https://github.com/danielgtaylor/huma/issues/219)
+- [15] [https://docs.bump.sh/guides/bump-sh-tutorials/huma/](https://docs.bump.sh/guides/bump-sh-tutorials/huma/)
+
+
+
+## Reasoning
+
+The user is asking me to provide a curl command for testing the project list API.
+
+Looking at the main.go file, I can see:
+
+1. The `getProjectsHandler` is registered at `/api/projects` with `huma.Get(api, "/api/projects", getProjectsHandler)`
+2. The daemon runs on the port specified in the serve command (default 8080)
+3. The response should be a `ProjectListResponse` with a Body containing Projects
+
+The curl command to test the project list API would be:
+```bash
+curl http://localhost:8080/api/projects
+```
+
+However, looking at the code, I see the user has been debugging issues with the response structure. The API endpoint expects to return 200 OK with a JSON body.
+
+The user's instructions say:
+- I should follow the instructions at the top about being a researcher and answering only the query
+- Limit discussion to 500 tokens (142 words)
+- Start with a markdown heading
+- Don't include empty square brackets
+- This is a code response query, so I should provide a complete, working curl command
+
+The query is: "give me the curl command for testing the project list API"
+
+This is straightforward - I need to provide a curl command that will test the `/api/projects` endpoint.
+
+
+---
+
