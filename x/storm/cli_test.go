@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
 )
 
-// TestCLIProjectAdd tests the project add subcommand
+// TestCLIProjectAdd tests the project add subcommand via shell execution
 func TestCLIProjectAdd(t *testing.T) {
 	// Create temporary project directory
 	tmpDir, err := ioutil.TempDir("", "storm-cli-test-")
@@ -43,38 +44,30 @@ func TestCLIProjectAdd(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	// Set daemon URL for CLI
-	os.Setenv("STORM_DAEMON_URL", fmt.Sprintf("http://localhost:%d", daemonPort))
+	daemonURL := fmt.Sprintf("http://localhost:%d", daemonPort)
 
-	// Create and execute project add command
-	rootCmd := createTestRootCmd()
-	projectCmd := rootCmd.Commands() // serve
-	for _, cmd := range rootCmd.Commands() {
-		if cmd.Use == "project" {
-			projectCmd = cmd
-			break
-		}
-	}
+	// Execute project add command via 'go run .'
+	cmd := exec.Command("go", "run", ".", "project", "add", projectID, projectDir, markdownFile)
+	cmd.Env = append(os.Environ(), fmt.Sprintf("STORM_DAEMON_URL=%s", daemonURL))
 
-	var outBuf bytes.Buffer
-	var errBuf bytes.Buffer
-	rootCmd.SetOut(&outBuf)
-	rootCmd.SetErr(&errBuf)
-	rootCmd.SetArgs([]string{"project", "add", projectID, projectDir, markdownFile})
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
 
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("project add command failed: %v", err)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("project add command failed: %v, stderr: %s", err, errBuf.String())
 	}
 
 	output := outBuf.String()
 	if len(output) == 0 {
 		t.Errorf("Expected project add output, got empty string")
 	}
-	if !bytes.Contains(outBuf.Bytes(), []byte(projectID)) {
+	if !bytes.Contains([]byte(output), []byte(projectID)) {
 		t.Errorf("Expected project ID in output, got: %s", output)
 	}
 }
 
-// TestCLIProjectList tests the project list subcommand
+// TestCLIProjectList tests the project list subcommand via shell execution
 func TestCLIProjectList(t *testing.T) {
 	// Create temporary project directory
 	tmpDir, err := ioutil.TempDir("", "storm-cli-test-list-")
@@ -83,18 +76,16 @@ func TestCLIProjectList(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// Create two projects
-	for i := 1; i <= 2; i++ {
-		projectID := fmt.Sprintf("cli-list-project-%d", i)
-		projectDir := filepath.Join(tmpDir, projectID)
-		if err := os.MkdirAll(projectDir, 0755); err != nil {
-			t.Fatalf("Failed to create project directory: %v", err)
-		}
+	// Create test project
+	projectID := "cli-list-project"
+	projectDir := filepath.Join(tmpDir, projectID)
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatalf("Failed to create project directory: %v", err)
+	}
 
-		markdownFile := filepath.Join(projectDir, "chat.md")
-		if err := ioutil.WriteFile(markdownFile, []byte(""), 0644); err != nil {
-			t.Fatalf("Failed to create markdown file: %v", err)
-		}
+	markdownFile := filepath.Join(projectDir, "chat.md")
+	if err := ioutil.WriteFile(markdownFile, []byte(""), 0644); err != nil {
+		t.Fatalf("Failed to create markdown file: %v", err)
 	}
 
 	// Start daemon in background
@@ -108,39 +99,34 @@ func TestCLIProjectList(t *testing.T) {
 	// Wait for daemon to start
 	time.Sleep(2 * time.Second)
 
-	// Set daemon URL for CLI
-	os.Setenv("STORM_DAEMON_URL", fmt.Sprintf("http://localhost:%d", daemonPort))
+	daemonURL := fmt.Sprintf("http://localhost:%d", daemonPort)
 
-	// Add projects via API first
-	projectID1 := "cli-list-project-1"
-	projectDir1 := filepath.Join(tmpDir, projectID1)
-	markdownFile1 := filepath.Join(projectDir1, "chat.md")
-
-	rootCmd := createTestRootCmd()
-	var outBuf bytes.Buffer
-	rootCmd.SetOut(&outBuf)
-	rootCmd.SetArgs([]string{"project", "add", projectID1, projectDir1, markdownFile1})
-	if err := rootCmd.Execute(); err != nil {
+	// Add project via CLI
+	cmd := exec.Command("go", "run", ".", "project", "add", projectID, projectDir, markdownFile)
+	cmd.Env = append(os.Environ(), fmt.Sprintf("STORM_DAEMON_URL=%s", daemonURL))
+	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to add test project: %v", err)
 	}
 
-	// Now test list command
-	outBuf.Reset()
-	rootCmd = createTestRootCmd()
-	rootCmd.SetOut(&outBuf)
-	rootCmd.SetArgs([]string{"project", "list"})
+	// List projects via CLI
+	cmd = exec.Command("go", "run", ".", "project", "list")
+	cmd.Env = append(os.Environ(), fmt.Sprintf("STORM_DAEMON_URL=%s", daemonURL))
 
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("project list command failed: %v", err)
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("project list command failed: %v, stderr: %s", err, errBuf.String())
 	}
 
 	output := outBuf.String()
-	if !bytes.Contains(outBuf.Bytes(), []byte(projectID1)) {
+	if !bytes.Contains([]byte(output), []byte(projectID)) {
 		t.Errorf("Expected project ID in list output, got: %s", output)
 	}
 }
 
-// TestCLIFileAdd tests the file add subcommand
+// TestCLIFileAdd tests the file add subcommand via shell execution
 func TestCLIFileAdd(t *testing.T) {
 	// Create temporary project directory
 	tmpDir, err := ioutil.TempDir("", "storm-cli-test-files-")
@@ -177,26 +163,25 @@ func TestCLIFileAdd(t *testing.T) {
 	// Wait for daemon to start
 	time.Sleep(2 * time.Second)
 
-	// Set daemon URL for CLI
-	os.Setenv("STORM_DAEMON_URL", fmt.Sprintf("http://localhost:%d", daemonPort))
+	daemonURL := fmt.Sprintf("http://localhost:%d", daemonPort)
 
-	// Add project via API first
-	rootCmd := createTestRootCmd()
-	var outBuf bytes.Buffer
-	rootCmd.SetOut(&outBuf)
-	rootCmd.SetArgs([]string{"project", "add", projectID, projectDir, markdownFile})
-	if err := rootCmd.Execute(); err != nil {
+	// Add project via CLI
+	cmd := exec.Command("go", "run", ".", "project", "add", projectID, projectDir, markdownFile)
+	cmd.Env = append(os.Environ(), fmt.Sprintf("STORM_DAEMON_URL=%s", daemonURL))
+	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to add test project: %v", err)
 	}
 
-	// Now test file add command
-	outBuf.Reset()
-	rootCmd = createTestRootCmd()
-	rootCmd.SetOut(&outBuf)
-	rootCmd.SetArgs([]string{"file", "add", "--project", projectID, inputFile})
+	// Add files via CLI
+	cmd = exec.Command("go", "run", ".", "file", "add", "--project", projectID, inputFile)
+	cmd.Env = append(os.Environ(), fmt.Sprintf("STORM_DAEMON_URL=%s", daemonURL))
 
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("file add command failed: %v", err)
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("file add command failed: %v, stderr: %s", err, errBuf.String())
 	}
 
 	output := outBuf.String()
@@ -205,7 +190,7 @@ func TestCLIFileAdd(t *testing.T) {
 	}
 }
 
-// TestCLIFileList tests the file list subcommand
+// TestCLIFileList tests the file list subcommand via shell execution
 func TestCLIFileList(t *testing.T) {
 	// Create temporary project directory
 	tmpDir, err := ioutil.TempDir("", "storm-cli-test-filelist-")
@@ -242,35 +227,32 @@ func TestCLIFileList(t *testing.T) {
 	// Wait for daemon to start
 	time.Sleep(2 * time.Second)
 
-	// Set daemon URL for CLI
-	os.Setenv("STORM_DAEMON_URL", fmt.Sprintf("http://localhost:%d", daemonPort))
+	daemonURL := fmt.Sprintf("http://localhost:%d", daemonPort)
 
-	// Add project via API
-	rootCmd := createTestRootCmd()
-	var outBuf bytes.Buffer
-	rootCmd.SetOut(&outBuf)
-	rootCmd.SetArgs([]string{"project", "add", projectID, projectDir, markdownFile})
-	if err := rootCmd.Execute(); err != nil {
+	// Add project via CLI
+	cmd := exec.Command("go", "run", ".", "project", "add", projectID, projectDir, markdownFile)
+	cmd.Env = append(os.Environ(), fmt.Sprintf("STORM_DAEMON_URL=%s", daemonURL))
+	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to add test project: %v", err)
 	}
 
-	// Add files via API
-	outBuf.Reset()
-	rootCmd = createTestRootCmd()
-	rootCmd.SetOut(&outBuf)
-	rootCmd.SetArgs([]string{"file", "add", "--project", projectID, inputFile})
-	if err := rootCmd.Execute(); err != nil {
+	// Add files via CLI
+	cmd = exec.Command("go", "run", ".", "file", "add", "--project", projectID, inputFile)
+	cmd.Env = append(os.Environ(), fmt.Sprintf("STORM_DAEMON_URL=%s", daemonURL))
+	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to add test files: %v", err)
 	}
 
-	// Test file list command
-	outBuf.Reset()
-	rootCmd = createTestRootCmd()
-	rootCmd.SetOut(&outBuf)
-	rootCmd.SetArgs([]string{"file", "list", "--project", projectID})
+	// List files via CLI
+	cmd = exec.Command("go", "run", ".", "file", "list", "--project", projectID)
+	cmd.Env = append(os.Environ(), fmt.Sprintf("STORM_DAEMON_URL=%s", daemonURL))
 
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("file list command failed: %v", err)
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("file list command failed: %v, stderr: %s", err, errBuf.String())
 	}
 
 	output := outBuf.String()
@@ -281,44 +263,36 @@ func TestCLIFileList(t *testing.T) {
 
 // TestCLIFileAddMissingProjectFlag tests that file add fails without --project flag
 func TestCLIFileAddMissingProjectFlag(t *testing.T) {
-	rootCmd := createTestRootCmd()
-	var outBuf bytes.Buffer
-	var errBuf bytes.Buffer
-	rootCmd.SetOut(&outBuf)
-	rootCmd.SetErr(&errBuf)
-	rootCmd.SetArgs([]string{"file", "add", "somefile.txt"})
+	cmd := exec.Command("go", "run", ".", "file", "add", "somefile.txt")
 
-	err := rootCmd.Execute()
+	var errBuf bytes.Buffer
+	cmd.Stderr = &errBuf
+
+	err := cmd.Run()
 	if err == nil {
 		t.Errorf("Expected error for missing --project flag, but command succeeded")
+	}
+
+	errOutput := errBuf.String()
+	if len(errOutput) == 0 {
+		t.Logf("Command exited with error code but no stderr output")
 	}
 }
 
 // TestCLIFileListMissingProjectFlag tests that file list fails without --project flag
 func TestCLIFileListMissingProjectFlag(t *testing.T) {
-	rootCmd := createTestRootCmd()
-	var outBuf bytes.Buffer
-	var errBuf bytes.Buffer
-	rootCmd.SetOut(&outBuf)
-	rootCmd.SetErr(&errBuf)
-	rootCmd.SetArgs([]string{"file", "list"})
+	cmd := exec.Command("go", "run", ".", "file", "list")
 
-	err := rootCmd.Execute()
+	var errBuf bytes.Buffer
+	cmd.Stderr = &errBuf
+
+	err := cmd.Run()
 	if err == nil {
 		t.Errorf("Expected error for missing --project flag, but command succeeded")
 	}
-}
 
-// createTestRootCmd creates a fresh root command for testing
-// This duplicates the command creation from main() to allow clean test isolation
-func createTestRootCmd() *cobra.Command {
-	// This would need to be extracted as a function in main.go
-	// For now, we'll need to refactor main() to support this
-	// Placeholder - in real implementation, call the function that creates rootCmd
-	rootCmd := &cobra.Command{
-		Use:   "storm",
-		Short: "Storm - Multi-project LLM chat application",
+	errOutput := errBuf.String()
+	if len(errOutput) == 0 {
+		t.Logf("Command exited with error code but no stderr output")
 	}
-	return rootCmd
 }
-
