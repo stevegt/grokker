@@ -14004,3 +14004,68 @@ The endpoint is already fully implemented in the code provided. I can confirm th
 
 ---
 
+
+
+**implement the CLI file list subcommand**
+
+
+
+
+# Implement CLI File List Subcommand
+
+Add a `file list` subcommand that retrieves and displays authorized files for a project via the HTTP API endpoint[1]. The command accepts `--project` flag, queries `GET /api/projects/{projectID}/files`, and formats the response as a readable list. This mirrors the structure of the existing `file add` subcommand but retrieves instead of modifying file lists[2].
+
+
+## References
+
+- [1] [https://go.dev/doc/tutorial/handle-errors](https://go.dev/doc/tutorial/handle-errors)
+- [2] [https://news.ycombinator.com/item?id=43373024](https://news.ycombinator.com/item?id=43373024)
+- [3] [https://rollbar.com/blog/golang-wrap-and-unwrap-error/](https://rollbar.com/blog/golang-wrap-and-unwrap-error/)
+- [4] [https://www.datadoghq.com/blog/go-error-handling/](https://www.datadoghq.com/blog/go-error-handling/)
+- [5] [https://gobyexample.com/multiple-return-values](https://gobyexample.com/multiple-return-values)
+- [6] [https://go.dev/blog/go1.13-errors](https://go.dev/blog/go1.13-errors)
+
+
+
+## Reasoning
+
+The user is asking me to "implement the CLI file list subcommand" for the Storm application.
+
+Let me carefully read the instructions at the very top:
+1. I'm a researcher
+2. I should answer the query - which is: "implement the CLI file list subcommand"
+3. My response must limit discussion to 500 tokens (about 142 words)
+4. Output files are not counted against this limit
+5. Always start with a markdown heading
+6. Enclose reference numbers in square brackets
+7. Don't include empty square brackets
+8. Don't include a References section at the end
+9. Try not to rearrange files
+10. If writing Go code, don't skip indices on arrays/slices
+11. Provide complete files only, not fragments
+12. Match the regex format with file markers
+
+The query is: "implement the CLI file list subcommand"
+
+Looking at the current code in main.go, I can see there's already:
+- A `fileCmd` command group
+- A `fileAddCmd` subcommand for adding files
+- But NO `fileListCmd` subcommand for listing files
+
+I need to add a `fileListCmd` that:
+1. Takes a `--project` flag (projectID)
+2. Makes an HTTP GET request to `/api/projects/{projectID}/files`
+3. Displays the list of authorized files for that project
+
+The endpoint already exists in the code (getProjectFilesHandler), so I just need to add the CLI command.
+
+Looking at the structure of fileAddCmd, I should create a similar fileListCmd that:
+1. Gets the projectID from the flag
+2. Makes a GET request to the API endpoint
+3. Displays the results
+
+Let me write the fileListCmd and add it to the fileCmd command group.
+
+
+---
+

@@ -589,7 +589,56 @@ func main() {
 	}
 
 	fileAddCmd.Flags().StringVar(&projectID, "project", "", "Project ID (required)")
-	fileCmd.AddCommand(fileAddCmd)
+
+	fileListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List files in a project",
+		Long:  `List all authorized files for a project.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if projectID == "" {
+				return fmt.Errorf("--project flag is required")
+			}
+
+			url := fmt.Sprintf("%s/api/projects/%s/files", daemonURL, projectID)
+			resp, err := http.Get(url)
+			if err != nil {
+				return fmt.Errorf("failed to connect to daemon at %s: %w", daemonURL, err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+				body, _ := ioutil.ReadAll(resp.Body)
+				return fmt.Errorf("daemon returned status %d: %s", resp.StatusCode, string(body))
+			}
+
+			// Handle 204 No Content (empty file list)
+			if resp.StatusCode == http.StatusNoContent {
+				fmt.Printf("No files authorized for project %s\n", projectID)
+				return nil
+			}
+
+			var result map[string]interface{}
+			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+				return fmt.Errorf("failed to decode response: %w", err)
+			}
+
+			fmt.Printf("Authorized files for project %s:\n", projectID)
+			if files, ok := result["files"].([]interface{}); ok {
+				if len(files) == 0 {
+					fmt.Println("  (no files)")
+				} else {
+					for _, f := range files {
+						fmt.Printf("  - %s\n", f)
+					}
+				}
+			}
+			return nil
+		},
+	}
+
+	fileListCmd.Flags().StringVar(&projectID, "project", "", "Project ID (required)")
+
+	fileCmd.AddCommand(fileAddCmd, fileListCmd)
 	rootCmd.AddCommand(fileCmd)
 
 	// Token command
