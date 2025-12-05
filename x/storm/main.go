@@ -1097,7 +1097,7 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 	// repeat until we get a valid response that fits within tokenLimit
 	var cookedResponse string
 	var msgs []client.ChatMsg
-	for {
+	for i := 0; i < 5; i++ {
 
 		msgs = []client.ChatMsg{
 			{Role: "USER", Content: prompt},

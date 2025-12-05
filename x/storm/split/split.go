@@ -102,7 +102,7 @@ func Parse(r io.Reader) ([]RoundTrip, error) {
 		// Find Response
 		// If a "## References" marker exists, we define the response as the part from the end of the query
 		// up to the marker.
-		if idxRef != -1 {
+		if idxRef > 0 {
 			// Find end of first bold query (if any) and then slice to
 			// get the response.
 			qEndIdx := 0

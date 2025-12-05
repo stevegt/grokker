@@ -21731,3 +21731,63 @@ This is straightforward - I need to provide a curl command that will test the `/
 
 ---
 
+
+
+**Write cli_test.go to test CLI commands.  Write api_test.go to test API endpoints.**
+
+
+
+
+## References
+
+- [1] [https://huma.rocks/features/request-inputs/](https://huma.rocks/features/request-inputs/)
+- [2] [https://huma.rocks/features/request-validation/](https://huma.rocks/features/request-validation/)
+- [3] [https://pkg.go.dev/github.com/danielgtaylor/huma](https://pkg.go.dev/github.com/danielgtaylor/huma)
+- [4] [https://github.com/danielgtaylor/huma/issues/285](https://github.com/danielgtaylor/huma/issues/285)
+- [5] [https://github.com/danielgtaylor/huma/releases](https://github.com/danielgtaylor/huma/releases)
+- [6] [https://www.alexedwards.net/blog/how-to-properly-parse-a-json-request-body](https://www.alexedwards.net/blog/how-to-properly-parse-a-json-request-body)
+- [7] [https://huma.rocks/features/schema-customization/](https://huma.rocks/features/schema-customization/)
+- [8] [https://github.com/danielgtaylor/huma/issues/567](https://github.com/danielgtaylor/huma/issues/567)
+- [9] [https://huma.rocks/tutorial/your-first-api/](https://huma.rocks/tutorial/your-first-api/)
+- [10] [https://huma.rocks/features/response-outputs/](https://huma.rocks/features/response-outputs/)
+- [11] [https://github.com/danielgtaylor/huma/issues/289](https://github.com/danielgtaylor/huma/issues/289)
+- [12] [https://github.com/danielgtaylor/huma/issues/224](https://github.com/danielgtaylor/huma/issues/224)
+
+
+
+## Reasoning
+
+The user is asking me to:
+1. Write `cli_test.go` to test CLI commands
+2. Write `api_test.go` to test API endpoints
+
+Looking at the main.go file provided, I can see:
+- CLI commands: serve, project add, project list, file add, issue-token
+- API endpoints: POST /api/projects, GET /api/projects, POST /api/projects/{projectID}/files
+- WebSocket handlers and other functionality
+
+I need to create comprehensive test files for:
+
+**api_test.go** should test:
+- `postProjectsHandler` - POST /api/projects
+- `getProjectsHandler` - GET /api/projects  
+- `postProjectFilesHandler` - POST /api/projects/{projectID}/files
+- Response structures with Body wrapping
+
+**cli_test.go** should test:
+- `projectAddCmd` - project add command
+- `projectListCmd` - project list command
+- `fileAddCmd` - file add command
+- HTTP request/response handling
+
+Key considerations:
+- The user wants complete files only
+- Need to match the regex pattern with proper file markers
+- Need to test the Body wrapper structure in responses
+- Need to mock HTTP requests where appropriate
+
+Let me write proper test files:
+
+
+---
+
