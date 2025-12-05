@@ -106,6 +106,18 @@ type FileAddResponse struct {
 	} `doc:"Result of file additions"`
 }
 
+// FileListInput for retrieving files from a project
+type FileListInput struct {
+	ProjectID string `path:"projectID" doc:"Project identifier" required:"true"`
+}
+
+type FileListResponse struct {
+	Body struct {
+		ProjectID string   `json:"projectID" doc:"Project identifier"`
+		Files     []string `json:"files" doc:"List of authorized files"`
+	} `doc:"Files list"`
+}
+
 // Empty input type for endpoints that don't require input
 type EmptyInput struct{}
 
@@ -667,6 +679,22 @@ func postProjectFilesHandler(ctx context.Context, input *FileAddInput) (*FileAdd
 	return res, nil
 }
 
+// getProjectFilesHandler handles GET /api/projects/{projectID}/files - list files for project
+func getProjectFilesHandler(ctx context.Context, input *FileListInput) (*FileListResponse, error) {
+	projectID := input.ProjectID
+
+	project, exists := projects.Get(projectID)
+	if !exists {
+		return nil, huma.Error404NotFound("Project not found")
+	}
+
+	res := &FileListResponse{}
+	res.Body.ProjectID = projectID
+	res.Body.Files = project.GetFiles()
+
+	return res, nil
+}
+
 // serveRun implements the serve command
 func serveRun(port int) error {
 	var err error
@@ -695,6 +723,7 @@ func serveRun(port int) error {
 	huma.Post(api, "/api/projects", postProjectsHandler)
 	huma.Get(api, "/api/projects", getProjectsHandler)
 	huma.Post(api, "/api/projects/{projectID}/files", postProjectFilesHandler)
+	huma.Get(api, "/api/projects/{projectID}/files", getProjectFilesHandler)
 
 	// Project-specific routes (non-Huma for now, using chi directly)
 	projectRouter := chiRouter.Route("/project/{projectID}", func(r chi.Router) {
