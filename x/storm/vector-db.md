@@ -19,11 +19,11 @@ Storm needs to support semantic search over markdown discussion files using embe
 - **Lifecycle**: Rebuilt on daemon startup from persisted embeddings
 
 ### 3. Persistence Layer (BoltDB)
-- **Role**: Embedded key-value store for metadata, embeddings, and chunks
+- **Role**: Embedded key-value store for metadata, embeddings, and file references
 - **Data Buckets**:
   - `projects/`: Project metadata (ID, baseDir, markdownFile, authorizedFiles)
   - `embeddings/{projectID}`: Raw embedding vectors with metadata
-  - `chunks/{projectID}`: Markdown text chunks corresponding to embeddings
+  - `fileReferences/{projectID}`: File location and offset data for chunk retrieval
   - `hnsw_metadata/`: Versioning and index rebuild timestamps
   - `config/`: Storm daemon configuration settings
 - **ACID Guarantees**: Transaction support prevents corruption
@@ -50,6 +50,13 @@ Storm needs to support semantic search over markdown discussion files using embe
 - **Simplicity**: Avoids versioning and compatibility issues across daemon updates
 - **Memory Efficiency**: In-memory index only loaded during daemon lifetime
 
+### Why Store File References Instead of Text?
+
+- **Storage Efficiency**: Eliminates text duplication; markdown file is authoritative source
+- **Cache Validity**: File timestamp allows invalidating stale embeddings when files change
+- **Content Verification**: CID hash enables integrity checking and deduplication
+- **Precise Retrieval**: Offset and length allow exact chunk extraction from file
+
 ## Implementation Strategy
 
 ### Phase 1: Basic Setup
@@ -67,10 +74,11 @@ On startup:
 When processing chat round:
 1. Extract markdown chunks from output files
 2. Call Ollama to generate embeddings for new chunks
-3. Store in BoltDB:
+3. Compute CID hash of chunk content
+4. Store in BoltDB:
    - embeddings/{projectID}: { chunkID → vector_bytes }
-   - chunks/{projectID}: { chunkID → { text, timestamp, queryID } }
-4. Add embeddings to in-memory HNSW index
+   - fileReferences/{projectID}: { chunkID → { filepath, timestamp, offset, length, cidHash } }
+5. Add embeddings to in-memory HNSW index
 ```
 
 ### Phase 3: Semantic Search
@@ -78,8 +86,10 @@ When processing chat round:
 When querying with semantic context:
 1. Generate embedding for query via Ollama
 2. Search HNSW index for k nearest neighbors
-3. Retrieve corresponding chunks from BoltDB
-4. Return ranked results with content
+3. Retrieve file references from fileReferences/{projectID}
+4. Read chunk text from markdown file at specified offset/length
+5. Verify CID hash matches (detect file changes)
+6. Return ranked results with content
 ```
 
 ## Bucket Schema (BoltDB)
@@ -105,23 +115,31 @@ Value: {
   "metadata": {
     "roundID": "round-5",
     "queryID": "query-abc123",
-    "timestamp": "2025-12-06T03:15:00Z",
-    "textLength": 512
+    "timestamp": "2025-12-06T03:15:00Z"
   }
 }
 ```
 
-### chunks/{projectID} bucket
+### fileReferences/{projectID} bucket
 ```json
 Key: chunkID
 Value: {
-  "text": "This is the markdown chunk...",
-  "startLine": 42,
-  "endLine": 48,
+  "filepath": "/path/to/project/chat.md",
+  "fileTimestamp": "2025-12-06T03:15:00Z",
+  "offset": 4096,
+  "length": 512,
+  "cidHash": "QmXxxx...",
   "queryID": "query-abc123",
   "roundID": "round-5"
 }
 ```
+
+**On Retrieval**:
+1. Look up fileReferences[chunkID] to get filepath, offset, length
+2. Read file at specified offset for length bytes
+3. Compute CID of read content, verify against stored cidHash
+4. Return text if hash matches (file unchanged)
+5. If hash mismatch: file was modified, mark embedding stale for re-indexing
 
 ### hnsw_metadata/ bucket
 ```json
@@ -229,8 +247,8 @@ func LoadProjectRegistry(db *bolt.DB) (map[string]*Project, error) {
 
 1. **Current State**: In-memory project registry, no embeddings
 2. **Phase 1** (Week 1): Add BoltDB persistence for projects, load on startup
-3. **Phase 2** (Week 2): Implement Ollama embedding generation and BoltDB storage
-4. **Phase 3** (Week 3): Integrate fogfish/hnsw for semantic search over persisted embeddings
+3. **Phase 2** (Week 2): Implement Ollama embedding generation and file reference storage
+4. **Phase 3** (Week 3): Integrate fogfish/hnsw for semantic search over file-referenced embeddings
 5. **Future** (if needed): Add graph database only if relationships become complex
 
 ## Performance Expectations
@@ -238,13 +256,16 @@ func LoadProjectRegistry(db *bolt.DB) (map[string]*Project, error) {
 - **Startup**: Loading 1000 projects + 100k embeddings ≈ 2-5 seconds
 - **Semantic Search**: HNSW query against 100k embeddings ≈ 5-20ms (ef parameter tuned)
 - **Embedding Generation**: Ollama for 512-token chunk ≈ 50-100ms per chunk
+- **File Retrieval**: Read chunk from file at offset/length ≈ <1ms (OS page cache)
 - **Database Operations**: BoltDB get/put ≈ <1ms (in-memory mmap overhead minimal)
 
 ## Security Considerations
 
 - **BoltDB Files**: Store at `~/.storm/data.db`, restrict file permissions (0600)
+- **Markdown Files**: Ensure appropriate read permissions; cache permissions checked at access time
 - **Embeddings**: Do not expose raw embeddings in API responses; only return semantic similarity scores
-- **Project Isolation**: Embeddings scoped by projectID; cross-project queries not possible
+- **Project Isolation**: Embeddings and file references scoped by projectID; cross-project queries not possible
+- **Content Verification**: CID hashes detect tampering or accidental file modifications
 
 ## Recommended Configuration
 
@@ -258,3 +279,4 @@ efSearch := 100          // ef during search
 FreelistType := "array" // faster than map for typical usage
 PageSize := 4096        // default, suitable for embeddings
 ```
+

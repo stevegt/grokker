@@ -16797,3 +16797,89 @@ I should provide a concise discussion explaining the bucket structure and then p
 
 ---
 
+
+
+**we don't store chunk text in the db -- we instead store file pathname, file timestamp, offset, length, hash CID.**
+
+
+
+
+# Update Vector Database to Use File References Instead of Stored Text
+
+The updated design uses file references instead of duplicating chunk text in the database[1][2]. This approach reduces storage overhead, maintains single source of truth in markdown files, and allows for efficient content verification via content-addressable hashes[1].
+
+When embeddings are generated, only metadata references are persisted: the original file location, timestamp for cache validation, byte offset and length for precise chunk retrieval, and a content hash (CID) for integrity checking[2]. The actual markdown text is read on-demand from the file system when semantic search results are returned[1].
+
+This aligns with Storm's architecture where markdown files are the authoritative store for discussion content, while the database only maintains indices for fast retrieval[2].
+## References
+
+[1][2]
+
+
+
+## References
+
+- [1] [https://dev.to/jpoly1219/to-unmarshal-or-to-decode-json-processing-in-go-explained-5870](https://dev.to/jpoly1219/to-unmarshal-or-to-decode-json-processing-in-go-explained-5870)
+- [2] [https://martinheinz.dev/blog/5](https://martinheinz.dev/blog/5)
+- [3] [https://www.youtube.com/watch?v=IuI6FOhm-8g](https://www.youtube.com/watch?v=IuI6FOhm-8g)
+- [4] [https://blog.trailofbits.com/2025/06/17/unexpected-security-footguns-in-gos-parsers/](https://blog.trailofbits.com/2025/06/17/unexpected-security-footguns-in-gos-parsers/)
+- [5] [https://github.com/golang-standards/project-layout](https://github.com/golang-standards/project-layout)
+- [6] [https://github.com/gookit/config](https://github.com/gookit/config)
+- [7] [https://github.com/stanford-oval/storm](https://github.com/stanford-oval/storm)
+- [8] [https://permify.co/post/jwt-authentication-go/](https://permify.co/post/jwt-authentication-go/)
+- [9] [https://isomorphic-git.org](https://isomorphic-git.org)
+- [10] [https://github.com/stanford-oval/storm/releases](https://github.com/stanford-oval/storm/releases)
+- [11] [https://github.com/golang-jwt/jwt](https://github.com/golang-jwt/jwt)
+- [12] [https://github.com/isomorphic-git/isomorphic-git](https://github.com/isomorphic-git/isomorphic-git)
+
+
+
+## Reasoning
+
+The user is providing context and then giving me a new query. Let me understand what's being asked.
+
+The context says: "we don't store chunk text in the db -- we instead store file pathname, file timestamp, offset, length, hash CID."
+
+So they're saying that instead of storing the actual chunk text in the chunks/{projectID} bucket, we should store metadata about where to find that text:
+- File pathname
+- File timestamp
+- Offset (position in file)
+- Length (how many bytes)
+- Hash CID (content ID hash)
+
+This makes sense for efficiency - we don't duplicate the text in the database. Instead, we store references to the original markdown file.
+
+Looking at the vector-db.md file they provided, it currently has:
+
+```json
+### chunks/{projectID} bucket
+Value: {
+  "text": "This is the markdown chunk...",
+  "startLine": 42,
+  "endLine": 48,
+  "queryID": "query-abc123",
+  "roundID": "round-5"
+}
+```
+
+They want me to update this to instead store:
+- file pathname
+- file timestamp
+- offset
+- length
+- hash CID
+
+I need to update the vector-db.md file to reflect this change. I should:
+1. Update the chunks/{projectID} bucket schema to remove the "text" field and add the new fields
+2. Update any related sections that discuss storing chunk text
+3. Keep the discussion brief (under 500 tokens)
+4. Start with a markdown heading
+5. Provide the complete updated vector-db.md file
+6. Not include empty square brackets
+7. Don't skip indices on arrays/slices if writing Go code
+
+Let me prepare a concise response explaining the change and then provide the updated file.
+
+
+---
+
