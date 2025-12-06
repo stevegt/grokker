@@ -382,6 +382,76 @@ func (c *Chat) getHistory(lock bool) string {
 	return result
 }
 
+// CLI Helper Functions
+
+// getDaemonURL retrieves the daemon URL from environment or returns default
+// TODO use a config file, PID file, or flag -- maybe use viper
+// TODO allow for multiple storm daemons on different ports, add an 'ls' command to show running daemons and their pids/ports.  registry should support multiple daemons.
+func getDaemonURL() string {
+	daemonURL := os.Getenv("STORM_DAEMON_URL")
+	if daemonURL == "" {
+		daemonURL = "http://localhost:8080"
+	}
+	return daemonURL
+}
+
+// makeRequest makes an HTTP request with consistent error handling
+func makeRequest(method, endpoint string, payload interface{}) (*http.Response, error) {
+	daemonURL := getDaemonURL()
+	url := daemonURL + endpoint
+
+	var req *http.Request
+	var err error
+
+	if payload != nil {
+		jsonData, err := json.Marshal(payload)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request: %w", err)
+		}
+		req, err = http.NewRequest(method, url, bytes.NewReader(jsonData))
+	} else {
+		req, err = http.NewRequest(method, url, nil)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to daemon at %s: %w", daemonURL, err)
+	}
+
+	return resp, nil
+}
+
+// decodeJSON decodes a JSON response with error handling
+func decodeJSON(resp *http.Response, v interface{}) error {
+	return json.NewDecoder(resp.Body).Decode(v)
+}
+
+// validateRequiredFlag validates that a required flag has been set
+func validateRequiredFlag(flagValue, flagName string) error {
+	if flagValue == "" {
+		return fmt.Errorf("--%s flag is required", flagName)
+	}
+	return nil
+}
+
+// checkStatusCode validates HTTP response status code
+func checkStatusCode(resp *http.Response, acceptedCodes ...int) error {
+	for _, code := range acceptedCodes {
+		if resp.StatusCode == code {
+			return nil
+		}
+	}
+	body, _ := ioutil.ReadAll(resp.Body)
+	return fmt.Errorf("daemon returned status %d: %s", resp.StatusCode, string(body))
+}
+
 func main() {
 	fmt.Println("storm v0.0.76")
 
@@ -389,14 +459,6 @@ func main() {
 		Use:   "storm",
 		Short: "Storm - Multi-project LLM chat application",
 		Long:  `Storm is a single-daemon, single-port multi-project chat application for interacting with LLMs and local files.`,
-	}
-
-	// Get daemon URL from environment or use default
-	// TODO use a config file, PID file, or flag -- maybe use viper
-	// TODO allow for multiple storm daemons on different ports, add an 'ls' command to show running daemons and their pids/ports.  registry should support multiple daemons.
-	daemonURL := os.Getenv("STORM_DAEMON_URL")
-	if daemonURL == "" {
-		daemonURL = "http://localhost:8080"
 	}
 
 	// Serve command
@@ -427,38 +489,31 @@ func main() {
 		Long:  `Add a new project to the registry via HTTP API.`,
 		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			projectID := args[0]
+			projectID := args
 			baseDir := args[1]
 			markdownFile := args[2]
 
 			// TODO ensure baseDir exists
 			// TODO cannonicalize baseDir and markdownFile to absolute paths
 			// TODO add a `mv` subcommand?
-
-			// Make HTTP POST request to daemon
 			payload := map[string]string{
 				"projectID":    projectID,
 				"baseDir":      baseDir,
 				"markdownFile": markdownFile,
 			}
-			jsonData, err := json.Marshal(payload)
-			if err != nil {
-				return fmt.Errorf("failed to marshal request: %w", err)
-			}
 
-			resp, err := http.Post(daemonURL+"/api/projects", "application/json", bytes.NewReader(jsonData))
+			resp, err := makeRequest("POST", "/api/projects", payload)
 			if err != nil {
-				return fmt.Errorf("failed to connect to daemon at %s: %w", daemonURL, err)
+				return err
 			}
 			defer resp.Body.Close()
 
-			if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-				body, _ := ioutil.ReadAll(resp.Body)
-				return fmt.Errorf("daemon returned status %d: %s", resp.StatusCode, string(body))
+			if err := checkStatusCode(resp, http.StatusOK, http.StatusCreated); err != nil {
+				return err
 			}
 
 			var result map[string]interface{}
-			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			if err := decodeJSON(resp, &result); err != nil {
 				return fmt.Errorf("failed to decode response: %w", err)
 			}
 
@@ -477,33 +532,23 @@ func main() {
 		Short: "List all projects",
 		Long:  `List all registered projects via HTTP API.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Get daemon URL from environment or use default
-			daemonURL := os.Getenv("STORM_DAEMON_URL")
-			if daemonURL == "" {
-				daemonURL = "http://localhost:8080"
-			}
-
-			// Make HTTP GET request to daemon
-			resp, err := http.Get(daemonURL + "/api/projects")
+			resp, err := makeRequest("GET", "/api/projects", nil)
 			if err != nil {
-				return fmt.Errorf("failed to connect to daemon at %s: %w", daemonURL, err)
+				return err
 			}
 			defer resp.Body.Close()
 
-			// Accept both 200 and 204 as valid responses
-			if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-				body, _ := ioutil.ReadAll(resp.Body)
-				return fmt.Errorf("daemon returned status %d: %s", resp.StatusCode, string(body))
+			if err := checkStatusCode(resp, http.StatusOK, http.StatusNoContent); err != nil {
+				return err
 			}
 
-			// Handle 204 No Content (empty project list)
 			if resp.StatusCode == http.StatusNoContent {
 				fmt.Println("No projects registered")
 				return nil
 			}
 
 			var projectList ProjectList
-			if err := json.NewDecoder(resp.Body).Decode(&projectList); err != nil {
+			if err := decodeJSON(resp, &projectList); err != nil {
 				return fmt.Errorf("failed to decode response: %w", err)
 			}
 
@@ -530,8 +575,7 @@ func main() {
 		Long:  `Manage files associated with projects.`,
 	}
 
-	// TODO default projectID to current repo -- would need
-	// .storm file or directory in repo top
+	// TODO default projectID to current repo -- would need .storm file or directory in repo top
 	var projectID string
 
 	fileAddCmd := &cobra.Command{
@@ -540,33 +584,27 @@ func main() {
 		Long:  `Add one or more authorized files to a project.`,
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if projectID == "" {
-				return fmt.Errorf("--project flag is required")
+			if err := validateRequiredFlag(projectID, "project"); err != nil {
+				return err
 			}
 
-			// Make HTTP POST request to daemon
 			payload := map[string]interface{}{
 				"filenames": args,
 			}
-			jsonData, err := json.Marshal(payload)
-			if err != nil {
-				return fmt.Errorf("failed to marshal request: %w", err)
-			}
 
-			url := fmt.Sprintf("%s/api/projects/%s/files", daemonURL, projectID)
-			resp, err := http.Post(url, "application/json", bytes.NewReader(jsonData))
+			endpoint := fmt.Sprintf("/api/projects/%s/files", projectID)
+			resp, err := makeRequest("POST", endpoint, payload)
 			if err != nil {
-				return fmt.Errorf("failed to connect to daemon at %s: %w", daemonURL, err)
+				return err
 			}
 			defer resp.Body.Close()
 
-			if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-				body, _ := ioutil.ReadAll(resp.Body)
-				return fmt.Errorf("daemon returned status %d: %s", resp.StatusCode, string(body))
+			if err := checkStatusCode(resp, http.StatusOK, http.StatusCreated); err != nil {
+				return err
 			}
 
 			var result map[string]interface{}
-			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			if err := decodeJSON(resp, &result); err != nil {
 				return fmt.Errorf("failed to decode response: %w", err)
 			}
 
@@ -595,30 +633,28 @@ func main() {
 		Short: "List files in a project",
 		Long:  `List all authorized files for a project.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if projectID == "" {
-				return fmt.Errorf("--project flag is required")
+			if err := validateRequiredFlag(projectID, "project"); err != nil {
+				return err
 			}
 
-			url := fmt.Sprintf("%s/api/projects/%s/files", daemonURL, projectID)
-			resp, err := http.Get(url)
+			endpoint := fmt.Sprintf("/api/projects/%s/files", projectID)
+			resp, err := makeRequest("GET", endpoint, nil)
 			if err != nil {
-				return fmt.Errorf("failed to connect to daemon at %s: %w", daemonURL, err)
+				return err
 			}
 			defer resp.Body.Close()
 
-			if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-				body, _ := ioutil.ReadAll(resp.Body)
-				return fmt.Errorf("daemon returned status %d: %s", resp.StatusCode, string(body))
+			if err := checkStatusCode(resp, http.StatusOK, http.StatusNoContent); err != nil {
+				return err
 			}
 
-			// Handle 204 No Content (empty file list)
 			if resp.StatusCode == http.StatusNoContent {
 				fmt.Printf("No files authorized for project %s\n", projectID)
 				return nil
 			}
 
 			var result map[string]interface{}
-			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			if err := decodeJSON(resp, &result); err != nil {
 				return fmt.Errorf("failed to decode response: %w", err)
 			}
 
