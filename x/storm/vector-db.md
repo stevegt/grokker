@@ -25,6 +25,7 @@ Storm needs to support semantic search over markdown discussion files using embe
   - `embeddings/{projectID}`: Raw embedding vectors with metadata
   - `chunks/{projectID}`: Markdown text chunks corresponding to embeddings
   - `hnsw_metadata/`: Versioning and index rebuild timestamps
+  - `config/`: Storm daemon configuration settings
 - **ACID Guarantees**: Transaction support prevents corruption
 - **No C++ Dependencies**: Pure Go implementation
 
@@ -130,6 +131,23 @@ Value: {
   "embeddingCount": 256,
   "hnswVersion": "v1",
   "dataFormatVersion": "1.0"
+}
+```
+
+### config/ bucket
+```json
+Key: "config"
+Value: {
+  "port": 8080,
+  "embeddingModel": "nomic-embed-text",
+  "ollama": {
+    "endpoint": "http://localhost:11434"
+  },
+  "hnsw": {
+    "M": 16,
+    "efConstruction": 200,
+    "efSearch": 100
+  }
 }
 ```
 
