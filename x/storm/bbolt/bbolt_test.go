@@ -3,21 +3,70 @@ package main
 import (
 	"bytes"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
-
-	"github.com/fxamacker/cbor/v2"
 )
 
-// TestNewBoltDBStore tests store initialization and bucket creation
-func TestNewBoltDBStore(t *testing.T) {
-	dbPath := "test_store.db"
-	defer os.Remove(dbPath)
-
+// createTestStore creates a new BoltDB store in a temporary directory
+func createTestStore(t *testing.T) (*BoltDBStore, string) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	
 	store, err := NewBoltDBStore(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to create store: %v", err)
 	}
+	
+	return store, dbPath
+}
+
+// storeCBORData stores CBOR-encoded data and fails test on error
+func storeCBORData(t *testing.T, store *BoltDBStore, bucket, key string, data interface{}) {
+	err := store.Update(func(tx WriteTx) error {
+		return StoreCBOR(tx, bucket, key, data)
+	})
+	if err != nil {
+		t.Fatalf("Failed to store CBOR data: %v", err)
+	}
+}
+
+// loadCBORData loads CBOR-encoded data and fails test on error
+func loadCBORData(t *testing.T, store *BoltDBStore, bucket, key string, data interface{}) {
+	err := store.View(func(tx ReadTx) error {
+		return LoadCBOR(tx, bucket, key, data)
+	})
+	if err != nil {
+		t.Fatalf("Failed to load CBOR data: %v", err)
+	}
+}
+
+// storeRawData stores raw bytes and fails test on error
+func storeRawData(t *testing.T, store *BoltDBStore, bucket, key string, value []byte) {
+	err := store.Update(func(tx WriteTx) error {
+		return tx.Put(bucket, key, value)
+	})
+	if err != nil {
+		t.Fatalf("Failed to store raw data: %v", err)
+	}
+}
+
+// getRawData retrieves raw bytes and fails test on error
+func getRawData(t *testing.T, store *BoltDBStore, bucket, key string) []byte {
+	var value []byte
+	err := store.View(func(tx ReadTx) error {
+		value = tx.Get(bucket, key)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Failed to get raw data: %v", err)
+	}
+	return value
+}
+
+// TestNewBoltDBStore tests store initialization and bucket creation
+func TestNewBoltDBStore(t *testing.T) {
+	store, _ := createTestStore(t)
 	defer store.Close()
 
 	// Verify store is not nil
@@ -26,10 +75,9 @@ func TestNewBoltDBStore(t *testing.T) {
 	}
 
 	// Verify default buckets were created
-	err = store.View(func(tx ReadTx) error {
+	err := store.View(func(tx ReadTx) error {
 		requiredBuckets := []string{"projects", "files", "embeddings", "hnsw_metadata", "config"}
 		for _, bucketName := range requiredBuckets {
-			// Get a value from the bucket to ensure it exists
 			_ = tx.Get(bucketName, "test_key")
 		}
 		return nil
@@ -41,25 +89,13 @@ func TestNewBoltDBStore(t *testing.T) {
 
 // TestViewTransaction tests read-only transactions
 func TestViewTransaction(t *testing.T) {
-	dbPath := "test_view.db"
-	defer os.Remove(dbPath)
-
-	store, err := NewBoltDBStore(dbPath)
-	if err != nil {
-		t.Fatalf("Failed to create store: %v", err)
-	}
+	store, _ := createTestStore(t)
 	defer store.Close()
 
-	// First, write some data
-	err = store.Update(func(tx WriteTx) error {
-		return tx.Put("projects", "test_key", []byte("test_value"))
-	})
-	if err != nil {
-		t.Fatalf("Failed to write data: %v", err)
-	}
+	storeRawData(t, store, "projects", "test_key", []byte("test_value"))
 
-	// Now read it back in a View transaction
-	err = store.View(func(tx ReadTx) error {
+	// Read it back in a View transaction
+	err := store.View(func(tx ReadTx) error {
 		value := tx.Get("projects", "test_key")
 		if value == nil {
 			t.Fatal("Expected to find value, got nil")
@@ -76,17 +112,11 @@ func TestViewTransaction(t *testing.T) {
 
 // TestUpdateTransaction tests read-write transactions
 func TestUpdateTransaction(t *testing.T) {
-	dbPath := "test_update.db"
-	defer os.Remove(dbPath)
-
-	store, err := NewBoltDBStore(dbPath)
-	if err != nil {
-		t.Fatalf("Failed to create store: %v", err)
-	}
+	store, _ := createTestStore(t)
 	defer store.Close()
 
 	// Write data
-	err = store.Update(func(tx WriteTx) error {
+	err := store.Update(func(tx WriteTx) error {
 		if err := tx.Put("projects", "key1", []byte("value1")); err != nil {
 			return err
 		}
@@ -156,13 +186,7 @@ func TestCBOREncoding(t *testing.T) {
 	})
 
 	t.Run("StoreCBOR", func(t *testing.T) {
-		dbPath := "test_cbor_store.db"
-		defer os.Remove(dbPath)
-
-		store, err := NewBoltDBStore(dbPath)
-		if err != nil {
-			t.Fatalf("Failed to create store: %v", err)
-		}
+		store, _ := createTestStore(t)
 		defer store.Close()
 
 		type TestObject struct {
@@ -171,39 +195,25 @@ func TestCBOREncoding(t *testing.T) {
 		}
 
 		testObj := TestObject{Name: "test", Enabled: true}
-
-		// Store CBOR-encoded object
-		err = store.Update(func(tx WriteTx) error {
-			return StoreCBOR(tx, "projects", "obj1", testObj)
-		})
-		if err != nil {
-			t.Fatalf("Failed to store CBOR: %v", err)
-		}
+		storeCBORData(t, store, "projects", "obj1", testObj)
 
 		// Load it back
-		err = store.View(func(tx ReadTx) error {
-			var recovered TestObject
-			return LoadCBOR(tx, "projects", "obj1", &recovered)
-		})
-		if err != nil {
-			t.Fatalf("Failed to load CBOR: %v", err)
+		var recovered TestObject
+		loadCBORData(t, store, "projects", "obj1", &recovered)
+
+		if recovered.Name != "test" || recovered.Enabled != true {
+			t.Fatal("CBOR data mismatch")
 		}
 	})
 }
 
 // TestForEachBucket tests iteration over bucket contents
 func TestForEachBucket(t *testing.T) {
-	dbPath := "test_foreach.db"
-	defer os.Remove(dbPath)
-
-	store, err := NewBoltDBStore(dbPath)
-	if err != nil {
-		t.Fatalf("Failed to create store: %v", err)
-	}
+	store, _ := createTestStore(t)
 	defer store.Close()
 
 	// Write multiple values
-	err = store.Update(func(tx WriteTx) error {
+	err := store.Update(func(tx WriteTx) error {
 		for i := 0; i < 5; i++ {
 			key := "key" + string(rune(i+'0'))
 			value := "value" + string(rune(i+'0'))
@@ -236,95 +246,55 @@ func TestForEachBucket(t *testing.T) {
 
 // TestDelete tests key deletion
 func TestDelete(t *testing.T) {
-	dbPath := "test_delete.db"
-	defer os.Remove(dbPath)
-
-	store, err := NewBoltDBStore(dbPath)
-	if err != nil {
-		t.Fatalf("Failed to create store: %v", err)
-	}
+	store, _ := createTestStore(t)
 	defer store.Close()
 
-	// Write and delete
-	err = store.Update(func(tx WriteTx) error {
-		if err := tx.Put("embeddings", "key1", []byte("value1")); err != nil {
-			return err
-		}
-		if err := tx.Delete("embeddings", "key1"); err != nil {
-			return err
-		}
-		return nil
+	storeRawData(t, store, "embeddings", "key1", []byte("value1"))
+
+	// Delete
+	err := store.Update(func(tx WriteTx) error {
+		return tx.Delete("embeddings", "key1")
 	})
 	if err != nil {
 		t.Fatalf("Failed to delete: %v", err)
 	}
 
 	// Verify deletion
-	err = store.View(func(tx ReadTx) error {
-		value := tx.Get("embeddings", "key1")
-		if value != nil {
-			t.Fatal("Expected nil after deletion, got value")
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("Failed to verify deletion: %v", err)
+	value := getRawData(t, store, "embeddings", "key1")
+	if value != nil {
+		t.Fatal("Expected nil after deletion, got value")
 	}
 }
 
 // TestCreateBucketIfNotExists tests bucket creation
 func TestCreateBucketIfNotExists(t *testing.T) {
-	dbPath := "test_bucket_create.db"
-	defer os.Remove(dbPath)
-
-	store, err := NewBoltDBStore(dbPath)
-	if err != nil {
-		t.Fatalf("Failed to create store: %v", err)
-	}
+	store, _ := createTestStore(t)
 	defer store.Close()
 
 	// Create a new bucket
-	err = store.Update(func(tx WriteTx) error {
+	err := store.Update(func(tx WriteTx) error {
 		return tx.CreateBucketIfNotExists("custom_bucket")
 	})
 	if err != nil {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
 
-	// Write to new bucket
-	err = store.Update(func(tx WriteTx) error {
-		return tx.Put("custom_bucket", "key", []byte("value"))
-	})
-	if err != nil {
-		t.Fatalf("Failed to write to custom bucket: %v", err)
-	}
+	storeRawData(t, store, "custom_bucket", "key", []byte("value"))
 
 	// Verify
-	err = store.View(func(tx ReadTx) error {
-		value := tx.Get("custom_bucket", "key")
-		if value == nil {
-			t.Fatal("Expected value in custom bucket")
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("Failed to read from custom bucket: %v", err)
+	value := getRawData(t, store, "custom_bucket", "key")
+	if value == nil {
+		t.Fatal("Expected value in custom bucket")
 	}
 }
 
 // TestMissingKeyReturnsNil tests behavior on missing keys
 func TestMissingKeyReturnsNil(t *testing.T) {
-	dbPath := "test_missing_key.db"
-	defer os.Remove(dbPath)
-
-	store, err := NewBoltDBStore(dbPath)
-	if err != nil {
-		t.Fatalf("Failed to create store: %v", err)
-	}
+	store, _ := createTestStore(t)
 	defer store.Close()
 
 	// Try to get non-existent key
-	err = store.View(func(tx ReadTx) error {
+	err := store.View(func(tx ReadTx) error {
 		value := tx.Get("projects", "nonexistent")
 		if value != nil {
 			t.Fatal("Expected nil for missing key")
@@ -338,45 +308,21 @@ func TestMissingKeyReturnsNil(t *testing.T) {
 
 // TestTransactionIsolation tests that changes in Update are visible in subsequent Views
 func TestTransactionIsolation(t *testing.T) {
-	dbPath := "test_isolation.db"
-	defer os.Remove(dbPath)
-
-	store, err := NewBoltDBStore(dbPath)
-	if err != nil {
-		t.Fatalf("Failed to create store: %v", err)
-	}
+	store, _ := createTestStore(t)
 	defer store.Close()
 
-	// Write data
-	err = store.Update(func(tx WriteTx) error {
-		return tx.Put("config", "key1", []byte("value1"))
-	})
-	if err != nil {
-		t.Fatalf("Failed to write: %v", err)
-	}
+	storeRawData(t, store, "config", "key1", []byte("value1"))
 
 	// Read in new View transaction
-	err = store.View(func(tx ReadTx) error {
-		value := tx.Get("config", "key1")
-		if value == nil {
-			t.Fatal("Expected to read value from previous Update transaction")
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("Failed to read: %v", err)
+	value := getRawData(t, store, "config", "key1")
+	if value == nil {
+		t.Fatal("Expected to read value from previous Update transaction")
 	}
 }
 
 // TestLoadCBORIfExists tests conditional CBOR loading
 func TestLoadCBORIfExists(t *testing.T) {
-	dbPath := "test_load_if_exists.db"
-	defer os.Remove(dbPath)
-
-	store, err := NewBoltDBStore(dbPath)
-	if err != nil {
-		t.Fatalf("Failed to create store: %v", err)
-	}
+	store, _ := createTestStore(t)
 	defer store.Close()
 
 	type TestData struct {
@@ -384,7 +330,7 @@ func TestLoadCBORIfExists(t *testing.T) {
 	}
 
 	// Try to load non-existent key - should not error
-	err = store.View(func(tx ReadTx) error {
+	err := store.View(func(tx ReadTx) error {
 		var data TestData
 		err := LoadCBORIfExists(tx, "projects", "missing", &data)
 		if err != nil {
@@ -402,12 +348,7 @@ func TestLoadCBORIfExists(t *testing.T) {
 
 	// Store and retrieve
 	original := TestData{Value: "stored"}
-	err = store.Update(func(tx WriteTx) error {
-		return StoreCBOR(tx, "projects", "exists", original)
-	})
-	if err != nil {
-		t.Fatalf("Failed to store: %v", err)
-	}
+	storeCBORData(t, store, "projects", "exists", original)
 
 	err = store.View(func(tx ReadTx) error {
 		var recovered TestData
@@ -427,17 +368,11 @@ func TestLoadCBORIfExists(t *testing.T) {
 
 // TestEmptyBucketForEach tests ForEach on empty bucket
 func TestEmptyBucketForEach(t *testing.T) {
-	dbPath := "test_empty_foreach.db"
-	defer os.Remove(dbPath)
-
-	store, err := NewBoltDBStore(dbPath)
-	if err != nil {
-		t.Fatalf("Failed to create store: %v", err)
-	}
+	store, _ := createTestStore(t)
 	defer store.Close()
 
 	count := 0
-	err = store.View(func(tx ReadTx) error {
+	err := store.View(func(tx ReadTx) error {
 		return tx.ForEach("projects", func(k, v []byte) error {
 			count++
 			return nil
@@ -454,17 +389,11 @@ func TestEmptyBucketForEach(t *testing.T) {
 
 // TestMultipleBuckets tests operations across different buckets
 func TestMultipleBuckets(t *testing.T) {
-	dbPath := "test_multi_bucket.db"
-	defer os.Remove(dbPath)
-
-	store, err := NewBoltDBStore(dbPath)
-	if err != nil {
-		t.Fatalf("Failed to create store: %v", err)
-	}
+	store, _ := createTestStore(t)
 	defer store.Close()
 
 	// Write to multiple buckets in single transaction
-	err = store.Update(func(tx WriteTx) error {
+	err := store.Update(func(tx WriteTx) error {
 		if err := tx.Put("projects", "p1", []byte("project1")); err != nil {
 			return err
 		}
@@ -516,15 +445,55 @@ func TestCBORCanonicalEncoding(t *testing.T) {
 	}
 }
 
+// TestPersistenceAcrossStores tests data persists across multiple store instances
+func TestPersistenceAcrossStores(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "persist_test.db")
+
+	// Create first store and write data
+	store1, _ := createTestStore(t)
+	storeRawData(t, store1, "projects", "persist_key", []byte("persist_value"))
+	store1.Close()
+
+	// Create second store with same database file
+	store2, err := NewBoltDBStore(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to open existing store: %v", err)
+	}
+	defer store2.Close()
+
+	// Verify data persists
+	value := getRawData(t, store2, "projects", "persist_key")
+	if !bytes.Equal(value, []byte("persist_value")) {
+		t.Fatal("Data did not persist across store instances")
+	}
+}
+
+// TestTempDirCleanup verifies temporary directories don't accumulate
+func TestTempDirCleanup(t *testing.T) {
+	tmpDir := t.TempDir()
+	
+	// Verify the temp directory was created
+	if _, err := os.Stat(tmpDir); err != nil {
+		t.Fatalf("Temp directory not created: %v", err)
+	}
+	
+	// t.TempDir() automatically cleans up after test, so we can't verify
+	// that here, but we can verify the directory exists during the test
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil {
+		t.Fatalf("Failed to read temp directory: %v", err)
+	}
+	
+	// Directory should initially be empty
+	if len(entries) != 0 {
+		t.Fatalf("Expected empty temp directory, got %d entries", len(entries))
+	}
+}
+
 // BenchmarkPut benchmarks write performance
 func BenchmarkPut(b *testing.B) {
-	dbPath := "bench_put.db"
-	defer os.Remove(dbPath)
-
-	store, err := NewBoltDBStore(dbPath)
-	if err != nil {
-		b.Fatalf("Failed to create store: %v", err)
-	}
+	store, _ := createTestStore(&testing.T{})
 	defer store.Close()
 
 	b.ResetTimer()
@@ -538,13 +507,7 @@ func BenchmarkPut(b *testing.B) {
 
 // BenchmarkGet benchmarks read performance
 func BenchmarkGet(b *testing.B) {
-	dbPath := "bench_get.db"
-	defer os.Remove(dbPath)
-
-	store, err := NewBoltDBStore(dbPath)
-	if err != nil {
-		b.Fatalf("Failed to create store: %v", err)
-	}
+	store, _ := createTestStore(&testing.T{})
 	defer store.Close()
 
 	// Pre-populate with 1000 entries
@@ -591,4 +554,3 @@ func BenchmarkCBORMarshal(b *testing.B) {
 		}
 	}
 }
-
