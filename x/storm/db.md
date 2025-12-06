@@ -6,20 +6,57 @@ Storm needs to support semantic search over markdown discussion files using embe
 
 ## Architecture Components
 
-### 1. Embedding Generation (Ollama)
+### 1. KV Store Abstraction Layer
+
+All persistent operations go through a `KVStore` interface, allowing runtime selection of the underlying key-value store implementation. Currently implemented with BoltDB; future implementations can use BadgerDB, RocksDB, or SQL-backed stores without application logic changes[1][2].
+
+**Interface Methods**:
+```go
+type KVStore interface {
+    // Transactions
+    View(func(ReadTx) error) error
+    Update(func(WriteTx) error) error
+    
+    // Bucket operations (within transactions)
+    BucketNames() []string
+    
+    // Connection management
+    Close() error
+}
+
+type ReadTx interface {
+    Get(bucket, key string) []byte
+    ForEach(bucket string, fn func(k, v []byte) error) error
+}
+
+type WriteTx interface {
+    ReadTx
+    Put(bucket, key string, value []byte) error
+    Delete(bucket, key string) error
+    CreateBucketIfNotExists(bucket string) error
+}
+```
+
+**Advantages**[1][2]:
+- **No Coupling**: Business logic never imports BoltDB directly
+- **Testability**: Mock KVStore for unit tests
+- **Flexibility**: Swap implementations at runtime or compile-time
+- **Gradual Migration**: Run multiple backends during transition periods
+
+### 2. Embedding Generation (Ollama)
 - **Role**: Generates embedding vectors locally without external services
 - **Integration**: HTTP API calls to `localhost:11434/api/embed`
 - **Models**: `nomic-embed-text`, `mxbai-embed-large`
 - **Output**: High-dimensional vectors (768-1024 dimensions)
 
-### 2. Approximate Nearest Neighbor Search (HNSW)
+### 3. Approximate Nearest Neighbor Search (HNSW)
 - **Library**: `github.com/fogfish/hnsw` (pure Go)
 - **Role**: In-memory index for fast similarity search
 - **Data**: Stores embedding vectors and chunk references
 - **Lifecycle**: Rebuilt on daemon startup from persisted embeddings
 - **Scope**: Per-project indices (separate HNSW index for each project's embeddings)
 
-### 3. Multi-Discussion File Support
+### 4. Multi-Discussion File Support
 
 Each project maintains multiple markdown discussion files, each with its own query-response history. Users switch between discussions via CLI or UI without data loss. Each discussion file lives in the `files/` bucket with identical structure as other project files, distinguished only by project metadata pointers.
 
@@ -30,16 +67,16 @@ Each project maintains multiple markdown discussion files, each with its own que
 - Rounds are filtered by `discussionFile` context in roundHistory
 - Switching discussions requires only pointer update; content persists
 
-### 4. Persistence Layer (BoltDB)
+### 5. Persistence Layer (KV Store)
 - **Role**: Embedded key-value store for metadata, embeddings, and file references
-- **ACID Guarantees**: Transaction support prevents corruption
-- **No C++ Dependencies**: Pure Go implementation
+- **ACID Guarantees**: Transaction support prevents corruption (via KVStore interface)
+- **No C++ Dependencies**: Pure Go implementations available
 - **Serialization**: CBOR (Concise Binary Object Representation) for compact binary storage
 
 ## Serialization Format: CBOR
 
 **Why CBOR over JSON**[1]:
-- **Compact**: Binary encoding reduces BoltDB file size by 30-50% compared to JSON
+- **Compact**: Binary encoding reduces storage by 30-50% compared to JSON
 - **Fast**: Encoding/decoding faster than JSON text parsing
 - **Type-Safe**: Preserves data types (integers, floats, byte strings) without ambiguity
 - **Standard**: RFC 8949 standard with excellent Go library support
@@ -47,9 +84,9 @@ Each project maintains multiple markdown discussion files, each with its own que
 
 **Go Implementation**: Use `github.com/fxamacker/cbor/v2` for RFC 8949-compliant CBOR encoding/decoding.
 
-## Bucket Schema (BoltDB)
+## Bucket Schema (KV Store)
 
-All persistent data in Storm is organized into BoltDB buckets using CBOR-encoded values. This section documents the schema for each bucket including key structure and value structure.
+All persistent data in Storm is organized into KV store buckets using CBOR-encoded values. This section documents the schema for each bucket including key structure and value structure.
 
 ### projects/ bucket
 
@@ -84,11 +121,6 @@ type RoundEntry struct {
   CIDs           []string      // ["hash1", "hash2", "hash3"] - chunk identifiers
 }
 ```
-
-**Key Changes from Original**:
-- `MarkdownFile` → `CurrentDiscussionFile` (pointer to active discussion)
-- New `DiscussionFiles` array tracking all available discussions
-- `RoundHistory` entries include `DiscussionFile` field for filtering
 
 ### files/ bucket
 
@@ -213,55 +245,12 @@ type HNSWConfig struct {
 - **Determinism**: Same chunk content always produces same CID regardless of source
 - **Simplicity**: No need for sequential IDs or complex versioning
 
-**Example**:
-```
-File A (chat.md): "The capital of France is Paris"
-File B (data.csv): "The capital of France is Paris"
-
-ChunkID = CID("The capital of France is Paris")
-
-Both files reference the same CID; embedding computed once, reused for both.
-```
-
 ### Why Discussion Files Are Not Special in Storage
 
 - **Chunks**: Use identical CID-based mechanism as other files
 - **Embeddings**: Shared with any file containing matching content
 - **Structure**: Stored in `files/` bucket with identical schema as input/output files
 - **Distinction**: Semantic (contains query-response history) rather than structural
-
-**Storage Implication**: No separate handling needed; `CurrentDiscussionFile` pointer and `DiscussionFile` context in roundHistory provide all necessary semantics.
-
-### Unified Embeddings Bucket (No Separate FileReferences)
-
-```
-embeddings/{CID} → EmbeddingEntry {
-  Vector: <binary float32 embedding>,
-  Metadata: { ModelName, GeneratedAt }
-}
-
-files/{filepath} → FileInode {
-  Chunks: [
-    { CID, Offset, Length },
-    { CID, Offset, Length },
-    ...
-  ],
-  FileTimestamp: <timestamp>
-}
-```
-
-**Advantages**:
-- Single lookup per semantic search (embeddings bucket only)
-- No queryID/roundID duplication per chunk (moved to roundHistory in projects bucket)
-- File structure acts like filesystem inode (filepath → list of blocks)
-- Supports file changes: update fileTimestamp, chunks remain with old CIDs until garbage collected
-
-### Why Remove queryID and roundID from Storage?
-
-- **Redundant**: Multiple chunks from same query/round share identical queryID/roundID
-- **Space Waste**: Duplicated in every embedding entry
-- **Versioning**: Query history belongs in projects metadata roundHistory or separate audit log, not per-chunk
-- **Alternative**: If ordering matters, store in projects bucket as `RoundHistory`: array of RoundEntry structs
 
 ### Why Not Persist HNSW Graph?
 
@@ -300,14 +289,14 @@ When processing chat round with output files:
 1. Extract markdown chunks from output files
 2. Call Ollama to generate embeddings for new chunks
 3. Compute CID hash of chunk content
-4. Store in BoltDB (single transaction):
+4. Execute Update transaction:
    a. Check if CID exists in embeddings/
       - If yes: skip (embedding already computed)
-      - If no: CBOR-encode EmbeddingEntry, store in embeddings/{CID}
-   b. Update files/{currentDiscussionFile} with new chunks:
+      - If no: CBOR-encode EmbeddingEntry, Put in embeddings/{CID}
+   b. Update files/{currentDiscussionFile}:
       Append ChunkRef{ CID, offset, length } to chunks array
-      Encode FileInode to CBOR, update files/{filepath}
-   c. Update projects/{projectID} roundHistory with discussionFile context
+      Encode FileInode to CBOR, Put in files/{filepath}
+   c. Update projects/{projectID}:
       Append RoundEntry, CBOR-encode entire Project
 5. Add embeddings to in-memory HNSW index for owning project
 ```
@@ -318,28 +307,26 @@ When querying with semantic context:
 1. Generate embedding for query via Ollama
 2. Search project-specific HNSW index for k nearest neighbors
    (returns list of CIDs)
-3. For each CID:
-   a. CBOR-decode from embeddings/{CID} to verify it exists
-   b. Find which files reference this CID by scanning files/ bucket
+3. Execute View transaction:
+   For each CID:
+   a. Get from embeddings/{CID} to verify it exists
+   b. Scan files/ bucket for references to this CID
    c. Filter by authorizedFiles for this project
-   d. Optionally filter by discussion file if searching within specific discussion
-   e. Read chunk from file at specified offset/length
-   f. Compute CID hash of read content, verify against expected CID
+   d. Read chunk from file at specified offset/length
+   e. Verify CID hash of read content
 4. Return ranked results with content and source discussion file
 ```
 
 ### Garbage Collection
 ```
 Background garbage collection (daily or on-demand):
-1. Scan all embeddings/ bucket keys (all CIDs)
+1. Execute View transaction to scan embeddings/ bucket
 2. For each CID:
-   a. Search files/ bucket for any reference to this CID
-   b. Check if filepath containing chunk is in ANY project's authorizedFiles
-   c. If not referenced by any authorized file:
-      - Delete from embeddings/ bucket
-      - Remove from files/ bucket entries
-      - Log deletion
-3. Optional: Rebuild files/ bucket entries with missing chunks removed
+   a. Scan files/ bucket for any reference to this CID
+   b. Check if filepath is in ANY project's authorizedFiles
+   c. If not referenced:
+      - Schedule for deletion
+3. Execute Update transaction to delete orphaned CIDs
 ```
 
 ### Handling File Modifications
@@ -358,11 +345,11 @@ Background garbage collection (daily or on-demand):
 ```
 storm-cli discussion create --project X --name "chat-2.md"
 
-Operations:
+Operations (Update transaction):
 1. Create new Chat instance at project baseDir/chat-2.md
 2. Add to discussionFiles array in projects/{projectID}
 3. Optionally set as currentDiscussionFile
-4. CBOR-encode and store updated Project struct
+4. CBOR-encode and Put updated Project struct
 ```
 
 **Switching discussion files**:
@@ -370,9 +357,9 @@ Operations:
 storm-cli discussion switch --project X chat-2.md
 OR UI: Dropdown selector → switch
 
-Operations:
+Operations (Update transaction):
 1. Update projects/{projectID}/currentDiscussionFile pointer
-2. Load Chat instance for new markdown file
+2. CBOR-encode and Put updated Project struct
 3. UI/Browser reloads chat history from new file
 4. Subsequent rounds append to active discussion file only
 5. Update projects/{projectID} in BoltDB, CBOR-encoded
@@ -392,28 +379,25 @@ Returns discussionFiles array with metadata:
 
 ```
 On startup:
-1. Open BoltDB instance at ~/.storm/data.db
-2. Load project metadata from projects/ bucket:
+1. Initialize KVStore (currently BoltDB)
+2. Execute View transaction to load project metadata:
    - For each key in projects/ bucket:
-     - CBOR-decode value to Project struct
-     - Verify CBOR format integrity
+     - Get and CBOR-decode value to Project struct
 3. For each project:
    a. Identify currentDiscussionFile
    b. Load Chat instance for that discussion file
-4. Rebuild HNSW indices per project:
+4. Rebuild HNSW indices per project (View transaction):
    - For each project, iterate authorizedFiles
    - Scan files/ bucket for filepaths in authorizedFiles
-   - For each file: CBOR-decode FileInode
+   - For each file: Get and CBOR-decode FileInode
    - Collect all CIDs referenced
-   - Load corresponding embeddings from embeddings/ bucket (CBOR-decode)
-   - Populate float32 vectors from Embedding entries
+   - Load corresponding embeddings from embeddings/ bucket
+   - Populate float32 vectors from EmbeddingEntry entries
    - Build HNSW index in memory
 5. Ready for semantic search queries
 ```
 
 ## Discussion Files vs Input/Output Files
-
-### Key Differences
 
 | Aspect | Discussion File | Input/Output Files |
 |--------|-----------------|-------------------|
@@ -426,22 +410,39 @@ On startup:
 | **Semantic Search** | Searchable within current discussion context | Searchable; results include source file |
 | **Garbage Collection** | Preserved across rounds; old chunks cleaned only if file deauthorized | Same cleanup process |
 
-### Storage Implications
+## KV Store Abstraction Benefits
 
-**No Structural Difference**:
-- Both stored in `files/` bucket as FileInode structures (CBOR-encoded)
-- Both use CID-based chunks
-- Both share embeddings in `embeddings/` bucket (CBOR-encoded EmbeddingEntry)
-- Both tracked in `projects/{projectID}/roundHistory` (discussion files have `DiscussionFile` context)
+### Testability
 
-**Operational Difference**:
-- Discussion files linked via `CurrentDiscussionFile` (active pointer)
-- Input/output files linked via `AuthorizedFiles` array (permissions)
-- When switching discussion files, only the pointer changes; content remains persistent
+Mock KVStore for unit tests without touching real database:
+```go
+type MockKVStore struct {
+    data map[string]map[string][]byte
+}
+
+func (m *MockKVStore) View(fn func(ReadTx) error) error {
+    return fn(&MockReadTx{data: m.data})
+}
+
+func (m *MockKVStore) Update(fn func(WriteTx) error) error {
+    return fn(&MockWriteTx{data: m.data})
+}
+```
+
+### Future Migration Path
+
+If BoltDB's single-writer limitation becomes a bottleneck:
+
+1. **BadgerDB**: Implements same KVStore interface, supports concurrent writes
+2. **RocksDB**: C++ library with Go bindings; optimized for write-heavy workloads
+3. **SQLite**: WAL mode supports concurrent readers + single writer
+4. **DuckDB**: Columnar format suitable for analytical queries over embeddings
+
+Simply implement `KVStore` interface for new backend, swap instantiation, no application changes needed.
 
 ## Project Registry Integration
 
-### Store in Same BoltDB Instance
+### Store in Same KV Instance
 
 **Approach**: Use separate bucket `projects/` for project metadata
 - **Key**: projectID (string)
@@ -457,9 +458,9 @@ On startup:
 ```go
 import "github.com/fxamacker/cbor/v2"
 
-func LoadProjectRegistry(db *bolt.DB) (map[string]*Project, error) {
+func LoadProjectRegistry(db *KV.DB) (map[string]*Project, error) {
     projects := make(map[string]*Project)
-    err := db.View(func(tx *bolt.Tx) error {
+    err := db.View(func(tx *KV.Tx) error {
         bucket := tx.Bucket([]byte("projects"))
         if bucket == nil {
             return nil // No projects yet
@@ -483,7 +484,7 @@ func LoadProjectRegistry(db *bolt.DB) (map[string]*Project, error) {
 ## Migration Path
 
 1. **Current State**: In-memory project registry, no embeddings, single markdownFile per project
-2. **Phase 1** (Week 1): Add BoltDB persistence with CBOR encoding for projects, load on startup, support multiple discussionFiles
+2. **Phase 1** (Week 1): Add KV persistence with CBOR encoding for projects, load on startup, support multiple discussionFiles
 3. **Phase 2** (Week 2): Implement Ollama embedding generation and file storage with chunkID-based buckets, CBOR-encode entries
 4. **Phase 3** (Week 3): Integrate fogfish/hnsw for semantic search over content-addressed embeddings
 5. **Phase 4** (Week 4): Add CLI commands for discussion file management (create, switch, list)
@@ -491,13 +492,13 @@ func LoadProjectRegistry(db *bolt.DB) (map[string]*Project, error) {
 
 ## Performance Expectations
 
-- **Storage Efficiency**: CBOR encoding reduces BoltDB file size 30-50% vs JSON
+- **Storage Efficiency**: CBOR encoding reduces KV file size 30-50% vs JSON
 - **Startup**: Loading 1000 projects + 100k embeddings + HNSW rebuild ≈ 2-5 seconds (CBOR decoding ~0.5s)
 - **Discussion File Switch**: Update pointer + reload Chat ≈ <100ms
 - **Semantic Search**: HNSW query against 100k embeddings ≈ 5-20ms (ef parameter tuned)
 - **Embedding Generation**: Ollama for 512-token chunk ≈ 50-100ms per chunk
 - **Chunk Retrieval**: Read from file at offset/length ≈ <1ms (OS page cache)
-- **Database Operations**: BoltDB get/put with CBOR ≈ <1ms (CBOR codec overhead negligible)
+- **Database Operations**: KV get/put with CBOR ≈ <1ms (CBOR codec overhead negligible)
 - **Garbage Collection**: Scan 100k embeddings + verify files referencing them ≈ 500ms-2s
 
 ## Security Considerations

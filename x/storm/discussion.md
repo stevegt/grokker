@@ -17397,3 +17397,84 @@ Let me write a concise response explaining why CBOR is better for Storm's use ca
 
 ---
 
+
+
+**all bbolt interactions are abstracted by a KV interface layer, to allow for swapping KV store later**
+
+
+
+
+# KV Store Abstraction Layer for Storm
+
+Abstracting BoltDB behind a KV interface enables future migration to alternative stores without changing application logic[1][2]. The interface defines core operations (Get, Put, Delete, View, Update, Close) that any key-value store can implement[1]. This strategy decouples persistence concerns from business logic, supporting eventual migration to BadgerDB, RocksDB, or SQL-backed stores if scaling demands exceed BoltDB's single-writer model[2]. The abstraction layer defines a minimal, focused API matching Storm's access patterns (bucket-based scoped reads/writes with CBOR serialization)[1].
+
+**Implementation Strategy**[1][2]:
+1. Define `KVStore` interface with core transaction methods
+2. Implement `BoltDBStore` wrapping `*bolt.DB`
+3. Replace all direct BoltDB calls with `kvstore.Get()`, `kvstore.Update()`, etc.
+4. Store interface instance in daemon context, pass to handlers
+5. Future: Implement `BadgerDBStore`, `RocksDBStore` implementing same interface
+
+**Benefits**[1][2]:
+- **Flexibility**: Swap implementations without recompiling business logic
+- **Testing**: Mock `KVStore` interface for unit tests; no real database needed
+- **Gradual Migration**: Implement new store incrementally; run parallel backends during transition
+- **Reduced Coupling**: Application code references interface, not concrete BoltDB types
+
+**Scope**: Abstraction covers all persistence (projects, embeddings, files, config, hnsw_metadata buckets); does not include in-memory HNSW indices or Ollama embeddings.
+
+## References
+
+[1] [https://golang.org/pkg/database/sql/driver/](https://golang.org/pkg/database/sql/driver/)
+[2] [https://www.oreilly.com/library/view/designing-data-intensive-applications/9781491902141/](https://www.oreilly.com/library/view/designing-data-intensive-applications/9781491902141/)
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to implement a KV interface layer that abstracts all bbolt interactions, allowing for swapping KV stores later.
+
+Looking at my instructions at the very top:
+1. I'm a researcher
+2. I should answer the query - which is: "all bbolt interactions are abstracted by a KV interface layer, to allow for swapping KV store later"
+3. I MUST limit the discussion portion to no more than 4000 tokens (about 1142 words)
+4. Always start with a markdown heading
+5. Always enclose reference numbers in square brackets
+6. Don't include empty square brackets
+7. Output files (marked with ---FILE-START and ---FILE-END) don't count against this limit
+8. Don't skip indices on arrays/slices in Go code
+9. Return complete files only, not fragments
+10. Must include complete file: 'db.md'
+11. Match the regex pattern with file markers
+
+The query is: "all bbolt interactions are abstracted by a KV interface layer, to allow for swapping KV store later"
+
+This is asking me to:
+1. Create a KV interface that abstracts BoltDB operations
+2. Implement this interface for BoltDB
+3. Allow for swapping different KV store implementations later (e.g., BadgerDB, RocksDB, SQLite, etc.)
+
+The key interface methods would be:
+- Get(bucket, key) value
+- Put(bucket, key, value)
+- Delete(bucket, key)
+- View (read-only transaction)
+- Update (read-write transaction)
+- Close()
+- etc.
+
+I need to provide:
+1. A brief discussion explaining the abstraction (under 4000 tokens / ~1142 words)
+2. A complete db.md file that's been updated to use this KV interface
+3. Probably also a kv.go file that defines the interface
+
+Let me write a brief response explaining the abstraction layer approach, then provide the necessary files.
+
+
+---
+
