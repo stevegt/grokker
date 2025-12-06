@@ -452,6 +452,189 @@ func checkStatusCode(resp *http.Response, acceptedCodes ...int) error {
 	return fmt.Errorf("daemon returned status %d: %s", resp.StatusCode, string(body))
 }
 
+// CLI Command Handlers
+
+// runServe implements the serve command
+func runServe(cmd *cobra.Command, args []string) error {
+	port, err := cmd.Flags().GetInt("port")
+	if err != nil {
+		return err
+	}
+	return serveRun(port)
+}
+
+// runProjectAdd implements the project add command
+func runProjectAdd(cmd *cobra.Command, args []string) error {
+	projectID := args[0] // note to LLM: do NOT replace args[0] with args
+	baseDir := args[1]
+	markdownFile := args[2]
+
+	// TODO default projectID to current repo -- would need .storm file or directory in repo top
+	// TODO ensure baseDir exists
+	// TODO cannonicalize baseDir and markdownFile to absolute paths
+	// TODO add a `mv` subcommand?
+
+	payload := map[string]string{
+		"projectID":    projectID,
+		"baseDir":      baseDir,
+		"markdownFile": markdownFile,
+	}
+
+	resp, err := makeRequest("POST", "/api/projects", payload)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK, http.StatusCreated); err != nil {
+		return err
+	}
+
+	var result map[string]interface{}
+	if err := decodeJSON(resp, &result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	fmt.Printf("Project %s added successfully\n", projectID)
+	fmt.Printf("  Base directory: %s\n", baseDir)
+	fmt.Printf("  Markdown file: %s\n", markdownFile)
+	if rounds, ok := result["chatRounds"].(float64); ok {
+		fmt.Printf("  Chat rounds loaded: %d\n", int(rounds))
+	}
+	return nil
+}
+
+// runProjectList implements the project list command
+func runProjectList(cmd *cobra.Command, args []string) error {
+	resp, err := makeRequest("GET", "/api/projects", nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK, http.StatusNoContent); err != nil {
+		return err
+	}
+
+	if resp.StatusCode == http.StatusNoContent {
+		fmt.Println("No projects registered")
+		return nil
+	}
+
+	var projectList ProjectList
+	if err := decodeJSON(resp, &projectList); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if len(projectList.Projects) == 0 {
+		fmt.Println("No projects registered")
+		return nil
+	}
+
+	fmt.Println("Registered projects:")
+	for _, proj := range projectList.Projects {
+		fmt.Printf("  - %s (baseDir: %s)\n", proj.ID, proj.BaseDir)
+	}
+	return nil
+}
+
+// runFileAdd implements the file add command
+func runFileAdd(cmd *cobra.Command, args []string) error {
+	projectID, err := cmd.Flags().GetString("project")
+	if err != nil {
+		return err
+	}
+	if err := validateRequiredFlag(projectID, "project"); err != nil {
+		return err
+	}
+
+	payload := map[string]interface{}{
+		"filenames": args,
+	}
+
+	endpoint := fmt.Sprintf("/api/projects/%s/files", projectID)
+	resp, err := makeRequest("POST", endpoint, payload)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK, http.StatusCreated); err != nil {
+		return err
+	}
+
+	var result map[string]interface{}
+	if err := decodeJSON(resp, &result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	fmt.Printf("Files added to project %s:\n", projectID)
+	if added, ok := result["added"].([]interface{}); ok {
+		for _, f := range added {
+			fmt.Printf("  + %s\n", f)
+		}
+	}
+	if failed, ok := result["failed"].([]interface{}); ok {
+		if len(failed) > 0 {
+			fmt.Printf("Failed to add:\n")
+			for _, f := range failed {
+				fmt.Printf("  - %s\n", f)
+			}
+		}
+	}
+	return nil
+}
+
+// runFileList implements the file list command
+func runFileList(cmd *cobra.Command, args []string) error {
+	projectID, err := cmd.Flags().GetString("project")
+	if err != nil {
+		return err
+	}
+	if err := validateRequiredFlag(projectID, "project"); err != nil {
+		return err
+	}
+
+	endpoint := fmt.Sprintf("/api/projects/%s/files", projectID)
+	resp, err := makeRequest("GET", endpoint, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK, http.StatusNoContent); err != nil {
+		return err
+	}
+
+	if resp.StatusCode == http.StatusNoContent {
+		fmt.Printf("No files authorized for project %s\n", projectID)
+		return nil
+	}
+
+	var result map[string]interface{}
+	if err := decodeJSON(resp, &result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	fmt.Printf("Authorized files for project %s:\n", projectID)
+	if files, ok := result["files"].([]interface{}); ok {
+		if len(files) == 0 {
+			fmt.Println("  (no files)")
+		} else {
+			for _, f := range files {
+				fmt.Printf("  - %s\n", f)
+			}
+		}
+	}
+	return nil
+}
+
+// runIssueToken implements the issue-token command
+func runIssueToken(cmd *cobra.Command, args []string) error {
+	fmt.Println("Would issue CWT token via HTTP API")
+	return nil
+}
+
 func main() {
 	fmt.Println("storm v0.0.76")
 
@@ -462,18 +645,13 @@ func main() {
 	}
 
 	// Serve command
-	var port int
 	serveCmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the Storm server",
 		Long:  `Start the Storm server on the specified port.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return serveRun(port)
-		},
+		RunE:  runServe,
 	}
-
-	serveCmd.Flags().IntVar(&port, "port", 8080, "port to listen on")
-
+	serveCmd.Flags().IntP("port", "p", 8080, "port to listen on")
 	rootCmd.AddCommand(serveCmd)
 
 	// Project command
@@ -488,81 +666,14 @@ func main() {
 		Short: "Add a new project",
 		Long:  `Add a new project to the registry via HTTP API.`,
 		Args:  cobra.ExactArgs(3),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			projectID := args[0] // note to LLM: do NOT replace arg[0] with args
-			baseDir := args[1]
-			markdownFile := args[2]
-
-			// TODO ensure baseDir exists
-			// TODO cannonicalize baseDir and markdownFile to absolute paths
-			// TODO add a `mv` subcommand?
-			payload := map[string]string{
-				"projectID":    projectID,
-				"baseDir":      baseDir,
-				"markdownFile": markdownFile,
-			}
-
-			resp, err := makeRequest("POST", "/api/projects", payload)
-			if err != nil {
-				return err
-			}
-			defer resp.Body.Close()
-
-			if err := checkStatusCode(resp, http.StatusOK, http.StatusCreated); err != nil {
-				return err
-			}
-
-			var result map[string]interface{}
-			if err := decodeJSON(resp, &result); err != nil {
-				return fmt.Errorf("failed to decode response: %w", err)
-			}
-
-			fmt.Printf("Project %s added successfully\n", projectID)
-			fmt.Printf("  Base directory: %s\n", baseDir)
-			fmt.Printf("  Markdown file: %s\n", markdownFile)
-			if rounds, ok := result["chatRounds"].(float64); ok {
-				fmt.Printf("  Chat rounds loaded: %d\n", int(rounds))
-			}
-			return nil
-		},
+		RunE:  runProjectAdd,
 	}
 
 	projectListCmd := &cobra.Command{
 		Use:   "list",
 		Short: "List all projects",
 		Long:  `List all registered projects via HTTP API.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			resp, err := makeRequest("GET", "/api/projects", nil)
-			if err != nil {
-				return err
-			}
-			defer resp.Body.Close()
-
-			if err := checkStatusCode(resp, http.StatusOK, http.StatusNoContent); err != nil {
-				return err
-			}
-
-			if resp.StatusCode == http.StatusNoContent {
-				fmt.Println("No projects registered")
-				return nil
-			}
-
-			var projectList ProjectList
-			if err := decodeJSON(resp, &projectList); err != nil {
-				return fmt.Errorf("failed to decode response: %w", err)
-			}
-
-			if len(projectList.Projects) == 0 {
-				fmt.Println("No projects registered")
-				return nil
-			}
-
-			fmt.Println("Registered projects:")
-			for _, proj := range projectList.Projects {
-				fmt.Printf("  - %s (baseDir: %s)\n", proj.ID, proj.BaseDir)
-			}
-			return nil
-		},
+		RunE:  runProjectList,
 	}
 
 	projectCmd.AddCommand(projectAddCmd, projectListCmd)
@@ -575,104 +686,22 @@ func main() {
 		Long:  `Manage files associated with projects.`,
 	}
 
-	// TODO default projectID to current repo -- would need .storm file or directory in repo top
-	var projectID string
-
 	fileAddCmd := &cobra.Command{
 		Use:   "add [files...]",
 		Short: "Add files to a project",
 		Long:  `Add one or more authorized files to a project.`,
 		Args:  cobra.MinimumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := validateRequiredFlag(projectID, "project"); err != nil {
-				return err
-			}
-
-			payload := map[string]interface{}{
-				"filenames": args,
-			}
-
-			endpoint := fmt.Sprintf("/api/projects/%s/files", projectID)
-			resp, err := makeRequest("POST", endpoint, payload)
-			if err != nil {
-				return err
-			}
-			defer resp.Body.Close()
-
-			if err := checkStatusCode(resp, http.StatusOK, http.StatusCreated); err != nil {
-				return err
-			}
-
-			var result map[string]interface{}
-			if err := decodeJSON(resp, &result); err != nil {
-				return fmt.Errorf("failed to decode response: %w", err)
-			}
-
-			fmt.Printf("Files added to project %s:\n", projectID)
-			if added, ok := result["added"].([]interface{}); ok {
-				for _, f := range added {
-					fmt.Printf("  + %s\n", f)
-				}
-			}
-			if failed, ok := result["failed"].([]interface{}); ok {
-				if len(failed) > 0 {
-					fmt.Printf("Failed to add:\n")
-					for _, f := range failed {
-						fmt.Printf("  - %s\n", f)
-					}
-				}
-			}
-			return nil
-		},
+		RunE:  runFileAdd,
 	}
-
-	fileAddCmd.Flags().StringVar(&projectID, "project", "", "Project ID (required)")
+	fileAddCmd.Flags().StringP("project", "p", "", "Project ID (required)")
 
 	fileListCmd := &cobra.Command{
 		Use:   "list",
 		Short: "List files in a project",
 		Long:  `List all authorized files for a project.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := validateRequiredFlag(projectID, "project"); err != nil {
-				return err
-			}
-
-			endpoint := fmt.Sprintf("/api/projects/%s/files", projectID)
-			resp, err := makeRequest("GET", endpoint, nil)
-			if err != nil {
-				return err
-			}
-			defer resp.Body.Close()
-
-			if err := checkStatusCode(resp, http.StatusOK, http.StatusNoContent); err != nil {
-				return err
-			}
-
-			if resp.StatusCode == http.StatusNoContent {
-				fmt.Printf("No files authorized for project %s\n", projectID)
-				return nil
-			}
-
-			var result map[string]interface{}
-			if err := decodeJSON(resp, &result); err != nil {
-				return fmt.Errorf("failed to decode response: %w", err)
-			}
-
-			fmt.Printf("Authorized files for project %s:\n", projectID)
-			if files, ok := result["files"].([]interface{}); ok {
-				if len(files) == 0 {
-					fmt.Println("  (no files)")
-				} else {
-					for _, f := range files {
-						fmt.Printf("  - %s\n", f)
-					}
-				}
-			}
-			return nil
-		},
+		RunE:  runFileList,
 	}
-
-	fileListCmd.Flags().StringVar(&projectID, "project", "", "Project ID (required)")
+	fileListCmd.Flags().StringP("project", "p", "", "Project ID (required)")
 
 	fileCmd.AddCommand(fileAddCmd, fileListCmd)
 	rootCmd.AddCommand(fileCmd)
@@ -682,12 +711,8 @@ func main() {
 		Use:   "issue-token",
 		Short: "Issue a CWT token",
 		Long:  `Issue a CBOR Web Token for project access.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("Would issue CWT token via HTTP API")
-			return nil
-		},
+		RunE:  runIssueToken,
 	}
-
 	rootCmd.AddCommand(tokenCmd)
 
 	if err := rootCmd.Execute(); err != nil {
