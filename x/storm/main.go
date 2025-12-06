@@ -489,7 +489,7 @@ func main() {
 		Long:  `Add a new project to the registry via HTTP API.`,
 		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			projectID := args
+			projectID := args[0] // note to LLM: do NOT replace arg[0] with args
 			baseDir := args[1]
 			markdownFile := args[2]
 
