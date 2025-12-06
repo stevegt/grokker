@@ -11,6 +11,20 @@ import (
 	"time"
 )
 
+// Helper function to execute CLI commands with environment setup
+func runCLICommand(daemonURL string, args ...string) (string, string, error) {
+	cmd := exec.Command("go", "run", ".")
+	cmd.Args = append(cmd.Args, args...)
+	cmd.Env = append(os.Environ(), fmt.Sprintf("STORM_DAEMON_URL=%s", daemonURL))
+
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+
+	err := cmd.Run()
+	return outBuf.String(), errBuf.String(), err
+}
+
 // Helper function to set up a test project with temporary directory and markdown file
 func setupTestProject(t *testing.T, projectID string) (string, string, func()) {
 	// Create temporary project directory
@@ -61,19 +75,12 @@ func TestCLIProjectAdd(t *testing.T) {
 	projectDir, markdownFile, cleanup := setupTestProject(t, projectID)
 	defer cleanup()
 
-	// Execute project add command via 'go run .'
-	cmd := exec.Command("go", "run", ".", "project", "add", projectID, projectDir, markdownFile)
-	cmd.Env = append(os.Environ(), fmt.Sprintf("STORM_DAEMON_URL=%s", daemonURL))
-
-	var outBuf, errBuf bytes.Buffer
-	cmd.Stdout = &outBuf
-	cmd.Stderr = &errBuf
-
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("project add command failed: %v, stderr: %s", err, errBuf.String())
+	// Run project add command
+	output, errOutput, err := runCLICommand(daemonURL, "project", "add", projectID, projectDir, markdownFile)
+	if err != nil {
+		t.Fatalf("project add command failed: %v, stderr: %s", err, errOutput)
 	}
 
-	output := outBuf.String()
 	if len(output) == 0 {
 		t.Errorf("Expected project add output, got empty string")
 	}
@@ -91,26 +98,16 @@ func TestCLIProjectList(t *testing.T) {
 	projectDir, markdownFile, cleanup := setupTestProject(t, projectID)
 	defer cleanup()
 
-	// Add project via CLI
-	cmd := exec.Command("go", "run", ".", "project", "add", projectID, projectDir, markdownFile)
-	cmd.Env = append(os.Environ(), fmt.Sprintf("STORM_DAEMON_URL=%s", daemonURL))
-	if err := cmd.Run(); err != nil {
+	_, _, err := runCLICommand(daemonURL, "project", "add", projectID, projectDir, markdownFile)
+	if err != nil {
 		t.Fatalf("Failed to add test project: %v", err)
 	}
 
-	// List projects via CLI
-	cmd = exec.Command("go", "run", ".", "project", "list")
-	cmd.Env = append(os.Environ(), fmt.Sprintf("STORM_DAEMON_URL=%s", daemonURL))
-
-	var outBuf, errBuf bytes.Buffer
-	cmd.Stdout = &outBuf
-	cmd.Stderr = &errBuf
-
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("project list command failed: %v, stderr: %s", err, errBuf.String())
+	output, errOutput, err := runCLICommand(daemonURL, "project", "list")
+	if err != nil {
+		t.Fatalf("project list command failed: %v, stderr: %s", err, errOutput)
 	}
 
-	output := outBuf.String()
 	if !bytes.Contains([]byte(output), []byte(projectID)) {
 		t.Errorf("Expected project ID in list output, got: %s", output)
 	}
@@ -125,32 +122,21 @@ func TestCLIFileAdd(t *testing.T) {
 	projectDir, markdownFile, cleanup := setupTestProject(t, projectID)
 	defer cleanup()
 
-	// Create test input file
 	inputFile := filepath.Join(projectDir, "input.csv")
 	if err := ioutil.WriteFile(inputFile, []byte("col1,col2\nval1,val2\n"), 0644); err != nil {
 		t.Fatalf("Failed to create input file: %v", err)
 	}
 
-	// Add project via CLI
-	cmd := exec.Command("go", "run", ".", "project", "add", projectID, projectDir, markdownFile)
-	cmd.Env = append(os.Environ(), fmt.Sprintf("STORM_DAEMON_URL=%s", daemonURL))
-	if err := cmd.Run(); err != nil {
+	_, _, err := runCLICommand(daemonURL, "project", "add", projectID, projectDir, markdownFile)
+	if err != nil {
 		t.Fatalf("Failed to add test project: %v", err)
 	}
 
-	// Add files via CLI
-	cmd = exec.Command("go", "run", ".", "file", "add", "--project", projectID, inputFile)
-	cmd.Env = append(os.Environ(), fmt.Sprintf("STORM_DAEMON_URL=%s", daemonURL))
-
-	var outBuf, errBuf bytes.Buffer
-	cmd.Stdout = &outBuf
-	cmd.Stderr = &errBuf
-
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("file add command failed: %v, stderr: %s", err, errBuf.String())
+	output, errOutput, err := runCLICommand(daemonURL, "file", "add", "--project", projectID, inputFile)
+	if err != nil {
+		t.Fatalf("file add command failed: %v, stderr: %s", err, errOutput)
 	}
 
-	output := outBuf.String()
 	if len(output) == 0 {
 		t.Errorf("Expected file add output, got empty string")
 	}
@@ -165,39 +151,26 @@ func TestCLIFileList(t *testing.T) {
 	projectDir, markdownFile, cleanup := setupTestProject(t, projectID)
 	defer cleanup()
 
-	// Create test input file
 	inputFile := filepath.Join(projectDir, "input.csv")
 	if err := ioutil.WriteFile(inputFile, []byte("col1,col2\n"), 0644); err != nil {
 		t.Fatalf("Failed to create input file: %v", err)
 	}
 
-	// Add project via CLI
-	cmd := exec.Command("go", "run", ".", "project", "add", projectID, projectDir, markdownFile)
-	cmd.Env = append(os.Environ(), fmt.Sprintf("STORM_DAEMON_URL=%s", daemonURL))
-	if err := cmd.Run(); err != nil {
+	_, _, err := runCLICommand(daemonURL, "project", "add", projectID, projectDir, markdownFile)
+	if err != nil {
 		t.Fatalf("Failed to add test project: %v", err)
 	}
 
-	// Add files via CLI
-	cmd = exec.Command("go", "run", ".", "file", "add", "--project", projectID, inputFile)
-	cmd.Env = append(os.Environ(), fmt.Sprintf("STORM_DAEMON_URL=%s", daemonURL))
-	if err := cmd.Run(); err != nil {
+	_, _, err = runCLICommand(daemonURL, "file", "add", "--project", projectID, inputFile)
+	if err != nil {
 		t.Fatalf("Failed to add test files: %v", err)
 	}
 
-	// List files via CLI
-	cmd = exec.Command("go", "run", ".", "file", "list", "--project", projectID)
-	cmd.Env = append(os.Environ(), fmt.Sprintf("STORM_DAEMON_URL=%s", daemonURL))
-
-	var outBuf, errBuf bytes.Buffer
-	cmd.Stdout = &outBuf
-	cmd.Stderr = &errBuf
-
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("file list command failed: %v, stderr: %s", err, errBuf.String())
+	output, errOutput, err := runCLICommand(daemonURL, "file", "list", "--project", projectID)
+	if err != nil {
+		t.Fatalf("file list command failed: %v, stderr: %s", err, errOutput)
 	}
 
-	output := outBuf.String()
 	if len(output) == 0 {
 		t.Errorf("Expected file list output, got empty string")
 	}
@@ -205,17 +178,11 @@ func TestCLIFileList(t *testing.T) {
 
 // TestCLIFileAddMissingProjectFlag tests that file add fails without --project flag
 func TestCLIFileAddMissingProjectFlag(t *testing.T) {
-	cmd := exec.Command("go", "run", ".", "file", "add", "somefile.txt")
-
-	var errBuf bytes.Buffer
-	cmd.Stderr = &errBuf
-
-	err := cmd.Run()
+	_, errOutput, err := runCLICommand("http://localhost:8080", "file", "add", "somefile.txt")
 	if err == nil {
 		t.Errorf("Expected error for missing --project flag, but command succeeded")
 	}
 
-	errOutput := errBuf.String()
 	if len(errOutput) == 0 {
 		t.Logf("Command exited with error code but no stderr output")
 	}
@@ -223,17 +190,11 @@ func TestCLIFileAddMissingProjectFlag(t *testing.T) {
 
 // TestCLIFileListMissingProjectFlag tests that file list fails without --project flag
 func TestCLIFileListMissingProjectFlag(t *testing.T) {
-	cmd := exec.Command("go", "run", ".", "file", "list")
-
-	var errBuf bytes.Buffer
-	cmd.Stderr = &errBuf
-
-	err := cmd.Run()
+	_, errOutput, err := runCLICommand("http://localhost:8080", "file", "list")
 	if err == nil {
 		t.Errorf("Expected error for missing --project flag, but command succeeded")
 	}
 
-	errOutput := errBuf.String()
 	if len(errOutput) == 0 {
 		t.Logf("Command exited with error code but no stderr output")
 	}

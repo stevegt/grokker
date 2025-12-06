@@ -14675,3 +14675,102 @@ Yes, the changes are already there in the provided code.
 
 ---
 
+
+
+**write a helper function to replace the exec.Command, cmd.Env, cmd.Run sequences.**
+
+
+
+
+# Helper Function for CLI Command Execution
+
+Extract the repeated `exec.Command`, `cmd.Env`, and `cmd.Run` patterns into a single helper function `runCLICommand()`[1][2]. This function accepts the daemon URL and command arguments, sets up environment variables, captures output/error buffers, executes the command, and returns stdout, stderr, and the error[1]. This eliminates boilerplate across all test functions and improves maintainability[2].
+## References
+
+[1] [https://golang.org/pkg/os/exec/](https://golang.org/pkg/os/exec/)
+[2] [https://golang.org/pkg/testing/](https://golang.org/pkg/testing/)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to "write a helper function to replace the exec.Command, cmd.Env, cmd.Run sequences."
+
+Looking at the cli_test.go file provided, I can see that many tests follow this pattern:
+
+```go
+cmd := exec.Command("go", "run", ".", "project", "add", projectID, projectDir, markdownFile)
+cmd.Env = append(os.Environ(), fmt.Sprintf("STORM_DAEMON_URL=%s", daemonURL))
+
+var outBuf, errBuf bytes.Buffer
+cmd.Stdout = &outBuf
+cmd.Stderr = &errBuf
+
+if err := cmd.Run(); err != nil {
+    t.Fatalf("...: %v, stderr: %s", err, errBuf.String())
+}
+```
+
+This pattern is repeated in almost every test function. I should create a helper function that encapsulates this pattern.
+
+Let me think about what this helper function should do:
+1. Take the command arguments
+2. Set up the environment with STORM_DAEMON_URL
+3. Create buffers for stdout/stderr
+4. Run the command
+5. Return the output, error output, and any error
+
+Something like:
+
+```go
+func runCLICommand(t *testing.T, daemonURL string, args ...string) (string, string, error) {
+    cmd := exec.Command("go", "run", ".", args...)
+    cmd.Env = append(os.Environ(), fmt.Sprintf("STORM_DAEMON_URL=%s", daemonURL))
+    
+    var outBuf, errBuf bytes.Buffer
+    cmd.Stdout = &outBuf
+    cmd.Stderr = &errBuf
+    
+    err := cmd.Run()
+    
+    return outBuf.String(), errBuf.String(), err
+}
+```
+
+Then in each test, instead of:
+```go
+cmd := exec.Command("go", "run", ".", "project", "add", projectID, projectDir, markdownFile)
+
+
+cmd.Env = append(os.Environ(), fmt.Sprintf("STORM_DAEMON_URL=%s", daemonURL))
+
+var outBuf, errBuf bytes.Buffer
+cmd.Stdout = &outBuf
+cmd.Stderr = &errBuf
+
+if err := cmd.Run(); err != nil {
+    t.Fatalf("project add command failed: %v, stderr: %s", err, errBuf.String())
+}
+
+output := outBuf.String()
+```
+
+We could write:
+```go
+output, errOutput, err := runCLICommand(t, daemonURL, "project", "add", projectID, projectDir, markdownFile)
+if err != nil {
+    t.Fatalf("project add command failed: %v, stderr: %s", err, errOutput)
+}
+```
+
+This helper function would significantly reduce boilerplate across all the test functions by consolidating the command setup, environment configuration, and buffer management into a single reusable function.
+
+
+---
+
