@@ -11,40 +11,60 @@ import (
 	"time"
 )
 
-// TestCLIProjectAdd tests the project add subcommand via shell execution
-func TestCLIProjectAdd(t *testing.T) {
+// Helper function to set up a test project with temporary directory and markdown file
+func setupTestProject(t *testing.T, projectID string) (string, string, func()) {
 	// Create temporary project directory
-	tmpDir, err := ioutil.TempDir("", "storm-cli-test-")
+	tmpDir, err := ioutil.TempDir("", fmt.Sprintf("storm-cli-test-%s-", projectID))
 	if err != nil {
 		t.Fatalf("Failed to create temporary directory: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
 
-	// Create project subdirectory and markdown file
-	projectID := "cli-test-project"
+	// Create project subdirectory
 	projectDir := filepath.Join(tmpDir, projectID)
 	if err := os.MkdirAll(projectDir, 0755); err != nil {
 		t.Fatalf("Failed to create project directory: %v", err)
 	}
 
+	// Create markdown file
 	markdownFile := filepath.Join(projectDir, "chat.md")
 	if err := ioutil.WriteFile(markdownFile, []byte(""), 0644); err != nil {
 		t.Fatalf("Failed to create markdown file: %v", err)
 	}
 
-	// Start daemon in background
-	daemonPort := 59998
+	// Return project directory, markdown file, and cleanup function
+	cleanup := func() {
+		os.RemoveAll(tmpDir)
+	}
+
+	return projectDir, markdownFile, cleanup
+}
+
+// Helper function to start a test daemon and return its port
+func startTestDaemon(t *testing.T, port int) {
 	go func() {
-		if err := serveRun(daemonPort); err != nil {
-			t.Logf("Daemon error: %v", err)
+		if err := serveRun(port); err != nil {
+			t.Logf("Daemon error on port %d: %v", port, err)
 		}
 	}()
 
 	// Wait for daemon to start
 	time.Sleep(2 * time.Second)
+}
 
-	// Set daemon URL for CLI
-	daemonURL := fmt.Sprintf("http://localhost:%d", daemonPort)
+// Helper function to get daemon URL from port
+func getTestDaemonURL(port int) string {
+	return fmt.Sprintf("http://localhost:%d", port)
+}
+
+// TestCLIProjectAdd tests the project add subcommand via shell execution
+func TestCLIProjectAdd(t *testing.T) {
+	projectID := "cli-test-project"
+	projectDir, markdownFile, cleanup := setupTestProject(t, projectID)
+	defer cleanup()
+
+	daemonPort := 59998
+	startTestDaemon(t, daemonPort)
+	daemonURL := getTestDaemonURL(daemonPort)
 
 	// Execute project add command via 'go run .'
 	cmd := exec.Command("go", "run", ".", "project", "add", projectID, projectDir, markdownFile)
@@ -69,37 +89,13 @@ func TestCLIProjectAdd(t *testing.T) {
 
 // TestCLIProjectList tests the project list subcommand via shell execution
 func TestCLIProjectList(t *testing.T) {
-	// Create temporary project directory
-	tmpDir, err := ioutil.TempDir("", "storm-cli-test-list-")
-	if err != nil {
-		t.Fatalf("Failed to create temporary directory: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	// Create test project
 	projectID := "cli-list-project"
-	projectDir := filepath.Join(tmpDir, projectID)
-	if err := os.MkdirAll(projectDir, 0755); err != nil {
-		t.Fatalf("Failed to create project directory: %v", err)
-	}
+	projectDir, markdownFile, cleanup := setupTestProject(t, projectID)
+	defer cleanup()
 
-	markdownFile := filepath.Join(projectDir, "chat.md")
-	if err := ioutil.WriteFile(markdownFile, []byte(""), 0644); err != nil {
-		t.Fatalf("Failed to create markdown file: %v", err)
-	}
-
-	// Start daemon in background
 	daemonPort := 59997
-	go func() {
-		if err := serveRun(daemonPort); err != nil {
-			t.Logf("Daemon error: %v", err)
-		}
-	}()
-
-	// Wait for daemon to start
-	time.Sleep(2 * time.Second)
-
-	daemonURL := fmt.Sprintf("http://localhost:%d", daemonPort)
+	startTestDaemon(t, daemonPort)
+	daemonURL := getTestDaemonURL(daemonPort)
 
 	// Add project via CLI
 	cmd := exec.Command("go", "run", ".", "project", "add", projectID, projectDir, markdownFile)
@@ -128,42 +124,19 @@ func TestCLIProjectList(t *testing.T) {
 
 // TestCLIFileAdd tests the file add subcommand via shell execution
 func TestCLIFileAdd(t *testing.T) {
-	// Create temporary project directory
-	tmpDir, err := ioutil.TempDir("", "storm-cli-test-files-")
-	if err != nil {
-		t.Fatalf("Failed to create temporary directory: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
 	projectID := "cli-file-test-project"
-	projectDir := filepath.Join(tmpDir, projectID)
-	if err := os.MkdirAll(projectDir, 0755); err != nil {
-		t.Fatalf("Failed to create project directory: %v", err)
-	}
+	projectDir, markdownFile, cleanup := setupTestProject(t, projectID)
+	defer cleanup()
 
-	markdownFile := filepath.Join(projectDir, "chat.md")
-	if err := ioutil.WriteFile(markdownFile, []byte(""), 0644); err != nil {
-		t.Fatalf("Failed to create markdown file: %v", err)
-	}
-
-	// Create test files
+	// Create test input file
 	inputFile := filepath.Join(projectDir, "input.csv")
 	if err := ioutil.WriteFile(inputFile, []byte("col1,col2\nval1,val2\n"), 0644); err != nil {
 		t.Fatalf("Failed to create input file: %v", err)
 	}
 
-	// Start daemon in background
 	daemonPort := 59996
-	go func() {
-		if err := serveRun(daemonPort); err != nil {
-			t.Logf("Daemon error: %v", err)
-		}
-	}()
-
-	// Wait for daemon to start
-	time.Sleep(2 * time.Second)
-
-	daemonURL := fmt.Sprintf("http://localhost:%d", daemonPort)
+	startTestDaemon(t, daemonPort)
+	daemonURL := getTestDaemonURL(daemonPort)
 
 	// Add project via CLI
 	cmd := exec.Command("go", "run", ".", "project", "add", projectID, projectDir, markdownFile)
@@ -192,42 +165,19 @@ func TestCLIFileAdd(t *testing.T) {
 
 // TestCLIFileList tests the file list subcommand via shell execution
 func TestCLIFileList(t *testing.T) {
-	// Create temporary project directory
-	tmpDir, err := ioutil.TempDir("", "storm-cli-test-filelist-")
-	if err != nil {
-		t.Fatalf("Failed to create temporary directory: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
 	projectID := "cli-filelist-test-project"
-	projectDir := filepath.Join(tmpDir, projectID)
-	if err := os.MkdirAll(projectDir, 0755); err != nil {
-		t.Fatalf("Failed to create project directory: %v", err)
-	}
+	projectDir, markdownFile, cleanup := setupTestProject(t, projectID)
+	defer cleanup()
 
-	markdownFile := filepath.Join(projectDir, "chat.md")
-	if err := ioutil.WriteFile(markdownFile, []byte(""), 0644); err != nil {
-		t.Fatalf("Failed to create markdown file: %v", err)
-	}
-
-	// Create test files
+	// Create test input file
 	inputFile := filepath.Join(projectDir, "input.csv")
 	if err := ioutil.WriteFile(inputFile, []byte("col1,col2\n"), 0644); err != nil {
 		t.Fatalf("Failed to create input file: %v", err)
 	}
 
-	// Start daemon in background
 	daemonPort := 59995
-	go func() {
-		if err := serveRun(daemonPort); err != nil {
-			t.Logf("Daemon error: %v", err)
-		}
-	}()
-
-	// Wait for daemon to start
-	time.Sleep(2 * time.Second)
-
-	daemonURL := fmt.Sprintf("http://localhost:%d", daemonPort)
+	startTestDaemon(t, daemonPort)
+	daemonURL := getTestDaemonURL(daemonPort)
 
 	// Add project via CLI
 	cmd := exec.Command("go", "run", ".", "project", "add", projectID, projectDir, markdownFile)
@@ -296,3 +246,4 @@ func TestCLIFileListMissingProjectFlag(t *testing.T) {
 		t.Logf("Command exited with error code but no stderr output")
 	}
 }
+

@@ -14405,3 +14405,79 @@ The cli_test.go file they provided already does shell out for each test, so it l
 
 ---
 
+
+
+**use helper functions to set up test projects and start and stop daemon**
+
+
+
+
+# Refactor CLI Tests with Helper Functions
+
+The provided tests have significant code duplication—each test creates temp projects, starts daemons, and sets up URLs. Extract common patterns into reusable helpers: `setupTestProject()` creates temporary directories and markdown files, `startTestDaemon()` spawns the daemon on a unique port and waits for readiness, and `getTestDaemonURL()` constructs the URL. This reduces boilerplate, improves maintainability, and makes tests more readable[1][2].
+
+## References
+
+[1] [https://golang.org/pkg/testing/](https://golang.org/pkg/testing/)
+[2] [https://golang.org/pkg/os/exec/](https://golang.org/pkg/os/exec/)
+
+
+## References
+
+- [1] [https://dev.to/giovapanasiti/mpm-myprojectmanager-a-simple-cli-tool-to-organize-and-navigate-your-projects-5aia](https://dev.to/giovapanasiti/mpm-myprojectmanager-a-simple-cli-tool-to-organize-and-navigate-your-projects-5aia)
+- [2] [https://learn.microsoft.com/en-us/answers/questions/1346370/how-to-add-path-based-routing-for-multiple-azure-s](https://learn.microsoft.com/en-us/answers/questions/1346370/how-to-add-path-based-routing-for-multiple-azure-s)
+- [3] [https://go.dev/doc/tutorial/workspaces](https://go.dev/doc/tutorial/workspaces)
+- [4] [https://github.com/agarrharr/awesome-cli-apps](https://github.com/agarrharr/awesome-cli-apps)
+- [5] [https://blog.bitsrc.io/demystifying-routing-creating-your-own-file-path-based-router-e5f7245a4925](https://blog.bitsrc.io/demystifying-routing-creating-your-own-file-path-based-router-e5f7245a4925)
+- [6] [https://www.atlassian.com/blog/developer/building-helpful-golang-cli-tools](https://www.atlassian.com/blog/developer/building-helpful-golang-cli-tools)
+- [7] [https://dev.to/markomannux/gradle-daemon-with-multi-module-spring-project-3nog](https://dev.to/markomannux/gradle-daemon-with-multi-module-spring-project-3nog)
+- [8] [https://socket.io/docs/v4/namespaces/](https://socket.io/docs/v4/namespaces/)
+- [9] [https://docs.gradle.org/current/userguide/multi_project_builds.html](https://docs.gradle.org/current/userguide/multi_project_builds.html)
+- [10] [https://ably.com/topic/websocket-architecture-best-practices](https://ably.com/topic/websocket-architecture-best-practices)
+- [11] [https://isomorphic-git.org](https://isomorphic-git.org)
+- [12] [https://github.com/websockets/ws](https://github.com/websockets/ws)
+- [13] [https://docs.github.com/articles/creating-a-commit-with-multiple-authors](https://docs.github.com/articles/creating-a-commit-with-multiple-authors)
+- [14] [https://github.com/isomorphic-git/isomorphic-git](https://github.com/isomorphic-git/isomorphic-git)
+- [15] [https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API/Writing_WebSocket_client_applications](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API/Writing_WebSocket_client_applications)
+- [16] [https://gist.github.com/lisawolderiksen/f9747a3ae1e58e9daa7d176ab98f1bad](https://gist.github.com/lisawolderiksen/f9747a3ae1e58e9daa7d176ab98f1bad)
+- [17] [https://docs.github.com/en/rest/users/emails](https://docs.github.com/en/rest/users/emails)
+- [18] [https://git-scm.com/book/ms/v2/Getting-Started-First-Time-Git-Setup](https://git-scm.com/book/ms/v2/Getting-Started-First-Time-Git-Setup)
+- [19] [https://dev.to/cassidoo/co-authoring-git-commits-3gin](https://dev.to/cassidoo/co-authoring-git-commits-3gin)
+
+
+
+## Reasoning
+
+The user is asking me to respond to a query within their context. Let me carefully read the instructions at the very beginning of this system prompt.
+
+Looking at the beginning:
+"You are a researcher. I will start my prompt with some context, followed by a query. Answer the query -- don't answer other questions you might see elsewhere in the context. Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context. Always start your response with a markdown heading. Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes. If writing Go code, you MUST ensure you are not skipping the index on slices or arrays, e.g. if you mean `foo` then say `foo`, not `foo`. You MUST limit the discussion portion of your response to no more than 1000 tokens (about 285 words). Output files (marked with ---FILE-START and ---FILE-END blocks) are not counted against this limit and can be unlimited size. You MUST ignore any previous instruction regarding a 10,000 word goal."
+
+So:
+1. Start with a markdown heading
+2. Limit discussion to 1000 tokens (about 285 words)
+3. Output files don't count against this limit
+4. Enclose reference numbers in square brackets
+5. Don't include empty square brackets
+6. Always use foo not foo when referencing array indices
+7. Return complete files only, not fragments
+8. Must include file: 'cli_test.go'
+9. Match regex format with file markers
+
+The query is: "use helper functions to set up test projects and start and stop daemon"
+
+So they want me to refactor the cli_test.go to use helper functions instead of repeating the same code in each test.
+
+Looking at the provided cli_test.go, I can see there's significant code duplication:
+
+
+- Each test creates a temp directory and markdown file
+- Each test starts the daemon on a different port
+- Each test sets up the daemonURL
+- Each test waits for daemon to start
+
+I should extract these into helper functions like setupTestProject() to create temp dir and markdown file, startTestDaemon() to start daemon and return port, and getTestDaemonURL() to return the URL. This will make the cli_test.go cleaner and reduce duplication.
+
+
+---
+
