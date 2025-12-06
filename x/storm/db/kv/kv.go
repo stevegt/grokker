@@ -3,7 +3,7 @@ package kv
 import (
 	"fmt"
 
-	"github.com/stevegt/grokker/x/storm/db/kv/bbolt"
+	"github.com/stevegt/grokker/x/storm/db/bbolt"
 )
 
 // ReadTx defines read-only transaction operations
