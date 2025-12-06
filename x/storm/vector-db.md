@@ -19,16 +19,188 @@ Storm needs to support semantic search over markdown discussion files using embe
 - **Lifecycle**: Rebuilt on daemon startup from persisted embeddings
 - **Scope**: Per-project indices (separate HNSW index for each project's embeddings)
 
-### 3. Persistence Layer (BoltDB)
+### 3. Multi-Discussion File Support
+
+Each project maintains multiple markdown discussion files, each with its own query-response history. Users switch between discussions via CLI or UI without data loss. Each discussion file lives in the `files/` bucket with identical structure as other project files, distinguished only by project metadata pointers.
+
+**Key Design Points**:
+- Discussion files use identical chunking and embedding as input/output files
+- `currentDiscussionFile` pointer in projects metadata indicates active discussion
+- `discussionFiles` array tracks all available discussions with metadata
+- Rounds are filtered by `discussionFile` context in roundHistory
+- Switching discussions requires only pointer update; content persists
+
+### 4. Persistence Layer (BoltDB)
 - **Role**: Embedded key-value store for metadata, embeddings, and file references
-- **Data Buckets**:
-  - `projects/`: Project metadata (ID, baseDir, markdownFile, authorizedFiles)
-  - `embeddings/`: Raw embedding vectors keyed by chunkID (content CID)
-  - `files/`: File inode-like structures mapping filepath → chunks with offsets
-  - `hnsw_metadata/`: Versioning and index rebuild timestamps
-  - `config/`: Storm daemon configuration settings
 - **ACID Guarantees**: Transaction support prevents corruption
 - **No C++ Dependencies**: Pure Go implementation
+
+## Bucket Schema (BoltDB)
+
+All persistent data in Storm is organized into BoltDB buckets. This section documents the schema for each bucket including key structure, value format, and lifecycle management.
+
+### projects/ bucket
+
+**Purpose**: Store project metadata including configuration, discussion files, and round history.
+
+**Key**: `{projectID}` (string identifier)
+
+**Value**:
+```json
+{
+  "id": "project-1",
+  "baseDir": "/path/to/project",
+  "currentDiscussionFile": "chat.md",
+  "discussionFiles": [
+    {
+      "filepath": "chat.md",
+      "createdAt": "2025-12-05T10:00:00Z",
+      "roundCount": 12
+    },
+    {
+      "filepath": "chat-2.md",
+      "createdAt": "2025-12-06T14:30:00Z",
+      "roundCount": 3
+    }
+  ],
+  "authorizedFiles": ["data.csv", "output.json", "/absolute/path/to/file.md"],
+  "createdAt": "2025-12-06T03:00:00Z",
+  "embeddingCount": 256,
+  "roundHistory": [
+    {
+      "roundID": "round-5",
+      "discussionFile": "chat.md",
+      "queryID": "query-abc123",
+      "timestamp": "2025-12-06T03:15:00Z",
+      "CIDs": ["hash1", "hash2", "hash3"]
+    },
+    {
+      "roundID": "round-6",
+      "discussionFile": "chat-2.md",
+      "queryID": "query-xyz789",
+      "timestamp": "2025-12-06T04:00:00Z",
+      "CIDs": ["hash4", "hash5"]
+    }
+  ]
+}
+```
+
+**Key Changes from Original**:
+- `markdownFile` → `currentDiscussionFile` (pointer to active discussion)
+- New `discussionFiles` array tracking all available discussions
+- `roundHistory` entries include `discussionFile` field for filtering
+
+### files/ bucket
+
+**Purpose**: Store file inode-like structures mapping filepath to its constituent chunks.
+
+**Key**: `{filepath}` (full path to file, e.g., "/projects/project-1/chat.md")
+
+**Value**:
+```json
+{
+  "filepath": "/path/to/project/chat.md",
+  "fileTimestamp": "2025-12-06T03:15:00Z",
+  "chunks": [
+    {
+      "CID": "QmXxxx...",
+      "offset": 0,
+      "length": 512
+    },
+    {
+      "CID": "QmYyyy...",
+      "offset": 512,
+      "length": 256
+    }
+  ]
+}
+```
+
+**Structure**:
+- `filepath`: Full path for consistent lookups
+- `fileTimestamp`: Modification time for cache invalidation
+- `chunks`: Array of chunk references (order matters for file reconstruction)
+  - `CID`: Content identifier hash of chunk
+  - `offset`: Byte offset in original file
+  - `length`: Number of bytes in chunk
+
+**Important**: Discussion files and other files coexist with identical structure. No distinction in storage layer.
+
+### embeddings/ bucket
+
+**Purpose**: Store raw embedding vectors keyed by content hash.
+
+**Key**: `{CID}` (content-addressed identifier, typically SHA256 hash)
+
+**Value**:
+```json
+{
+  "vector": <binary float32 array>,
+  "metadata": {
+    "modelName": "nomic-embed-text",
+    "generatedAt": "2025-12-06T03:15:00Z"
+  }
+}
+```
+
+**Structure**:
+- `vector`: Binary-encoded embedding (typically 768 or 1024 float32 values)
+- `metadata.modelName`: Which Ollama model generated this embedding
+- `metadata.generatedAt`: Timestamp for cache invalidation
+
+**Key Property**: CID-based keys enable deduplication—identical chunks across multiple files share the same embedding vector.
+
+### hnsw_metadata/ bucket
+
+**Purpose**: Store versioning and rebuild metadata for HNSW indices.
+
+**Key**: `{projectID}:metadata` (project-specific metadata)
+
+**Value**:
+```json
+{
+  "lastRebuild": "2025-12-06T03:00:00Z",
+  "embeddingCount": 256,
+  "hnswVersion": "v1",
+  "dataFormatVersion": "1.0"
+}
+```
+
+**Structure**:
+- `lastRebuild`: Timestamp of last HNSW index rebuild
+- `embeddingCount`: Number of embeddings in this project's index
+- `hnswVersion`: Version of HNSW implementation for compatibility tracking
+- `dataFormatVersion`: Schema version for migrations
+
+**Note**: The HNSW graph structure itself is not persisted; only metadata about rebuilds is stored.
+
+### config/ bucket
+
+**Purpose**: Store Storm daemon configuration settings.
+
+**Key**: `config` (single configuration document)
+
+**Value**:
+```json
+{
+  "port": 8080,
+  "embeddingModel": "nomic-embed-text",
+  "ollama": {
+    "endpoint": "http://localhost:11434"
+  },
+  "hnsw": {
+    "M": 16,
+    "efConstruction": 200,
+    "efSearch": 100
+  }
+}
+```
+
+**Structure**:
+- `port`: HTTP server port
+- `embeddingModel`: Which Ollama model to use
+- `ollama.endpoint`: Ollama API endpoint
+- `hnsw`: HNSW algorithm parameters (M=connections per node, ef parameters for search width)
 
 ## Design Rationale
 
@@ -42,13 +214,22 @@ Storm needs to support semantic search over markdown discussion files using embe
 
 **Example**:
 ```
-File A: "The capital of France is Paris"
-File B: "The capital of France is Paris"
+File A (chat.md): "The capital of France is Paris"
+File B (data.csv): "The capital of France is Paris"
 
 ChunkID = CID("The capital of France is Paris")
 
 Both files reference the same CID; embedding computed once, reused for both.
 ```
+
+### Why Discussion Files Are Not Special in Storage
+
+- **Chunks**: Use identical CID-based mechanism as other files
+- **Embeddings**: Shared with any file containing matching content
+- **Structure**: Stored in `files/` bucket with identical schema as input/output files
+- **Distinction**: Semantic (contains query-response history) rather than structural
+
+**Storage Implication**: No separate handling needed; `currentDiscussionFile` pointer and `discussionFile` context in roundHistory provide all necessary semantics.
 
 ### Unified Embeddings Bucket (No Separate FileReferences)
 
@@ -70,7 +251,7 @@ files/{filepath} → {
 
 **Advantages**:
 - Single lookup per semantic search (embeddings bucket only)
-- No queryID/roundID duplication per chunk
+- No queryID/roundID duplication per chunk (moved to roundHistory in projects bucket)
 - File structure acts like filesystem inode (filepath → list of blocks)
 - Supports file changes: update fileTimestamp, chunks remain with old CIDs until garbage collected
 
@@ -78,7 +259,7 @@ files/{filepath} → {
 
 - **Redundant**: Multiple chunks from same query/round share identical queryID/roundID
 - **Space Waste**: Duplicated in every embedding entry
-- **Versioning**: Query history belongs in projects metadata or separate audit log, not per-chunk
+- **Versioning**: Query history belongs in projects metadata roundHistory or separate audit log, not per-chunk
 - **Alternative**: If ordering matters, store in projects bucket as `roundHistory`: `[{ roundID, queryID, timestamp, CIDs: [...] }]`
 
 ### Why Not Persist HNSW Graph?
@@ -99,26 +280,12 @@ files/{filepath} → {
 
 - **Reduces Duplication**: Identical chunks across projects/files stored once
 - **Simplifies Garbage Collection**: Scan embeddings bucket, verify each CID exists in files bucket
-- **Flexible Sharing**: Supports chunks shared across multiple files
+- **Flexible Sharing**: Supports chunks shared across multiple files and discussion contexts
 - **Cleaner Queries**: Direct CID lookup is O(1), no filepath prefix scanning needed
 
-## Implementation Strategy
+## Storage Operations
 
-### Phase 1: Basic Setup
-```
-On startup:
-1. Open BoltDB instance at ~/.storm/data.db
-2. Load project metadata from projects/ bucket
-3. Rebuild HNSW indices per project:
-   - For each project, iterate authorizedFiles
-   - Scan files/ bucket for filepaths in authorizedFiles
-   - Collect all CID referenced by those files
-   - Load corresponding embeddings from embeddings/ bucket
-   - Build HNSW index in memory
-4. Ready for semantic search queries
-```
-
-### Phase 2: Embedding Storage
+### Embedding Storage
 ```
 When processing chat round with output files:
 1. Extract markdown chunks from output files
@@ -128,12 +295,13 @@ When processing chat round with output files:
    a. Check if CID exists in embeddings/
       - If yes: skip (embedding already computed)
       - If no: store in embeddings/{CID} → vector_bytes
-   b. Update files/{filepath} to append new chunks:
+   b. Update files/{currentDiscussionFile} to append new chunks:
       { CID, offset, length } to chunks[] array
+   c. Update projects/{projectID}/roundHistory with discussionFile context
 5. Add embeddings to in-memory HNSW index for owning project
 ```
 
-### Phase 3: Semantic Search
+### Semantic Search
 ```
 When querying with semantic context:
 1. Generate embedding for query via Ollama
@@ -141,13 +309,14 @@ When querying with semantic context:
    (returns list of CIDs)
 3. For each CID:
    a. Find which files reference this CID by scanning files/ bucket
-   b. Select authorized file from project's authorizedFiles
-   c. Read chunk from file at specified offset/length
-   d. Compute CID hash of read content, verify against expected CID
-4. Return ranked results with content
+   b. Filter by authorizedFiles for this project
+   c. Optionally filter by discussion file if searching within specific discussion
+   d. Read chunk from file at specified offset/length
+   e. Compute CID hash of read content, verify against expected CID
+4. Return ranked results with content and source discussion file
 ```
 
-### Phase 4: Garbage Collection
+### Garbage Collection
 ```
 Background garbage collection (daily or on-demand):
 1. Scan all embeddings/ bucket keys (all CIDs)
@@ -161,176 +330,96 @@ Background garbage collection (daily or on-demand):
 3. Optional: Rebuild files/ bucket entries with missing chunks removed
 ```
 
-### Phase 5: Handling File Modifications
+### Handling File Modifications
 
 **When File Changes**:
 1. Recompute chunks for modified file (may differ from before)
 2. Generate new CIDs for new content blocks
 3. Store new CIDs in embeddings/ bucket (if new content)
-4. Update files/{filepath} with new chunk list
-5. On next garbage collection: old CIDs no longer referenced by any file are deleted
-6. Update projects/{projectID}/chunk_ordering if needed for audit trail
+4. Update files/{filepath} with new chunk list and fileTimestamp
+5. Update projects/{projectID}/discussionFiles[].roundCount if modified file is discussion file
+6. On next garbage collection: old CIDs no longer referenced by any file are deleted
 
-## Bucket Schema (BoltDB)
+### Managing Discussion Files
 
-### projects/ bucket
-```json
-Key: projectID
-Value: {
-  "id": "project-1",
-  "baseDir": "/path/to/project",
-  "markdownFile": "chat.md",
-  "authorizedFiles": ["data.csv", "output.json", "/absolute/path/to/file.md"],
-  "createdAt": "2025-12-06T03:00:00Z",
-  "embeddingCount": 256,
-  "roundHistory": [
-    {
-      "roundID": "round-5",
-      "queryID": "query-abc123",
-      "timestamp": "2025-12-06T03:15:00Z",
-      "CIDs": ["hash1", "hash2", "hash3"]
-    }
-  ]
-}
+**Creating new discussion file**:
+```
+storm-cli discussion create --project X --name "chat-2.md"
+
+Operations:
+1. Create new Chat instance at project baseDir/chat-2.md
+2. Add to discussionFiles array in projects/{projectID}
+3. Optionally set as currentDiscussionFile
+4. Store changes via BoltDB transaction
 ```
 
-### embeddings/ bucket
-```json
-Key: "{CID}" (CID hash of chunk content)
-Value: {
-  "vector": <binary float32 array (768*4 bytes for nomic-embed-text)>,
-  "metadata": {
-    "modelName": "nomic-embed-text",
-    "generatedAt": "2025-12-06T03:15:00Z"
-  }
-}
+**Switching discussion files**:
+```
+storm-cli discussion switch --project X chat-2.md
+OR UI: Dropdown selector → switch
+
+Operations:
+1. Update projects/{projectID}/currentDiscussionFile pointer
+2. Load Chat instance for new markdown file
+3. UI/Browser reloads chat history from new file
+4. Subsequent rounds append to active discussion file only
 ```
 
-**Key Characteristics**:
-- CID is deterministic (same content → same CID everywhere)
-- No queryID or roundID here (moved to projects.roundHistory)
-- One embedding per unique content block (deduplication across files)
+**Listing discussion files**:
+```
+storm-cli discussion list --project X
 
-### files/ bucket
-```json
-Key: "{filepath}" (e.g., "/path/to/project/chat.md")
-Value: {
-  "filepath": "/path/to/project/chat.md",
-  "fileTimestamp": "2025-12-06T03:15:00Z",
-  "chunks": [
-    {
-      "CID": "QmXxxx...",
-      "offset": 0,
-      "length": 512
-    },
-    {
-      "CID": "QmYyyy...",
-      "offset": 512,
-      "length": 256
-    }
-  ]
-}
+Returns discussionFiles array with metadata:
+- filepath
+- createdAt
+- roundCount
 ```
 
-**Inode-Like Structure**:
-- Filepath is the key (like inode number)
-- Chunks array lists all content blocks with their location
-- fileTimestamp detects external modifications
-- Supports sparse files (gaps between chunks)
+## Startup Procedure
 
-**On Retrieval**:
-1. Look up files[filepath] to get chunks array
-2. Find chunk with matching CID in array
-3. Read file at offset for length bytes
-4. Compute CID of read content, verify against stored CID
-5. Return text if hash matches (file unchanged)
-6. If hash mismatch: file was modified, embedding stale (skip or recompute)
-
-**On File Deauthorization**:
-1. Remove filepath from project's authorizedFiles
-2. Do not immediately delete embeddings (may be referenced by other files/projects)
-3. Next garbage collection pass will clean up orphaned CIDs
-
-### hnsw_metadata/ bucket
-```json
-Key: "{projectID}:metadata"
-Value: {
-  "lastRebuild": "2025-12-06T03:00:00Z",
-  "embeddingCount": 256,
-  "hnswVersion": "v1",
-  "dataFormatVersion": "1.0"
-}
+```
+On startup:
+1. Open BoltDB instance at ~/.storm/data.db
+2. Load project metadata from projects/ bucket
+3. For each project:
+   a. Identify currentDiscussionFile
+   b. Load Chat instance for that discussion file
+4. Rebuild HNSW indices per project:
+   - For each project, iterate authorizedFiles
+   - Scan files/ bucket for filepaths in authorizedFiles
+   - Collect all CIDs referenced by those files
+   - Load corresponding embeddings from embeddings/ bucket
+   - Build HNSW index in memory
+5. Ready for semantic search queries
 ```
 
-### config/ bucket
-```json
-Key: "config"
-Value: {
-  "port": 8080,
-  "embeddingModel": "nomic-embed-text",
-  "ollama": {
-    "endpoint": "http://localhost:11434"
-  },
-  "hnsw": {
-    "M": 16,
-    "efConstruction": 200,
-    "efSearch": 100
-  }
-}
-```
+## Discussion Files vs Input/Output Files
 
-## Merkle Tree Alternative (Not Recommended for Storm)
+### Key Differences
 
-**Why NOT Use Merkle Trees for Chunk Ordering**:
-- **Overhead**: Merkle trees require computing hashes for all nodes on insertion
-- **Unnecessary Complexity**: Linear chunk ordering (offset/length) is sufficient
-- **Scaling**: Round history stored in projects bucket is simpler than tree traversal
-- **Use Case Mismatch**: Merkle trees excel for multi-writer consensus; Storm has single daemon
-- **Recommendation**: Use simple array in `projects.roundHistory` tracking CIDs per round
+| Aspect | Discussion File | Input/Output Files |
+|--------|-----------------|-------------------|
+| **Purpose** | Stores query-response history | Static input data or LLM output |
+| **Mutability** | Grows via appended rounds | Immutable from DB perspective |
+| **Creation** | Created with project or on-demand | Authorized via CLI/API |
+| **Tracking** | currentDiscussionFile pointer + discussionFiles list | Stored in authorizedFiles array |
+| **Chunks** | Same CID-based chunking as other files | Identical chunking mechanism |
+| **Embeddings** | Shared embeddings with other files (if content matches) | Shared embeddings with discussion files |
+| **Semantic Search** | Searchable within current discussion context | Searchable; results include source file |
+| **Garbage Collection** | Preserved across rounds; old chunks cleaned only if file deauthorized | Same cleanup process |
 
-If full audit trail needed:
-```json
-"roundHistory": [
-  {
-    "roundID": "round-5",
-    "CIDs": ["hash1", "hash2"],
-    "rootHash": "merkleRoot"  // Optional verification
-  }
-]
-```
+### Storage Implications
 
-## Pros and Cons
+**No Structural Difference**:
+- Both stored in `files/` bucket with identical schema
+- Both use CID-based chunks
+- Both share embeddings in `embeddings/` bucket
+- Both tracked in `projects/{projectID}/roundHistory` (discussion files have `discussionFile` context)
 
-### HNSW (fogfish/hnsw)
-
-**Pros**:
-- Pure Go implementation with no C++ dependencies
-- Efficient approximate nearest neighbor search (sublinear complexity)
-- Active maintenance and clear API
-- Hierarchical structure enables logarithmic search traversal
-- No external service required
-
-**Cons**:
-- Must rebuild index on daemon startup (acceptable cost)
-- Memory usage proportional to dataset size (~1MB per 1000 embeddings)
-- No persistence built-in (must manually serialize if needed)
-- Requires careful parameter tuning (M, efConstruction, efSearch)
-
-### BoltDB
-
-**Pros**:
-- Embedded, pure Go, no external process
-- ACID transactions ensure consistency
-- Fast key-value operations with range scanning
-- Simple bucket hierarchy for organizational namespace
-- Single file database (easy backup/distribution)
-- Proven stability in production Go applications
-
-**Cons**:
-- Single writer limitation (acceptable for Storm's single daemon architecture)
-- No built-in full-text search or vector indexing
-- Entire dataset fits in mmap'd memory (scalability limited to RAM)
-- No distributed transaction support (not needed for Storm)
+**Operational Difference**:
+- Discussion files linked via `currentDiscussionFile` (active pointer)
+- Input/output files linked via `authorizedFiles` array (permissions)
+- When switching discussion files, only the pointer changes; content remains persistent
 
 ## Project Registry Integration
 
@@ -338,7 +427,7 @@ If full audit trail needed:
 
 **Approach**: Use separate bucket `projects/` for project metadata
 - **Key**: projectID
-- **Value**: JSON-encoded project struct including roundHistory for query/chunk audit trail
+- **Value**: JSON-encoded project struct including discussionFiles list and roundHistory
 
 **Advantages**:
 - Single database file for all persistent state
@@ -359,6 +448,8 @@ func LoadProjectRegistry(db *bolt.DB) (map[string]*Project, error) {
             var project Project
             json.Unmarshal(v, &project)
             projects[project.ID] = &project
+            // Load Chat for currentDiscussionFile
+            project.Chat = NewChat(project.CurrentDiscussionFile)
             return nil
         })
     })
@@ -368,15 +459,17 @@ func LoadProjectRegistry(db *bolt.DB) (map[string]*Project, error) {
 
 ## Migration Path
 
-1. **Current State**: In-memory project registry, no embeddings
-2. **Phase 1** (Week 1): Add BoltDB persistence for projects, load on startup
+1. **Current State**: In-memory project registry, no embeddings, single markdownFile per project
+2. **Phase 1** (Week 1): Add BoltDB persistence for projects, load on startup, support multiple discussionFiles
 3. **Phase 2** (Week 2): Implement Ollama embedding generation and file storage with chunkID-based buckets
 4. **Phase 3** (Week 3): Integrate fogfish/hnsw for semantic search over content-addressed embeddings
-5. **Future** (if needed): Add graph database only if relationships become complex
+5. **Phase 4** (Week 4): Add CLI commands for discussion file management (create, switch, list)
+6. **Future** (if needed): Add graph database only if relationships become complex
 
 ## Performance Expectations
 
 - **Startup**: Loading 1000 projects + 100k embeddings + HNSW rebuild ≈ 2-5 seconds
+- **Discussion File Switch**: Update pointer + reload Chat ≈ <100ms
 - **Semantic Search**: HNSW query against 100k embeddings ≈ 5-20ms (ef parameter tuned)
 - **Embedding Generation**: Ollama for 512-token chunk ≈ 50-100ms per chunk
 - **Chunk Retrieval**: Read from file at offset/length ≈ <1ms (OS page cache)
@@ -392,6 +485,7 @@ func LoadProjectRegistry(db *bolt.DB) (map[string]*Project, error) {
 - **Content Verification**: CID hashes detect tampering or accidental file modifications
 - **Garbage Collection**: Verify filepath exists in authorizedFiles before deletion (prevent accidental cleanup)
 - **Chunk Integrity**: Always compute CID on retrieved chunks; reject if hash mismatch indicates corruption
+- **Discussion File Access**: Only currentDiscussionFile is writable; switching requires explicit user action
 
 ## Recommended Configuration
 
