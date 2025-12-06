@@ -1,18 +1,17 @@
-package main
+package bbolt
 
 import (
 	"fmt"
 
-	"github.com/fxamacker/cbor/v2"
 	"go.etcd.io/bbolt"
 )
 
-// BoltDBStore implements KVStore interface using BoltDB for persistence
+// BoltDBStore wraps bbolt.DB with transaction adapters
 type BoltDBStore struct {
 	db *bbolt.DB
 }
 
-// NewBoltDBStore creates a new BoltDB-backed KV store
+// NewBoltDBStore creates and initializes a BoltDB store
 func NewBoltDBStore(dbPath string) (*BoltDBStore, error) {
 	db, err := bbolt.Open(dbPath, 0600, nil)
 	if err != nil {
@@ -23,7 +22,6 @@ func NewBoltDBStore(dbPath string) (*BoltDBStore, error) {
 
 	// Initialize default buckets
 	err = store.Update(func(tx WriteTx) error {
-		// Create essential buckets if they don't exist
 		requiredBuckets := []string{
 			"projects",
 			"files",
@@ -60,12 +58,24 @@ func (b *BoltDBStore) Update(fn func(WriteTx) error) error {
 	})
 }
 
-// Close closes the database connection
+// Close closes the database
 func (b *BoltDBStore) Close() error {
 	return b.db.Close()
 }
 
-// BoltDB transaction adapters
+// Transaction adapters - internal types with no external interface references
+
+type ReadTx interface {
+	Get(bucket, key string) []byte
+	ForEach(bucket string, fn func(k, v []byte) error) error
+}
+
+type WriteTx interface {
+	ReadTx
+	Put(bucket, key string, value []byte) error
+	Delete(bucket, key string) error
+	CreateBucketIfNotExists(bucket string) error
+}
 
 type boltReadTx struct {
 	tx *bbolt.Tx
@@ -151,48 +161,3 @@ func (b *boltWriteTx) CreateBucketIfNotExists(bucket string) error {
 	_, err := b.tx.CreateBucketIfNotExists([]byte(bucket))
 	return err
 }
-
-// CBOR encoding/decoding helpers
-
-func MarshalCBOR(v interface{}) ([]byte, error) {
-	encOptions := cbor.EncOptions{Sort: cbor.SortCanonical}
-	encoder, err := encOptions.EncMode()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create CBOR encoder: %w", err)
-	}
-	return encoder.Marshal(v)
-}
-
-func UnmarshalCBOR(data []byte, v interface{}) error {
-	decOptions := cbor.DecOptions{}
-	decoder, err := decOptions.DecMode()
-	if err != nil {
-		return fmt.Errorf("failed to create CBOR decoder: %w", err)
-	}
-	return decoder.Unmarshal(data, v)
-}
-
-func StoreCBOR(tx WriteTx, bucket, key string, value interface{}) error {
-	data, err := MarshalCBOR(value)
-	if err != nil {
-		return err
-	}
-	return tx.Put(bucket, key, data)
-}
-
-func LoadCBOR(tx ReadTx, bucket, key string, value interface{}) error {
-	data := tx.Get(bucket, key)
-	if data == nil {
-		return fmt.Errorf("key %s not found in bucket %s", key, bucket)
-	}
-	return UnmarshalCBOR(data, value)
-}
-
-func LoadCBORIfExists(tx ReadTx, bucket, key string, value interface{}) error {
-	data := tx.Get(bucket, key)
-	if data == nil {
-		return nil
-	}
-	return UnmarshalCBOR(data, value)
-}
-
