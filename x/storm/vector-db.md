@@ -2,7 +2,7 @@
 
 ## Overview
 
-Storm needs to support semantic search over markdown discussion files using embeddings. This document outlines the persistence architecture combining in-memory approximate nearest neighbor (ANN) search with embedded key-value storage.
+Storm needs to support semantic search over markdown discussion files using embeddings. This document outlines the persistence architecture combining in-memory approximate nearest neighbor (ANN) search with embedded key-value storage using content-addressed chunk identifiers.
 
 ## Architecture Components
 
@@ -23,8 +23,8 @@ Storm needs to support semantic search over markdown discussion files using embe
 - **Role**: Embedded key-value store for metadata, embeddings, and file references
 - **Data Buckets**:
   - `projects/`: Project metadata (ID, baseDir, markdownFile, authorizedFiles)
-  - `embeddings/`: Raw embedding vectors keyed by filepath:chunkID
-  - `fileReferences/`: File location and offset data keyed by filepath:chunkID
+  - `embeddings/`: Raw embedding vectors keyed by chunkID (content CID)
+  - `files/`: File inode-like structures mapping filepath → chunks with offsets
   - `hnsw_metadata/`: Versioning and index rebuild timestamps
   - `config/`: Storm daemon configuration settings
 - **ACID Guarantees**: Transaction support prevents corruption
@@ -32,17 +32,54 @@ Storm needs to support semantic search over markdown discussion files using embe
 
 ## Design Rationale
 
-### Why HNSW + BoltDB Instead of Graph Database?
+### Content-Addressed Chunks (ChunkID as CID)
 
-**Graph Database Considerations**:
-- **Pros**: Efficient complex relationship queries, built-in graph traversal
-- **Cons**: Overkill for Storm's simple data model, external service/process required, operational complexity
+**Why Hash-Based Keys**:
+- **Deduplication**: Identical content blocks across multiple files share same CID and embedding
+- **Integrity**: Chunk hash serves as tamper detection (CID mismatch = file modified)
+- **Determinism**: Same chunk content always produces same CID regardless of source
+- **Simplicity**: No need for sequential IDs or complex versioning
 
-**Storm's Data Model**:
-- Flat hierarchy: Projects → Files → Chunks → Embeddings (no complex traversals)
-- No multi-hop queries needed (e.g., no "find projects connected through users")
-- Simple access patterns (project lookup, chunk retrieval by similarity)
-- **Conclusion**: Graph database complexity unjustified
+**Example**:
+```
+File A: "The capital of France is Paris"
+File B: "The capital of France is Paris"
+
+ChunkID = CID("The capital of France is Paris")
+
+Both files reference the same CID; embedding computed once, reused for both.
+```
+
+### Unified Embeddings Bucket (No Separate FileReferences)
+
+```
+embeddings/{CID} → {
+  "vector": <binary float32 embedding>,
+  "metadata": { ... optional minimal metadata ... }
+}
+
+files/{filepath} → {
+  "chunks": [
+    { "CID": "offset": 0, "length": 512 },
+    { "CID": "offset": 512, "length": 256 },
+    ...
+  ],
+  "fileTimestamp": "2025-12-06T03:15:00Z"
+}
+```
+
+**Advantages**:
+- Single lookup per semantic search (embeddings bucket only)
+- No queryID/roundID duplication per chunk
+- File structure acts like filesystem inode (filepath → list of blocks)
+- Supports file changes: update fileTimestamp, chunks remain with old CIDs until garbage collected
+
+### Why Remove queryID and roundID from Storage?
+
+- **Redundant**: Multiple chunks from same query/round share identical queryID/roundID
+- **Space Waste**: Duplicated in every embedding entry
+- **Versioning**: Query history belongs in projects metadata or separate audit log, not per-chunk
+- **Alternative**: If ordering matters, store in projects bucket as `roundHistory`: `[{ roundID, queryID, timestamp, CIDs: [...] }]`
 
 ### Why Not Persist HNSW Graph?
 
@@ -58,12 +95,12 @@ Storm needs to support semantic search over markdown discussion files using embe
 - **Content Verification**: CID hash enables integrity checking and deduplication
 - **Precise Retrieval**: Offset and length allow exact chunk extraction from file
 
-### Why Key by Pathname Instead of ProjectID?
+### Why Key by CID Instead of Filepath?
 
-- **Reduces Duplication**: If multiple projects reference same file, embeddings stored once
-- **Simplifies Garbage Collection**: Single scan through global embeddings bucket to find orphaned paths
-- **Flexible Sharing**: Supports future scenarios where files are shared across projects
-- **Cleaner Bucket Structure**: No need for per-project subdirectories in BoltDB
+- **Reduces Duplication**: Identical chunks across projects/files stored once
+- **Simplifies Garbage Collection**: Scan embeddings bucket, verify each CID exists in files bucket
+- **Flexible Sharing**: Supports chunks shared across multiple files
+- **Cleaner Queries**: Direct CID lookup is O(1), no filepath prefix scanning needed
 
 ## Implementation Strategy
 
@@ -72,22 +109,28 @@ Storm needs to support semantic search over markdown discussion files using embe
 On startup:
 1. Open BoltDB instance at ~/.storm/data.db
 2. Load project metadata from projects/ bucket
-3. For each project, load embeddings from embeddings/ bucket filtered by authorizedFiles
-4. Build separate HNSW index per project from loaded embeddings in memory
-5. Ready for semantic search queries
+3. Rebuild HNSW indices per project:
+   - For each project, iterate authorizedFiles
+   - Scan files/ bucket for filepaths in authorizedFiles
+   - Collect all CID referenced by those files
+   - Load corresponding embeddings from embeddings/ bucket
+   - Build HNSW index in memory
+4. Ready for semantic search queries
 ```
 
 ### Phase 2: Embedding Storage
 ```
-When processing chat round:
+When processing chat round with output files:
 1. Extract markdown chunks from output files
 2. Call Ollama to generate embeddings for new chunks
 3. Compute CID hash of chunk content
-4. Generate composite key: filepath:chunkID
-5. Store in BoltDB:
-   - embeddings/: { filepath:chunkID → vector_bytes }
-   - fileReferences/: { filepath:chunkID → { filepath, timestamp, offset, length, cidHash } }
-6. Add embeddings to in-memory HNSW index for owning project
+4. Store in BoltDB (single transaction):
+   a. Check if CID exists in embeddings/
+      - If yes: skip (embedding already computed)
+      - If no: store in embeddings/{CID} → vector_bytes
+   b. Update files/{filepath} to append new chunks:
+      { CID, offset, length } to chunks[] array
+5. Add embeddings to in-memory HNSW index for owning project
 ```
 
 ### Phase 3: Semantic Search
@@ -95,24 +138,38 @@ When processing chat round:
 When querying with semantic context:
 1. Generate embedding for query via Ollama
 2. Search project-specific HNSW index for k nearest neighbors
-3. Retrieve file references from fileReferences/ bucket
-4. Read chunk text from markdown file at specified offset/length
-5. Verify CID hash matches (detect file changes)
-6. Return ranked results with content
+   (returns list of CIDs)
+3. For each CID:
+   a. Find which files reference this CID by scanning files/ bucket
+   b. Select authorized file from project's authorizedFiles
+   c. Read chunk from file at specified offset/length
+   d. Compute CID hash of read content, verify against expected CID
+4. Return ranked results with content
 ```
 
 ### Phase 4: Garbage Collection
 ```
-Background or on-demand garbage collection:
-1. Scan all embeddings/ bucket keys (filepath:chunkID pairs)
-2. Extract filepath from each key
-3. Check if filepath appears in ANY project's authorizedFiles list
-4. If not found in any project:
-   - Delete from embeddings/ bucket
-   - Delete from fileReferences/ bucket
-   - Log deletion for audit trail
-5. Run periodically (e.g., daily) or on-demand via CLI
+Background garbage collection (daily or on-demand):
+1. Scan all embeddings/ bucket keys (all CIDs)
+2. For each CID:
+   a. Search files/ bucket for any reference to this CID
+   b. Check if filepath containing chunk is in ANY project's authorizedFiles
+   c. If not referenced by any authorized file:
+      - Delete from embeddings/ bucket
+      - Remove from files/ bucket entries
+      - Log deletion
+3. Optional: Rebuild files/ bucket entries with missing chunks removed
 ```
+
+### Phase 5: Handling File Modifications
+
+**When File Changes**:
+1. Recompute chunks for modified file (may differ from before)
+2. Generate new CIDs for new content blocks
+3. Store new CIDs in embeddings/ bucket (if new content)
+4. Update files/{filepath} with new chunk list
+5. On next garbage collection: old CIDs no longer referenced by any file are deleted
+6. Update projects/{projectID}/chunk_ordering if needed for audit trail
 
 ## Bucket Schema (BoltDB)
 
@@ -125,49 +182,74 @@ Value: {
   "markdownFile": "chat.md",
   "authorizedFiles": ["data.csv", "output.json", "/absolute/path/to/file.md"],
   "createdAt": "2025-12-06T03:00:00Z",
-  "embeddingCount": 256
+  "embeddingCount": 256,
+  "roundHistory": [
+    {
+      "roundID": "round-5",
+      "queryID": "query-abc123",
+      "timestamp": "2025-12-06T03:15:00Z",
+      "CIDs": ["hash1", "hash2", "hash3"]
+    }
+  ]
 }
 ```
 
 ### embeddings/ bucket
 ```json
-Key: "{filepath}:{chunkID}" (e.g., "/path/to/project/chat.md:chunk-0001")
+Key: "{CID}" (CID hash of chunk content)
 Value: {
-  "embedding": <binary float32 vector (768*4 bytes)>,
-  "projectID": "project-1",
+  "vector": <binary float32 array (768*4 bytes for nomic-embed-text)>,
   "metadata": {
-    "roundID": "round-5",
-    "queryID": "query-abc123",
-    "timestamp": "2025-12-06T03:15:00Z"
+    "modelName": "nomic-embed-text",
+    "generatedAt": "2025-12-06T03:15:00Z"
   }
 }
 ```
 
-### fileReferences/ bucket
+**Key Characteristics**:
+- CID is deterministic (same content → same CID everywhere)
+- No queryID or roundID here (moved to projects.roundHistory)
+- One embedding per unique content block (deduplication across files)
+
+### files/ bucket
 ```json
-Key: "{filepath}:{chunkID}"
+Key: "{filepath}" (e.g., "/path/to/project/chat.md")
 Value: {
   "filepath": "/path/to/project/chat.md",
   "fileTimestamp": "2025-12-06T03:15:00Z",
-  "offset": 4096,
-  "length": 512,
-  "cidHash": "QmXxxx...",
-  "queryID": "query-abc123",
-  "roundID": "round-5"
+  "chunks": [
+    {
+      "CID": "QmXxxx...",
+      "offset": 0,
+      "length": 512
+    },
+    {
+      "CID": "QmYyyy...",
+      "offset": 512,
+      "length": 256
+    }
+  ]
 }
 ```
 
+**Inode-Like Structure**:
+- Filepath is the key (like inode number)
+- Chunks array lists all content blocks with their location
+- fileTimestamp detects external modifications
+- Supports sparse files (gaps between chunks)
+
 **On Retrieval**:
-1. Look up fileReferences[filepath:chunkID] to get filepath, offset, length
-2. Read file at specified offset for length bytes
-3. Compute CID of read content, verify against stored cidHash
-4. Return text if hash matches (file unchanged)
-5. If hash mismatch: file was modified, mark embedding stale for re-indexing
+1. Look up files[filepath] to get chunks array
+2. Find chunk with matching CID in array
+3. Read file at offset for length bytes
+4. Compute CID of read content, verify against stored CID
+5. Return text if hash matches (file unchanged)
+6. If hash mismatch: file was modified, embedding stale (skip or recompute)
 
 **On File Deauthorization**:
 1. Remove filepath from project's authorizedFiles
-2. Do not immediately delete embeddings (may be referenced by other projects)
-3. Next garbage collection pass will clean up orphaned entries
+2. Do not immediately delete embeddings (may be referenced by other files/projects)
+3. Next garbage collection pass will clean up orphaned CIDs
 
 ### hnsw_metadata/ bucket
 ```json
@@ -195,6 +277,26 @@ Value: {
     "efSearch": 100
   }
 }
+```
+
+## Merkle Tree Alternative (Not Recommended for Storm)
+
+**Why NOT Use Merkle Trees for Chunk Ordering**:
+- **Overhead**: Merkle trees require computing hashes for all nodes on insertion
+- **Unnecessary Complexity**: Linear chunk ordering (offset/length) is sufficient
+- **Scaling**: Round history stored in projects bucket is simpler than tree traversal
+- **Use Case Mismatch**: Merkle trees excel for multi-writer consensus; Storm has single daemon
+- **Recommendation**: Use simple array in `projects.roundHistory` tracking CIDs per round
+
+If full audit trail needed:
+```json
+"roundHistory": [
+  {
+    "roundID": "round-5",
+    "CIDs": ["hash1", "hash2"],
+    "rootHash": "merkleRoot"  // Optional verification
+  }
+]
 ```
 
 ## Pros and Cons
@@ -230,20 +332,13 @@ Value: {
 - Entire dataset fits in mmap'd memory (scalability limited to RAM)
 - No distributed transaction support (not needed for Storm)
 
-### Alternative: Embedded Graph Databases
-
-**Neo4j Embedded** / **DGraph** / **BadgerDB with graph layer**:
-- **Pros**: Graph queries if relationships become complex, potential horizontal scaling
-- **Cons**: Significantly larger Go binaries, more complex API, overkill for Storm's current model, operational overhead
-- **Recommendation**: Revisit only if Storm needs true graph traversal patterns
-
 ## Project Registry Integration
 
 ### Store in Same BoltDB Instance
 
 **Approach**: Use separate bucket `projects/` for project metadata
 - **Key**: projectID
-- **Value**: JSON-encoded project struct (name, baseDir, markdownFile, authorizedFiles, timestamps)
+- **Value**: JSON-encoded project struct including roundHistory for query/chunk audit trail
 
 **Advantages**:
 - Single database file for all persistent state
@@ -275,38 +370,40 @@ func LoadProjectRegistry(db *bolt.DB) (map[string]*Project, error) {
 
 1. **Current State**: In-memory project registry, no embeddings
 2. **Phase 1** (Week 1): Add BoltDB persistence for projects, load on startup
-3. **Phase 2** (Week 2): Implement Ollama embedding generation and file reference storage
-4. **Phase 3** (Week 3): Integrate fogfish/hnsw for semantic search over file-referenced embeddings
+3. **Phase 2** (Week 2): Implement Ollama embedding generation and file storage with chunkID-based buckets
+4. **Phase 3** (Week 3): Integrate fogfish/hnsw for semantic search over content-addressed embeddings
 5. **Future** (if needed): Add graph database only if relationships become complex
 
 ## Performance Expectations
 
-- **Startup**: Loading 1000 projects + 100k embeddings ≈ 2-5 seconds
+- **Startup**: Loading 1000 projects + 100k embeddings + HNSW rebuild ≈ 2-5 seconds
 - **Semantic Search**: HNSW query against 100k embeddings ≈ 5-20ms (ef parameter tuned)
 - **Embedding Generation**: Ollama for 512-token chunk ≈ 50-100ms per chunk
-- **File Retrieval**: Read chunk from file at offset/length ≈ <1ms (OS page cache)
+- **Chunk Retrieval**: Read from file at offset/length ≈ <1ms (OS page cache)
 - **Database Operations**: BoltDB get/put ≈ <1ms (in-memory mmap overhead minimal)
-- **Garbage Collection**: Scan 100k embeddings + verify against projects ≈ 500ms-2s
+- **Garbage Collection**: Scan 100k embeddings + verify files referencing them ≈ 500ms-2s
 
 ## Security Considerations
 
 - **BoltDB Files**: Store at `~/.storm/data.db`, restrict file permissions (0600)
-- **Markdown Files**: Ensure appropriate read permissions; cache permissions checked at access time
+- **Markdown Files**: Ensure appropriate read permissions; validate paths against authorizedFiles
 - **Embeddings**: Do not expose raw embeddings in API responses; only return semantic similarity scores
 - **Project Isolation**: Embeddings filtered by project's authorizedFiles; cross-project queries not possible
 - **Content Verification**: CID hashes detect tampering or accidental file modifications
 - **Garbage Collection**: Verify filepath exists in authorizedFiles before deletion (prevent accidental cleanup)
+- **Chunk Integrity**: Always compute CID on retrieved chunks; reject if hash mismatch indicates corruption
 
 ## Recommended Configuration
 
 ```go
-// hnsw parameters for Storm
-M := 16                  // max connections per node
-efConstruction := 200    // ef during insertion
-efSearch := 100          // ef during search
+// HNSW parameters for Storm
+M := 16                  // max connections per node (trade-off: memory vs search quality)
+efConstruction := 200    // ef during insertion (higher = better quality, slower insert)
+efSearch := 100          // ef during search (higher = better recall, slower search)
 
 // BoltDB tuning
-FreelistType := "array" // faster than map for typical usage
-PageSize := 4096        // default, suitable for embeddings
+FreelistType := "array"  // faster than map for typical usage
+PageSize := 4096         // default, suitable for embeddings
+BatchSize := 100         // embeddings to add per transaction
 ```
 
