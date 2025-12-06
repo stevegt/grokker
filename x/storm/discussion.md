@@ -16883,3 +16883,100 @@ Let me prepare a concise response explaining the change and then provide the upd
 
 ---
 
+
+
+**embedding and chunk buckets should be keyed by pathname, not projectID.  we can garbage collect by verifying that all embedding and chunk paths are listed in projects authorizedFiles lists.**
+
+
+
+
+# Vector Database Design: Path-Based Keying and Garbage Collection
+
+Reorganizing embeddings and file references by pathname rather than projectID enables efficient garbage collection and supports potential file sharing across projects[1][2]. Instead of maintaining separate buckets per project, use a global embeddings/ and fileReferences/ bucket with pathname-based keys, reducing duplication and simplifying deletion[1].
+
+**Garbage Collection Strategy**: Iterate all paths in embeddings/ and fileReferences/ buckets. For each path, scan all projects' authorizedFiles lists. If the path doesn't appear in any project's authorized list, mark it for deletion and remove associated embeddings[2]. This allows safe cleanup when files are deauthorized or projects are deleted[1].
+
+**Benefits**[1][2]:
+- Eliminates redundant embeddings if same file referenced by multiple projects
+- Simpler cleanup logic: single pass through all embeddings to find orphaned paths
+- Supports future file-sharing scenarios between projects
+- Reduces BoltDB size for multi-project deployments
+
+
+## References
+
+- [1] [https://zine.dev/2015/01/bolt-embedded-db-golang/](https://zine.dev/2015/01/bolt-embedded-db-golang/)
+- [2] [https://dbdb.io/db/boltdb](https://dbdb.io/db/boltdb)
+- [3] [https://nutsdb.github.io/nutsdb/](https://nutsdb.github.io/nutsdb/)
+- [4] [https://news.ycombinator.com/item?id=10880652](https://news.ycombinator.com/item?id=10880652)
+- [5] [https://awmanoj.github.io/2016/08/03/using-boltdb-as-a-fast-persistent-kv-store/](https://awmanoj.github.io/2016/08/03/using-boltdb-as-a-fast-persistent-kv-store/)
+- [6] [https://github.com/gostor/awesome-go-storage](https://github.com/gostor/awesome-go-storage)
+- [7] [https://www.dolthub.com/blog/2024-11-18-json-sqlite-vs-dolt/](https://www.dolthub.com/blog/2024-11-18-json-sqlite-vs-dolt/)
+- [8] [https://github.com/etcd-io/bbolt](https://github.com/etcd-io/bbolt)
+- [9] [https://hyscaler.com/insights/multithreaded-embedded-databases/](https://hyscaler.com/insights/multithreaded-embedded-databases/)
+- [10] [https://news.ycombinator.com/item?id=15766746](https://news.ycombinator.com/item?id=15766746)
+- [11] [https://pkg.go.dev/go.etcd.io/bbolt](https://pkg.go.dev/go.etcd.io/bbolt)
+- [12] [https://groups.google.com/g/golang-nuts/c/Cvq43LE5BSE/m/Fe5uhckVlnQJ](https://groups.google.com/g/golang-nuts/c/Cvq43LE5BSE/m/Fe5uhckVlnQJ)
+- [13] [https://golang-jwt.github.io/jwt/usage/create/](https://golang-jwt.github.io/jwt/usage/create/)
+- [14] [https://outcomeschool.com/blog/go-jwt-authentication-middleware](https://outcomeschool.com/blog/go-jwt-authentication-middleware)
+- [15] [https://dev.to/gkampitakis/golang-coverage-29cb](https://dev.to/gkampitakis/golang-coverage-29cb)
+- [16] [https://github.com/golang-jwt/jwt](https://github.com/golang-jwt/jwt)
+- [17] [https://github.com/auth0/go-jwt-middleware](https://github.com/auth0/go-jwt-middleware)
+- [18] [https://go.dev/blog/integration-test-coverage](https://go.dev/blog/integration-test-coverage)
+- [19] [https://dev.to/wiliamvj/the-power-of-the-cli-with-golang-and-cobra-cli-148k](https://dev.to/wiliamvj/the-power-of-the-cli-with-golang-and-cobra-cli-148k)
+- [20] [https://www.bytesizego.com/blog/idiomatic-go-cli](https://www.bytesizego.com/blog/idiomatic-go-cli)
+
+
+
+## Reasoning
+
+The user is asking me to update the vector-db.md file with a new design where embedding and chunk buckets are keyed by pathname instead of projectID. They also mention that garbage collection should work by verifying that all embedding and chunk paths are listed in projects' authorizedFiles lists.
+
+Let me understand what they're asking:
+
+Current design:
+- embeddings/{projectID}: { chunkID → vector_bytes }
+- fileReferences/{projectID}: { chunkID → file reference }
+
+New design:
+- embeddings/{pathname}: { chunkID → vector_bytes }
+- fileReferences/{pathname}: { chunkID → file reference }
+
+This is a significant change because it means we're organizing by the actual file path rather than by project. This would allow:
+1. Sharing embeddings across projects if the same file is used
+2. Garbage collection by checking if a file path appears in any project's authorizedFiles
+
+Wait, let me re-read. They say "embedding and chunk buckets should be keyed by pathname, not projectID". So instead of:
+- embeddings/{projectID}/chunkID
+
+It should be something like:
+- embeddings/ with key being pathname or something
+
+Actually, I think what they mean is that the bucket structure should change from:
+- embeddings/{projectID} bucket with key chunkID
+- fileReferences/{projectID} bucket with key chunkID
+
+To:
+- embeddings/ bucket with key being pathname:chunkID or just pathname
+- fileReferences/ bucket with key being pathname:chunkID or just pathname
+
+Or maybe:
+- embeddings/{filepath} bucket?
+
+Let me think about the practical implications:
+- If we key by pathname directly, we lose the projectID organization
+- But the fileReferences already contain the filepath
+- So we could organize as: embeddings/ bucket where key = filepath + ":" + chunkID
+
+For garbage collection:
+- Iterate through all keys in embeddings and fileReferences buckets
+- For each pathname, check if it appears in ANY project's authorizedFiles list
+
+
+- If not, mark as garbage and delete
+
+This approach enables file sharing across projects while simplifying cleanup—when a file is removed from all projects' authorizedFiles, its embeddings become eligible for deletion. I need to update the bucket schema, implementation strategy, and add garbage collection logic to the vector-db.md file.
+
+
+---
+

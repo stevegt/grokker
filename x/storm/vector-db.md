@@ -17,13 +17,14 @@ Storm needs to support semantic search over markdown discussion files using embe
 - **Role**: In-memory index for fast similarity search
 - **Data**: Stores embedding vectors and chunk references
 - **Lifecycle**: Rebuilt on daemon startup from persisted embeddings
+- **Scope**: Per-project indices (separate HNSW index for each project's embeddings)
 
 ### 3. Persistence Layer (BoltDB)
 - **Role**: Embedded key-value store for metadata, embeddings, and file references
 - **Data Buckets**:
   - `projects/`: Project metadata (ID, baseDir, markdownFile, authorizedFiles)
-  - `embeddings/{projectID}`: Raw embedding vectors with metadata
-  - `fileReferences/{projectID}`: File location and offset data for chunk retrieval
+  - `embeddings/`: Raw embedding vectors keyed by filepath:chunkID
+  - `fileReferences/`: File location and offset data keyed by filepath:chunkID
   - `hnsw_metadata/`: Versioning and index rebuild timestamps
   - `config/`: Storm daemon configuration settings
 - **ACID Guarantees**: Transaction support prevents corruption
@@ -38,7 +39,7 @@ Storm needs to support semantic search over markdown discussion files using embe
 - **Cons**: Overkill for Storm's simple data model, external service/process required, operational complexity
 
 **Storm's Data Model**:
-- Flat hierarchy: Projects → Chunks → Embeddings (no complex traversals)
+- Flat hierarchy: Projects → Files → Chunks → Embeddings (no complex traversals)
 - No multi-hop queries needed (e.g., no "find projects connected through users")
 - Simple access patterns (project lookup, chunk retrieval by similarity)
 - **Conclusion**: Graph database complexity unjustified
@@ -57,6 +58,13 @@ Storm needs to support semantic search over markdown discussion files using embe
 - **Content Verification**: CID hash enables integrity checking and deduplication
 - **Precise Retrieval**: Offset and length allow exact chunk extraction from file
 
+### Why Key by Pathname Instead of ProjectID?
+
+- **Reduces Duplication**: If multiple projects reference same file, embeddings stored once
+- **Simplifies Garbage Collection**: Single scan through global embeddings bucket to find orphaned paths
+- **Flexible Sharing**: Supports future scenarios where files are shared across projects
+- **Cleaner Bucket Structure**: No need for per-project subdirectories in BoltDB
+
 ## Implementation Strategy
 
 ### Phase 1: Basic Setup
@@ -64,8 +72,8 @@ Storm needs to support semantic search over markdown discussion files using embe
 On startup:
 1. Open BoltDB instance at ~/.storm/data.db
 2. Load project metadata from projects/ bucket
-3. For each project, load embeddings from embeddings/{projectID}
-4. Build HNSW index from loaded embeddings in memory
+3. For each project, load embeddings from embeddings/ bucket filtered by authorizedFiles
+4. Build separate HNSW index per project from loaded embeddings in memory
 5. Ready for semantic search queries
 ```
 
@@ -75,21 +83,35 @@ When processing chat round:
 1. Extract markdown chunks from output files
 2. Call Ollama to generate embeddings for new chunks
 3. Compute CID hash of chunk content
-4. Store in BoltDB:
-   - embeddings/{projectID}: { chunkID → vector_bytes }
-   - fileReferences/{projectID}: { chunkID → { filepath, timestamp, offset, length, cidHash } }
-5. Add embeddings to in-memory HNSW index
+4. Generate composite key: filepath:chunkID
+5. Store in BoltDB:
+   - embeddings/: { filepath:chunkID → vector_bytes }
+   - fileReferences/: { filepath:chunkID → { filepath, timestamp, offset, length, cidHash } }
+6. Add embeddings to in-memory HNSW index for owning project
 ```
 
 ### Phase 3: Semantic Search
 ```
 When querying with semantic context:
 1. Generate embedding for query via Ollama
-2. Search HNSW index for k nearest neighbors
-3. Retrieve file references from fileReferences/{projectID}
+2. Search project-specific HNSW index for k nearest neighbors
+3. Retrieve file references from fileReferences/ bucket
 4. Read chunk text from markdown file at specified offset/length
 5. Verify CID hash matches (detect file changes)
 6. Return ranked results with content
+```
+
+### Phase 4: Garbage Collection
+```
+Background or on-demand garbage collection:
+1. Scan all embeddings/ bucket keys (filepath:chunkID pairs)
+2. Extract filepath from each key
+3. Check if filepath appears in ANY project's authorizedFiles list
+4. If not found in any project:
+   - Delete from embeddings/ bucket
+   - Delete from fileReferences/ bucket
+   - Log deletion for audit trail
+5. Run periodically (e.g., daily) or on-demand via CLI
 ```
 
 ## Bucket Schema (BoltDB)
@@ -101,17 +123,18 @@ Value: {
   "id": "project-1",
   "baseDir": "/path/to/project",
   "markdownFile": "chat.md",
-  "authorizedFiles": ["data.csv", "output.json"],
+  "authorizedFiles": ["data.csv", "output.json", "/absolute/path/to/file.md"],
   "createdAt": "2025-12-06T03:00:00Z",
   "embeddingCount": 256
 }
 ```
 
-### embeddings/{projectID} bucket
+### embeddings/ bucket
 ```json
-Key: chunkID (e.g., "chunk-0001")
+Key: "{filepath}:{chunkID}" (e.g., "/path/to/project/chat.md:chunk-0001")
 Value: {
   "embedding": <binary float32 vector (768*4 bytes)>,
+  "projectID": "project-1",
   "metadata": {
     "roundID": "round-5",
     "queryID": "query-abc123",
@@ -120,9 +143,9 @@ Value: {
 }
 ```
 
-### fileReferences/{projectID} bucket
+### fileReferences/ bucket
 ```json
-Key: chunkID
+Key: "{filepath}:{chunkID}"
 Value: {
   "filepath": "/path/to/project/chat.md",
   "fileTimestamp": "2025-12-06T03:15:00Z",
@@ -135,11 +158,16 @@ Value: {
 ```
 
 **On Retrieval**:
-1. Look up fileReferences[chunkID] to get filepath, offset, length
+1. Look up fileReferences[filepath:chunkID] to get filepath, offset, length
 2. Read file at specified offset for length bytes
 3. Compute CID of read content, verify against stored cidHash
 4. Return text if hash matches (file unchanged)
 5. If hash mismatch: file was modified, mark embedding stale for re-indexing
+
+**On File Deauthorization**:
+1. Remove filepath from project's authorizedFiles
+2. Do not immediately delete embeddings (may be referenced by other projects)
+3. Next garbage collection pass will clean up orphaned entries
 
 ### hnsw_metadata/ bucket
 ```json
@@ -258,14 +286,16 @@ func LoadProjectRegistry(db *bolt.DB) (map[string]*Project, error) {
 - **Embedding Generation**: Ollama for 512-token chunk ≈ 50-100ms per chunk
 - **File Retrieval**: Read chunk from file at offset/length ≈ <1ms (OS page cache)
 - **Database Operations**: BoltDB get/put ≈ <1ms (in-memory mmap overhead minimal)
+- **Garbage Collection**: Scan 100k embeddings + verify against projects ≈ 500ms-2s
 
 ## Security Considerations
 
 - **BoltDB Files**: Store at `~/.storm/data.db`, restrict file permissions (0600)
 - **Markdown Files**: Ensure appropriate read permissions; cache permissions checked at access time
 - **Embeddings**: Do not expose raw embeddings in API responses; only return semantic similarity scores
-- **Project Isolation**: Embeddings and file references scoped by projectID; cross-project queries not possible
+- **Project Isolation**: Embeddings filtered by project's authorizedFiles; cross-project queries not possible
 - **Content Verification**: CID hashes detect tampering or accidental file modifications
+- **Garbage Collection**: Verify filepath exists in authorizedFiles before deletion (prevent accidental cleanup)
 
 ## Recommended Configuration
 
