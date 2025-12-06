@@ -730,18 +730,21 @@ func collectReferences(input string) map[string]string {
 
 // linkifyReferences replaces reference markers with markdown links.
 func linkifyReferences(input string, refs map[string]string) string {
-	re := regexp.MustCompile(`\[(\d+)\]`)
-	result := re.ReplaceAllStringFunc(input, func(match string) string {
-		m := re.FindStringSubmatch(match)
-		if len(m) == 2 {
-			url, ok := refs[m[1]]
-			if ok && m[1] != "" && url != "" {
-				return fmt.Sprintf("[[%s](%s)]", m[1], url)
+	return input // disable for now
+	/*
+		re := regexp.MustCompile(`\[(\d+)\]`)
+		result := re.ReplaceAllStringFunc(input, func(match string) string {
+			m := re.FindStringSubmatch(match)
+			if len(m) == 2 {
+				url, ok := refs[m[1]]
+				if ok && m[1] != "" && url != "" {
+					return fmt.Sprintf("[[%s](%s)]", m[1], url)
+				}
 			}
-		}
-		return match
-	})
-	return result
+			return match
+		})
+		return result
+	*/
 }
 
 // markdownToHTML converts markdown text to HTML using goldmark.
