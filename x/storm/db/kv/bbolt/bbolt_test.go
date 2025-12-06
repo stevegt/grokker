@@ -6,30 +6,26 @@ import (
 	"testing"
 )
 
-// Helper: Create test store in temp directory
-func createTestStore(t *testing.T) (*BoltDBStore, string) {
+func createTestStore(t *testing.T) *BoltDBStore {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
 	store, err := NewBoltDBStore(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to create store: %v", err)
 	}
-	return store, dbPath
+	return store
 }
 
-// TestNewBoltDBStore verifies store initialization
 func TestNewBoltDBStore(t *testing.T) {
-	store, _ := createTestStore(t)
+	store := createTestStore(t)
 	defer store.Close()
-
 	if store == nil {
 		t.Fatal("Store is nil")
 	}
 }
 
-// TestViewTransaction verifies read-only operations
 func TestViewTransaction(t *testing.T) {
-	store, _ := createTestStore(t)
+	store := createTestStore(t)
 	defer store.Close()
 
 	err := store.Update(func(tx WriteTx) error {
@@ -51,19 +47,15 @@ func TestViewTransaction(t *testing.T) {
 	}
 }
 
-// TestUpdateTransaction verifies read-write operations
 func TestUpdateTransaction(t *testing.T) {
-	store, _ := createTestStore(t)
+	store := createTestStore(t)
 	defer store.Close()
 
 	err := store.Update(func(tx WriteTx) error {
 		if err := tx.Put("files", "f1", []byte("data1")); err != nil {
 			return err
 		}
-		if err := tx.Put("files", "f2", []byte("data2")); err != nil {
-			return err
-		}
-		return nil
+		return tx.Put("files", "f2", []byte("data2"))
 	})
 	if err != nil {
 		t.Fatalf("Failed to write: %v", err)
@@ -83,9 +75,8 @@ func TestUpdateTransaction(t *testing.T) {
 	}
 }
 
-// TestForEachBucket verifies iteration
 func TestForEachBucket(t *testing.T) {
-	store, _ := createTestStore(t)
+	store := createTestStore(t)
 	defer store.Close()
 
 	err := store.Update(func(tx WriteTx) error {
@@ -117,9 +108,8 @@ func TestForEachBucket(t *testing.T) {
 	}
 }
 
-// TestDelete verifies deletion
 func TestDelete(t *testing.T) {
-	store, _ := createTestStore(t)
+	store := createTestStore(t)
 	defer store.Close()
 
 	err := store.Update(func(tx WriteTx) error {
@@ -147,7 +137,6 @@ func TestDelete(t *testing.T) {
 	}
 }
 
-// TestPersistenceAcrossInstances verifies data persists
 func TestPersistenceAcrossInstances(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "persist.db")
@@ -182,9 +171,8 @@ func TestPersistenceAcrossInstances(t *testing.T) {
 	}
 }
 
-// BenchmarkPut benchmarks write performance
 func BenchmarkPut(b *testing.B) {
-	store, _ := createTestStore(&testing.T{})
+	store := createTestStore(&testing.T{})
 	defer store.Close()
 
 	b.ResetTimer()
@@ -195,9 +183,8 @@ func BenchmarkPut(b *testing.B) {
 	}
 }
 
-// BenchmarkGet benchmarks read performance
 func BenchmarkGet(b *testing.B) {
-	store, _ := createTestStore(&testing.T{})
+	store := createTestStore(&testing.T{})
 	defer store.Close()
 
 	store.Update(func(tx WriteTx) error {

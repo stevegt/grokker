@@ -6,33 +6,12 @@ import (
 	"go.etcd.io/bbolt"
 )
 
-// ReadTx defines read operations in a transaction
-type ReadTx interface {
-	Get(bucket, key string) []byte
-	ForEach(bucket string, fn func(k, v []byte) error) error
-}
-
-// WriteTx defines read and write operations in a transaction
-type WriteTx interface {
-	ReadTx
-	Put(bucket, key string, value []byte) error
-	Delete(bucket, key string) error
-	CreateBucketIfNotExists(bucket string) error
-}
-
-// KVStore defines the key-value store abstraction
-type KVStore interface {
-	View(fn func(ReadTx) error) error
-	Update(fn func(WriteTx) error) error
-	Close() error
-}
-
-// BoltDBStore wraps bbolt.DB with transaction adapters
+// BoltDBStore implements KVStore-compatible behavior using BoltDB
 type BoltDBStore struct {
 	db *bbolt.DB
 }
 
-// NewBoltDBStore creates and initializes a BoltDB store
+// NewBoltDBStore creates and initializes a BoltDB-backed store
 func NewBoltDBStore(dbPath string) (*BoltDBStore, error) {
 	db, err := bbolt.Open(dbPath, 0600, nil)
 	if err != nil {
@@ -65,6 +44,20 @@ func NewBoltDBStore(dbPath string) (*BoltDBStore, error) {
 	return store, nil
 }
 
+// ReadTx internal interface (not exported to kv package)
+type ReadTx interface {
+	Get(bucket, key string) []byte
+	ForEach(bucket string, fn func(k, v []byte) error) error
+}
+
+// WriteTx internal interface (not exported to kv package)
+type WriteTx interface {
+	ReadTx
+	Put(bucket, key string, value []byte) error
+	Delete(bucket, key string) error
+	CreateBucketIfNotExists(bucket string) error
+}
+
 // View executes a read-only transaction
 func (b *BoltDBStore) View(fn func(ReadTx) error) error {
 	return b.db.View(func(tx *bbolt.Tx) error {
@@ -84,7 +77,6 @@ func (b *BoltDBStore) Close() error {
 	return b.db.Close()
 }
 
-// boltReadTx adapts bbolt transaction to ReadTx interface
 type boltReadTx struct {
 	tx *bbolt.Tx
 }
@@ -117,7 +109,6 @@ func (b *boltReadTx) ForEach(bucket string, fn func(k, v []byte) error) error {
 	})
 }
 
-// boltWriteTx adapts bbolt transaction to WriteTx interface
 type boltWriteTx struct {
 	tx *bbolt.Tx
 }
