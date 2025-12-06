@@ -39,8 +39,8 @@ func setupTestProject(t *testing.T, projectID string) (string, string, func()) {
 	return projectDir, markdownFile, cleanup
 }
 
-// Helper function to start a test daemon and return its port
-func startTestDaemon(t *testing.T, port int) {
+// Helper function to start a test daemon and return its URL
+func startTestDaemon(t *testing.T, port int) string {
 	go func() {
 		if err := serveRun(port); err != nil {
 			t.Logf("Daemon error on port %d: %v", port, err)
@@ -49,22 +49,17 @@ func startTestDaemon(t *testing.T, port int) {
 
 	// Wait for daemon to start
 	time.Sleep(2 * time.Second)
-}
-
-// Helper function to get daemon URL from port
-func getTestDaemonURL(port int) string {
 	return fmt.Sprintf("http://localhost:%d", port)
 }
 
 // TestCLIProjectAdd tests the project add subcommand via shell execution
 func TestCLIProjectAdd(t *testing.T) {
+	daemonPort := 59998
+	daemonURL := startTestDaemon(t, daemonPort)
+
 	projectID := "cli-test-project"
 	projectDir, markdownFile, cleanup := setupTestProject(t, projectID)
 	defer cleanup()
-
-	daemonPort := 59998
-	startTestDaemon(t, daemonPort)
-	daemonURL := getTestDaemonURL(daemonPort)
 
 	// Execute project add command via 'go run .'
 	cmd := exec.Command("go", "run", ".", "project", "add", projectID, projectDir, markdownFile)
@@ -89,13 +84,12 @@ func TestCLIProjectAdd(t *testing.T) {
 
 // TestCLIProjectList tests the project list subcommand via shell execution
 func TestCLIProjectList(t *testing.T) {
+	daemonPort := 59997
+	daemonURL := startTestDaemon(t, daemonPort)
+
 	projectID := "cli-list-project"
 	projectDir, markdownFile, cleanup := setupTestProject(t, projectID)
 	defer cleanup()
-
-	daemonPort := 59997
-	startTestDaemon(t, daemonPort)
-	daemonURL := getTestDaemonURL(daemonPort)
 
 	// Add project via CLI
 	cmd := exec.Command("go", "run", ".", "project", "add", projectID, projectDir, markdownFile)
@@ -124,6 +118,9 @@ func TestCLIProjectList(t *testing.T) {
 
 // TestCLIFileAdd tests the file add subcommand via shell execution
 func TestCLIFileAdd(t *testing.T) {
+	daemonPort := 59996
+	daemonURL := startTestDaemon(t, daemonPort)
+
 	projectID := "cli-file-test-project"
 	projectDir, markdownFile, cleanup := setupTestProject(t, projectID)
 	defer cleanup()
@@ -133,10 +130,6 @@ func TestCLIFileAdd(t *testing.T) {
 	if err := ioutil.WriteFile(inputFile, []byte("col1,col2\nval1,val2\n"), 0644); err != nil {
 		t.Fatalf("Failed to create input file: %v", err)
 	}
-
-	daemonPort := 59996
-	startTestDaemon(t, daemonPort)
-	daemonURL := getTestDaemonURL(daemonPort)
 
 	// Add project via CLI
 	cmd := exec.Command("go", "run", ".", "project", "add", projectID, projectDir, markdownFile)
@@ -165,6 +158,9 @@ func TestCLIFileAdd(t *testing.T) {
 
 // TestCLIFileList tests the file list subcommand via shell execution
 func TestCLIFileList(t *testing.T) {
+	daemonPort := 59995
+	daemonURL := startTestDaemon(t, daemonPort)
+
 	projectID := "cli-filelist-test-project"
 	projectDir, markdownFile, cleanup := setupTestProject(t, projectID)
 	defer cleanup()
@@ -174,10 +170,6 @@ func TestCLIFileList(t *testing.T) {
 	if err := ioutil.WriteFile(inputFile, []byte("col1,col2\n"), 0644); err != nil {
 		t.Fatalf("Failed to create input file: %v", err)
 	}
-
-	daemonPort := 59995
-	startTestDaemon(t, daemonPort)
-	daemonURL := getTestDaemonURL(daemonPort)
 
 	// Add project via CLI
 	cmd := exec.Command("go", "run", ".", "project", "add", projectID, projectDir, markdownFile)
@@ -246,4 +238,3 @@ func TestCLIFileListMissingProjectFlag(t *testing.T) {
 		t.Logf("Command exited with error code but no stderr output")
 	}
 }
-
