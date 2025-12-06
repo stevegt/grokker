@@ -1,336 +1,342 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"log"
-	"sync"
-
-	"go.etcd.io/bbolt"
+	"time"
 )
 
-// DBConfig holds Storm daemon configuration
-type DBConfig struct {
-	Port           int    `json:"port"`
-	EmbeddingModel string `json:"embeddingModel"`
-	OllamaEndpoint string `json:"ollamaEndpoint"`
-	HNSW           struct {
-		M              int `json:"M"`
-		EfConstruction int `json:"efConstruction"`
-		EfSearch       int `json:"efSearch"`
-	} `json:"hnsw"`
-}
-
-// ProjectMetadata stores project information in the database
-type ProjectMetadata struct {
-	ID                  string   `json:"id"`
-	BaseDir             string   `json:"baseDir"`
-	CurrentDiscussionFile string `json:"currentDiscussionFile"`
-	DiscussionFiles     []struct {
-		Filepath  string `json:"filepath"`
-		CreatedAt string `json:"createdAt"`
-		RoundCount int   `json:"roundCount"`
-	} `json:"discussionFiles"`
-	AuthorizedFiles []string `json:"authorizedFiles"`
-	CreatedAt       string   `json:"createdAt"`
-	EmbeddingCount  int      `json:"embeddingCount"`
-	RoundHistory    []struct {
-		RoundID       string   `json:"roundID"`
-		DiscussionFile string   `json:"discussionFile"`
-		QueryID       string   `json:"queryID"`
-		Timestamp     string   `json:"timestamp"`
-		CIDs          []string `json:"CIDs"`
-	} `json:"roundHistory"`
-}
-
-// DB wraps the BoltDB instance with helper methods
-type DB struct {
-	bolt  *bbolt.DB
-	mutex sync.RWMutex
-}
-
-// NewDB opens or creates a BoltDB instance
-func NewDB(filepath string) (*DB, error) {
-	bdb, err := bbolt.Open(filepath, 0600, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open BoltDB: %w", err)
-	}
-	return &DB{bolt: bdb}, nil
-}
-
-// Close closes the database connection
-func (d *DB) Close() error {
-	return d.bolt.Close()
-}
-
-// LoadConfig loads daemon configuration from the config/ bucket
-func (d *DB) LoadConfig() (*DBConfig, error) {
-	d.mutex.RLock()
-	defer d.mutex.RUnlock()
-
-	var config *DBConfig
-	err := d.bolt.View(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket([]byte("config"))
-		if bucket == nil {
-			return nil // No config yet, return nil
-		}
-		data := bucket.Get([]byte("config"))
-		if data == nil {
-			return nil
-		}
-		config = &DBConfig{}
-		if err := json.Unmarshal(data, config); err != nil {
-			return fmt.Errorf("failed to unmarshal config: %w", err)
-		}
-		return nil
+// LoadConfig retrieves the daemon configuration from the KV store
+func LoadConfig(db KVStore) (*Config, error) {
+	var config Config
+	err := db.View(func(tx ReadTx) error {
+		return LoadCBORIfExists(tx, "config", "config", &config)
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
-	return config, nil
+
+	// Return defaults if config doesn't exist yet
+	if config.Port == 0 {
+		config.Port = 8080
+		config.EmbeddingModel = "nomic-embed-text"
+		config.Ollama.Endpoint = "http://localhost:11434"
+		config.HNSW.M = 16
+		config.HNSW.EfConstruction = 200
+		config.HNSW.EfSearch = 100
+	}
+
+	return &config, nil
 }
 
-// SaveConfig saves daemon configuration to the config/ bucket
-func (d *DB) SaveConfig(config *DBConfig) error {
-	if config == nil {
-		return fmt.Errorf("config cannot be nil")
-	}
-
-	d.mutex.Lock()
-	defer d.mutex.Unlock()
-
-	return d.bolt.Update(func(tx *bbolt.Tx) error {
-		bucket, err := tx.CreateBucketIfNotExists([]byte("config"))
-		if err != nil {
-			return fmt.Errorf("failed to create config bucket: %w", err)
-		}
-		data, err := json.Marshal(config)
-		if err != nil {
-			return fmt.Errorf("failed to marshal config: %w", err)
-		}
-		if err := bucket.Put([]byte("config"), data); err != nil {
-			return fmt.Errorf("failed to store config: %w", err)
-		}
-		log.Printf("Saved config: port=%d, model=%s", config.Port, config.EmbeddingModel)
-		return nil
+// SaveConfig persists the daemon configuration to the KV store
+func SaveConfig(db KVStore, config *Config) error {
+	err := db.Update(func(tx WriteTx) error {
+		return StoreCBOR(tx, "config", "config", config)
 	})
+	if err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+	return nil
 }
 
-// LoadProjects loads all projects from the projects/ bucket
-func (d *DB) LoadProjects() (map[string]*ProjectMetadata, error) {
-	d.mutex.RLock()
-	defer d.mutex.RUnlock()
+// LoadProjectRegistry loads all projects from the KV store
+func LoadProjectRegistry(db KVStore) (map[string]*Project, error) {
+	projects := make(map[string]*Project)
 
-	projects := make(map[string]*ProjectMetadata)
-	err := d.bolt.View(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket([]byte("projects"))
-		if bucket == nil {
-			return nil // No projects yet
-		}
-		return bucket.ForEach(func(k, v []byte) error {
-			var metadata ProjectMetadata
-			if err := json.Unmarshal(v, &metadata); err != nil {
-				log.Printf("Warning: failed to unmarshal project %s: %v", string(k), err)
-				return nil
+	err := db.View(func(tx ReadTx) error {
+		return tx.ForEach("projects", func(k, v []byte) error {
+			var project Project
+			err := UnmarshalCBOR(v, &project)
+			if err != nil {
+				return fmt.Errorf("failed to unmarshal project: %w", err)
 			}
-			projects[metadata.ID] = &metadata
+			projects[project.ID] = &project
+
+			// Initialize Chat for current discussion file
+			if project.CurrentDiscussionFile != "" {
+				chatFilePath := project.BaseDir + "/" + project.CurrentDiscussionFile
+				project.Chat = NewChat(chatFilePath)
+			}
+
 			return nil
 		})
 	})
+
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to load project registry: %w", err)
 	}
-	log.Printf("Loaded %d projects from database", len(projects))
+
 	return projects, nil
 }
 
-// SaveProject saves a single project to the projects/ bucket
-func (d *DB) SaveProject(metadata *ProjectMetadata) error {
-	if metadata == nil {
-		return fmt.Errorf("project metadata cannot be nil")
-	}
-	if metadata.ID == "" {
+// SaveProject persists a single project to the KV store
+func SaveProject(db KVStore, project *Project) error {
+	if project.ID == "" {
 		return fmt.Errorf("project ID cannot be empty")
 	}
 
-	d.mutex.Lock()
-	defer d.mutex.Unlock()
-
-	return d.bolt.Update(func(tx *bbolt.Tx) error {
-		bucket, err := tx.CreateBucketIfNotExists([]byte("projects"))
-		if err != nil {
-			return fmt.Errorf("failed to create projects bucket: %w", err)
-		}
-		data, err := json.Marshal(metadata)
-		if err != nil {
-			return fmt.Errorf("failed to marshal project: %w", err)
-		}
-		if err := bucket.Put([]byte(metadata.ID), data); err != nil {
-			return fmt.Errorf("failed to store project: %w", err)
-		}
-		log.Printf("Saved project: id=%s, baseDir=%s", metadata.ID, metadata.BaseDir)
-		return nil
+	err := db.Update(func(tx WriteTx) error {
+		return StoreCBOR(tx, "projects", project.ID, project)
 	})
-}
 
-// GetProject retrieves a specific project from the projects/ bucket
-func (d *DB) GetProject(projectID string) (*ProjectMetadata, error) {
-	if projectID == "" {
-		return nil, fmt.Errorf("projectID cannot be empty")
+	if err != nil {
+		return fmt.Errorf("failed to save project %s: %w", project.ID, err)
 	}
 
-	d.mutex.RLock()
-	defer d.mutex.RUnlock()
-
-	var metadata *ProjectMetadata
-	err := d.bolt.View(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket([]byte("projects"))
-		if bucket == nil {
-			return fmt.Errorf("project %s not found", projectID)
-		}
-		data := bucket.Get([]byte(projectID))
-		if data == nil {
-			return fmt.Errorf("project %s not found", projectID)
-		}
-		metadata = &ProjectMetadata{}
-		if err := json.Unmarshal(data, metadata); err != nil {
-			return fmt.Errorf("failed to unmarshal project: %w", err)
-		}
-		return nil
-	})
-	return metadata, err
+	return nil
 }
 
-// DeleteProject removes a project from the projects/ bucket
-func (d *DB) DeleteProject(projectID string) error {
-	if projectID == "" {
-		return fmt.Errorf("projectID cannot be empty")
+// GetProject retrieves a single project by ID from the KV store
+func GetProject(db KVStore, projectID string) (*Project, error) {
+	var project Project
+
+	err := db.View(func(tx ReadTx) error {
+		return LoadCBOR(tx, "projects", projectID, &project)
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("project %s not found: %w", projectID, err)
 	}
 
-	d.mutex.Lock()
-	defer d.mutex.Unlock()
+	// Initialize Chat for current discussion file
+	if project.CurrentDiscussionFile != "" {
+		chatFilePath := project.BaseDir + "/" + project.CurrentDiscussionFile
+		project.Chat = NewChat(chatFilePath)
+	}
 
-	return d.bolt.Update(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket([]byte("projects"))
-		if bucket == nil {
-			return fmt.Errorf("project %s not found", projectID)
-		}
-		if err := bucket.Delete([]byte(projectID)); err != nil {
-			return fmt.Errorf("failed to delete project: %w", err)
-		}
-		log.Printf("Deleted project: id=%s", projectID)
-		return nil
-	})
+	return &project, nil
 }
 
-// ListProjectIDs returns all project IDs in the projects/ bucket
-func (d *DB) ListProjectIDs() ([]string, error) {
-	d.mutex.RLock()
-	defer d.mutex.RUnlock()
+// RemoveProject deletes a project from the KV store
+func RemoveProject(db KVStore, projectID string) error {
+	err := db.Update(func(tx WriteTx) error {
+		return tx.Delete("projects", projectID)
+	})
 
-	var ids []string
-	err := d.bolt.View(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket([]byte("projects"))
-		if bucket == nil {
-			return nil // No projects yet
-		}
-		return bucket.ForEach(func(k, v []byte) error {
-			ids = append(ids, string(k[0:]))
+	if err != nil {
+		return fmt.Errorf("failed to remove project %s: %w", projectID, err)
+	}
+
+	return nil
+}
+
+// ListProjects returns all projects from the KV store as a slice
+func ListProjects(db KVStore) ([]*Project, error) {
+	var projects []*Project
+
+	err := db.View(func(tx ReadTx) error {
+		return tx.ForEach("projects", func(k, v []byte) error {
+			var project Project
+			err := UnmarshalCBOR(v, &project)
+			if err != nil {
+				return fmt.Errorf("failed to unmarshal project: %w", err)
+			}
+
+			// Initialize Chat for current discussion file
+			if project.CurrentDiscussionFile != "" {
+				chatFilePath := project.BaseDir + "/" + project.CurrentDiscussionFile
+				project.Chat = NewChat(chatFilePath)
+			}
+
+			projects = append(projects, &project)
 			return nil
 		})
 	})
-	return ids, err
-}
 
-// ProjectExists checks if a project exists in the projects/ bucket
-func (d *DB) ProjectExists(projectID string) (bool, error) {
-	if projectID == "" {
-		return false, fmt.Errorf("projectID cannot be empty")
+	if err != nil {
+		return nil, fmt.Errorf("failed to list projects: %w", err)
 	}
 
-	d.mutex.RLock()
-	defer d.mutex.RUnlock()
+	return projects, nil
+}
 
-	exists := false
-	err := d.bolt.View(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket([]byte("projects"))
-		if bucket == nil {
-			return nil
-		}
-		data := bucket.Get([]byte(projectID))
-		exists = data != nil
+// ProjectExists checks if a project with the given ID exists
+func ProjectExists(db KVStore, projectID string) (bool, error) {
+	var exists bool
+
+	err := db.View(func(tx ReadTx) error {
+		exists = tx.Get("projects", projectID) != nil
 		return nil
 	})
+
 	return exists, err
 }
 
-// SaveEmbedding saves an embedding vector to the embeddings/ bucket
-func (d *DB) SaveEmbedding(cid string, vector []byte, modelName string) error {
-	if cid == "" {
-		return fmt.Errorf("CID cannot be empty")
+// AddProjectMetadata creates or updates a project with proper initialization
+func AddProjectMetadata(db KVStore, projectID, baseDir, markdownFile string) (*Project, error) {
+	// Check if project already exists
+	existingProject, err := GetProject(db, projectID)
+	if err == nil && existingProject != nil {
+		return nil, fmt.Errorf("project %s already exists", projectID)
 	}
 
-	d.mutex.Lock()
-	defer d.mutex.Unlock()
-
-	return d.bolt.Update(func(tx *bbolt.Tx) error {
-		bucket, err := tx.CreateBucketIfNotExists([]byte("embeddings"))
-		if err != nil {
-			return fmt.Errorf("failed to create embeddings bucket: %w", err)
-		}
-
-		embeddingData := map[string]interface{}{
-			"vector": vector,
-			"metadata": map[string]string{
-				"modelName": modelName,
+	project := &Project{
+		ID:                    projectID,
+		BaseDir:               baseDir,
+		CurrentDiscussionFile: markdownFile,
+		DiscussionFiles: []DiscussionFileRef{
+			{
+				Filepath:  markdownFile,
+				CreatedAt: time.Now(),
+				RoundCount: 0,
 			},
-		}
+		},
+		AuthorizedFiles: []string{},
+		CreatedAt:       time.Now(),
+		EmbeddingCount:  0,
+		RoundHistory:    []RoundEntry{},
+	}
 
-		data, err := json.Marshal(embeddingData)
-		if err != nil {
-			return fmt.Errorf("failed to marshal embedding: %w", err)
-		}
+	// Initialize Chat
+	chatFilePath := baseDir + "/" + markdownFile
+	project.Chat = NewChat(chatFilePath)
 
-		if err := bucket.Put([]byte(cid), data); err != nil {
-			return fmt.Errorf("failed to store embedding: %w", err)
-		}
-		return nil
-	})
+	// Persist to KV store
+	if err := SaveProject(db, project); err != nil {
+		return nil, fmt.Errorf("failed to create project: %w", err)
+	}
+
+	return project, nil
 }
 
-// GetEmbedding retrieves an embedding vector from the embeddings/ bucket
-func (d *DB) GetEmbedding(cid string) ([]byte, error) {
-	if cid == "" {
-		return nil, fmt.Errorf("CID cannot be empty")
-	}
-
-	d.mutex.RLock()
-	defer d.mutex.RUnlock()
-
-	var vector []byte
-	err := d.bolt.View(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket([]byte("embeddings"))
-		if bucket == nil {
-			return fmt.Errorf("embedding %s not found", cid)
+// UpdateProjectAuthorizedFiles updates the authorized files list for a project
+func UpdateProjectAuthorizedFiles(db KVStore, projectID string, files []string) error {
+	err := db.Update(func(tx WriteTx) error {
+		var project Project
+		err := LoadCBOR(tx, "projects", projectID, &project)
+		if err != nil {
+			return fmt.Errorf("project not found: %w", err)
 		}
 
-		data := bucket.Get([]byte(cid))
-		if data == nil {
-			return fmt.Errorf("embedding %s not found", cid)
+		project.AuthorizedFiles = files
+		return StoreCBOR(tx, "projects", projectID, &project)
+	})
+
+	return err
+}
+
+// SwitchDiscussionFile changes the active discussion file for a project
+func SwitchDiscussionFile(db KVStore, projectID, newDiscussionFile string) error {
+	err := db.Update(func(tx WriteTx) error {
+		var project Project
+		err := LoadCBOR(tx, "projects", projectID, &project)
+		if err != nil {
+			return fmt.Errorf("project not found: %w", err)
 		}
 
-		embeddingData := make(map[string]interface{})
-		if err := json.Unmarshal(data, &embeddingData); err != nil {
-			return fmt.Errorf("failed to unmarshal embedding: %w", err)
-		}
-
-		if vectorData, ok := embeddingData["vector"]; ok {
-			if v, ok := vectorData.([]byte); ok {
-				vector = v
+		// Verify the discussion file exists in the project's discussion files
+		found := false
+		for _, df := range project.DiscussionFiles {
+			if df.Filepath == newDiscussionFile {
+				found = true
+				break
 			}
 		}
-		return nil
+
+		if !found {
+			return fmt.Errorf("discussion file %s not found in project", newDiscussionFile)
+		}
+
+		project.CurrentDiscussionFile = newDiscussionFile
+
+		// Reinitialize Chat for the new discussion file
+		chatFilePath := project.BaseDir + "/" + newDiscussionFile
+		project.Chat = NewChat(chatFilePath)
+
+		return StoreCBOR(tx, "projects", projectID, &project)
 	})
-	return vector, err
+
+	return err
+}
+
+// CreateDiscussionFile adds a new discussion file to a project
+func CreateDiscussionFile(db KVStore, projectID, filename string) error {
+	err := db.Update(func(tx WriteTx) error {
+		var project Project
+		err := LoadCBOR(tx, "projects", projectID, &project)
+		if err != nil {
+			return fmt.Errorf("project not found: %w", err)
+		}
+
+		// Check if discussion file already exists
+		for _, df := range project.DiscussionFiles {
+			if df.Filepath == filename {
+				return fmt.Errorf("discussion file %s already exists", filename)
+			}
+		}
+
+		// Add new discussion file
+		newDiscussionFile := DiscussionFileRef{
+			Filepath:  filename,
+			CreatedAt: time.Now(),
+			RoundCount: 0,
+		}
+		project.DiscussionFiles = append(project.DiscussionFiles, newDiscussionFile)
+
+		return StoreCBOR(tx, "projects", projectID, &project)
+	})
+
+	return err
+}
+
+// GetDiscussionFiles returns all discussion files for a project
+func GetDiscussionFiles(db KVStore, projectID string) ([]DiscussionFileRef, error) {
+	var project Project
+
+	err := db.View(func(tx ReadTx) error {
+		return LoadCBOR(tx, "projects", projectID, &project)
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("project %s not found: %w", projectID, err)
+	}
+
+	return project.DiscussionFiles, nil
+}
+
+// IncrementRoundCount increments the round count for a discussion file
+func IncrementRoundCount(db KVStore, projectID, discussionFile string) error {
+	err := db.Update(func(tx WriteTx) error {
+		var project Project
+		err := LoadCBOR(tx, "projects", projectID, &project)
+		if err != nil {
+			return fmt.Errorf("project not found: %w", err)
+		}
+
+		// Find and increment the discussion file's round count
+		for i := 0; i < len(project.DiscussionFiles); i++ {
+			if project.DiscussionFiles[i].Filepath == discussionFile {
+				project.DiscussionFiles[i].RoundCount++
+				return StoreCBOR(tx, "projects", projectID, &project)
+			}
+		}
+
+		return fmt.Errorf("discussion file %s not found", discussionFile)
+	})
+
+	return err
+}
+
+// SaveRound appends a new round to a project's round history
+func SaveRound(db KVStore, projectID string, round RoundEntry) error {
+	err := db.Update(func(tx WriteTx) error {
+		var project Project
+		err := LoadCBOR(tx, "projects", projectID, &project)
+		if err != nil {
+			return fmt.Errorf("project not found: %w", err)
+		}
+
+		// Set timestamp if not already set
+		if round.Timestamp.IsZero() {
+			round.Timestamp = time.Now()
+		}
+
+		project.RoundHistory = append(project.RoundHistory, round)
+		project.EmbeddingCount += len(round.CIDs)
+
+		return StoreCBOR(tx, "projects", projectID, &project)
+	})
+
+	return err
 }
 
