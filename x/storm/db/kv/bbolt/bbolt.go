@@ -6,6 +6,27 @@ import (
 	"go.etcd.io/bbolt"
 )
 
+// ReadTx defines read operations in a transaction
+type ReadTx interface {
+	Get(bucket, key string) []byte
+	ForEach(bucket string, fn func(k, v []byte) error) error
+}
+
+// WriteTx defines read and write operations in a transaction
+type WriteTx interface {
+	ReadTx
+	Put(bucket, key string, value []byte) error
+	Delete(bucket, key string) error
+	CreateBucketIfNotExists(bucket string) error
+}
+
+// KVStore defines the key-value store abstraction
+type KVStore interface {
+	View(fn func(ReadTx) error) error
+	Update(fn func(WriteTx) error) error
+	Close() error
+}
+
 // BoltDBStore wraps bbolt.DB with transaction adapters
 type BoltDBStore struct {
 	db *bbolt.DB
@@ -63,20 +84,7 @@ func (b *BoltDBStore) Close() error {
 	return b.db.Close()
 }
 
-// Transaction adapters - internal types with no external interface references
-
-type ReadTx interface {
-	Get(bucket, key string) []byte
-	ForEach(bucket string, fn func(k, v []byte) error) error
-}
-
-type WriteTx interface {
-	ReadTx
-	Put(bucket, key string, value []byte) error
-	Delete(bucket, key string) error
-	CreateBucketIfNotExists(bucket string) error
-}
-
+// boltReadTx adapts bbolt transaction to ReadTx interface
 type boltReadTx struct {
 	tx *bbolt.Tx
 }
@@ -109,6 +117,7 @@ func (b *boltReadTx) ForEach(bucket string, fn func(k, v []byte) error) error {
 	})
 }
 
+// boltWriteTx adapts bbolt transaction to WriteTx interface
 type boltWriteTx struct {
 	tx *bbolt.Tx
 }

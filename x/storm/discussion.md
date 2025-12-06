@@ -19510,3 +19510,281 @@ This follows a dependency inversion pattern where the abstraction lives at a hig
 
 ---
 
+
+
+**$ go test -v 
+# github.com/stevegt/grokker/x/storm/db/kv [github.com/stevegt/grokker/x/storm/db/kv.test]
+./kv.go:30:9: cannot use bbolt.NewBoltDBStore(dbPath) (value of type *"github.com/stevegt/grokker/x/storm/db/kv/bbolt".BoltDBStore) as KVStore value in return statement: *"github.com/stevegt/grokker/x/storm/db/kv/bbolt".BoltDBStore does not implement KVStore (wrong type for method Update)
+                have Update(func("github.com/stevegt/grokker/x/storm/db/kv/bbolt".WriteTx) error) error
+                want Update(func(WriteTx) error) error
+FAIL    github.com/stevegt/grokker/x/storm/db/kv [build failed]**
+
+
+
+
+# Fix Type Mismatch: Use Type Aliases for Interface Definitions
+
+The interface type mismatch occurs because `bbolt.go` and `kv.go` each define their own `ReadTx` and `WriteTx` interfaces with identical structures but different nominal types[1][2]. Go's type system requires nominal equality for interface satisfaction—the `bbolt.BoltDBStore` methods accept `bbolt.WriteTx`, but `kv.KVStore` requires `kv.WriteTx`, so the implementation doesn't satisfy the interface[1].
+
+The solution: Define the interfaces once in `bbolt.go` (which only depends on `go.etcd.io/bbolt`), then re-export them via type aliases in `kv.go`[2]. This eliminates duplication, maintains the dependency direction (db → kv → bbolt), and ensures all types are identical[1].---FILE-START filename="db/kv/bbolt/bbolt.go"---
+package bbolt
+
+import (
+	"fmt"
+
+	"go.etcd.io/bbolt"
+)
+
+// ReadTx defines read operations in a transaction
+type ReadTx interface {
+	Get(bucket, key string) []byte
+	ForEach(bucket string, fn func(k, v []byte) error) error
+}
+
+// WriteTx defines read and write operations in a transaction
+type WriteTx interface {
+	ReadTx
+	Put(bucket, key string, value []byte) error
+	Delete(bucket, key string) error
+	CreateBucketIfNotExists(bucket string) error
+}
+
+// KVStore defines the key-value store abstraction
+type KVStore interface {
+	View(fn func(ReadTx) error) error
+	Update(fn func(WriteTx) error) error
+	Close() error
+}
+
+// BoltDBStore wraps bbolt.DB with transaction adapters
+type BoltDBStore struct {
+	db *bbolt.DB
+}
+
+// NewBoltDBStore creates and initializes a BoltDB store
+func NewBoltDBStore(dbPath string) (*BoltDBStore, error) {
+	db, err := bbolt.Open(dbPath, 0600, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open BoltDB: %w", err)
+	}
+
+	store := &BoltDBStore{db: db}
+
+	// Initialize default buckets
+	err = store.Update(func(tx WriteTx) error {
+		requiredBuckets := []string{
+			"projects",
+			"files",
+			"embeddings",
+			"hnsw_metadata",
+			"config",
+		}
+		for _, bucketName := range requiredBuckets {
+			if err := tx.CreateBucketIfNotExists(bucketName); err != nil {
+				return fmt.Errorf("failed to create bucket %s: %w", bucketName, err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	return store, nil
+}
+
+// View executes a read-only transaction
+func (b *BoltDBStore) View(fn func(ReadTx) error) error {
+	return b.db.View(func(tx *bbolt.Tx) error {
+		return fn(&boltReadTx{tx: tx})
+	})
+}
+
+// Update executes a read-write transaction
+func (b *BoltDBStore) Update(fn func(WriteTx) error) error {
+	return b.db.Update(func(tx *bbolt.Tx) error {
+		return fn(&boltWriteTx{tx: tx})
+	})
+}
+
+// Close closes the database
+func (b *BoltDBStore) Close() error {
+	return b.db.Close()
+}
+
+// boltReadTx adapts bbolt transaction to ReadTx interface
+type boltReadTx struct {
+	tx *bbolt.Tx
+}
+
+func (b *boltReadTx) Get(bucket, key string) []byte {
+	buck := b.tx.Bucket([]byte(bucket))
+	if buck == nil {
+		return nil
+	}
+	value := buck.Get([]byte(key))
+	if value == nil {
+		return nil
+	}
+	result := make([]byte, len(value))
+	copy(result, value)
+	return result
+}
+
+func (b *boltReadTx) ForEach(bucket string, fn func(k, v []byte) error) error {
+	buck := b.tx.Bucket([]byte(bucket))
+	if buck == nil {
+		return nil
+	}
+	return buck.ForEach(func(k, v []byte) error {
+		kCopy := make([]byte, len(k))
+		copy(kCopy, k)
+		vCopy := make([]byte, len(v))
+		copy(vCopy, v)
+		return fn(kCopy, vCopy)
+	})
+}
+
+// boltWriteTx adapts bbolt transaction to WriteTx interface
+type boltWriteTx struct {
+	tx *bbolt.Tx
+}
+
+func (b *boltWriteTx) Get(bucket, key string) []byte {
+	buck := b.tx.Bucket([]byte(bucket))
+	if buck == nil {
+		return nil
+	}
+	value := buck.Get([]byte(key))
+	if value == nil {
+		return nil
+	}
+	result := make([]byte, len(value))
+	copy(result, value)
+	return result
+}
+
+func (b *boltWriteTx) ForEach(bucket string, fn func(k, v []byte) error) error {
+	buck := b.tx.Bucket([]byte(bucket))
+	if buck == nil {
+		return nil
+	}
+	return buck.ForEach(func(k, v []byte) error {
+		kCopy := make([]byte, len(k))
+		copy(kCopy, k)
+		vCopy := make([]byte, len(v))
+		copy(vCopy, v)
+		return fn(kCopy, vCopy)
+	})
+}
+
+func (b *boltWriteTx) Put(bucket, key string, value []byte) error {
+	buck, err := b.tx.CreateBucketIfNotExists([]byte(bucket))
+	if err != nil {
+		return fmt.Errorf("failed to create bucket %s: %w", bucket, err)
+	}
+	return buck.Put([]byte(key), value)
+}
+
+func (b *boltWriteTx) Delete(bucket, key string) error {
+	buck := b.tx.Bucket([]byte(bucket))
+	if buck == nil {
+		return nil
+	}
+	return buck.Delete([]byte(key))
+}
+
+func (b *boltWriteTx) CreateBucketIfNotExists(bucket string) error {
+	_, err := b.tx.CreateBucketIfNotExists([]byte(bucket))
+	return err
+}
+---FILE-END filename="db/kv/bbolt/bbolt.go"------FILE-START filename="db/kv/kv_test.go"---
+package kv
+
+import (
+	"testing"
+)
+
+// KVStore interface tests verify contract compliance
+// Implementations should pass these tests
+
+// TestKVStoreContract defines the interface contract
+func TestKVStoreContract(t *testing.T) {
+	t.Skip("Interface contract test - implement for specific KVStore backends")
+}
+
+// TestViewReadOnly verifies View transactions are read-only
+func TestViewReadOnly(t *testing.T) {
+	t.Skip("Interface contract test")
+}
+
+// TestUpdateReadWrite verifies Update transactions support reads and writes
+func TestUpdateReadWrite(t *testing.T) {
+	t.Skip("Interface contract test")
+}
+
+// TestBucketIsolation verifies data isolation between buckets
+func TestBucketIsolation(t *testing.T) {
+	t.Skip("Interface contract test")
+}
+
+// TestTransactionAtomicity verifies atomic operations
+func TestTransactionAtomicity(t *testing.T) {
+	t.Skip("Interface contract test")
+}
+---FILE-END filename="db/kv/kv_test.go"---
+
+## References
+
+[1][2]
+
+
+
+## References
+
+- [1] [https://dbdb.io/db/boltdb](https://dbdb.io/db/boltdb)
+- [2] [https://github.com/coder/hnsw](https://github.com/coder/hnsw)
+- [3] [https://www.ascend.io/blog/beyond-garbage-collection-tackling-the-challenge-of-orphaned-datasets](https://www.ascend.io/blog/beyond-garbage-collection-tackling-the-challenge-of-orphaned-datasets)
+- [4] [https://github.com/boltdb/bolt](https://github.com/boltdb/bolt)
+- [5] [https://github.com/fogfish/hnsw](https://github.com/fogfish/hnsw)
+- [6] [https://doc.nuxeo.com/nxdoc/garbage-collecting-orphaned-binaries/](https://doc.nuxeo.com/nxdoc/garbage-collecting-orphaned-binaries/)
+
+
+
+## Reasoning
+
+The user is providing a massive amount of context with Go source files for a project called Storm, along with a specific error from running `go test -v`. Let me parse this carefully according to the instructions at the very top of the system prompt.
+
+The error shows:
+```
+./kv.go:30:9: cannot use bbolt.NewBoltDBStore(dbPath) (value of type *"github.com/stevegt/grokker/x/storm/db/kv/bbolt".BoltDBStore) as KVStore value in return statement: *"github.com/stevegt/grokker/x/storm/db/kv/bbolt".BoltDBStore does not implement KVStore (wrong type for method Update)
+                have Update(func("github.com/stevegt/grokker/x/storm/db/kv/bbolt".WriteTx) error) error
+                want Update(func(WriteTx) error) error
+```
+
+This is a type mismatch. The issue is that the `bbolt.BoltDBStore` has a `WriteTx` type in the `bbolt` package, while the `KVStore` interface in the `kv` package expects a different `WriteTx` type. They are nominally different types even though they have the same structure.
+
+The problem: 
+- `bbolt.go` defines its own local `WriteTx` and `ReadTx` interfaces
+- `kv.go` defines its own `WriteTx`, `ReadTx`, and `KVStore` interfaces
+- When `NewDBStore` tries to return `bbolt.NewBoltDBStore(dbPath)` as a `KVStore`, it fails because the method signatures don't match - one uses `bbolt.WriteTx` and the other uses `kv.WriteTx`
+
+The solution is to make the `bbolt` package's `Update` and `View` methods work with the types from the `kv` package, not define their own types.
+
+
+But there's a constraint: `bbolt.go` cannot depend on `db/kv` and must only depend on `go.etcd.io/bbolt`. This means I can't import the interface types from `kv.go` into `bbolt.go`. The real solution is to have `kv.go` define the interfaces and then have `bbolt.go` implement them without importing from `kv`. The way to do this is through interface compatibility - if `bbolt.BoltDBStore` implements the same method signatures as `KVStore`, Go will treat it as implementing the interface even without an explicit import. The issue is that the `WriteTx` and `ReadTx` types need to be the same across both packages for this to work. the kv.KVStore interface without needing to import or reference it. The bbolt package can define its own BoltDBStore type with View, Update, and Close methods, and when kv.go calls NewDBStore, the returned type will automatically satisfy the kv.KVStore interface through structural typing. This way bbolt.go remains independent without importing kv, while still providing a compatible implementation. The issue is that bbolt.go defines local `ReadTx` and `WriteTx` types, so the `View` and `Update` methods accept those local types rather than the ones from kv.go. Even though the interfaces have identical method signatures, Go's type system treats them as distinct types. The `BoltDBStore.View` method expects `func(bbolt.ReadTx)` but the `KVStore` interface requires `func(kv.ReadTx)`, creating a type mismatch that prevents BoltDBStore from satisfying the interface.
+
+The constraint that bbolt.go can't import kv seems to create a circular dependency problem, but I should reconsider what that restriction actually means. The user specified bbolt.go shouldn't depend on db/kv, but perhaps that refers to avoiding dependencies on other modules within db/kv—the interface definitions themselves might be fair game to import.
+
+If bbolt.go can access the kv package interfaces, then kv.go would define the core ReadTx and WriteTx interfaces, and bbolt.go's transaction adapters would implement those interfaces directly. This way, the View and Update methods return the actual kv.ReadTx and kv.WriteTx types that the KVStore interface expects, eliminating the nominal type mismatch.
+
+Alternatively, bbolt.go could use unnamed interface types in its transaction methods, then wrap them with the kv types. Or it could define its own local interfaces that are structurally identical to kv's interfaces—since they'd be compatible at the interface level, they'd satisfy the KVStore contract without needing explicit type conversion.
+
+But that creates a circular import if kv tries to use bbolt's types. The real constraint is the dependency direction: db.go depends on kv.go, which depends on bbolt.go. So kv.go can't import from bbolt.go without breaking that hierarchy.
+
+The solution is to define the interfaces in bbolt.go itself—ReadTx, WriteTx, and KVStore—with the exact same method signatures. Then kv.go imports these types from bbolt rather than redefining them. This way, bbolt.go has no knowledge of kv.go, kv.go imports bbolt.go, and db.go imports kv.go, maintaining the correct dependency flow while ensuring the interface types are shared. The re-export approach through type aliases keeps the dependency chain clean: db.go depends on kv.go, which depends on bbolt.go, with no circular references. Since the aliases point to the same underlying types, the BoltDBStore method signatures will align correctly with what db.go expects from the KVStore interface. This satisfies the architectural constraint that bbolt.go remains independent of the kv package.
+
+
+---
+
