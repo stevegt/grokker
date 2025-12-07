@@ -2,6 +2,7 @@ package db
 
 import (
 	"bytes"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -132,7 +133,7 @@ func TestCBORCanonical(t *testing.T) {
 
 func TestNewManager(t *testing.T) {
 	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir + "/test.db")
+	mgr, err := NewManager(filepath.Join(tmpDir, "test.db"))
 	if err != nil {
 		t.Fatalf("Failed to create manager: %v", err)
 	}
@@ -140,4 +141,34 @@ func TestNewManager(t *testing.T) {
 		t.Fatal("Manager is nil")
 	}
 	mgr.Close()
+}
+
+func TestNewStoreFactory(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "factory.db")
+
+	store, err := NewStore(dbPath, BoltDB)
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
+	if store == nil {
+		t.Fatal("Store is nil")
+	}
+	defer store.Close()
+
+	// Verify store works
+	err = store.Update(func(tx kv.WriteTx) error {
+		return tx.Put("projects", "test", []byte("data"))
+	})
+	if err != nil {
+		t.Fatalf("Failed to write: %v", err)
+	}
+}
+
+func TestNewStoreInvalidBackend(t *testing.T) {
+	tmpDir := t.TempDir()
+	_, err := NewStore(filepath.Join(tmpDir, "test.db"), BackendType("invalid"))
+	if err == nil {
+		t.Fatal("Expected error for invalid backend")
+	}
 }

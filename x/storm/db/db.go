@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/fxamacker/cbor/v2"
+	"github.com/stevegt/grokker/x/storm/db/bbolt"
 	"github.com/stevegt/grokker/x/storm/db/kv"
 )
 
@@ -27,6 +28,28 @@ func UnmarshalCBOR(data []byte, v interface{}) error {
 	return decoder.Unmarshal(data, v)
 }
 
+// BackendType specifies which backend implementation to use
+type BackendType string
+
+const (
+	BoltDB BackendType = "bbolt"
+)
+
+// NewStore creates a KVStore instance for the specified backend
+func NewStore(dbPath string, backend BackendType) (kv.KVStore, error) {
+	switch backend {
+	case BoltDB:
+		return bbolt.NewBoltDBStore(dbPath)
+	default:
+		return nil, fmt.Errorf("unknown backend: %s", backend)
+	}
+}
+
+// NewStoreDefault creates a KVStore with BoltDB backend
+func NewStoreDefault(dbPath string) (kv.KVStore, error) {
+	return NewStore(dbPath, BoltDB)
+}
+
 // Manager provides database operations for Storm
 type Manager struct {
 	store kv.KVStore
@@ -34,7 +57,7 @@ type Manager struct {
 
 // NewManager creates a new database manager
 func NewManager(dbPath string) (*Manager, error) {
-	store, err := kv.NewStoreDefault(dbPath)
+	store, err := NewStoreDefault(dbPath)
 	if err != nil {
 		return nil, err
 	}

@@ -3,16 +3,17 @@ package bbolt
 import (
 	"fmt"
 
+	"github.com/stevegt/grokker/x/storm/db/kv"
 	"go.etcd.io/bbolt"
 )
 
-// BoltDBStore wraps bbolt.DB with transaction support
+// BoltDBStore wraps bbolt.DB and implements kv.KVStore interface
 type BoltDBStore struct {
 	db *bbolt.DB
 }
 
-// NewBoltDBStore creates and initializes a BoltDB store
-func NewBoltDBStore(dbPath string) (*BoltDBStore, error) {
+// NewBoltDBStore creates and initializes a BoltDB store implementing kv.KVStore
+func NewBoltDBStore(dbPath string) (kv.KVStore, error) {
 	db, err := bbolt.Open(dbPath, 0600, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open BoltDB: %w", err)
@@ -21,7 +22,7 @@ func NewBoltDBStore(dbPath string) (*BoltDBStore, error) {
 	store := &BoltDBStore{db: db}
 
 	// Initialize default buckets
-	err = store.Update(func(tx *boltWriteTx) error {
+	err = store.Update(func(tx kv.WriteTx) error {
 		requiredBuckets := []string{
 			"projects",
 			"files",
@@ -45,14 +46,14 @@ func NewBoltDBStore(dbPath string) (*BoltDBStore, error) {
 }
 
 // View executes a read-only transaction
-func (b *BoltDBStore) View(fn func(*boltReadTx) error) error {
+func (b *BoltDBStore) View(fn func(kv.ReadTx) error) error {
 	return b.db.View(func(tx *bbolt.Tx) error {
 		return fn(&boltReadTx{tx: tx})
 	})
 }
 
 // Update executes a read-write transaction
-func (b *BoltDBStore) Update(fn func(*boltWriteTx) error) error {
+func (b *BoltDBStore) Update(fn func(kv.WriteTx) error) error {
 	return b.db.Update(func(tx *bbolt.Tx) error {
 		return fn(&boltWriteTx{tx: tx})
 	})
@@ -63,7 +64,7 @@ func (b *BoltDBStore) Close() error {
 	return b.db.Close()
 }
 
-// boltReadTx adapts bbolt transaction for reading
+// boltReadTx implements kv.ReadTx interface
 type boltReadTx struct {
 	tx *bbolt.Tx
 }
@@ -102,7 +103,7 @@ func (b *boltReadTx) ForEach(bucket string, fn func(k, v []byte) error) error {
 	})
 }
 
-// boltWriteTx adapts bbolt transaction for reading and writing
+// boltWriteTx implements kv.WriteTx interface
 type boltWriteTx struct {
 	tx *bbolt.Tx
 }
