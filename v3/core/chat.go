@@ -788,7 +788,8 @@ func ExtractFiles(outfiles []FileLang, rawResp string, opts ExtractOptions) (coo
 			}
 		}
 		if !found {
-			return cookedResp, fmt.Errorf("could not find file '%s' in the response", fn)
+			// return cookedResp, fmt.Errorf("could not find file '%s' in the response", fn)
+			Fpf(os.Stderr, "Warning: could not find file '%s' in the response\n", fn)
 		}
 	}
 
