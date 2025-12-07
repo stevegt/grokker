@@ -14,7 +14,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/spf13/cobra v1.10.1
 	github.com/stevegt/goadapt v0.7.0
-	github.com/stevegt/grokker/v3 v3.0.38
+	github.com/stevegt/grokker/v3 v3.0.39
 	github.com/yuin/goldmark v1.7.13
 	go.etcd.io/bbolt v1.4.3
 )
