@@ -1,4 +1,4 @@
-package main
+package db
 
 import (
 	"bytes"
@@ -6,7 +6,6 @@ import (
 	"time"
 )
 
-// TestMarshalCBOR verifies CBOR encoding
 func TestMarshalCBOR(t *testing.T) {
 	type TestData struct {
 		ID    string
@@ -30,7 +29,6 @@ func TestMarshalCBOR(t *testing.T) {
 	}
 }
 
-// TestUnmarshalCBOR verifies CBOR decoding
 func TestUnmarshalCBOR(t *testing.T) {
 	type TestData struct {
 		ID    string
@@ -68,7 +66,6 @@ func TestUnmarshalCBOR(t *testing.T) {
 	}
 }
 
-// TestCBORRoundtrip verifies complete encode-decode cycle
 func TestCBORRoundtrip(t *testing.T) {
 	type ComplexData struct {
 		ID       string
@@ -112,7 +109,6 @@ func TestCBORRoundtrip(t *testing.T) {
 	}
 }
 
-// TestCBORCanonical verifies CBOR canonical form for determinism
 func TestCBORCanonical(t *testing.T) {
 	type Data struct {
 		A string
@@ -132,4 +128,16 @@ func TestCBORCanonical(t *testing.T) {
 	if !bytes.Equal(encoded1, encoded2) {
 		t.Fatal("Canonical CBOR encoding not deterministic")
 	}
+}
+
+func TestNewManager(t *testing.T) {
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(tmpDir + "/test.db")
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
+	if mgr == nil {
+		t.Fatal("Manager is nil")
+	}
+	mgr.Close()
 }
