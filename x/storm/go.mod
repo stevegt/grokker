@@ -4,7 +4,7 @@ go 1.24.0
 
 // replace github.com/stevegt/grokker/v3/client => /home/steve/lab/grokker/v3/client
 
-// replace github.com/stevegt/grokker/v3/core => /home/steve/lab/grokker/v3/core
+replace github.com/stevegt/grokker/v3/core => /home/steve/lab/grokker/v3/core
 
 require (
 	github.com/gofrs/flock v0.8.1

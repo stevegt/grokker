@@ -695,6 +695,7 @@ func ExtractFiles(outfiles []FileLang, rawResp string, opts ExtractOptions) (coo
 	cookedResp = rawResp
 	dryrun := opts.DryRun
 	extractToStdout := opts.ExtractToStdout
+	var foundFiles []string
 
 	// remove the first <think>.*</think> section found
 	// get the start and end markers for the section
@@ -748,6 +749,11 @@ func ExtractFiles(outfiles []FileLang, rawResp string, opts ExtractOptions) (coo
 		fileStartIdx := startMarkerPair[1] // start of file is after the start marker
 		fileEndIdx := endMarkerPair[0] - 1 // end of file is before the end marker
 
+		if fileStartIdx >= fileEndIdx {
+			Fpf(os.Stderr, "Warning: invalid file content for file '%s'\n", fn)
+			continue
+		}
+
 		// extract the file content from the response
 		txt := resp[fileStartIdx : fileEndIdx+1]
 
@@ -764,10 +770,27 @@ func ExtractFiles(outfiles []FileLang, rawResp string, opts ExtractOptions) (coo
 			}
 		}
 
+		foundFiles = append(foundFiles, fn)
+
 		if opts.RemoveFromResponse {
 			// remove the file from the response
 			cookedResp = strings.Replace(cookedResp, resp[startMarkerPair[0]:endMarkerPair[1]], "", 1)
 		}
 	}
+
+	for _, fileLang := range outfiles {
+		fn := fileLang.File
+		found := false
+		for _, foundFn := range foundFiles {
+			if fn == foundFn {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return cookedResp, fmt.Errorf("could not find file '%s' in the response", fn)
+		}
+	}
+
 	return
 }
