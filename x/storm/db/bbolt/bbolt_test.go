@@ -28,14 +28,14 @@ func TestViewTransaction(t *testing.T) {
 	store := createTestStore(t)
 	defer store.Close()
 
-	err := store.Update(func(tx WriteTx) error {
+	err := store.Update(func(tx *boltWriteTx) error {
 		return tx.Put("projects", "key1", []byte("value1"))
 	})
 	if err != nil {
 		t.Fatalf("Failed to write: %v", err)
 	}
 
-	err = store.View(func(tx ReadTx) error {
+	err = store.View(func(tx *boltReadTx) error {
 		value := tx.Get("projects", "key1")
 		if !bytes.Equal(value, []byte("value1")) {
 			t.Fatal("Value mismatch")
@@ -51,7 +51,7 @@ func TestUpdateTransaction(t *testing.T) {
 	store := createTestStore(t)
 	defer store.Close()
 
-	err := store.Update(func(tx WriteTx) error {
+	err := store.Update(func(tx *boltWriteTx) error {
 		if err := tx.Put("files", "f1", []byte("data1")); err != nil {
 			return err
 		}
@@ -61,7 +61,7 @@ func TestUpdateTransaction(t *testing.T) {
 		t.Fatalf("Failed to write: %v", err)
 	}
 
-	err = store.View(func(tx ReadTx) error {
+	err = store.View(func(tx *boltReadTx) error {
 		if !bytes.Equal(tx.Get("files", "f1"), []byte("data1")) {
 			t.Fatal("f1 mismatch")
 		}
@@ -79,7 +79,7 @@ func TestForEachBucket(t *testing.T) {
 	store := createTestStore(t)
 	defer store.Close()
 
-	err := store.Update(func(tx WriteTx) error {
+	err := store.Update(func(tx *boltWriteTx) error {
 		for i := 0; i < 5; i++ {
 			key := string(rune('a' + i))
 			if err := tx.Put("embeddings", key, []byte("val")); err != nil {
@@ -93,7 +93,7 @@ func TestForEachBucket(t *testing.T) {
 	}
 
 	count := 0
-	err = store.View(func(tx ReadTx) error {
+	err = store.View(func(tx *boltReadTx) error {
 		return tx.ForEach("embeddings", func(k, v []byte) error {
 			count++
 			return nil
@@ -112,21 +112,21 @@ func TestDelete(t *testing.T) {
 	store := createTestStore(t)
 	defer store.Close()
 
-	err := store.Update(func(tx WriteTx) error {
+	err := store.Update(func(tx *boltWriteTx) error {
 		return tx.Put("config", "key1", []byte("value"))
 	})
 	if err != nil {
 		t.Fatalf("Failed to write: %v", err)
 	}
 
-	err = store.Update(func(tx WriteTx) error {
+	err = store.Update(func(tx *boltWriteTx) error {
 		return tx.Delete("config", "key1")
 	})
 	if err != nil {
 		t.Fatalf("Failed to delete: %v", err)
 	}
 
-	err = store.View(func(tx ReadTx) error {
+	err = store.View(func(tx *boltReadTx) error {
 		if tx.Get("config", "key1") != nil {
 			t.Fatal("Expected nil after deletion")
 		}
@@ -145,7 +145,7 @@ func TestPersistenceAcrossInstances(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create store1: %v", err)
 	}
-	err = store1.Update(func(tx WriteTx) error {
+	err = store1.Update(func(tx *boltWriteTx) error {
 		return tx.Put("projects", "persist_key", []byte("persist_val"))
 	})
 	if err != nil {
@@ -159,7 +159,7 @@ func TestPersistenceAcrossInstances(t *testing.T) {
 	}
 	defer store2.Close()
 
-	err = store2.View(func(tx ReadTx) error {
+	err = store2.View(func(tx *boltReadTx) error {
 		val := tx.Get("projects", "persist_key")
 		if !bytes.Equal(val, []byte("persist_val")) {
 			t.Fatal("Data did not persist")
@@ -172,28 +172,28 @@ func TestPersistenceAcrossInstances(t *testing.T) {
 }
 
 func BenchmarkPut(b *testing.B) {
-	store := createTestStore(&testing.T{})
+	store := createTestStore((*testing.T)(nil))
 	defer store.Close()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		store.Update(func(tx WriteTx) error {
+		store.Update(func(tx *boltWriteTx) error {
 			return tx.Put("projects", "key", []byte("value"))
 		})
 	}
 }
 
 func BenchmarkGet(b *testing.B) {
-	store := createTestStore(&testing.T{})
+	store := createTestStore((*testing.T)(nil))
 	defer store.Close()
 
-	store.Update(func(tx WriteTx) error {
+	store.Update(func(tx *boltWriteTx) error {
 		return tx.Put("projects", "key", []byte("value"))
 	})
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		store.View(func(tx ReadTx) error {
+		store.View(func(tx *boltReadTx) error {
 			_ = tx.Get("projects", "key")
 			return nil
 		})

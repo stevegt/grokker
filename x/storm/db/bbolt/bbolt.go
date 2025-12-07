@@ -6,12 +6,12 @@ import (
 	"go.etcd.io/bbolt"
 )
 
-// BoltDBStore implements KVStore-compatible behavior using BoltDB
+// BoltDBStore wraps bbolt.DB with transaction support
 type BoltDBStore struct {
 	db *bbolt.DB
 }
 
-// NewBoltDBStore creates and initializes a BoltDB-backed store
+// NewBoltDBStore creates and initializes a BoltDB store
 func NewBoltDBStore(dbPath string) (*BoltDBStore, error) {
 	db, err := bbolt.Open(dbPath, 0600, nil)
 	if err != nil {
@@ -21,7 +21,7 @@ func NewBoltDBStore(dbPath string) (*BoltDBStore, error) {
 	store := &BoltDBStore{db: db}
 
 	// Initialize default buckets
-	err = store.Update(func(tx WriteTx) error {
+	err = store.Update(func(tx *boltWriteTx) error {
 		requiredBuckets := []string{
 			"projects",
 			"files",
@@ -44,29 +44,15 @@ func NewBoltDBStore(dbPath string) (*BoltDBStore, error) {
 	return store, nil
 }
 
-// ReadTx internal interface (not exported to kv package)
-type ReadTx interface {
-	Get(bucket, key string) []byte
-	ForEach(bucket string, fn func(k, v []byte) error) error
-}
-
-// WriteTx internal interface (not exported to kv package)
-type WriteTx interface {
-	ReadTx
-	Put(bucket, key string, value []byte) error
-	Delete(bucket, key string) error
-	CreateBucketIfNotExists(bucket string) error
-}
-
 // View executes a read-only transaction
-func (b *BoltDBStore) View(fn func(ReadTx) error) error {
+func (b *BoltDBStore) View(fn func(*boltReadTx) error) error {
 	return b.db.View(func(tx *bbolt.Tx) error {
 		return fn(&boltReadTx{tx: tx})
 	})
 }
 
 // Update executes a read-write transaction
-func (b *BoltDBStore) Update(fn func(WriteTx) error) error {
+func (b *BoltDBStore) Update(fn func(*boltWriteTx) error) error {
 	return b.db.Update(func(tx *bbolt.Tx) error {
 		return fn(&boltWriteTx{tx: tx})
 	})
@@ -77,6 +63,7 @@ func (b *BoltDBStore) Close() error {
 	return b.db.Close()
 }
 
+// boltReadTx adapts bbolt transaction for reading
 type boltReadTx struct {
 	tx *bbolt.Tx
 }
@@ -109,6 +96,7 @@ func (b *boltReadTx) ForEach(bucket string, fn func(k, v []byte) error) error {
 	})
 }
 
+// boltWriteTx adapts bbolt transaction for reading and writing
 type boltWriteTx struct {
 	tx *bbolt.Tx
 }
