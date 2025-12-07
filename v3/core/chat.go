@@ -568,7 +568,7 @@ type FileLang struct {
 }
 
 var fileStartTmpl = `(?:^|\n)(?i)---FILE-START filename="%s"---\n`
-var fileEndTmpl = `---FILE-END filename="%s"---(?:\s*|\n)*`
+var fileEndTmpl = `(?:^|\n)---FILE-END filename="%s"---(?:\s*|\n)*`
 
 // OutfilesRegex returns a regular expression that matches the format
 // of output files embedded in chat responses.  The Language field of
