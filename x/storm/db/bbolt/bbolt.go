@@ -68,26 +68,32 @@ type boltReadTx struct {
 	tx *bbolt.Tx
 }
 
-func (b *boltReadTx) Get(bucket, key string) []byte {
+// Get retrieves a value from the bucket. Returns (value, true) if key exists, (nil, false) otherwise.
+// The returned byte slice is a copy and remains valid after the transaction ends.
+func (b *boltReadTx) Get(bucket, key string) ([]byte, bool) {
 	buck := b.tx.Bucket([]byte(bucket))
 	if buck == nil {
-		return nil
+		return nil, false
 	}
 	value := buck.Get([]byte(key))
 	if value == nil {
-		return nil
+		return nil, false
 	}
+	// Copy required: BoltDB's memory-mapped values are only valid during the transaction
 	result := make([]byte, len(value))
 	copy(result, value)
-	return result
+	return result, true
 }
 
+// ForEach iterates over all key-value pairs in the bucket.
+// Keys and values are copied to remain valid after the transaction.
 func (b *boltReadTx) ForEach(bucket string, fn func(k, v []byte) error) error {
 	buck := b.tx.Bucket([]byte(bucket))
 	if buck == nil {
 		return nil
 	}
 	return buck.ForEach(func(k, v []byte) error {
+		// Copy required: BoltDB's memory-mapped data is only valid during iteration
 		kCopy := make([]byte, len(k))
 		copy(kCopy, k)
 		vCopy := make([]byte, len(v))
@@ -101,26 +107,32 @@ type boltWriteTx struct {
 	tx *bbolt.Tx
 }
 
-func (b *boltWriteTx) Get(bucket, key string) []byte {
+// Get retrieves a value from the bucket. Returns (value, true) if key exists, (nil, false) otherwise.
+// The returned byte slice is a copy and remains valid after the transaction ends.
+func (b *boltWriteTx) Get(bucket, key string) ([]byte, bool) {
 	buck := b.tx.Bucket([]byte(bucket))
 	if buck == nil {
-		return nil
+		return nil, false
 	}
 	value := buck.Get([]byte(key))
 	if value == nil {
-		return nil
+		return nil, false
 	}
+	// Copy required: BoltDB's memory-mapped values are only valid during the transaction
 	result := make([]byte, len(value))
 	copy(result, value)
-	return result
+	return result, true
 }
 
+// ForEach iterates over all key-value pairs in the bucket.
+// Keys and values are copied to remain valid after the transaction.
 func (b *boltWriteTx) ForEach(bucket string, fn func(k, v []byte) error) error {
 	buck := b.tx.Bucket([]byte(bucket))
 	if buck == nil {
 		return nil
 	}
 	return buck.ForEach(func(k, v []byte) error {
+		// Copy required: BoltDB's memory-mapped data is only valid during iteration
 		kCopy := make([]byte, len(k))
 		copy(kCopy, k)
 		vCopy := make([]byte, len(v))

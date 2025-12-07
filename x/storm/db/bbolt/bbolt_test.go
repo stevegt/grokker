@@ -36,7 +36,10 @@ func TestViewTransaction(t *testing.T) {
 	}
 
 	err = store.View(func(tx *boltReadTx) error {
-		value := tx.Get("projects", "key1")
+		value, ok := tx.Get("projects", "key1")
+		if !ok {
+			t.Fatal("Key should exist")
+		}
 		if !bytes.Equal(value, []byte("value1")) {
 			t.Fatal("Value mismatch")
 		}
@@ -62,10 +65,19 @@ func TestUpdateTransaction(t *testing.T) {
 	}
 
 	err = store.View(func(tx *boltReadTx) error {
-		if !bytes.Equal(tx.Get("files", "f1"), []byte("data1")) {
+		val1, ok1 := tx.Get("files", "f1")
+		if !ok1 {
+			t.Fatal("f1 should exist")
+		}
+		if !bytes.Equal(val1, []byte("data1")) {
 			t.Fatal("f1 mismatch")
 		}
-		if !bytes.Equal(tx.Get("files", "f2"), []byte("data2")) {
+
+		val2, ok2 := tx.Get("files", "f2")
+		if !ok2 {
+			t.Fatal("f2 should exist")
+		}
+		if !bytes.Equal(val2, []byte("data2")) {
 			t.Fatal("f2 mismatch")
 		}
 		return nil
@@ -127,8 +139,25 @@ func TestDelete(t *testing.T) {
 	}
 
 	err = store.View(func(tx *boltReadTx) error {
-		if tx.Get("config", "key1") != nil {
-			t.Fatal("Expected nil after deletion")
+		_, ok := tx.Get("config", "key1")
+		if ok {
+			t.Fatal("Expected key to not exist after deletion")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Failed: %v", err)
+	}
+}
+
+func TestGetNonexistentKey(t *testing.T) {
+	store := createTestStore(t)
+	defer store.Close()
+
+	err := store.View(func(tx *boltReadTx) error {
+		_, ok := tx.Get("projects", "nonexistent")
+		if ok {
+			t.Fatal("Expected key to not exist")
 		}
 		return nil
 	})
@@ -160,9 +189,12 @@ func TestPersistenceAcrossInstances(t *testing.T) {
 	defer store2.Close()
 
 	err = store2.View(func(tx *boltReadTx) error {
-		val := tx.Get("projects", "persist_key")
+		val, ok := tx.Get("projects", "persist_key")
+		if !ok {
+			t.Fatal("Data should persist")
+		}
 		if !bytes.Equal(val, []byte("persist_val")) {
-			t.Fatal("Data did not persist")
+			t.Fatal("Data mismatch after persistence")
 		}
 		return nil
 	})
@@ -194,7 +226,7 @@ func BenchmarkGet(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		store.View(func(tx *boltReadTx) error {
-			_ = tx.Get("projects", "key")
+			_, _ = tx.Get("projects", "key")
 			return nil
 		})
 	}
