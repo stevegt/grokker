@@ -8,7 +8,7 @@ import (
 
 // ReadTx defines read-only transaction operations
 type ReadTx interface {
-	Get(bucket, key string) []byte
+	Get(bucket, key string) ([]byte, bool)
 	ForEach(bucket string, fn func(k, v []byte) error) error
 }
 
@@ -41,14 +41,14 @@ type boltDBWrapper struct {
 
 // View executes a read-only transaction
 func (w *boltDBWrapper) View(fn func(ReadTx) error) error {
-	return w.store.View(func(tx bbolt.ReadTx) error {
+	return w.store.View(func(tx *bbolt.BoltReadTx) error {
 		return fn(&kvReadTxAdapter{tx: tx})
 	})
 }
 
 // Update executes a read-write transaction
 func (w *boltDBWrapper) Update(fn func(WriteTx) error) error {
-	return w.store.Update(func(tx bbolt.WriteTx) error {
+	return w.store.Update(func(tx *bbolt.BoltWriteTx) error {
 		return fn(&kvWriteTxAdapter{tx: tx})
 	})
 }
@@ -58,12 +58,12 @@ func (w *boltDBWrapper) Close() error {
 	return w.store.Close()
 }
 
-// kvReadTxAdapter adapts bbolt.ReadTx to kv.ReadTx interface
+// kvReadTxAdapter adapts bbolt.BoltReadTx to kv.ReadTx interface
 type kvReadTxAdapter struct {
-	tx bbolt.ReadTx
+	tx *bbolt.BoltReadTx
 }
 
-func (a *kvReadTxAdapter) Get(bucket, key string) []byte {
+func (a *kvReadTxAdapter) Get(bucket, key string) ([]byte, bool) {
 	return a.tx.Get(bucket, key)
 }
 
@@ -71,12 +71,12 @@ func (a *kvReadTxAdapter) ForEach(bucket string, fn func(k, v []byte) error) err
 	return a.tx.ForEach(bucket, fn)
 }
 
-// kvWriteTxAdapter adapts bbolt.WriteTx to kv.WriteTx interface
+// kvWriteTxAdapter adapts bbolt.BoltWriteTx to kv.WriteTx interface
 type kvWriteTxAdapter struct {
-	tx bbolt.WriteTx
+	tx *bbolt.BoltWriteTx
 }
 
-func (a *kvWriteTxAdapter) Get(bucket, key string) []byte {
+func (a *kvWriteTxAdapter) Get(bucket, key string) ([]byte, bool) {
 	return a.tx.Get(bucket, key)
 }
 
@@ -111,7 +111,7 @@ func NewStoreDefault(dbPath string) (KVStore, error) {
 	return NewStore(dbPath, BoltDB)
 }
 
-// newBoltDBStore wraps bbolt.BoltDBStore to implement KVStore interface
+// newBoltDBStore creates a wrapped BoltDB store implementing KVStore
 func newBoltDBStore(dbPath string) (KVStore, error) {
 	store, err := bbolt.NewBoltDBStore(dbPath)
 	if err != nil {
