@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"path/filepath"
 	"testing"
+
+	"github.com/stevegt/grokker/x/storm/db/kv"
 )
 
 func createTestStore(t *testing.T) *BoltDBStore {
@@ -33,17 +35,15 @@ func TestViewTransaction(t *testing.T) {
 	store := createTestStore(t)
 	defer store.Close()
 
-	err := store.Update(func(tx interface{}) error {
-		writeTx := tx.(*boltWriteTx)
-		return writeTx.Put("projects", "key1", []byte("value1"))
+	err := store.Update(func(tx kv.WriteTx) error {
+		return tx.Put("projects", "key1", []byte("value1"))
 	})
 	if err != nil {
 		t.Fatalf("Failed to write: %v", err)
 	}
 
-	err = store.View(func(tx interface{}) error {
-		readTx := tx.(*boltReadTx)
-		value, ok := readTx.Get("projects", "key1")
+	err = store.View(func(tx kv.ReadTx) error {
+		value, ok := tx.Get("projects", "key1")
 		if !ok {
 			t.Fatal("Key should exist")
 		}
@@ -61,20 +61,18 @@ func TestUpdateTransaction(t *testing.T) {
 	store := createTestStore(t)
 	defer store.Close()
 
-	err := store.Update(func(tx interface{}) error {
-		writeTx := tx.(*boltWriteTx)
-		if err := writeTx.Put("files", "f1", []byte("data1")); err != nil {
+	err := store.Update(func(tx kv.WriteTx) error {
+		if err := tx.Put("files", "f1", []byte("data1")); err != nil {
 			return err
 		}
-		return writeTx.Put("files", "f2", []byte("data2"))
+		return tx.Put("files", "f2", []byte("data2"))
 	})
 	if err != nil {
 		t.Fatalf("Failed to write: %v", err)
 	}
 
-	err = store.View(func(tx interface{}) error {
-		readTx := tx.(*boltReadTx)
-		val1, ok1 := readTx.Get("files", "f1")
+	err = store.View(func(tx kv.ReadTx) error {
+		val1, ok1 := tx.Get("files", "f1")
 		if !ok1 {
 			t.Fatal("f1 should exist")
 		}
@@ -82,7 +80,7 @@ func TestUpdateTransaction(t *testing.T) {
 			t.Fatal("f1 mismatch")
 		}
 
-		val2, ok2 := readTx.Get("files", "f2")
+		val2, ok2 := tx.Get("files", "f2")
 		if !ok2 {
 			t.Fatal("f2 should exist")
 		}
@@ -100,11 +98,10 @@ func TestForEachBucket(t *testing.T) {
 	store := createTestStore(t)
 	defer store.Close()
 
-	err := store.Update(func(tx interface{}) error {
-		writeTx := tx.(*boltWriteTx)
+	err := store.Update(func(tx kv.WriteTx) error {
 		for i := 0; i < 5; i++ {
 			key := string(rune('a' + i))
-			if err := writeTx.Put("embeddings", key, []byte("val")); err != nil {
+			if err := tx.Put("embeddings", key, []byte("val")); err != nil {
 				return err
 			}
 		}
@@ -115,9 +112,8 @@ func TestForEachBucket(t *testing.T) {
 	}
 
 	count := 0
-	err = store.View(func(tx interface{}) error {
-		readTx := tx.(*boltReadTx)
-		return readTx.ForEach("embeddings", func(k, v []byte) error {
+	err = store.View(func(tx kv.ReadTx) error {
+		return tx.ForEach("embeddings", func(k, v []byte) error {
 			count++
 			return nil
 		})
@@ -135,25 +131,22 @@ func TestDelete(t *testing.T) {
 	store := createTestStore(t)
 	defer store.Close()
 
-	err := store.Update(func(tx interface{}) error {
-		writeTx := tx.(*boltWriteTx)
-		return writeTx.Put("config", "key1", []byte("value"))
+	err := store.Update(func(tx kv.WriteTx) error {
+		return tx.Put("config", "key1", []byte("value"))
 	})
 	if err != nil {
 		t.Fatalf("Failed to write: %v", err)
 	}
 
-	err = store.Update(func(tx interface{}) error {
-		writeTx := tx.(*boltWriteTx)
-		return writeTx.Delete("config", "key1")
+	err = store.Update(func(tx kv.WriteTx) error {
+		return tx.Delete("config", "key1")
 	})
 	if err != nil {
 		t.Fatalf("Failed to delete: %v", err)
 	}
 
-	err = store.View(func(tx interface{}) error {
-		readTx := tx.(*boltReadTx)
-		_, ok := readTx.Get("config", "key1")
+	err = store.View(func(tx kv.ReadTx) error {
+		_, ok := tx.Get("config", "key1")
 		if ok {
 			t.Fatal("Expected key to not exist after deletion")
 		}
@@ -168,9 +161,8 @@ func TestGetNonexistentKey(t *testing.T) {
 	store := createTestStore(t)
 	defer store.Close()
 
-	err := store.View(func(tx interface{}) error {
-		readTx := tx.(*boltReadTx)
-		_, ok := readTx.Get("projects", "nonexistent")
+	err := store.View(func(tx kv.ReadTx) error {
+		_, ok := tx.Get("projects", "nonexistent")
 		if ok {
 			t.Fatal("Expected key to not exist")
 		}
@@ -189,9 +181,8 @@ func TestPersistenceAcrossInstances(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create store1: %v", err)
 	}
-	err = store1.Update(func(tx interface{}) error {
-		writeTx := tx.(*boltWriteTx)
-		return writeTx.Put("projects", "persist_key", []byte("persist_val"))
+	err = store1.Update(func(tx kv.WriteTx) error {
+		return tx.Put("projects", "persist_key", []byte("persist_val"))
 	})
 	if err != nil {
 		t.Fatalf("Failed to write: %v", err)
@@ -204,9 +195,8 @@ func TestPersistenceAcrossInstances(t *testing.T) {
 	}
 	defer store2.Close()
 
-	err = store2.View(func(tx interface{}) error {
-		readTx := tx.(*boltReadTx)
-		val, ok := readTx.Get("projects", "persist_key")
+	err = store2.View(func(tx kv.ReadTx) error {
+		val, ok := tx.Get("projects", "persist_key")
 		if !ok {
 			t.Fatal("Data should persist")
 		}
@@ -230,9 +220,8 @@ func BenchmarkPut(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		store.Update(func(tx interface{}) error {
-			writeTx := tx.(*boltWriteTx)
-			return writeTx.Put("projects", "key", []byte("value"))
+		store.Update(func(tx kv.WriteTx) error {
+			return tx.Put("projects", "key", []byte("value"))
 		})
 	}
 }
@@ -245,16 +234,14 @@ func BenchmarkGet(b *testing.B) {
 	}
 	defer store.Close()
 
-	store.Update(func(tx interface{}) error {
-		writeTx := tx.(*boltWriteTx)
-		return writeTx.Put("projects", "key", []byte("value"))
+	store.Update(func(tx kv.WriteTx) error {
+		return tx.Put("projects", "key", []byte("value"))
 	})
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		store.View(func(tx interface{}) error {
-			readTx := tx.(*boltReadTx)
-			_, _ = readTx.Get("projects", "key")
+		store.View(func(tx kv.ReadTx) error {
+			_, _ = tx.Get("projects", "key")
 			return nil
 		})
 	}

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/stevegt/grokker/x/storm/db/kv"
 )
 
 func TestMarshalCBOR(t *testing.T) {
