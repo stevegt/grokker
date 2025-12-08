@@ -95,12 +95,15 @@ func getProjectsHandler(ctx context.Context, input *EmptyInput) (*ProjectListRes
 	projectIDs := projects.List()
 	var projectInfos []ProjectInfo
 	for _, id := range projectIDs {
-		if project, ok := projects.Get(id); ok {
-			projectInfos = append(projectInfos, ProjectInfo{
-				ID:      project.ID,
-				BaseDir: project.BaseDir,
-			})
+		project, err := projects.Get(id)
+		if err != nil {
+			log.Printf("Error loading project %s: %v", id, err)
+			continue
 		}
+		projectInfos = append(projectInfos, ProjectInfo{
+			ID:      project.ID,
+			BaseDir: project.BaseDir,
+		})
 	}
 	res := &ProjectListResponse{}
 	res.Body.Projects = projectInfos
@@ -111,18 +114,13 @@ func getProjectsHandler(ctx context.Context, input *EmptyInput) (*ProjectListRes
 func postProjectFilesHandler(ctx context.Context, input *FileAddInput) (*FileAddResponse, error) {
 	projectID := input.ProjectID
 
-	project, exists := projects.Get(projectID)
-	if !exists {
-		return nil, huma.Error404NotFound("Project not found")
-	}
-
 	res := &FileAddResponse{}
 	res.Body.ProjectID = projectID
 	res.Body.Added = []string{}
 	res.Body.Failed = []string{}
 
 	for _, filename := range input.Body.Filenames {
-		if err := project.AddFile(filename); err != nil {
+		if err := projects.AddFile(projectID, filename); err != nil {
 			res.Body.Failed = append(res.Body.Failed, filename)
 		} else {
 			res.Body.Added = append(res.Body.Added, filename)
@@ -136,8 +134,8 @@ func postProjectFilesHandler(ctx context.Context, input *FileAddInput) (*FileAdd
 func getProjectFilesHandler(ctx context.Context, input *FileListInput) (*FileListResponse, error) {
 	projectID := input.ProjectID
 
-	project, exists := projects.Get(projectID)
-	if !exists {
+	project, err := projects.Get(projectID)
+	if err != nil {
 		return nil, huma.Error404NotFound("Project not found")
 	}
 

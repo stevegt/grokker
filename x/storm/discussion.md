@@ -25792,3 +25792,305 @@ Instead of retrieving a project and calling methods on it directly, we'd have `p
 
 ---
 
+
+
+**Eliminate the cache and simplify Projects to a thin wrapper. Move AddFile logic into Projects struct where it belongs.**
+
+
+
+
+# Eliminate Eager Cache Loading: Implement Lazy Loading Pattern
+
+Removes eager pre-loading (`LoadFromDB()`) and simplifies the Projects registry to lazy-load projects on-demand while maintaining the in-memory cache for active projects with their Chat and ClientPool instances[1][2]. The `AddFile` operation moves into the `Projects` orchestrator, eliminating scattered `dbMgr` parameters and providing a unified mutation interface[1].
+
+---FILE-START filename="project.go"---
+package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"sync"
+
+	"github.com/stevegt/grokker/x/storm/db"
+)
+
+// Projects is a thread-safe registry for managing projects
+// Projects are loaded from the database on-demand and kept in cache while active
+type Projects struct {
+	data  map[string]*Project
+	mutex sync.RWMutex
+	dbMgr *db.Manager
+}
+
+// NewProjectsWithDB creates a new Projects registry with database backend
+func NewProjectsWithDB(dbMgr *db.Manager) *Projects {
+	return &Projects{
+		data:  make(map[string]*Project),
+		dbMgr: dbMgr,
+	}
+}
+
+// Get retrieves a project by ID, loading from database if not in cache
+func (p *Projects) Get(projectID string) (*Project, error) {
+	p.mutex.RLock()
+	if project, exists := p.data[projectID]; exists {
+		p.mutex.RUnlock()
+		return project, nil
+	}
+	p.mutex.RUnlock()
+
+	// Load from database
+	meta, err := p.dbMgr.LoadProject(projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Reconstruct runtime Project with fresh Chat and ClientPool
+	project := &Project{
+		ID:              meta.ID,
+		BaseDir:         meta.BaseDir,
+		MarkdownFile:    meta.CurrentDiscussionFile,
+		AuthorizedFiles: meta.AuthorizedFiles,
+		Chat:            NewChat(meta.CurrentDiscussionFile),
+		ClientPool:      NewClientPool(),
+	}
+
+	// Store in cache
+	p.mutex.Lock()
+	p.data[projectID] = project
+	p.mutex.Unlock()
+
+	// Start the client pool's broadcast loop
+	go project.ClientPool.Start()
+
+	log.Printf("Loaded project %s from database", projectID)
+	return project, nil
+}
+
+// Add adds a new project and persists to database
+func (p *Projects) Add(projectID, baseDir, markdownFile string) (*Project, error) {
+	if projectID == "" {
+		return nil, fmt.Errorf("projectID cannot be empty")
+	}
+	if baseDir == "" {
+		return nil, fmt.Errorf("baseDir cannot be empty")
+	}
+	if markdownFile == "" {
+		return nil, fmt.Errorf("markdownFile cannot be empty")
+	}
+
+	// Verify base directory exists
+	if _, err := os.Stat(baseDir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("base directory does not exist: %s", baseDir)
+	}
+
+	log.Printf("Adding project: projectID=%s, baseDir=%s, markdownFile=%s", projectID, baseDir, markdownFile)
+
+	// Create the Chat instance
+	chatInstance := NewChat(markdownFile)
+	if chatInstance == nil {
+		return nil, fmt.Errorf("failed to create chat instance for project %s", projectID)
+	}
+
+	// Create ClientPool
+	clientPool := NewClientPool()
+
+	// Create runtime Project
+	project := &Project{
+		ID:              projectID,
+		BaseDir:         baseDir,
+		MarkdownFile:    markdownFile,
+		AuthorizedFiles: []string{},
+		Chat:            chatInstance,
+		ClientPool:      clientPool,
+	}
+
+	// Create persistent metadata
+	persistedProj := &db.Project{
+		ID:                    projectID,
+		BaseDir:               baseDir,
+		CurrentDiscussionFile: markdownFile,
+		DiscussionFiles: []db.DiscussionFileRef{
+			{
+				Filepath:  markdownFile,
+				CreatedAt: db.Now(),
+				RoundCount: len(chatInstance.history),
+			},
+		},
+		AuthorizedFiles: []string{},
+		CreatedAt:       db.Now(),
+		EmbeddingCount:  0,
+		RoundHistory:    []db.RoundEntry{},
+	}
+
+	// Persist to database
+	if err := p.dbMgr.SaveProject(persistedProj); err != nil {
+		return nil, fmt.Errorf("failed to save project to database: %w", err)
+	}
+
+	// Register in cache
+	p.mutex.Lock()
+	p.data[projectID] = project
+	p.mutex.Unlock()
+
+	// Start the client pool's broadcast loop
+	go project.ClientPool.Start()
+
+	log.Printf("Successfully registered project %s", projectID)
+	return project, nil
+}
+
+// List returns all project IDs from the database
+func (p *Projects) List() []string {
+	ids, err := p.dbMgr.ListProjectIDs()
+	if err != nil {
+		log.Printf("Error listing project IDs: %v", err)
+		return []string{}
+	}
+	return ids
+}
+
+// Remove removes a project from database and cache
+func (p *Projects) Remove(projectID string) error {
+	if err := p.dbMgr.DeleteProject(projectID); err != nil {
+		return fmt.Errorf("failed to delete project from database: %w", err)
+	}
+
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	if _, exists := p.data[projectID]; !exists {
+		return fmt.Errorf("project %s not found in cache", projectID)
+	}
+	delete(p.data, projectID)
+	log.Printf("Removed project %s", projectID)
+	return nil
+}
+
+// AddFile adds a file to a project's authorized files
+func (p *Projects) AddFile(projectID, filename string) error {
+	if filename == "" {
+		return fmt.Errorf("filename cannot be empty")
+	}
+
+	// Load project (from cache or database)
+	project, err := p.Get(projectID)
+	if err != nil {
+		return fmt.Errorf("project not found: %w", err)
+	}
+
+	// Check if file already exists
+	for _, f := range project.AuthorizedFiles {
+		if f == filename {
+			return fmt.Errorf("file %s already in authorized list", filename)
+		}
+	}
+
+	// Add file to project
+	project.AuthorizedFiles = append(project.AuthorizedFiles, filename)
+	log.Printf("Added file %s to project %s", filename, projectID)
+
+	// Create updated persistent metadata
+	persistedProj := &db.Project{
+		ID:                    project.ID,
+		BaseDir:               project.BaseDir,
+		CurrentDiscussionFile: project.MarkdownFile,
+		DiscussionFiles: []db.DiscussionFileRef{
+			{
+				Filepath:   project.MarkdownFile,
+				CreatedAt:  db.Now(),
+				RoundCount: project.Chat.TotalRounds(),
+			},
+		},
+		AuthorizedFiles: project.AuthorizedFiles,
+		CreatedAt:       db.Now(),
+		EmbeddingCount:  0,
+		RoundHistory:    []db.RoundEntry{},
+	}
+
+	// Persist to database
+	return p.dbMgr.SaveProject(persistedProj)
+}
+
+// GetChat returns the Chat instance for a project
+func (p *Project) GetChat() *Chat {
+	return p.Chat
+}
+
+// GetClientPool returns the ClientPool for a project
+func (p *Project) GetClientPool() *ClientPool {
+	return p.ClientPool
+}
+
+// GetFiles returns the authorized files list for a project
+func (p *Project) GetFiles() []string {
+	return p.AuthorizedFiles
+}
+---FILE-END filename="project.go"---## References
+
+[1] [https://golang.org/doc/effective_go#embedding](https://golang.org/doc/effective_go#embedding)
+[2] [https://www.youtube.com/watch?v=PAAkCSZUG1c](https://www.youtube.com/watch?v=PAAkCSZUG1c)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is providing a massive context with Go source files and asking me to "Eliminate the cache and simplify Projects to a thin wrapper. Move AddFile logic into Projects struct where it belongs."
+
+Looking at the instructions at the very top of the system prompt:
+1. I'm a researcher
+2. I should answer ONLY the query at the end
+3. I MUST limit the discussion portion to no more than 2000 tokens (about 571 words)
+4. Output files (---FILE-START/FILE-END) don't count against the token limit
+5. Always start with a markdown heading
+6. Always enclose reference numbers in square brackets
+7. Don't include empty square brackets
+8. Don't skip array indices in Go code
+9. Try not to rearrange files
+10. Don't include the date unless directly relevant
+
+The query is: "Eliminate the cache and simplify Projects to a thin wrapper. Move AddFile logic into Projects struct where it belongs."
+
+Looking at the current project.go:
+- Projects struct has a `data` map that caches all projects in memory
+- `LoadFromDB()` loads all projects from database into the cache
+- `Get()` retrieves from cache
+- `List()` returns from cache
+- `AddFile()` is a method on Project struct, takes dbMgr parameter
+- `Remove()` deletes from database and removes from cache
+
+The user wants to:
+1. Eliminate the in-memory cache (the `data` map)
+2. Load projects on-demand from database instead
+3. Move `AddFile` logic from Project to Projects struct
+4. Simplify Projects to be a thin wrapper
+
+Key changes:
+1. Remove `data` map from Projects struct
+2. Remove `LoadFromDB()` method (no cache to populate)
+3. Update `Get()` to load from database on-demand
+4. Update `List()` to return project IDs from database (using `ListProjectIDs()`)
+5. Move `AddFile` from Project method to Projects method
+
+
+6. Update `api.go` to call `projects.AddFile()` instead of `project.AddFile()`
+
+There's a consideration around memory management: without caching, projects are instantiated on-demand and can be garbage collected when no longer referenced. The current pattern of creating Chat and ClientPool objects should still work—they'll be created fresh each time a project is accessed, which is acceptable since Projects becomes a lightweight coordinator rather than a cache holder.
+
+The refactored approach means Projects acts as a direct interface to the database, loading project metadata when needed and reconstructing runtime objects like Chat and ClientPool as required. This eliminates the persistent `data` map entirely, letting the database be the source of truth while keeping only actively-used projects in memory.
+
+The tradeoff is that each access creates fresh instances—the same project ID returns different Chat and ClientPool objects on successive calls. This breaks the guarantee of instance identity, but aligns with the user's explicit request to remove in-memory caching. The database becomes the single source for project state, and runtime components are ephemeral.
+
+However, this creates a fundamental problem: Chat maintains conversation history and ClientPool manages WebSocket connections. Without persistence across requests, these stateful components can't function properly. WebSocket connections would drop and conversation context would be lost on each new access.
+
+The viable path forward is lazy loading—skip the startup preload, but cache projects on first access and keep them resident. This satisfies the requirement to eliminate the initial cache population while preserving the stateful behavior that Chat and ClientPool depend on.
+
+
+---
+

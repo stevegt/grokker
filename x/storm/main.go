@@ -353,14 +353,8 @@ func serveRun(port int) error {
 	}
 	defer dbMgr.Close()
 
-	// Initialize projects registry with database backend
+	// Initialize projects registry with database backend (no eager loading)
 	projects = NewProjectsWithDB(dbMgr)
-
-	// Load existing projects from database
-	if err := projects.LoadFromDB(); err != nil {
-		return fmt.Errorf("failed to load projects: %w", err)
-	}
-	log.Printf("Loaded %d projects from database", len(projects.List()))
 
 	// Create chi router
 	chiRouter := chi.NewRouter()
@@ -407,9 +401,9 @@ func serveRun(port int) error {
 func projectHandlerFunc(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 
-	project, exists := projects.Get(projectID)
-	if !exists {
-		http.Error(w, fmt.Sprintf("Project %s not found", projectID), http.StatusNotFound)
+	project, err := projects.Get(projectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
 		return
 	}
 
@@ -434,9 +428,9 @@ func projectHandler(w http.ResponseWriter, r *http.Request, project *Project) {
 func wsHandlerFunc(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 
-	project, exists := projects.Get(projectID)
-	if !exists {
-		http.Error(w, fmt.Sprintf("Project %s not found", projectID), http.StatusNotFound)
+	project, err := projects.Get(projectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
 		return
 	}
 
@@ -530,15 +524,15 @@ func (c *WSClient) readPump(project *Project) {
 			// Extract arrays
 			var inputFiles, outFiles []string
 			if inputFilesRaw, ok := msg["inputFiles"].([]interface{}); ok {
-				for _, f := range inputFilesRaw {
-					if s, ok := f.(string); ok {
+				for i := 0; i < len(inputFilesRaw); i++ {
+					if s, ok := inputFilesRaw[i].(string); ok {
 						inputFiles = append(inputFiles, s)
 					}
 				}
 			}
 			if outFilesRaw, ok := msg["outFiles"].([]interface{}); ok {
-				for _, f := range outFilesRaw {
-					if s, ok := f.(string); ok {
+				for i := 0; i < len(outFilesRaw); i++ {
+					if s, ok := outFilesRaw[i].(string); ok {
 						outFiles = append(outFiles, s)
 					}
 				}
@@ -669,9 +663,9 @@ func processQuery(project *Project, queryID, query, llm, selection string, input
 func openHandlerFunc(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 
-	project, exists := projects.Get(projectID)
-	if !exists {
-		http.Error(w, fmt.Sprintf("Project %s not found", projectID), http.StatusNotFound)
+	project, err := projects.Get(projectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
 		return
 	}
 
@@ -712,9 +706,9 @@ func stopHandler(w http.ResponseWriter, r *http.Request) {
 func roundsHandlerFunc(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 
-	project, exists := projects.Get(projectID)
-	if !exists {
-		http.Error(w, fmt.Sprintf("Project %s not found", projectID), http.StatusNotFound)
+	project, err := projects.Get(projectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
 		return
 	}
 
@@ -735,9 +729,9 @@ func roundsHandler(w http.ResponseWriter, r *http.Request, project *Project) {
 func tokenCountHandlerFunc(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 
-	project, exists := projects.Get(projectID)
-	if !exists {
-		http.Error(w, fmt.Sprintf("Project %s not found", projectID), http.StatusNotFound)
+	project, err := projects.Get(projectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
 		return
 	}
 
