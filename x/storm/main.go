@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -26,6 +27,7 @@ import (
 	"github.com/stevegt/grokker/v3/client"
 	"github.com/stevegt/grokker/v3/core"
 	"github.com/stevegt/grokker/v3/util"
+	"github.com/stevegt/grokker/x/storm/db"
 	"github.com/stevegt/grokker/x/storm/split"
 	"github.com/yuin/goldmark"
 )
@@ -40,6 +42,7 @@ var (
 	grok     *core.Grokker
 	srv      *http.Server
 	projects *Projects
+	dbMgr    *db.Manager
 
 	upgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -337,8 +340,27 @@ func serveRun(port int) error {
 	}
 	defer lock.Unlock()
 
-	// Initialize projects registry
-	projects = NewProjects()
+	// Initialize database manager
+	dbPath := filepath.Join(os.ExpandEnv("$HOME"), ".storm", "data.db")
+	dbDir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dbDir, 0700); err != nil {
+		return fmt.Errorf("failed to create database directory: %w", err)
+	}
+
+	dbMgr, err = db.NewManager(dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to initialize database: %w", err)
+	}
+	defer dbMgr.Close()
+
+	// Initialize projects registry with database backend
+	projects = NewProjectsWithDB(dbMgr)
+
+	// Load existing projects from database
+	if err := projects.LoadFromDB(); err != nil {
+		return fmt.Errorf("failed to load projects: %w", err)
+	}
+	log.Printf("Loaded %d projects from database", len(projects.List()))
 
 	// Create chi router
 	chiRouter := chi.NewRouter()
@@ -746,7 +768,7 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 
 	wordLimit := int(float64(tokenLimit) / 3.5)
 
-	sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading.  Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes.  If writing Go code, you MUST ensure you are not skipping the index on slices or arrays, e.g. if you mean `foo` then say `foo`, not `foo`."
+	sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading.  Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes.  If writing Go code, you MUST ensure you are not skipping the index on slices or arrays, e.g. if you mean `foo[0]` then say `foo[0]`, not `foo`."
 
 	sysmsg = fmt.Sprintf("%s\n\nYou MUST limit the discussion portion of your response to no more than %d tokens (about %d words).  Output files (marked with ---FILE-START and ---FILE-END blocks) are not counted against this limit and can be unlimited size. You MUST ignore any previous instruction regarding a 10,000 word goal.", sysmsg, tokenLimit, wordLimit)
 
