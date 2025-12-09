@@ -182,6 +182,18 @@ func (m *Manager) LoadAllProjects() (map[string]*Project, error) {
 
 // DeleteProject removes a project from the KV store
 func (m *Manager) DeleteProject(projectID string) error {
+	// Verify project exists before deletion
+	err := m.store.View(func(tx kv.ReadTx) error {
+		_, ok := tx.Get("projects", projectID)
+		if !ok {
+			return fmt.Errorf("project %s not found", projectID)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
 	return m.store.Update(func(tx kv.WriteTx) error {
 		return tx.Delete("projects", projectID)
 	})
