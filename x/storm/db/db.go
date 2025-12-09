@@ -101,32 +101,30 @@ func (m *Manager) Close() error {
 
 // Project represents persistent project metadata
 type Project struct {
-	ID                    string              `json:"id"`
-	BaseDir               string              `json:"baseDir"`
-	CurrentDiscussionFile string              `json:"currentDiscussionFile"`
-	DiscussionFiles       []DiscussionFileRef `json:"discussionFiles"`
-	AuthorizedFiles       []string            `json:"authorizedFiles"`
-	CreatedAt             time.Time           `json:"createdAt"`
-	EmbeddingCount        int                 `json:"embeddingCount"`
-	RoundHistory          []RoundEntry        `json:"roundHistory"`
+	ID                    string              `cbor:"id"`
+	BaseDir               string              `cbor:"baseDir"`
+	CurrentDiscussionFile string              `cbor:"currentDiscussionFile"`
+	DiscussionFiles       []DiscussionFileRef `cbor:"discussionFiles"`
+	AuthorizedFiles       []string            `cbor:"authorizedFiles"`
+	CreatedAt             time.Time           `cbor:"createdAt"`
+	EmbeddingCount        int                 `cbor:"embeddingCount"`
+	RoundHistory          []RoundEntry        `cbor:"roundHistory"`
 }
 
 // DiscussionFileRef tracks metadata about a discussion file
-// TODO are we sure these are supposed to be JSON tags, not CBOR?
 type DiscussionFileRef struct {
-	Filepath   string    `json:"filepath"`
-	CreatedAt  time.Time `json:"createdAt"`
-	RoundCount int       `json:"roundCount"`
+	Filepath   string    `cbor:"filepath"`
+	CreatedAt  time.Time `cbor:"createdAt"`
+	RoundCount int       `cbor:"roundCount"`
 }
 
 // RoundEntry tracks a query-response round
-// TODO are we sure these are supposed to be JSON tags, not CBOR?
 type RoundEntry struct {
-	RoundID        string    `json:"roundID"`
-	DiscussionFile string    `json:"discussionFile"`
-	QueryID        string    `json:"queryID"`
-	Timestamp      time.Time `json:"timestamp"`
-	CIDs           []string  `json:"cids"`
+	RoundID        string    `cbor:"roundID"`
+	DiscussionFile string    `cbor:"discussionFile"`
+	QueryID        string    `cbor:"queryID"`
+	Timestamp      time.Time `cbor:"timestamp"`
+	CIDs           []string  `cbor:"cids"`
 }
 
 // SaveProject persists a project to the KV store
