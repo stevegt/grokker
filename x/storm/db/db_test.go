@@ -2,7 +2,9 @@ package db
 
 import (
 	"bytes"
+	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -172,5 +174,216 @@ func TestNewStoreInvalidBackend(t *testing.T) {
 	_, err := NewStore(filepath.Join(tmpDir, "test.db"), BackendType("invalid"))
 	if err == nil {
 		t.Fatal("Expected error for invalid backend")
+	}
+}
+
+func TestInitializeBuckets(t *testing.T) {
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(filepath.Join(tmpDir, "buckets.db"))
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
+	defer mgr.Close()
+
+	// Verify required buckets exist and are accessible
+	err = mgr.store.View(func(tx kv.ReadTx) error {
+		requiredBuckets := []string{
+			"projects",
+			"files",
+			"embeddings",
+			"hnsw_metadata",
+			"config",
+		}
+		for i := 0; i < len(requiredBuckets); i++ {
+			bucket := requiredBuckets[i]
+			// ForEach will fail if bucket doesn't exist; nil is acceptable for empty bucket
+			if err := tx.ForEach(bucket, func(k, v []byte) error {
+				return nil
+			}); err != nil {
+				return fmt.Errorf("bucket %s failed: %w", bucket, err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestProjectRoundtrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(filepath.Join(tmpDir, "project.db"))
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
+	defer mgr.Close()
+
+	// Create test project
+	project := &Project{
+		ID:                    "test-project",
+		BaseDir:               "/test/dir",
+		CurrentDiscussionFile: "discussion.md",
+		AuthorizedFiles:       []string{"file1.txt", "file2.txt"},
+		CreatedAt:             time.Now().UTC(),
+	}
+
+	// Save and reload
+	if err := mgr.SaveProject(project); err != nil {
+		t.Fatalf("SaveProject failed: %v", err)
+	}
+
+	loaded, err := mgr.LoadProject("test-project")
+	if err != nil {
+		t.Fatalf("LoadProject failed: %v", err)
+	}
+
+	// Verify fields
+	if loaded.ID != project.ID {
+		t.Errorf("ID mismatch: expected %s, got %s", project.ID, loaded.ID)
+	}
+	if len(loaded.AuthorizedFiles) != len(project.AuthorizedFiles) {
+		t.Errorf("AuthorizedFiles count mismatch: expected %d, got %d",
+			len(project.AuthorizedFiles), len(loaded.AuthorizedFiles))
+	}
+	if !loaded.CreatedAt.Equal(project.CreatedAt) {
+		t.Errorf("CreatedAt mismatch: expected %v, got %v",
+			project.CreatedAt, loaded.CreatedAt)
+	}
+}
+
+func TestConcurrentProjectAccess(t *testing.T) {
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(filepath.Join(tmpDir, "concurrent.db"))
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
+	defer mgr.Close()
+
+	project := &Project{ID: "concurrent-test"}
+	if err := mgr.SaveProject(project); err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := mgr.LoadProject("concurrent-test")
+			if err != nil {
+				t.Errorf("Concurrent load failed: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+func TestLargeProject(t *testing.T) {
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(filepath.Join(tmpDir, "large.db"))
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
+	defer mgr.Close()
+
+	// Create project with large authorized files list
+	project := &Project{ID: "large-project"}
+	for i := 0; i < 10000; i++ {
+		project.AuthorizedFiles = append(project.AuthorizedFiles,
+			fmt.Sprintf("file-%d.txt", i))
+	}
+
+	if err := mgr.SaveProject(project); err != nil {
+		t.Fatalf("SaveProject failed: %v", err)
+	}
+
+	loaded, err := mgr.LoadProject("large-project")
+	if err != nil {
+		t.Fatalf("LoadProject failed: %v", err)
+	}
+	if len(loaded.AuthorizedFiles) != 10000 {
+		t.Errorf("Expected 10000 files, got %d", len(loaded.AuthorizedFiles))
+	}
+}
+
+func TestSpecialCharacterKeys(t *testing.T) {
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(filepath.Join(tmpDir, "special.db"))
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
+	defer mgr.Close()
+
+	project := &Project{
+		ID:                    "key/with/slashes",
+		BaseDir:               "dir/with/special#chars",
+		CurrentDiscussionFile: "file with spaces.md",
+	}
+
+	if err := mgr.SaveProject(project); err != nil {
+		t.Fatalf("SaveProject failed: %v", err)
+	}
+
+	loaded, err := mgr.LoadProject("key/with/slashes")
+	if err != nil {
+		t.Fatalf("LoadProject failed: %v", err)
+	}
+	if loaded.BaseDir != project.BaseDir {
+		t.Errorf("BaseDir mismatch: expected %s, got %s",
+			project.BaseDir, loaded.BaseDir)
+	}
+}
+
+func TestDeleteNonexistentProject(t *testing.T) {
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(filepath.Join(tmpDir, "delete.db"))
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
+	defer mgr.Close()
+
+	err = mgr.DeleteProject("nonexistent-id")
+	if err == nil {
+		t.Fatal("Expected error when deleting nonexistent project")
+	}
+}
+
+func TestListProjectIDs(t *testing.T) {
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(filepath.Join(tmpDir, "list.db"))
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
+	defer mgr.Close()
+
+	// Create test projects
+	projects := []string{"proj1", "proj2", "proj3"}
+	for i := 0; i < len(projects); i++ {
+		if err := mgr.SaveProject(&Project{ID: projects[i]}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ids, err := mgr.ListProjectIDs()
+	if err != nil {
+		t.Fatalf("ListProjectIDs failed: %v", err)
+	}
+
+	// Verify we got all IDs
+	if len(ids) != len(projects) {
+		t.Fatalf("Expected %d projects, got %d", len(projects), len(ids))
+	}
+	for i := 0; i < len(projects); i++ {
+		id := projects[i]
+		found := false
+		for j := 0; j < len(ids); j++ {
+			if ids[j] == id {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Project ID %s not found in list", id)
+		}
 	}
 }
