@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/stevegt/grokker/x/storm/db"
 )
@@ -110,12 +111,12 @@ func (p *Projects) Add(projectID, baseDir, markdownFile string) (*Project, error
 		DiscussionFiles: []db.DiscussionFileRef{
 			{
 				Filepath:   markdownFile,
-				CreatedAt:  db.Now(), // TODO why not time.Now()?
+				CreatedAt:  time.Now(),
 				RoundCount: len(chatInstance.history),
 			},
 		},
 		AuthorizedFiles: []string{},
-		CreatedAt:       db.Now(),
+		CreatedAt:       time.Now(),
 		EmbeddingCount:  0,
 		RoundHistory:    []db.RoundEntry{},
 	}
@@ -195,12 +196,12 @@ func (p *Projects) AddFile(projectID, filename string) error {
 		DiscussionFiles: []db.DiscussionFileRef{
 			{
 				Filepath:   project.MarkdownFile,
-				CreatedAt:  db.Now(),
+				CreatedAt:  time.Now(),
 				RoundCount: project.Chat.TotalRounds(),
 			},
 		},
 		AuthorizedFiles: project.AuthorizedFiles,
-		CreatedAt:       db.Now(),
+		CreatedAt:       time.Now(),
 		EmbeddingCount:  0,
 		RoundHistory:    []db.RoundEntry{},
 	}

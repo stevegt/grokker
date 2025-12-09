@@ -83,13 +83,15 @@ type Project struct {
 }
 
 // DiscussionFileRef tracks metadata about a discussion file
+// TODO are we sure these are supposed to be JSON tags, not CBOR?
 type DiscussionFileRef struct {
-	Filepath  string    `json:"filepath"`
-	CreatedAt time.Time `json:"createdAt"`
-	RoundCount int      `json:"roundCount"`
+	Filepath   string    `json:"filepath"`
+	CreatedAt  time.Time `json:"createdAt"`
+	RoundCount int       `json:"roundCount"`
 }
 
 // RoundEntry tracks a query-response round
+// TODO are we sure these are supposed to be JSON tags, not CBOR?
 type RoundEntry struct {
 	RoundID        string    `json:"roundID"`
 	DiscussionFile string    `json:"discussionFile"`
