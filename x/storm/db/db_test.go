@@ -219,12 +219,13 @@ func TestProjectRoundtrip(t *testing.T) {
 	defer mgr.Close()
 
 	// Create test project
+	createdAt := time.Now().UTC().Truncate(time.Second)
 	project := &Project{
 		ID:                    "test-project",
 		BaseDir:               "/test/dir",
 		CurrentDiscussionFile: "discussion.md",
 		AuthorizedFiles:       []string{"file1.txt", "file2.txt"},
-		CreatedAt:             time.Now().UTC(),
+		CreatedAt:             createdAt,
 	}
 
 	// Save and reload
@@ -259,7 +260,10 @@ func TestConcurrentProjectAccess(t *testing.T) {
 	}
 	defer mgr.Close()
 
-	project := &Project{ID: "concurrent-test"}
+	project := &Project{
+		ID:      "concurrent-test",
+		BaseDir: "/test/dir",
+	}
 	if err := mgr.SaveProject(project); err != nil {
 		t.Fatal(err)
 	}
@@ -286,8 +290,10 @@ func TestLargeProject(t *testing.T) {
 	}
 	defer mgr.Close()
 
-	// Create project with large authorized files list
-	project := &Project{ID: "large-project"}
+	project := &Project{
+		ID:      "large-project",
+		BaseDir: "/test/dir",
+	}
 	for i := 0; i < 10000; i++ {
 		project.AuthorizedFiles = append(project.AuthorizedFiles,
 			fmt.Sprintf("file-%d.txt", i))
@@ -359,7 +365,10 @@ func TestListProjectIDs(t *testing.T) {
 	// Create test projects
 	projects := []string{"proj1", "proj2", "proj3"}
 	for i := 0; i < len(projects); i++ {
-		if err := mgr.SaveProject(&Project{ID: projects[i]}); err != nil {
+		if err := mgr.SaveProject(&Project{
+			ID:      projects[i],
+			BaseDir: "/test/dir",
+		}); err != nil {
 			t.Fatal(err)
 		}
 	}
