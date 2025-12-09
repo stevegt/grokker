@@ -51,17 +51,46 @@ func NewStoreDefault(dbPath string) (kv.KVStore, error) {
 	return NewStore(dbPath, BoltDB)
 }
 
+// initializeBuckets creates required application-level buckets
+func initializeBuckets(store kv.KVStore) error {
+	return store.Update(func(tx kv.WriteTx) error {
+		requiredBuckets := []string{
+			"projects",
+			"files",
+			"embeddings",
+			"hnsw_metadata",
+			"config",
+		}
+		for i := 0; i < len(requiredBuckets); i++ {
+			bucketName := requiredBuckets[i]
+			if err := tx.CreateBucketIfNotExists(bucketName); err != nil {
+				return fmt.Errorf("failed to create bucket %s: %w", bucketName, err)
+			}
+		}
+		return nil
+	})
+}
+
 // Manager provides database operations for Storm
 type Manager struct {
 	store kv.KVStore
 }
 
-// NewManager creates a new database manager
+// NewManager creates a new database manager and initializes required buckets
 func NewManager(dbPath string) (*Manager, error) {
 	store, err := NewStoreDefault(dbPath)
 	if err != nil {
 		return nil, err
 	}
+
+	// TODO we need some sort of versioning/migration system here
+
+	// Initialize application-level buckets
+	if err := initializeBuckets(store); err != nil {
+		store.Close()
+		return nil, err
+	}
+
 	return &Manager{store: store}, nil
 }
 

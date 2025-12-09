@@ -12,37 +12,13 @@ type BoltDBStore struct {
 	db *bbolt.DB
 }
 
-// NewBoltDBStore creates and initializes a BoltDB store implementing kv.KVStore
+// NewBoltDBStore creates a new BoltDB-backed KV store (without initializing buckets)
 func NewBoltDBStore(dbPath string) (kv.KVStore, error) {
 	db, err := bbolt.Open(dbPath, 0600, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open BoltDB: %w", err)
 	}
-
-	store := &BoltDBStore{db: db}
-
-	// Initialize default buckets
-	err = store.Update(func(tx kv.WriteTx) error {
-		requiredBuckets := []string{
-			"projects",
-			"files",
-			"embeddings",
-			"hnsw_metadata",
-			"config",
-		}
-		for _, bucketName := range requiredBuckets {
-			if err := tx.CreateBucketIfNotExists(bucketName); err != nil {
-				return fmt.Errorf("failed to create bucket %s: %w", bucketName, err)
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		db.Close()
-		return nil, err
-	}
-
-	return store, nil
+	return &BoltDBStore{db: db}, nil
 }
 
 // View executes a read-only transaction
