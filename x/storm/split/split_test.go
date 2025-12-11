@@ -2,29 +2,37 @@ package split
 
 import (
 	"bytes"
-	"fmt"
-	"io/ioutil"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
 func TestSplit(t *testing.T) {
-	// take input from stdin XXX needs to be a file in ./testdata
-	input, err := ioutil.ReadAll(os.Stdin)
+	// Read test data from file instead of stdin
+	testDataPath := filepath.Join("testdata", "example.md")
+	input, err := os.ReadFile(testDataPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: Error reading input: %v\n", err)
-		os.Exit(1)
+		t.Fatalf("Error reading test data: %v", err)
 	}
+
 	// Parse the storm file from the input
 	roundTrips, err := Parse(bytes.NewReader(input))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: Error parsing storm file: %v\n", err)
-		os.Exit(1)
+		t.Fatalf("Error parsing storm file: %v", err)
 	}
-	// Print each round trip
-	for _, rt := range roundTrips {
-		fmt.Println(rt)
+
+	// Verify we got expected results
+	if len(roundTrips) == 0 {
+		t.Fatal("Expected at least one round trip, got zero")
 	}
-	// Exit with success
-	os.Exit(0)
+
+	// Verify each round trip has required fields
+	for i, rt := range roundTrips {
+		if rt.Query == "" {
+			t.Errorf("Round trip %d missing query", i)
+		}
+		if rt.Response == "" {
+			t.Errorf("Round trip %d missing response", i)
+		}
+	}
 }

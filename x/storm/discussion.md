@@ -28917,3 +28917,291 @@ The solution requires careful coordination between the main server configuration
 
 ---
 
+
+
+**why does `go test -v ./...` not show any output until all test complete?**
+
+
+
+
+# Go Test Output Buffering Behavior
+
+The `go test` command buffers standard output (stdout) and error output (stderr) from tests by default, even with the `-v` flag[1]. Output is collected and printed only after each test package completes, not in real-time[1][2].
+
+## Why Buffering Occurs
+
+Go's test runner buffers output to[1][2]:
+- Prevent interleaved output from parallel tests (default: run tests in parallel per package)
+- Capture and display output in organized per-test blocks
+- Allow clean separation of test results and logs
+- Reduce flickering from concurrent goroutines writing simultaneously
+
+## The `-v` Flag
+
+`-v` (verbose) does **not** disable buffering[1]. It only changes what gets printed:
+- Shows each test name as it starts and finishes
+- Displays test output even if tests pass (normally only failed test output shows)
+- Adds timing information per test
+
+Output is still collected and printed **after** each test completes[1][2].
+
+## Why `./...` Shows No Output Until All Tests Finish
+
+Testing multiple packages (`./...`) compounds buffering[1]:
+- Each package's tests run sequentially (one package at a time, by default)
+- Each package's output buffers separately
+- Final output appears only after all packages complete testing
+- Multiple test packages = longer wait before any visible output
+
+## Solutions for Real-Time Output
+
+1. **Run single package**: `go test -v .` (current package only)
+2. **Run specific tests**: `go test -v -run TestName` 
+3. **Disable parallelism**: `go test -v -p 1` (sequential test execution)
+4. **Force stderr flush**: Tests calling `log.Print()` appear sooner than buffered stdout
+5. **Check test output directly**: Build binary and run daemon separately from tests
+
+For your Storm project: The daemon tests are spawned as background goroutines. Their output is buffered by the test runner, so you see nothing until the test suite finishes. Running `go test -v -run TestCLI` (single test) shows output faster[1][2].
+
+## References
+
+[1] [https://golang.org/doc/effective_go#testing](https://golang.org/doc/effective_go#testing)
+[2] [https://golang.org/cmd/go/#hdr-Test_packages](https://golang.org/cmd/go/#hdr-Test_packages)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me why `go test -v ./...` doesn't show any output until all tests complete. This is a very straightforward question about Go's test output buffering behavior.
+
+Let me read the instructions at the very top of the system prompt carefully:
+
+1. I'm a researcher
+2. I should answer ONLY the query at the end
+3. The query is: "why does `go test -v ./...` not show any output until all test complete?"
+4. I MUST limit the discussion portion to no more than 4000 tokens (about 1142 words)
+5. Output files (---FILE-START/FILE-END) don't count against this limit
+6. Always start with a markdown heading
+7. Always enclose reference numbers in square brackets
+8. Don't include empty square brackets
+9. Don't skip array indices in Go code
+10. Try not to rearrange files
+11. Don't include the date unless directly relevant
+
+The query is asking about Go test output buffering behavior, specifically why `-v` flag doesn't show output in real-time.
+
+This is a straightforward technical question that doesn't require code files - it's about understanding Go's test runner behavior.
+
+The answer involves:
+1. Test output buffering in Go
+2. How the `-v` flag works
+3. Why output might appear buffered
+4. Solutions to see real-time output
+
+Go buffers test output by default, even with `-v`. The `-v` flag shows passing tests and adds verbosity, but output is still buffered until the test completes or logs are flushed.
+
+To get real-time output, you can:
+1. Use `-test.v` with logging
+2. Have tests call log.Print or fmt.Println
+3. Use `-run` to run specific tests
+4. Look at test files' log output more carefully
+
+Actually, the behavior depends on the system:
+- By default, `go test` buffers stdout/stderr
+- The `-v` flag makes output more verbose but doesn't change buffering
+
+
+- Test events and start/stop information appear in real-time
+- Actual test output remains buffered until test completion
+
+The Go test runner's buffering mechanism means that comprehensive output is collected and presented after all tests finish. This approach ensures clean, organized test result reporting, preventing interleaved output from multiple concurrent tests. While this can feel less interactive, it provides a more structured view of test results.
+
+Potential strategies include running tests on individual packages, targeting specific test cases, or directly executing test binaries to gain more immediate visibility into test progress and output.
+
+
+---
+
+
+
+**$ go test -v
+=== RUN   TestSplit
+INFO: Split storm file into 1 blocks
+INFO: Removing empty last block
+INFO: Parsed 0 roundtrips from storm file
+--- FAIL: TestSplit (0.00s)
+panic: unexpected call to os.Exit(0) during test [recovered]
+        panic: unexpected call to os.Exit(0) during test
+
+goroutine 6 [running]:
+testing.tRunner.func1.2({0x54c8a0, 0x5b5650})
+        /home/stevegt/.goenv/versions/1.24.0/src/testing/testing.go:1734 +0x21c
+testing.tRunner.func1()
+        /home/stevegt/.goenv/versions/1.24.0/src/testing/testing.go:1737 +0x35e
+panic({0x54c8a0?, 0x5b5650?})
+        /home/stevegt/.goenv/versions/1.24.0/src/runtime/panic.go:787 +0x132
+os.Exit(0x0)
+        /home/stevegt/.goenv/versions/1.24.0/src/os/proc.go:67 +0x51
+github.com/stevegt/grokker/x/storm/split.TestSplit(0xc000003880?)
+        /home/stevegt/lab/grokker/x/storm/split/split_test.go:29 +0x23d
+testing.tRunner(0xc000003880, 0x589e48)
+        /home/stevegt/.goenv/versions/1.24.0/src/testing/testing.go:1792 +0xf4
+created by testing.(*T).Run in goroutine 1
+        /home/stevegt/.goenv/versions/1.24.0/src/testing/testing.go:1851 +0x413
+exit status 2
+FAIL    github.com/stevegt/grokker/x/storm/split        0.008s**
+
+
+
+
+# Fix Test: Remove os.Exit Calls from Test Function
+
+Tests must not call `os.Exit()` directly, as this terminates the test process and causes a panic[1][2]. The `TestSplit` function is calling `os.Exit(0)` and `os.Exit(1)`, which violates Go's testing conventions. Replace these calls with proper test assertions using `t.Fatalf()` and `t.Errorf()`[1][2]. Additionally, tests should read from test data files rather than stdin.
+## Key Changes
+
+1. **Removed `os.Exit()` calls**: Replaced with `t.Fatalf()` for test failures[1]
+2. **Read from test file**: Use `os.ReadFile()` to read from `testdata/example.storm` instead of stdin[2]
+3. **Added assertions**: Verify parsed output with proper test assertions instead of just printing[1]
+4. **Proper test failure**: Use `t.Fatalf()` and `t.Errorf()` for error handling[1][2]
+
+Create a test data file at `split/testdata/example.storm` with sample storm file content to enable the test to run.
+
+## References
+
+[1] [https://golang.org/doc/effective_go#testing](https://golang.org/doc/effective_go#testing)
+[2] [https://golang.org/pkg/testing/#hdr-Examples](https://golang.org/pkg/testing/#hdr-Examples)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is showing me a test failure. The test `TestSplit` is calling `os.Exit(0)` which is causing a panic during testing. The issue is in the test code itself - it's calling `os.Exit()` which terminates the entire test process.
+
+Looking at the test file `split/split_test.go`:
+```go
+func TestSplit(t *testing.T) {
+	// take input from stdin XXX needs to be a file in ./testdata
+	input, err := ioutil.ReadAll(os.Stdin)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: Error reading input: %v\n", err)
+		os.Exit(1)
+	}
+	// Parse the storm file from the input
+	roundTrips, err := Parse(bytes.NewReader(input))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: Error parsing storm file: %v\n", err)
+		os.Exit(1)
+	}
+	// Print each round trip
+	for _, rt := range roundTrips {
+		fmt.Println(rt)
+	}
+	// Exit with success
+	os.Exit(0)
+}
+```
+
+The problem is clear:
+1. The test is calling `os.Exit(0)` at the end
+2. The test is calling `os.Exit(1)` on error
+3. Tests should not call `os.Exit()` - they should use `t.Fatalf()`, `t.Errorf()`, etc.
+4. Tests should also read from test data files, not stdin
+
+The error message shows: "panic: unexpected call to os.Exit(0) during test"
+
+According to the instructions:
+1. I'm a researcher
+2. Answer ONLY the query at the end
+3. The query is the test failure showing `os.Exit(0)` being called
+4. Start with markdown heading
+
+
+5. Limit discussion to 4000 tokens
+6. Enclose reference numbers in square brackets
+7. Don't include empty square brackets
+8. Output files don't count against token limit
+9. Return complete files only
+10. Don't skip array indices in Go code
+11. Must include the required file: split/split_test.go
+
+I'll need to modify the test to use proper testing methods. The key changes involve replacing `os.Exit()` calls with appropriate testing functions and reading from a test data file instead of stdin.
+
+I'll implement robust test assertions that validate the parsing output, ensuring the test provides meaningful feedback without abruptly terminating the program. This approach will make the test more informative and align with Go testing best practices.
+
+
+---
+
+
+
+**create split/testdata/example.md**
+
+
+
+
+# Create Test Data File for Split Parser
+
+The test data file demonstrates the storm file format that the parser expects: blocks separated by `---`, with query in bold, response content, and optional References and Reasoning sections[1].
+## References
+
+[1] [https://golang.org/pkg/testing/#hdr-Examples](https://golang.org/pkg/testing/#hdr-Examples)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to create `split/testdata/example.md`. Looking at the context, this is a test data file needed for the `TestSplit` test to work.
+
+Looking at the split.go code, I can see that the Parse function:
+1. Splits the file into blocks using lines that match "^---$"
+2. For each block, extracts:
+   - Query: First occurrence of bold text (**...**) or first text block
+   - Response: Text between query and "## References" marker
+   - References: Text between "## References" and "## Reasoning"
+   - Reasoning: Text after "## Reasoning"
+
+Looking at the test output earlier: "INFO: Parsed 0 roundtrips from storm file" - so the test data file is currently empty or doesn't exist, causing 0 roundtrips to be parsed.
+
+I need to create a sample markdown file that demonstrates the structure the parser expects. Based on the code:
+- Should have blocks separated by "---"
+- Each block should have bold text for the query
+- Sections marked with "## References" and "## Reasoning"
+
+Let me check the instructions at the very top:
+1. I'm a researcher
+2. Answer ONLY the query at the end
+3. The query is: "create split/testdata/example.md"
+4. I MUST limit the discussion portion to no more than 4000 tokens (about 1142 words)
+5. Output files (---FILE-START/FILE-END) don't count against this limit
+6. Always start with a markdown heading
+7. Always enclose reference numbers in square brackets
+8. Don't include empty square brackets
+9. Output files don't count against token limit
+10. Return complete files only
+11. Don't skip array indices on arrays/slices in Go code
+12. The instruction says "Your response must include the following complete files: 'split/testdata/example.md'"
+
+
+13. And "Return complete files only. Do not return file fragments."
+
+So I need to provide the complete example.md file as a test data file. The file should demonstrate a block with bold query text, response content, references section, and reasoning section. Based on the split code and the chat history about Storm (a semantic search/discussion tool), I can create a realistic example that shows how the parser works.
+
+
+---
+
