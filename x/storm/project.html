@@ -49,7 +49,6 @@
     #fileSidebar h3 { margin-top: 0; }
     #fileSidebar table { width: 100%; border-collapse: collapse; }
     #fileSidebar th, #fileSidebar td { border: 1px solid #555; padding: 4px; text-align: center; }
-		#fileSidebar textarea { width: 100%; height: 20%; margin-bottom: 5px; background-color: #333; color: #e0e0e0; border: 1px solid #555; }
     /* Chat area styles */
     #chat { 
       padding: 20px; 
@@ -273,19 +272,12 @@
             <th>In</th>
             <th>Out</th>
             <th>Filename</th>
-            <th>Remove</th>
           </tr>
         </thead>
         <tbody id="fileList">
           <!-- File list will be rendered here -->
         </tbody>
       </table>
-      <div id="newFileEntry">
-        <label><input type="checkbox" id="newFileIn"> In</label>
-        <label><input type="checkbox" id="newFileOut"> Out</label>
-        <textarea id="newFilenames" placeholder="Enter one filename per line"></textarea>
-        <button id="addFileBtn">Add</button>
-      </div>
     </div>
   </div>
   <script>
@@ -689,8 +681,8 @@
       };
       request.onupgradeneeded = function(event) {
         db = event.target.result;
-        if (!db.objectStoreNames.contains("files")) {
-          var store = db.createObjectStore("files", { keyPath: "filename" });
+        if (!db.objectStoreNames.contains("selections")) {
+          var store = db.createObjectStore("selections", { keyPath: "filename" });
           store.createIndex("by_filename", "filename", { unique: true });
         }
       };
@@ -699,36 +691,70 @@
         loadFileList();
       };
     }
+
     function loadFileList() {
-      var transaction = db.transaction(["files"], "readonly");
-      var store = transaction.objectStore("files");
-      var request = store.getAll();
-      request.onsuccess = function(event) {
-        var files = event.target.result;
-        renderFileList(files);
-      };
+      // Fetch authorized files from server
+      fetch("/api/projects/" + projectID + "/files")
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+          var serverFiles = data.files || [];
+          
+          // Load selections from IndexedDB
+          var transaction = db.transaction(["selections"], "readonly");
+          var store = transaction.objectStore("selections");
+          var request = store.getAll();
+          
+          request.onsuccess = function(event) {
+            var allIndexedDBEntries = event.target.result;
+            var serverFileSet = new Set(serverFiles);
+            
+            // Clean up IndexedDB entries for files no longer on server
+            var transaction2 = db.transaction(["selections"], "readwrite");
+            var store2 = transaction2.objectStore("selections");
+            
+            for (var i = 0; i < allIndexedDBEntries.length; i++) {
+              var entry = allIndexedDBEntries[i];
+              if (!serverFileSet.has(entry.filename)) {
+                store2.delete(entry.filename);
+              }
+            }
+            
+            // Merge server files with IndexedDB selections
+            var filesByName = {};
+            allIndexedDBEntries.forEach(function(entry) {
+              filesByName[entry.filename] = entry;
+            });
+            
+            var mergedFiles = serverFiles.map(function(filename) {
+              if (filesByName[filename]) {
+                return filesByName[filename];
+              } else {
+                return { filename: filename, in: false, out: false };
+              }
+            });
+            
+            renderFileList(mergedFiles);
+          };
+        })
+        .catch(function(err) {
+          console.error("Error loading file list from server:", err);
+        });
     }
-    function saveFileEntry(fileEntry) {
-      var transaction = db.transaction(["files"], "readwrite");
-      var store = transaction.objectStore("files");
-      store.put(fileEntry);
+
+    function saveFileSelection(filename, isInput, isOutput) {
+      var transaction = db.transaction(["selections"], "readwrite");
+      var store = transaction.objectStore("selections");
+      var entry = { filename: filename, in: isInput, out: isOutput };
+      store.put(entry);
     }
-    function removeFileEntry(filename) {
-      var transaction = db.transaction(["files"], "readwrite");
-      var store = transaction.objectStore("files");
-      var request = store.delete(filename);
-      request.onsuccess = function(event) {
-        loadFileList();
-      };
-      request.onerror = function(event) {
-        console.error("Failed to delete file:", filename);
-      };
-    }
+
     function renderFileList(files) {
       var fileListElem = document.getElementById("fileList");
       fileListElem.innerHTML = "";
+      
       files.forEach(function(file) {
         var tr = document.createElement("tr");
+        
         var tdIn = document.createElement("td");
         var inCheckbox = document.createElement("input");
         inCheckbox.type = "checkbox";
@@ -736,9 +762,10 @@
         inCheckbox.className = "fileIn";
         inCheckbox.addEventListener("change", function() {
           file.in = inCheckbox.checked;
-          saveFileEntry(file);
+          saveFileSelection(file.filename, inCheckbox.checked, file.out);
         });
         tdIn.appendChild(inCheckbox);
+        
         var tdOut = document.createElement("td");
         var outCheckbox = document.createElement("input");
         outCheckbox.type = "checkbox";
@@ -746,71 +773,24 @@
         outCheckbox.className = "fileOut";
         outCheckbox.addEventListener("change", function() {
           file.out = outCheckbox.checked;
-          saveFileEntry(file);
+          saveFileSelection(file.filename, file.in, outCheckbox.checked);
         });
         tdOut.appendChild(outCheckbox);
+        
         var tdName = document.createElement("td");
         var link = document.createElement("a");
         link.href = "/project/" + projectID + "/open?filename=" + encodeURIComponent(file.filename);
         link.target = "_blank";
         link.textContent = file.filename;
         tdName.appendChild(link);
+        
         tr.appendChild(tdIn);
         tr.appendChild(tdOut);
         tr.appendChild(tdName);
-        var tdRemove = document.createElement("td");
-        var removeBtn = document.createElement("button");
-        removeBtn.textContent = "x";
-        removeBtn.title = "Remove this file from the list";
-        removeBtn.style.fontSize = "10px";
-        removeBtn.style.padding = "2px 5px";
-        removeBtn.addEventListener("click", function() {
-          removeFileEntry(file.filename);
-        });
-        tdRemove.appendChild(removeBtn);
-        tr.appendChild(tdRemove);
         fileListElem.appendChild(tr);
       });
     }
-    // Function to check if a file exists on the server using a HEAD request.
-    function checkFileExists(filename) {
-      return fetch("/project/" + projectID + "/open?filename=" + encodeURIComponent(filename), { method: "HEAD" })
-        .then(function(response) {
-          return response.status === 200;
-        })
-        .catch(function(err) {
-          return false;
-        });
-    }
-    // Modified event listener for bulk-adding filenames.
-    document.getElementById("addFileBtn").addEventListener("click", function() {
-      var text = document.getElementById("newFilenames").value;
-      var lines = text.split("\n").map(function(line) { return line.trim(); }).filter(function(line) { return line !== ""; });
-      if(lines.length === 0) return;
-      // Check existence of each filename.
-      Promise.all(lines.map(function(fn) { return checkFileExists(fn); }))
-      .then(function(results) {
-        for (var i = 0; i < results.length; i++) {
-          if (!results[i]) {
-            alert("File does not exist: " + lines[i]);
-            return;
-          }
-        }
-        // If all files exist, add each to the file list.
-        lines.forEach(function(newFilename) {
-          var newFileEntry = {
-            filename: newFilename,
-            in: document.getElementById("newFileIn").checked,
-            out: document.getElementById("newFileOut").checked
-          };
-          saveFileEntry(newFileEntry);
-        });
-        loadFileList();
-        document.getElementById("newFilenames").value = "";
-        document.getElementById("newFileIn").checked = false;
-        document.getElementById("newFileOut").checked = false;
-      });
-    });
+
     function getSelectedFiles() {
       var inputFiles = [];
       var outFiles = [];

@@ -30872,3 +30872,334 @@ The key files to update are main.go and create the proper index.html.
 
 ---
 
+
+
+**look for other changes the need to be made to project.html.  e.g. the file list is now server-side, but the per-query file In/Out selections still need to be persisted client-side in IndexedDb.**
+
+
+
+
+# Changes Needed to project.html: Server-Side File List with Client-Side Selections
+
+The file list management needs to be refactored: fetch the available files from the server API (`GET /api/projects/{projectID}/files`), but keep only the per-query checkbox selections (In/Out) persisted in IndexedDB[1][2]. This separates server state (which files exist) from client state (which files are selected for the current query)[1][2].
+
+## Required Changes to `initFileIO()` and File Management
+
+**1. Load File List from Server API**[1]
+- Change `loadFileList()` to fetch from `GET /api/projects/{projectID}/files`
+- For each file in the response, load its checkbox state from IndexedDB
+- Render the combined result
+
+**2. IndexedDB Schema Change**[2]
+- IndexedDB should store only checkbox states, not full file objects
+- Change object store schema from `{ filename, in: bool, out: bool }` to just `{ filename, in: bool, out: bool }`
+- This persists which files are selected for *input* and *output* per query
+
+**3. Update `renderFileList()` to Reflect Server List**[1]
+- Fetch files from server API first
+- Load checkbox states from IndexedDB for each file
+- If a file exists on server but has no IndexedDB entry, default to unchecked
+
+**4. File Addition Flow**[1]
+- When user clicks "Add File", call `POST /api/projects/{projectID}/files` to add to server
+- On success, reload the file list from the API
+- Checkbox state persists via IndexedDB
+
+**5. File Removal**[1]
+- The current "x" remove buttons should be removed or disabled
+- Files are managed server-side only (via CLI or a future admin endpoint)
+
+## Pseudocode for Updated Flow
+
+```javascript
+function loadFileList() {
+  // Fetch files from server API
+  fetch(`/api/projects/${projectID}/files`)
+    .then(r => r.json())
+    .then(data => {
+      var files = data.files; // Array of filenames from server
+      
+      // Load checkbox states from IndexedDB for each file
+      var dbRequest = db.transaction(["selections"]).objectStore("selections").getAll();
+      dbRequest.onsuccess = function() {
+        var selections = dbRequest.result; // { filename, in, out }
+        var fileList = files.map(filename => {
+          var sel = selections.find(s => s.filename === filename) || {};
+          return {
+            filename: filename,
+            in: sel.in || false,
+            out: sel.out || false
+          };
+        });
+        renderFileList(fileList);
+      };
+    });
+}
+
+function saveFileSelection(filename, isInput, isOutput) {
+  // Save only checkbox state to IndexedDB, not the file itself
+  var entry = { filename: filename, in: isInput, out: isOutput };
+  var transaction = db.transaction(["selections"], "readwrite");
+  transaction.objectStore("selections").put(entry);
+}
+```
+
+## Benefits[1][2]
+
+- **Server is source of truth**: File list always reflects current project files
+- **Client state lightweight**: Only persists checkbox preferences (tiny IndexedDB footprint)
+- **No duplication**: Files not duplicated between server and client
+- **Scalable**: Works with any number of files server-side
+
+## References
+
+[1] [https://golang.org/doc/effective_go#names](https://golang.org/doc/effective_go#names)
+[2] [https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to look for other changes that need to be made to project.html. They note that:
+1. The file list is now server-side (in the database, retrieved via API endpoints)
+2. But the per-query file In/Out selections still need to be persisted client-side in IndexedDB
+
+Looking at the current project.html, I can see:
+1. There's IndexedDB code for managing file selections (in/out checkboxes)
+2. The file list is loaded and rendered in the sidebar
+3. When a query is sent, it uses `getSelectedFiles()` to gather the selected files
+
+But looking at the API and how files are managed:
+1. Files are now managed server-side via the API (`/api/projects/{projectID}/files`)
+2. The file list should be fetched from the server, not stored in IndexedDB
+3. The per-query file selections (which files to use as input/output for this specific query) should still be stored client-side
+
+So the changes needed:
+1. Remove the server-side file list storage from IndexedDB (files are now fetched from the API)
+2. Keep the per-query file selection persistence in IndexedDB (which files the user selected for In/Out for each query)
+3. Load the file list from the API endpoint `/api/projects/{projectID}/files`
+4. Only persist the checkbox states for files in IndexedDB, not the full file list
+
+Actually, looking more carefully, the current code:
+- `saveFileEntry()` - saves a file entry to IndexedDB with in/out flags
+- `loadFileList()` - loads all files from IndexedDB
+- When adding files, it checks if they exist on the server, then saves to IndexedDB
+
+The issue is that this persists the entire file list in IndexedDB. Instead:
+1. The file list should be fetched from the server API
+2. The per-query selections (in/out checkboxes) should be stored in IndexedDB
+
+
+3. The WebSocket query message already includes `inputFiles` and `outFiles` from the client-side selection, so the server doesn't need to track per-query file selections—it just receives them with each query request
+
+.
+
+The fix involves fetching the file list from the server API, keeping the IndexedDB persistence for checkbox states (which files are marked as input vs output), and removing the code that was managing files in IndexedDB since that's now server-side. The user clarified that only the per-query selections need client-side storage, not the files themselves.
+
+I need to refactor the file handling to load available files from `GET /api/projects/{projectID}/files`, retrieve the saved checkbox states from IndexedDB, render them together, and persist any checkbox changes back to IndexedDB. When a query runs, the checkbox states determine which files get passed as `inputFiles` and `outFiles`.
+
+The current implementation stores everything in IndexedDB, but I should split this: keep the file list server-side and only store checkbox selections locally. This means `initFileIO()` should only set up IndexedDB for checkbox state, `renderFileList()` needs to combine API data with stored selections, and I can remove the add/remove file functionality since the server manages the file catalog.
+
+Looking at the code, `addFileBtn` checks if files exist then saves them to IndexedDB, but it never actually calls `POST /api/projects/{projectID}/files` to register them on the server. I need to fetch the file list from the API instead, then for each file retrieve its checkbox state from IndexedDB. When a checkbox changes, I'll save just that state locally rather than trying to manage files in the database.
+
+
+---
+
+
+
+**look for other changes that need to be made to project.html. e.g. the file list is now server-side, but the per-query file In/Out selections still need to be persisted client-side in IndexedDb.**
+
+
+
+
+# Changes Needed for project.html: Sync Client and Server File Lists
+
+The current `project.html` maintains its own IndexedDB file list separately from the server-side authorized files. With the new API-backed file management, the architecture should be[1][2]:
+
+**Server (source of truth)**: Maintains authorized file list per project via `/api/projects/{projectID}/files`  
+**Client IndexedDB (selections)**: Stores per-query In/Out checkbox states for files  
+**Client UI (display)**: Fetches server file list, merges with IndexedDB selections, renders with checkboxes
+
+## Required Changes
+
+### 1. **Load Authorized Files from Server on Page Init**[1]
+- On page load, fetch `GET /api/projects/{projectID}/files`
+- Get the authoritative list of files for this project
+- Store project's authorized files (don't persist in IndexedDB—fetch fresh each time)
+
+### 2. **Refactor IndexedDB Schema**[1][2]
+- **Old**: Store full file objects with `{filename, in, out}`
+- **New**: Store only selections by filename: `{filename, in, out}` (only selected files)
+- Only persist the *checkbox states*, not the file list itself
+- This keeps IndexedDB lightweight and aligned with server truth
+
+### 3. **Merge Server Files with Client Selections**[1]
+- Load authorized files from server API
+- Check IndexedDB for each file's selection state
+- Render combined list: all authorized files with their stored In/Out selections
+- Files without IndexedDB entries default to unchecked
+
+### 4. **Update File Addition Flow**[2]
+- When user adds files in the UI, post to `/api/projects/{projectID}/files`
+- On success, reload authorized file list from server
+- Update file table by merging server list with IndexedDB selections
+- Remove client-side file existence check (server handles validation)
+
+### 5. **Persist Only Selections**[1]
+- IndexedDB stores: `{filename, in: boolean, out: boolean}` for selected files
+- When file is deselected, remove it from IndexedDB (no need to store false states)
+- On page reload, fetch server files + IndexedDB selections = current state
+
+### 6. **Handle File Removal Server-Side**[2]
+- If server removes a file, it disappears from next fetch
+- IndexedDB stale entries for removed files don't cause issues (just ignored during merge)
+- Optionally, clean up IndexedDB entries for files no longer in server list
+
+## Current Issues to Fix
+
+1. **`checkFileExists()` is redundant**: Server API validates files
+2. **`fileIODB` stores full file list**: Should only store selections
+3. **No server sync on startup**: Page doesn't fetch from `/api/projects/{projectID}/files`
+4. **File removal only in IndexedDB**: Should remove from server via API endpoint (currently missing API endpoint)
+
+## References
+
+[1] [https://golang.org/doc/effective_go#interfaces](https://golang.org/doc/effective_go#interfaces)
+[2] [https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to look for other changes that need to be made to project.html. They mention:
+- The file list is now server-side
+- But per-query file In/Out selections still need to be persisted client-side in IndexedDB
+
+Looking at the current project.html, I can see:
+1. There's IndexedDB code for managing file I/O selections (in the `--- File I/O using IndexedDB ---` section)
+2. The file list is being loaded from IndexedDB via `loadFileList()` and `renderFileList(files)`
+3. When adding files, it checks if they exist on the server
+4. The per-query file selections are gathered in `getSelectedFiles()` when sending a query
+
+The issue is: the server now has an authoritative list of files for each project (stored in the database and served via `/api/projects/{projectID}/files`). But the client-side IndexedDB is maintaining a separate list of files with In/Out checkboxes for per-query file selections.
+
+The disconnect is:
+- The server has the canonical file list (via the API)
+- The client has IndexedDB storage of which files to use as input/output for queries
+- These need to stay in sync
+
+What needs to change:
+1. When loading the project page, fetch the authorized files from `/api/projects/{projectID}/files`
+2. Load the IndexedDB file selections (which files to use as In/Out)
+3. Combine them: show all authorized files, with checkboxes indicating which ones are selected for input/output
+4. When adding files, use the new API endpoint `/api/projects/{projectID}/files` instead of client-side persistence
+5. The IndexedDB should still store the per-query In/Out selections, but it should track which files are selected, not the list itself
+
+So the architecture should be:
+- Server: maintains the list of authorized files per project
+- Client IndexedDB: maintains which of those files are selected for input/output per query
+
+
+- Client: fetches the authorized file list from the server, then overlays the IndexedDB selections to determine which files appear checked in the UI
+
+The key change is that file list management moves to the server API, while IndexedDB only tracks the per-query selections for which authorized files should be used as inputs or outputs.
+
+
+---
+
+
+
+**make the changes, with these additional changes:
+
+- remove file add box from the web UI. 
+- clean up IndexedDB entries for files no longer in server list.**
+
+
+
+
+# Update project.html: Server-Side File List with IndexedDB Cleanup
+
+The file management is refactored to load the authoritative file list from the server API (`GET /api/projects/{projectID}/files`) instead of maintaining it client-side[1][2]. The file add UI is removed entirely. IndexedDB now stores only the per-query checkbox selections (In/Out) for authorized files, and stale entries for deleted files are automatically cleaned up[1][2].
+## References
+
+[1] [https://golang.org/doc/effective_go#names](https://golang.org/doc/effective_go#names)
+[2] [https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to make changes to project.html with these additional changes:
+1. Remove file add box from the web UI (the "Add File" form)
+2. Clean up IndexedDB entries for files no longer in server list
+
+Let me look at the current project.html. There's a section with ID `newFileEntry` that contains:
+```html
+<div id="newFileEntry">
+  <label><input type="checkbox" id="newFileIn"> In</label>
+  <label><input type="checkbox" id="newFileOut"> Out</label>
+  <textarea id="newFilenames" placeholder="Enter one filename per line"></textarea>
+  <button id="addFileBtn">Add</button>
+</div>
+```
+
+This needs to be removed entirely.
+
+Also, the JavaScript has code for:
+- `loadFileList()` which loads from IndexedDB
+- `renderFileList()` which renders the files
+- `removeFileEntry()` to remove a file from IndexedDB
+- Event listener for `addFileBtn`
+
+The user wants:
+1. Remove the UI for adding files
+2. Clean up IndexedDB entries for files no longer on the server
+
+So I need to:
+1. Remove the `newFileEntry` div from HTML
+2. Modify `loadFileList()` to:
+   - Fetch the server-side file list from `/api/projects/{projectID}/files`
+   - Load IndexedDB selections for those files
+   - Clean up IndexedDB entries for files no longer on the server
+   - Merge them and render
+
+Let me think about the flow:
+1. On page load, call `/api/projects/{projectID}/files` to get the authoritative list
+2. Load IndexedDB to get the checkbox states for each file
+3. For each file on the server, check if it has an IndexedDB entry, load the state
+4. Clean up any IndexedDB entries for files not on the server anymore
+
+
+5. Render the merged result
+
+I'll create a function to synchronize the server file list with IndexedDB, ensuring only current files remain and their selection states are preserved. The approach involves comparing server files against local storage, removing outdated entries, and maintaining the existing checkbox configurations for active files.
+
+The process involves several key steps: retrieving server files, accessing IndexedDB entries, cleaning up stale local records, and merging the data with appropriate selection states. By mapping server filenames against local entries, I can generate a comprehensive file list that reflects both server availability and user preferences.
+
+The merged result will be passed to the rendering function, which will display the updated file list with accurate selection indicators. This ensures the user interface stays synchronized with the current project state.
+
+I'll focus on modifying the file loading mechanism to streamline file management, removing unnecessary HTML elements and event handlers while maintaining the core synchronization logic between server and local storage.
+
+The updated implementation will simplify file tracking by directly fetching from the API and intelligently merging with local IndexedDB data, eliminating manual file addition processes.
+
+
+---
+
