@@ -330,8 +330,8 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "</ul>")
 }
 
-// serveRun starts the HTTP server on the specified port
-func serveRun(port int) error {
+// serveRun starts the HTTP server on the specified port with the given database path
+func serveRun(port int, dbPath string) error {
 	var err error
 	var lock *flock.Flock
 	grok, _, _, _, lock, err = core.Load("", true)
@@ -340,8 +340,10 @@ func serveRun(port int) error {
 	}
 	defer lock.Unlock()
 
-	// Initialize database manager
-	dbPath := filepath.Join(os.ExpandEnv("$HOME"), ".storm", "data.db")
+	// Use provided dbPath or default
+	if dbPath == "" {
+		dbPath = filepath.Join(os.ExpandEnv("$HOME"), ".storm", "data.db")
+	}
 	dbDir := filepath.Dir(dbPath)
 	if err := os.MkdirAll(dbDir, 0700); err != nil {
 		return fmt.Errorf("failed to create database directory: %w", err)

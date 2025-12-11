@@ -92,7 +92,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	return serveRun(port)
+	
+	dbPath, err := cmd.Flags().GetString("db-path")
+	if err != nil {
+		return err
+	}
+	
+	return serveRun(port, dbPath)
 }
 
 // runProjectAdd implements the project add command
@@ -284,6 +290,7 @@ func main() {
 		RunE:  runServe,
 	}
 	serveCmd.Flags().IntP("port", "p", 8080, "port to listen on")
+	serveCmd.Flags().StringP("db-path", "d", "", "path to database file (default: ~/.storm/data.db)")
 	rootCmd.AddCommand(serveCmd)
 
 	// Project command

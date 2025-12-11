@@ -55,8 +55,15 @@ func setupTestProject(t *testing.T, projectID string) (string, string, func()) {
 
 // Helper function to start a test daemon and return its URL
 func startTestDaemon(t *testing.T, port int) string {
+	// Create temporary database directory for this test
+	tmpDir, err := ioutil.TempDir("", fmt.Sprintf("storm-db-test-%d-", port))
+	if err != nil {
+		t.Fatalf("Failed to create temporary database directory: %v", err)
+	}
+	dbPath := filepath.Join(tmpDir, "test.db")
+
 	go func() {
-		if err := serveRun(port); err != nil {
+		if err := serveRun(port, dbPath); err != nil {
 			t.Logf("Daemon error on port %d: %v", port, err)
 		}
 	}()

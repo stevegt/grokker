@@ -21,6 +21,13 @@ func TestAPIEndpoints(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
+	// Create database directory for this test
+	dbDir := filepath.Join(tmpDir, "db")
+	if err := os.MkdirAll(dbDir, 0755); err != nil {
+		t.Fatalf("Failed to create database directory: %v", err)
+	}
+	dbPath := filepath.Join(dbDir, "test.db")
+
 	// Create project subdirectory and markdown file
 	projectID := "test-project-1"
 	projectDir := filepath.Join(tmpDir, projectID)
@@ -39,7 +46,7 @@ func TestAPIEndpoints(t *testing.T) {
 
 	// Run serveRun in a goroutine
 	go func() {
-		if err := serveRun(daemonPort); err != nil {
+		if err := serveRun(daemonPort, dbPath); err != nil {
 			t.Logf("Daemon error: %v", err)
 		}
 	}()
