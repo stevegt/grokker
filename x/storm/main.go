@@ -32,10 +32,14 @@ import (
 	"github.com/yuin/goldmark"
 )
 
+//go:embed project.html
+var projectHTML string
+
 //go:embed index.html
 var indexHTML string
 
-var tmpl = template.Must(template.New("index").Parse(indexHTML))
+var projectTemplate = template.Must(template.New("project").Parse(projectHTML))
+var landingTemplate = template.Must(template.New("landing").Parse(indexHTML))
 
 // Global variables for serve subcommand
 var (
@@ -322,12 +326,31 @@ func (c *Chat) getHistory(lock bool) string {
 // rootHandler serves the landing page listing all projects
 func rootHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, "<h1>Storm Projects</h1><ul>")
+
 	projectIDs := projects.List()
-	for _, projectID := range projectIDs {
-		fmt.Fprintf(w, "<li><a href='/project/%s/'>%s</a></li>", projectID, projectID)
+	var projectInfos []struct {
+		ID      string
+		BaseDir string
 	}
-	fmt.Fprintf(w, "</ul>")
+
+	for _, projectID := range projectIDs {
+		project, err := projects.Get(projectID)
+		if err != nil {
+			log.Printf("Error loading project %s: %v", projectID, err)
+			continue
+		}
+		projectInfos = append(projectInfos, struct {
+			ID      string
+			BaseDir string
+		}{
+			ID:      project.ID,
+			BaseDir: project.BaseDir,
+		})
+	}
+
+	if err := landingTemplate.Execute(w, projectInfos); err != nil {
+		http.Error(w, "Template error", http.StatusInternalServerError)
+	}
 }
 
 // serveRun starts the HTTP server on the specified port with the given database path
@@ -421,7 +444,7 @@ func projectHandler(w http.ResponseWriter, r *http.Request, project *Project) {
 	}{
 		ChatHTML: template.HTML(markdownToHTML(chatContent)),
 	}
-	if err := tmpl.Execute(w, data); err != nil {
+	if err := projectTemplate.Execute(w, data); err != nil {
 		http.Error(w, "Template error", http.StatusInternalServerError)
 	}
 }
