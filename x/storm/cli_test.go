@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -53,8 +54,24 @@ func setupTestProject(t *testing.T, projectID string) (string, string, func()) {
 	return projectDir, markdownFile, cleanup
 }
 
-// Helper function to start a test daemon and return its URL
-func startTestDaemon(t *testing.T, port int) string {
+// Helper function to check if daemon is ready
+func waitForDaemon(daemonURL string, maxWait time.Duration) error {
+	deadline := time.Now().Add(maxWait)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(daemonURL)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return nil
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("daemon not ready after %v", maxWait)
+}
+
+// Helper function to start a test daemon and return its URL and cleanup function
+func startTestDaemon(t *testing.T, port int) (string, func()) {
 	// Create temporary database directory for this test
 	tmpDir, err := ioutil.TempDir("", fmt.Sprintf("storm-db-test-%d-", port))
 	if err != nil {
@@ -68,19 +85,43 @@ func startTestDaemon(t *testing.T, port int) string {
 		}
 	}()
 
-	// Wait for daemon to start
-	time.Sleep(2 * time.Second)
-	return fmt.Sprintf("http://localhost:%d", port)
+	daemonURL := fmt.Sprintf("http://localhost:%d", port)
+
+	// Wait for daemon to be ready with polling
+	if err := waitForDaemon(daemonURL, 5*time.Second); err != nil {
+		t.Logf("Warning: daemon may not be ready: %v", err)
+	}
+
+	// Return cleanup function that shuts down daemon and cleans up files
+	cleanup := func() {
+		// Call /stop endpoint to gracefully shut down daemon
+		stopURL := fmt.Sprintf("%s/stop", daemonURL)
+		resp, err := http.Get(stopURL)
+		if err != nil {
+			t.Logf("Error stopping daemon: %v", err)
+		} else {
+			resp.Body.Close()
+		}
+
+		// Wait a bit for daemon to shut down
+		time.Sleep(500 * time.Millisecond)
+
+		// Clean up temporary database directory
+		os.RemoveAll(tmpDir)
+	}
+
+	return daemonURL, cleanup
 }
 
 // TestCLIProjectAdd tests the project add subcommand via shell execution
 func TestCLIProjectAdd(t *testing.T) {
 	daemonPort := 59998
-	daemonURL := startTestDaemon(t, daemonPort)
+	daemonURL, cleanup := startTestDaemon(t, daemonPort)
+	defer cleanup()
 
 	projectID := "cli-test-project"
-	projectDir, markdownFile, cleanup := setupTestProject(t, projectID)
-	defer cleanup()
+	projectDir, markdownFile, cleanupProj := setupTestProject(t, projectID)
+	defer cleanupProj()
 
 	// Run project add command
 	output, errOutput, err := runCLICommand(daemonURL, "project", "add", projectID, projectDir, markdownFile)
@@ -99,15 +140,16 @@ func TestCLIProjectAdd(t *testing.T) {
 // TestCLIProjectList tests the project list subcommand via shell execution
 func TestCLIProjectList(t *testing.T) {
 	daemonPort := 59997
-	daemonURL := startTestDaemon(t, daemonPort)
-
-	projectID := "cli-list-project"
-	projectDir, markdownFile, cleanup := setupTestProject(t, projectID)
+	daemonURL, cleanup := startTestDaemon(t, daemonPort)
 	defer cleanup()
 
-	_, _, err := runCLICommand(daemonURL, "project", "add", projectID, projectDir, markdownFile)
+	projectID := "cli-list-project"
+	projectDir, markdownFile, cleanupProj := setupTestProject(t, projectID)
+	defer cleanupProj()
+
+	_, errOutput, err := runCLICommand(daemonURL, "project", "add", projectID, projectDir, markdownFile)
 	if err != nil {
-		t.Fatalf("Failed to add test project: %v", err)
+		t.Fatalf("Failed to add test project: %v, stderr: %s", err, errOutput)
 	}
 
 	output, errOutput, err := runCLICommand(daemonURL, "project", "list")
@@ -123,20 +165,21 @@ func TestCLIProjectList(t *testing.T) {
 // TestCLIFileAdd tests the file add subcommand via shell execution
 func TestCLIFileAdd(t *testing.T) {
 	daemonPort := 59996
-	daemonURL := startTestDaemon(t, daemonPort)
+	daemonURL, cleanup := startTestDaemon(t, daemonPort)
+	defer cleanup()
 
 	projectID := "cli-file-test-project"
-	projectDir, markdownFile, cleanup := setupTestProject(t, projectID)
-	defer cleanup()
+	projectDir, markdownFile, cleanupProj := setupTestProject(t, projectID)
+	defer cleanupProj()
 
 	inputFile := filepath.Join(projectDir, "input.csv")
 	if err := ioutil.WriteFile(inputFile, []byte("col1,col2\nval1,val2\n"), 0644); err != nil {
 		t.Fatalf("Failed to create input file: %v", err)
 	}
 
-	_, _, err := runCLICommand(daemonURL, "project", "add", projectID, projectDir, markdownFile)
+	_, errOutput, err := runCLICommand(daemonURL, "project", "add", projectID, projectDir, markdownFile)
 	if err != nil {
-		t.Fatalf("Failed to add test project: %v", err)
+		t.Fatalf("Failed to add test project: %v, stderr: %s", err, errOutput)
 	}
 
 	output, errOutput, err := runCLICommand(daemonURL, "file", "add", "--project", projectID, inputFile)
@@ -152,25 +195,26 @@ func TestCLIFileAdd(t *testing.T) {
 // TestCLIFileList tests the file list subcommand via shell execution
 func TestCLIFileList(t *testing.T) {
 	daemonPort := 59995
-	daemonURL := startTestDaemon(t, daemonPort)
+	daemonURL, cleanup := startTestDaemon(t, daemonPort)
+	defer cleanup()
 
 	projectID := "cli-filelist-test-project"
-	projectDir, markdownFile, cleanup := setupTestProject(t, projectID)
-	defer cleanup()
+	projectDir, markdownFile, cleanupProj := setupTestProject(t, projectID)
+	defer cleanupProj()
 
 	inputFile := filepath.Join(projectDir, "input.csv")
 	if err := ioutil.WriteFile(inputFile, []byte("col1,col2\n"), 0644); err != nil {
 		t.Fatalf("Failed to create input file: %v", err)
 	}
 
-	_, _, err := runCLICommand(daemonURL, "project", "add", projectID, projectDir, markdownFile)
+	_, errOutput, err := runCLICommand(daemonURL, "project", "add", projectID, projectDir, markdownFile)
 	if err != nil {
-		t.Fatalf("Failed to add test project: %v", err)
+		t.Fatalf("Failed to add test project: %v, stderr: %s", err, errOutput)
 	}
 
-	_, _, err = runCLICommand(daemonURL, "file", "add", "--project", projectID, inputFile)
+	_, errOutput, err = runCLICommand(daemonURL, "file", "add", "--project", projectID, inputFile)
 	if err != nil {
-		t.Fatalf("Failed to add test files: %v", err)
+		t.Fatalf("Failed to add test files: %v, stderr: %s", err, errOutput)
 	}
 
 	output, errOutput, err := runCLICommand(daemonURL, "file", "list", "--project", projectID)
