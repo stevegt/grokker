@@ -523,6 +523,16 @@ func (c *WSClient) writePump() {
 	}
 }
 
+// resolveFilePath converts a relative path to absolute using the project's BaseDir[1]
+func resolveFilePath(project *Project, filePath string) string {
+	if filepath.IsAbs(filePath) {
+		// Already absolute, return as-is
+		return filePath
+	}
+	// Relative path: resolve against project BaseDir
+	return filepath.Join(project.BaseDir, filePath)
+}
+
 // readPump reads messages from the WebSocket client and processes queries.
 func (c *WSClient) readPump(project *Project) {
 	defer func() {
@@ -547,19 +557,21 @@ func (c *WSClient) readPump(project *Project) {
 			selection, _ := msg["selection"].(string)
 			queryID, _ := msg["queryID"].(string)
 
-			// Extract arrays
+			// Extract arrays and resolve relative paths to absolute[1]
 			var inputFiles, outFiles []string
 			if inputFilesRaw, ok := msg["inputFiles"].([]interface{}); ok {
 				for i := 0; i < len(inputFilesRaw); i++ {
 					if s, ok := inputFilesRaw[i].(string); ok {
-						inputFiles = append(inputFiles, s)
+						absPath := resolveFilePath(project, s)
+						inputFiles = append(inputFiles, absPath)
 					}
 				}
 			}
 			if outFilesRaw, ok := msg["outFiles"].([]interface{}); ok {
 				for i := 0; i < len(outFilesRaw); i++ {
 					if s, ok := outFilesRaw[i].(string); ok {
-						outFiles = append(outFiles, s)
+						absPath := resolveFilePath(project, s)
+						outFiles = append(outFiles, absPath)
 					}
 				}
 			}
