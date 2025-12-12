@@ -211,6 +211,46 @@ func (p *Projects) AddFile(projectID, filename string) error {
 	return p.dbMgr.SaveProject(persistedProj)
 }
 
+// Add RemoveFile method to Projects struct:
+func (p *Projects) RemoveFile(projectID, filename string) error {
+	project, err := p.Get(projectID)
+	if err != nil {
+		return err
+	}
+
+	idx := -1
+	for i, f := range project.AuthorizedFiles {
+		if f == filename {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return fmt.Errorf("file %s not found in project %s", filename, projectID)
+	}
+
+	project.AuthorizedFiles = append(project.AuthorizedFiles[:idx], project.AuthorizedFiles[idx+1:]...)
+
+	persistedProj := &db.Project{
+		ID:                    project.ID,
+		BaseDir:               project.BaseDir,
+		CurrentDiscussionFile: project.MarkdownFile,
+		DiscussionFiles: []db.DiscussionFileRef{
+			{
+				Filepath:   project.MarkdownFile,
+				CreatedAt:  time.Now(),
+				RoundCount: project.Chat.TotalRounds(),
+			},
+		},
+		AuthorizedFiles: project.AuthorizedFiles,
+		CreatedAt:       time.Now(),
+		EmbeddingCount:  0,
+		RoundHistory:    []db.RoundEntry{},
+	}
+
+	return p.dbMgr.SaveProject(persistedProj)
+}
+
 // toRelativePath converts an absolute path to relative if it's within BaseDir,
 // otherwise returns the original path unchanged[1]
 func (p *Project) toRelativePath(absPath string) string {

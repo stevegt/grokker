@@ -318,6 +318,36 @@ func runFileList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// runFileForget implements the file forget command[1]
+func runFileForget(cmd *cobra.Command, args []string) error {
+	projectID, err := cmd.Flags().GetString("project")
+	if err != nil {
+		return err
+	}
+	if err := validateRequiredFlag(projectID, "project"); err != nil {
+		return err
+	}
+
+	if len(args) < 1 {
+		return fmt.Errorf("filename is required")
+	}
+	filename := args
+
+	endpoint := fmt.Sprintf("/api/projects/%s/files/%s", projectID, filename)
+	resp, err := makeRequest("DELETE", endpoint, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK); err != nil {
+		return err
+	}
+
+	fmt.Printf("File %s removed from project %s\n", filename, projectID)
+	return nil
+}
+
 // runIssueToken implements the issue-token command
 func runIssueToken(cmd *cobra.Command, args []string) error {
 	fmt.Println("Would issue CWT token via HTTP API")
@@ -401,7 +431,16 @@ func main() {
 	}
 	fileListCmd.Flags().StringP("project", "p", "", "Project ID (required)")
 
-	fileCmd.AddCommand(fileAddCmd, fileListCmd)
+	fileForgetCmd := &cobra.Command{
+		Use:   "forget [filename]",
+		Short: "Remove a file from a project",
+		Long:  `Remove an authorized file from a project.`,
+		Args:  cobra.ExactArgs(1),
+		RunE:  runFileForget,
+	}
+	fileForgetCmd.Flags().StringP("project", "p", "", "Project ID (required)")
+
+	fileCmd.AddCommand(fileAddCmd, fileListCmd, fileForgetCmd)
 	rootCmd.AddCommand(fileCmd)
 
 	// Token command

@@ -6,10 +6,21 @@ import (
 	"log"
 
 	"github.com/danielgtaylor/huma/v2"
-	// . "github.com/stevegt/goadapt"
 )
 
-// Huma API input/output types
+// FileDeleteInput for deleting a file from a project
+type FileDeleteInput struct {
+	ProjectID string `path:"projectID" doc:"Project identifier" required:"true"`
+	Filename  string `path:"filename" doc:"Filename to delete" required:"true"`
+}
+
+type FileDeleteResponse struct {
+	Body struct {
+		ProjectID string `json:"projectID" doc:"Project identifier"`
+		Filename  string `json:"filename" doc:"Deleted filename"`
+		Message   string `json:"message" doc:"Deletion status"`
+	} `doc:"File deletion result"`
+}
 
 // ProjectAddInput uses explicit Body field for Huma request body control
 type ProjectAddInput struct {
@@ -155,6 +166,23 @@ func postProjectFilesHandler(ctx context.Context, input *FileAddInput) (*FileAdd
 		}
 	}
 
+	return res, nil
+}
+
+func deleteProjectFilesHandler(ctx context.Context, input *FileDeleteInput) (*FileDeleteResponse, error) {
+	projectID := input.ProjectID
+	filename := input.Filename
+
+	if err := projects.RemoveFile(projectID, filename); err != nil {
+		return nil, huma.Error404NotFound("Failed to delete file")
+	}
+
+	res := &FileDeleteResponse{}
+	res.Body.ProjectID = projectID
+	res.Body.Filename = filename
+	res.Body.Message = "File removed successfully"
+
+	log.Printf("DEBUG: File %s removed from project %s", filename, projectID)
 	return res, nil
 }
 
