@@ -92,12 +92,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	dbPath, err := cmd.Flags().GetString("db-path")
 	if err != nil {
 		return err
 	}
-	
+
 	return serveRun(port, dbPath)
 }
 
@@ -173,6 +173,33 @@ func runProjectList(cmd *cobra.Command, args []string) error {
 	for _, proj := range projectList.Projects {
 		fmt.Printf("  - %s (baseDir: %s)\n", proj.ID, proj.BaseDir)
 	}
+	return nil
+}
+
+// runProjectForget implements the project forget command
+func runProjectForget(cmd *cobra.Command, args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("project ID is required")
+	}
+	projectID := args[0]
+
+	endpoint := fmt.Sprintf("/api/projects/%s", projectID)
+	resp, err := makeRequest("DELETE", endpoint, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK); err != nil {
+		return err
+	}
+
+	var result map[string]interface{}
+	if err := decodeJSON(resp, &result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	fmt.Printf("Project %s forgotten and removed from database\n", projectID)
 	return nil
 }
 
@@ -315,7 +342,15 @@ func main() {
 		RunE:  runProjectList,
 	}
 
-	projectCmd.AddCommand(projectAddCmd, projectListCmd)
+	projectForgetCmd := &cobra.Command{
+		Use:   "forget [projectID]",
+		Short: "Delete a project",
+		Long:  `Delete a project and all its data from the database via HTTP API.`,
+		Args:  cobra.ExactArgs(1),
+		RunE:  runProjectForget,
+	}
+
+	projectCmd.AddCommand(projectAddCmd, projectListCmd, projectForgetCmd)
 	rootCmd.AddCommand(projectCmd)
 
 	// File command

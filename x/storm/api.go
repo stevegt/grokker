@@ -43,6 +43,18 @@ type ProjectList struct {
 	Projects []ProjectInfo `json:"projects" doc:"List of projects"`
 }
 
+// ProjectDeleteInput for deleting a project
+type ProjectDeleteInput struct {
+	ProjectID string `path:"projectID" doc:"Project identifier" required:"true"`
+}
+
+type ProjectDeleteResponse struct {
+	Body struct {
+		ProjectID string `json:"projectID" doc:"Project identifier"`
+		Message   string `json:"message" doc:"Deletion status message"`
+	} `doc:"Project deletion result"`
+}
+
 // FileAddInput for adding files to a project - extract projectID from path parameter
 type FileAddInput struct {
 	ProjectID string `path:"projectID" doc:"Project identifier" required:"true"`
@@ -107,6 +119,22 @@ func getProjectsHandler(ctx context.Context, input *EmptyInput) (*ProjectListRes
 	}
 	res := &ProjectListResponse{}
 	res.Body.Projects = projectInfos
+	return res, nil
+}
+
+// deleteProjectHandler handles DELETE /api/projects/{projectID} - delete a project
+func deleteProjectHandler(ctx context.Context, input *ProjectDeleteInput) (*ProjectDeleteResponse, error) {
+	projectID := input.ProjectID
+
+	if err := projects.Remove(projectID); err != nil {
+		return nil, huma.Error404NotFound("Failed to delete project")
+	}
+
+	res := &ProjectDeleteResponse{}
+	res.Body.ProjectID = projectID
+	res.Body.Message = "Project deleted successfully"
+
+	log.Printf("DEBUG: Project %s deleted", projectID)
 	return res, nil
 }
 

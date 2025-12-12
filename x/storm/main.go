@@ -395,6 +395,7 @@ func serveRun(port int, dbPath string) error {
 	// Huma API endpoints for project management
 	huma.Post(api, "/api/projects", postProjectsHandler)
 	huma.Get(api, "/api/projects", getProjectsHandler)
+	huma.Delete(api, "/api/projects/{projectID}", deleteProjectHandler)
 	huma.Post(api, "/api/projects/{projectID}/files", postProjectFilesHandler)
 	huma.Get(api, "/api/projects/{projectID}/files", getProjectFilesHandler)
 
