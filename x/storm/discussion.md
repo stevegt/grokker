@@ -35755,3 +35755,121 @@ I'll provide an updated main.go that implements this approach.
 
 ---
 
+
+
+**any relative paths being returned from the web UI need to be translated back to absolute paths**
+
+
+
+
+# Convert Relative Paths from Web UI to Absolute for Processing
+
+Relative paths received from the web UI must be converted back to absolute paths before sending to the LLM or performing file operations[1]. Add a helper method to resolve relative paths against the project's BaseDir in `readPump()` and any API handlers that receive file paths[1].
+
+---FILE-START filename="main.go"---
+// In readPump(), resolve relative paths to absolute before processing
+func (c *WSClient) readPump(project *Project) {
+	defer func() {
+		c.pool.unregister <- c
+		c.conn.Close()
+	}()
+
+	for {
+		var msg map[string]interface{}
+		if err := c.conn.ReadJSON(&msg); err != nil {
+			log.Printf("WebSocket read error: %v", err)
+			break
+		}
+
+		if msgType, ok := msg["type"].(string); ok && msgType == "query" {
+			log.Printf("Received query from %s in project %s: %v", c.id, c.projectID, msg)
+
+			query, _ := msg["query"].(string)
+			llm, _ := msg["llm"].(string)
+			selection, _ := msg["selection"].(string)
+			queryID, _ := msg["queryID"].(string)
+
+			// Extract arrays and resolve relative paths to absolute
+			var inputFiles, outFiles []string
+			if inputFilesRaw, ok := msg["inputFiles"].([]interface{}); ok {
+				for i := 0; i < len(inputFilesRaw); i++ {
+					if s, ok := inputFilesRaw[i].(string); ok {
+						// Resolve relative path to absolute
+						absPath := resolveFilePath(project, s)
+						inputFiles = append(inputFiles, absPath)
+					}
+				}
+			}
+			if outFilesRaw, ok := msg["outFiles"].([]interface{}); ok {
+				for i := 0; i < len(outFilesRaw); i++ {
+					if s, ok := outFilesRaw[i].(string); ok {
+						// Resolve relative path to absolute
+						absPath := resolveFilePath(project, s)
+						outFiles = append(outFiles, absPath)
+					}
+				}
+			}
+
+			tokenLimit := parseTokenLimit(msg["tokenLimit"])
+
+			go processQuery(project, queryID, query, llm, selection, inputFiles, outFiles, tokenLimit)
+		}
+	}
+}
+
+// resolveFilePath converts relative paths to absolute using the project's BaseDir[1]
+func resolveFilePath(project *Project, filePath string) string {
+	if filepath.IsAbs(filePath) {
+		// Already absolute, return as-is
+		return filePath
+	}
+	// Relative path: resolve against project BaseDir
+	return filepath.Join(project.BaseDir, filePath)
+}
+---FILE-END filename="main.go"---
+
+## Key Changes
+
+**1. New helper function `resolveFilePath()`**[1]
+- If path is already absolute, return unchanged
+- If relative, join with project's BaseDir to get absolute path
+
+**2. Updated `readPump()`**[1]
+- Call `resolveFilePath()` on each input/output file from WebSocket
+- Pass resolved absolute paths to `processQuery()`
+- Ensures LLM receives absolute paths
+
+**3. Apply same pattern to API handlers**[1]
+- Any handler receiving file paths from web UI should resolve them before processing
+
+## References
+
+[1] [https://golang.org/pkg/path/filepath/](https://golang.org/pkg/path/filepath/)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to address this query: "any relative paths being returned from the web UI need to be translated back to absolute paths"
+
+This is the opposite of what we did before - we converted absolute paths to relative for display in the web UI. Now we need to convert them back to absolute when they're used for actual file operations.
+
+The issue is that when files come from the web UI as relative paths (like "data/file.txt"), and we use them in the LLM query processing or other operations, we need to convert them back to absolute paths (like "/home/user/project/data/file.txt").
+
+The key places where this needs to happen:
+1. In `readPump()` when we receive inputFiles and outFiles from the WebSocket message - these may be relative paths that need converting
+2. In any API handlers that receive file paths and need to use them
+
+I need to add a method to Project to convert relative paths to absolute paths, and apply it when receiving file paths from the web UI.
+
+Let me focus on the key change needed: when we receive relative paths from the web UI, convert them back to absolute before using them for LLM queries.
+
+
+---
+
