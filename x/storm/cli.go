@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	// . "github.com/stevegt/goadapt"
@@ -84,6 +85,20 @@ func checkStatusCode(resp *http.Response, acceptedCodes ...int) error {
 	return fmt.Errorf("daemon returned status %d: %s", resp.StatusCode, string(body))
 }
 
+// resolvePath converts relative paths to absolute paths; returns absolute paths unchanged
+func resolvePath(path string) (string, error) {
+	if filepath.IsAbs(path) {
+		// Already absolute, return as-is
+		return path, nil
+	}
+	// Relative path: resolve against current working directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current working directory: %w", err)
+	}
+	return filepath.Join(cwd, path), nil
+}
+
 // CLI Command Handlers
 
 // runServe implements the serve command
@@ -107,15 +122,24 @@ func runProjectAdd(cmd *cobra.Command, args []string) error {
 	baseDir := args[1]
 	markdownFile := args[2]
 
+	// Resolve paths to absolute (relative paths resolved against cwd at add-time)
+	resolvedBaseDir, err := resolvePath(baseDir)
+	if err != nil {
+		return err
+	}
+	resolvedMarkdownFile, err := resolvePath(markdownFile)
+	if err != nil {
+		return err
+	}
+
 	// TODO default projectID to current repo -- would need .storm file or directory in repo top
-	// TODO ensure baseDir exists
-	// TODO cannonicalize baseDir and markdownFile to absolute paths
-	// TODO add a `mv` subcommand?
+	// TODO ensure baseDir exists (could be checked here or let server validate)
+	// TODO add a `mv` subcommand to relocate projects
 
 	payload := map[string]string{
 		"projectID":    projectID,
-		"baseDir":      baseDir,
-		"markdownFile": markdownFile,
+		"baseDir":      resolvedBaseDir,
+		"markdownFile": resolvedMarkdownFile,
 	}
 
 	resp, err := makeRequest("POST", "/api/projects", payload)
@@ -134,8 +158,8 @@ func runProjectAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Project %s added successfully\n", projectID)
-	fmt.Printf("  Base directory: %s\n", baseDir)
-	fmt.Printf("  Markdown file: %s\n", markdownFile)
+	fmt.Printf("  BaseDir: %s\n", resolvedBaseDir)
+	fmt.Printf("  MarkdownFile: %s\n", resolvedMarkdownFile)
 	if rounds, ok := result["chatRounds"].(float64); ok {
 		fmt.Printf("  Chat rounds loaded: %d\n", int(rounds))
 	}
@@ -330,7 +354,7 @@ func main() {
 	projectAddCmd := &cobra.Command{
 		Use:   "add [projectID] [baseDir] [markdownFile]",
 		Short: "Add a new project",
-		Long:  `Add a new project to the registry via HTTP API.`,
+		Long:  `Add a new project to the registry. Paths can be absolute or relative (resolved against current working directory).`,
 		Args:  cobra.ExactArgs(3),
 		RunE:  runProjectAdd,
 	}

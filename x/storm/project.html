@@ -1,7 +1,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Grokker LLM Chat</title>
+  <title>Storm</title>
   <style>
     body { 
       font-family: Arial, sans-serif; 
@@ -287,6 +287,9 @@
     
     // Extract projectID from URL path
     var projectID = window.location.pathname.split('/')[2] || 'default';
+    
+    // Set document title to include project ID
+    document.title = projectID;
     
     // UUID v4 generator without NPM
     function generateUUID() {
