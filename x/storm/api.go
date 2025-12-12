@@ -79,7 +79,7 @@ type FileListInput struct {
 type FileListResponse struct {
 	Body struct {
 		ProjectID string   `json:"projectID" doc:"Project identifier"`
-		Files     []string `json:"files" doc:"List of authorized files"`
+		Files     []string `json:"files" doc:"List of authorized files (relative paths when inside base directory)"`
 	} `doc:"Files list"`
 }
 
@@ -159,6 +159,7 @@ func postProjectFilesHandler(ctx context.Context, input *FileAddInput) (*FileAdd
 }
 
 // getProjectFilesHandler handles GET /api/projects/{projectID}/files - list files for project
+// Returns relative paths when files are inside the project's base directory[1]
 func getProjectFilesHandler(ctx context.Context, input *FileListInput) (*FileListResponse, error) {
 	projectID := input.ProjectID
 
@@ -169,7 +170,7 @@ func getProjectFilesHandler(ctx context.Context, input *FileListInput) (*FileLis
 
 	res := &FileListResponse{}
 	res.Body.ProjectID = projectID
-	res.Body.Files = project.GetFiles()
+	res.Body.Files = project.GetFilesAsRelative()
 
 	return res, nil
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -210,6 +211,31 @@ func (p *Projects) AddFile(projectID, filename string) error {
 	return p.dbMgr.SaveProject(persistedProj)
 }
 
+// toRelativePath converts an absolute path to relative if it's within BaseDir,
+// otherwise returns the original path unchanged[1]
+func (p *Project) toRelativePath(absPath string) string {
+	if !filepath.IsAbs(absPath) {
+		// Already relative, return as-is
+		return absPath
+	}
+
+	// Try to make it relative to BaseDir
+	relPath, err := filepath.Rel(p.BaseDir, absPath)
+	if err != nil {
+		// Failed to compute relative path, return original
+		log.Printf("Failed to compute relative path for %s relative to %s: %v", absPath, p.BaseDir, err)
+		return absPath
+	}
+
+	// Check if the result tries to go outside BaseDir (contains ..)
+	// If so, return the original absolute path
+	if filepath.IsAbs(relPath) || filepath.HasPrefix(relPath, "..") {
+		return absPath
+	}
+
+	return relPath
+}
+
 // GetChat returns the Chat instance for a project
 func (p *Project) GetChat() *Chat {
 	return p.Chat
@@ -223,4 +249,14 @@ func (p *Project) GetClientPool() *ClientPool {
 // GetFiles returns the authorized files list for a project
 func (p *Project) GetFiles() []string {
 	return p.AuthorizedFiles
+}
+
+// GetFilesAsRelative returns the authorized files list with paths converted to relative
+// when they are inside the project's BaseDir, absolute paths otherwise[1]
+func (p *Project) GetFilesAsRelative() []string {
+	var relativeFiles []string
+	for i := 0; i < len(p.AuthorizedFiles); i++ {
+		relativeFiles = append(relativeFiles, p.toRelativePath(p.AuthorizedFiles[i]))
+	}
+	return relativeFiles
 }

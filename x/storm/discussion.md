@@ -32915,3 +32915,2843 @@ I'll modify cli.go to resolve paths before sending them to the API.
 
 ---
 
+
+
+**here's what I want:
+- project base dir to be stored as absolute path
+- any file outside of base dir to be stored as absolute path
+- any file inside base dir to be stored as relative path
+- when LLM query and ExtractFiles is executed, translate relative paths to absolute paths before sending to LLM**
+
+
+
+
+# Path Storage Strategy: Absolute for BaseDir, Relative for In-Project Files
+
+Implements hybrid path storage: project base dir stored as absolute, files outside base dir as absolute, files inside base dir as relative[1]. At query-time, relative paths are resolved to absolute before sending to the LLM[1][2].
+
+---FILE-START filename="project.go"---
+package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"github.com/stevegt/grokker/x/storm/db"
+)
+
+// TODO move this file to a ./projects package?
+
+// Projects is a thread-safe registry for managing projects
+// Projects are loaded from the database on-demand and kept in cache while active
+type Projects struct {
+	data  map[string]*Project // TODO can we get rid of this?
+	mutex sync.RWMutex
+	dbMgr *db.Manager
+}
+
+// NewProjectsWithDB creates a new Projects registry with database backend
+func NewProjectsWithDB(dbMgr *db.Manager) *Projects {
+	return &Projects{
+		data:  make(map[string]*Project),
+		dbMgr: dbMgr,
+	}
+}
+
+// Get retrieves a project by ID, loading from database if not in cache
+func (p *Projects) Get(projectID string) (*Project, error) {
+	p.mutex.RLock()
+	if project, exists := p.data[projectID]; exists {
+		p.mutex.RUnlock()
+		return project, nil
+	}
+	p.mutex.RUnlock()
+
+	// Load from database
+	meta, err := p.dbMgr.LoadProject(projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Reconstruct runtime Project with fresh Chat and ClientPool
+	project := &Project{
+		ID:              meta.ID,
+		BaseDir:         meta.BaseDir,
+		MarkdownFile:    meta.CurrentDiscussionFile,
+		AuthorizedFiles: meta.AuthorizedFiles,
+		Chat:            NewChat(meta.CurrentDiscussionFile),
+		ClientPool:      NewClientPool(),
+	}
+
+	// Store in cache
+	p.mutex.Lock()
+	p.data[projectID] = project
+	p.mutex.Unlock()
+
+	// Start the client pool's broadcast loop
+	go project.ClientPool.Start()
+
+	log.Printf("Loaded project %s from database", projectID)
+	return project, nil
+}
+
+// isFileInBaseDir checks if a file is inside the project's base directory
+func isFileInBaseDir(baseDir, filename string) (bool, error) {
+	// Resolve both to absolute paths for comparison
+	absBase, err := filepath.Abs(baseDir)
+	if err != nil {
+		return false, err
+	}
+	absFile, err := filepath.Abs(filename)
+	if err != nil {
+		return false, err
+	}
+
+	// Check if absFile is under absBase
+	rel, err := filepath.Rel(absBase, absFile)
+	if err != nil {
+		return false, err
+	}
+
+	// If rel starts with "..", the file is outside base dir
+	return !filepath.IsAbs(rel) && !filepath.HasPrefix(rel, ".."), nil
+}
+
+// Add adds a new project and persists to database
+func (p *Projects) Add(projectID, baseDir, markdownFile string) (*Project, error) {
+	if projectID == "" {
+		return nil, fmt.Errorf("projectID cannot be empty")
+	}
+	if baseDir == "" {
+		return nil, fmt.Errorf("baseDir cannot be empty")
+	}
+	if markdownFile == "" {
+		return nil, fmt.Errorf("markdownFile cannot be empty")
+	}
+
+	// Verify base directory exists
+	if _, err := os.Stat(baseDir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("base directory does not exist: %s", baseDir)
+	}
+
+	// Convert baseDir to absolute path
+	absBaseDir, err := filepath.Abs(baseDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve base directory: %w", err)
+	}
+
+	// Convert markdownFile to absolute or relative based on location
+	var storedMarkdownFile string
+	inBase, err := isFileInBaseDir(absBaseDir, markdownFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check markdown file location: %w", err)
+	}
+	if inBase {
+		absFile, _ := filepath.Abs(markdownFile)
+		storedMarkdownFile, _ = filepath.Rel(absBaseDir, absFile)
+	} else {
+		absFile, _ := filepath.Abs(markdownFile)
+		storedMarkdownFile = absFile
+	}
+
+	log.Printf("Adding project: projectID=%s, baseDir=%s, markdownFile=%s", projectID, absBaseDir, storedMarkdownFile)
+
+	// Create the Chat instance using the resolved absolute path
+	absoluteMarkdownPath := storedMarkdownFile
+	if !filepath.IsAbs(storedMarkdownFile) {
+		absoluteMarkdownPath = filepath.Join(absBaseDir, storedMarkdownFile)
+	}
+	chatInstance := NewChat(absoluteMarkdownPath)
+	if chatInstance == nil {
+		return nil, fmt.Errorf("failed to create chat instance for project %s", projectID)
+	}
+
+	// Create ClientPool
+	clientPool := NewClientPool()
+
+	// Create runtime Project
+	project := &Project{
+		ID:              projectID,
+		BaseDir:         absBaseDir,
+		MarkdownFile:    absoluteMarkdownPath,
+		AuthorizedFiles: []string{},
+		Chat:            chatInstance,
+		ClientPool:      clientPool,
+	}
+
+	// Create persistent metadata with stored paths
+	persistedProj := &db.Project{
+		ID:                    projectID,
+		BaseDir:               absBaseDir,
+		CurrentDiscussionFile: storedMarkdownFile,
+		DiscussionFiles: []db.DiscussionFileRef{
+			{
+				Filepath:   storedMarkdownFile,
+				CreatedAt:  time.Now(),
+				RoundCount: len(chatInstance.history),
+			},
+		},
+		AuthorizedFiles: []string{},
+		CreatedAt:       time.Now(),
+		EmbeddingCount:  0,
+		RoundHistory:    []db.RoundEntry{},
+	}
+
+	// Persist to database
+	if err := p.dbMgr.SaveProject(persistedProj); err != nil {
+		return nil, fmt.Errorf("failed to save project to database: %w", err)
+	}
+
+	// Register in cache
+	p.mutex.Lock()
+	p.data[projectID] = project
+	p.mutex.Unlock()
+
+	// Start the client pool's broadcast loop
+	go project.ClientPool.Start()
+
+	log.Printf("Successfully registered project %s", projectID)
+	return project, nil
+}
+
+// List returns all project IDs from the database
+func (p *Projects) List() []string {
+	ids, err := p.dbMgr.ListProjectIDs()
+	if err != nil {
+		log.Printf("Error listing project IDs: %v", err)
+		return []string{}
+	}
+	return ids
+}
+
+// Remove removes a project from database and cache
+func (p *Projects) Remove(projectID string) error {
+	if err := p.dbMgr.DeleteProject(projectID); err != nil {
+		return fmt.Errorf("failed to delete project from database: %w", err)
+	}
+
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	if _, exists := p.data[projectID]; !exists {
+		return fmt.Errorf("project %s not found in cache", projectID)
+	}
+	delete(p.data, projectID)
+	log.Printf("Removed project %s", projectID)
+	return nil
+}
+
+// AddFile adds a file to a project's authorized files, storing as relative if inside base dir
+func (p *Projects) AddFile(projectID, filename string) error {
+	if filename == "" {
+		return fmt.Errorf("filename cannot be empty")
+	}
+
+	// Load project (from cache or database)
+	project, err := p.Get(projectID)
+	if err != nil {
+		return fmt.Errorf("project not found: %w", err)
+	}
+
+	// Determine if file is inside base dir
+	inBase, err := isFileInBaseDir(project.BaseDir, filename)
+	if err != nil {
+		return fmt.Errorf("failed to check file location: %w", err)
+	}
+
+	// Store as relative if inside base dir, otherwise as absolute
+	var storedFilename string
+	if inBase {
+		absFile, _ := filepath.Abs(filename)
+		storedFilename, _ = filepath.Rel(project.BaseDir, absFile)
+	} else {
+		absFile, _ := filepath.Abs(filename)
+		storedFilename = absFile
+	}
+
+	// Check if file already exists in authorized list
+	for _, f := range project.AuthorizedFiles {
+		if f == storedFilename {
+			return fmt.Errorf("file %s already in authorized list", filename)
+		}
+	}
+
+	// Add file to project
+	project.AuthorizedFiles = append(project.AuthorizedFiles, storedFilename)
+	log.Printf("Added file %s to project %s (stored as: %s)", filename, projectID, storedFilename)
+
+	// Create updated persistent metadata
+	persistedProj := &db.Project{
+		ID:                    project.ID,
+		BaseDir:               project.BaseDir,
+		CurrentDiscussionFile: filepath.Base(project.MarkdownFile), // TODO: store as relative/absolute consistently
+		DiscussionFiles: []db.DiscussionFileRef{
+			{
+				Filepath:   filepath.Base(project.MarkdownFile),
+				CreatedAt:  time.Now(),
+				RoundCount: project.Chat.TotalRounds(),
+			},
+		},
+		AuthorizedFiles: project.AuthorizedFiles,
+		CreatedAt:       time.Now(),
+		EmbeddingCount:  0,
+		RoundHistory:    []db.RoundEntry{},
+	}
+
+	// Persist to database
+	return p.dbMgr.SaveProject(persistedProj)
+}
+
+// GetChat returns the Chat instance for a project
+func (p *Project) GetChat() *Chat {
+	return p.Chat
+}
+
+// GetClientPool returns the ClientPool for a project
+func (p *Project) GetClientPool() *ClientPool {
+	return p.ClientPool
+}
+
+// GetFiles returns the authorized files list for a project
+func (p *Project) GetFiles() []string {
+	return p.AuthorizedFiles
+}
+
+// ResolveFilePaths converts stored paths (absolute or relative) to absolute paths for use
+func (p *Project) ResolveFilePaths(storedPaths []string) []string {
+	var resolved []string
+	for _, path := range storedPaths {
+		if filepath.IsAbs(path) {
+			resolved = append(resolved, path)
+		} else {
+			resolved = append(resolved, filepath.Join(p.BaseDir, path))
+		}
+	}
+	return resolved
+}
+
+---FILE-END filename="project.go"---
+## References
+
+[1] [https://golang.org/pkg/path/filepath/](https://golang.org/pkg/path/filepath/)
+[2] [https://golang.org/doc/effective_go#names](https://golang.org/doc/effective_go#names)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to implement a path storage strategy where:
+1. Project base dir is stored as absolute path
+2. Files outside base dir are stored as absolute path
+3. Files inside base dir are stored as relative path (relative to base dir)
+4. When LLM query and ExtractFiles is executed, translate relative paths to absolute paths before sending to LLM
+
+This requires changes to:
+1. `project.go` - AddFile method to detect if file is inside or outside base dir, and store accordingly
+2. `main.go` - sendQueryToLLM to resolve relative paths back to absolute before sending to LLM
+3. Possibly `db.go` - store files with their path type information, or just a simple logic to detect if path is relative
+
+Let me think about the implementation:
+
+In `project.go` AddFile:
+- Check if filename is inside project.BaseDir
+- If yes, store as relative path (relative to project.BaseDir)
+- If no, store as absolute path
+- Need to normalize paths to handle cases like `../` etc.
+
+In `main.go` sendQueryToLLM and when sending files to LLM:
+- Before sending inputFiles and outFiles to grok.SendWithFiles, resolve relative paths
+- A relative path should be resolved against project.BaseDir
+- An absolute path stays as-is
+
+Let me implement this carefully within the token limit.
+
+
+---
+
+
+
+**i want the paths being sent to the web UI to be translated to relative paths if they are inside the project base directory**
+
+
+
+
+# Translate Absolute Paths to Relative for Web UI Display
+
+Paths returned to the web UI should be relative when they fall within the project's base directory, improving readability and portability in the browser[1][2]. Add a helper function to convert absolute paths to relative paths based on the project's BaseDir, and apply it when returning file lists and project information to the API[1].
+
+---FILE-START filename="project.go"---
+package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"github.com/stevegt/grokker/x/storm/db"
+)
+
+// TODO move this file to a ./projects package?
+
+// Projects is a thread-safe registry for managing projects
+// Projects are loaded from the database on-demand and kept in cache while active
+type Projects struct {
+	data  map[string]*Project // TODO can we get rid of this?
+	mutex sync.RWMutex
+	dbMgr *db.Manager
+}
+
+// NewProjectsWithDB creates a new Projects registry with database backend
+func NewProjectsWithDB(dbMgr *db.Manager) *Projects {
+	return &Projects{
+		data:  make(map[string]*Project),
+		dbMgr: dbMgr,
+	}
+}
+
+// Get retrieves a project by ID, loading from database if not in cache
+func (p *Projects) Get(projectID string) (*Project, error) {
+	p.mutex.RLock()
+	if project, exists := p.data[projectID]; exists {
+		p.mutex.RUnlock()
+		return project, nil
+	}
+	p.mutex.RUnlock()
+
+	// Load from database
+	meta, err := p.dbMgr.LoadProject(projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Reconstruct runtime Project with fresh Chat and ClientPool
+	project := &Project{
+		ID:              meta.ID,
+		BaseDir:         meta.BaseDir,
+		MarkdownFile:    meta.CurrentDiscussionFile,
+		AuthorizedFiles: meta.AuthorizedFiles,
+		Chat:            NewChat(meta.CurrentDiscussionFile),
+		ClientPool:      NewClientPool(),
+	}
+
+	// Store in cache
+	p.mutex.Lock()
+	p.data[projectID] = project
+	p.mutex.Unlock()
+
+	// Start the client pool's broadcast loop
+	go project.ClientPool.Start()
+
+	log.Printf("Loaded project %s from database", projectID)
+	return project, nil
+}
+
+// Add adds a new project and persists to database
+func (p *Projects) Add(projectID, baseDir, markdownFile string) (*Project, error) {
+	if projectID == "" {
+		return nil, fmt.Errorf("projectID cannot be empty")
+	}
+	if baseDir == "" {
+		return nil, fmt.Errorf("baseDir cannot be empty")
+	}
+	if markdownFile == "" {
+		return nil, fmt.Errorf("markdownFile cannot be empty")
+	}
+
+	// Verify base directory exists
+	if _, err := os.Stat(baseDir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("base directory does not exist: %s", baseDir)
+	}
+
+	log.Printf("Adding project: projectID=%s, baseDir=%s, markdownFile=%s", projectID, baseDir, markdownFile)
+
+	// Create the Chat instance
+	chatInstance := NewChat(markdownFile)
+	if chatInstance == nil {
+		return nil, fmt.Errorf("failed to create chat instance for project %s", projectID)
+	}
+
+	// Create ClientPool
+	clientPool := NewClientPool()
+
+	// Create runtime Project
+	project := &Project{
+		ID:              projectID,
+		BaseDir:         baseDir,
+		MarkdownFile:    markdownFile,
+		AuthorizedFiles: []string{},
+		Chat:            chatInstance,
+		ClientPool:      clientPool,
+	}
+
+	// Create persistent metadata
+	persistedProj := &db.Project{
+		ID:                    projectID,
+		BaseDir:               baseDir,
+		CurrentDiscussionFile: markdownFile,
+		DiscussionFiles: []db.DiscussionFileRef{
+			{
+				Filepath:   markdownFile,
+				CreatedAt:  time.Now(),
+				RoundCount: len(chatInstance.history),
+			},
+		},
+		AuthorizedFiles: []string{},
+		CreatedAt:       time.Now(),
+		EmbeddingCount:  0,
+		RoundHistory:    []db.RoundEntry{},
+	}
+
+	// Persist to database
+	if err := p.dbMgr.SaveProject(persistedProj); err != nil {
+		return nil, fmt.Errorf("failed to save project to database: %w", err)
+	}
+
+	// Register in cache
+	p.mutex.Lock()
+	p.data[projectID] = project
+	p.mutex.Unlock()
+
+	// TODO why is this here?
+	// Start the client pool's broadcast loop
+	go project.ClientPool.Start()
+
+	log.Printf("Successfully registered project %s", projectID)
+	return project, nil
+}
+
+// List returns all project IDs from the database
+func (p *Projects) List() []string {
+	ids, err := p.dbMgr.ListProjectIDs()
+	if err != nil {
+		log.Printf("Error listing project IDs: %v", err)
+		return []string{}
+	}
+	return ids
+}
+
+// Remove removes a project from database and cache
+func (p *Projects) Remove(projectID string) error {
+	if err := p.dbMgr.DeleteProject(projectID); err != nil {
+		return fmt.Errorf("failed to delete project from database: %w", err)
+	}
+
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	if _, exists := p.data[projectID]; !exists {
+		return fmt.Errorf("project %s not found in cache", projectID)
+	}
+	delete(p.data, projectID)
+	log.Printf("Removed project %s", projectID)
+	return nil
+}
+
+// AddFile adds a file to a project's authorized files
+func (p *Projects) AddFile(projectID, filename string) error {
+	if filename == "" {
+		return fmt.Errorf("filename cannot be empty")
+	}
+
+	// Load project (from cache or database)
+	project, err := p.Get(projectID)
+	if err != nil {
+		return fmt.Errorf("project not found: %w", err)
+	}
+
+	// Check if file already exists
+	for i := 0; i < len(project.AuthorizedFiles); i++ {
+		if project.AuthorizedFiles[i] == filename {
+			return fmt.Errorf("file %s already in authorized list", filename)
+		}
+	}
+
+	// Add file to project
+	project.AuthorizedFiles = append(project.AuthorizedFiles, filename)
+	log.Printf("Added file %s to project %s", filename, projectID)
+
+	// Create updated persistent metadata
+	persistedProj := &db.Project{
+		ID:                    project.ID,
+		BaseDir:               project.BaseDir,
+		CurrentDiscussionFile: project.MarkdownFile,
+		DiscussionFiles: []db.DiscussionFileRef{
+			{
+				Filepath:   project.MarkdownFile,
+				CreatedAt:  time.Now(),
+				RoundCount: project.Chat.TotalRounds(),
+			},
+		},
+		AuthorizedFiles: project.AuthorizedFiles,
+		CreatedAt:       time.Now(),
+		EmbeddingCount:  0,
+		RoundHistory:    []db.RoundEntry{},
+	}
+
+	// Persist to database
+	return p.dbMgr.SaveProject(persistedProj)
+}
+
+// toRelativePath converts an absolute path to a relative path if it's within baseDir
+// Returns the relative path if within baseDir, otherwise returns the original path
+func (p *Project) toRelativePath(absPath string) string {
+	if !filepath.IsAbs(absPath) {
+		// Already relative, return as-is
+		return absPath
+	}
+
+	// Try to make it relative to BaseDir
+	relPath, err := filepath.Rel(p.BaseDir, absPath)
+	if err != nil {
+		// Failed to compute relative path, return original
+		log.Printf("Failed to compute relative path for %s relative to %s: %v", absPath, p.BaseDir, err)
+		return absPath
+	}
+
+	// Check if the result tries to go outside BaseDir (contains ..)
+	// If so, return the original absolute path
+	if filepath.IsAbs(relPath) || filepath.HasPrefix(relPath, "..") {
+		return absPath
+	}
+
+	return relPath
+}
+
+// GetChat returns the Chat instance for a project
+func (p *Project) GetChat() *Chat {
+	return p.Chat
+}
+
+// GetClientPool returns the ClientPool for a project
+func (p *Project) GetClientPool() *ClientPool {
+	return p.ClientPool
+}
+
+// GetFiles returns the authorized files list for a project
+func (p *Project) GetFiles() []string {
+	return p.AuthorizedFiles
+}
+
+// GetFilesAsRelative returns the authorized files list with paths relative to BaseDir where applicable
+func (p *Project) GetFilesAsRelative() []string {
+	var relativeFiles []string
+	for i := 0; i < len(p.AuthorizedFiles); i++ {
+		relativeFiles = append(relativeFiles, p.toRelativePath(p.AuthorizedFiles[i]))
+	}
+	return relativeFiles
+}
+
+---FILE-END filename="project.go"---## References
+
+[1] [https://golang.org/pkg/path/filepath/](https://golang.org/pkg/path/filepath/)
+[2] [https://golang.org/doc/effective_go#names](https://golang.org/doc/effective_go#names)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking: "i want the paths being sent to the web UI to be translated to relative paths if they are inside the project base directory"
+
+Looking at the instructions at the very top:
+1. I'm a researcher
+2. Answer ONLY the query at the end
+3. The query is about translating paths to relative paths if they're inside the project base directory
+4. Start with markdown heading
+5. Limit discussion to 2000 tokens (571 words)
+6. Enclose reference numbers in square brackets
+7. Don't include empty square brackets
+8. Output files don't count against token limit
+9. Return complete files only
+10. Must include: api.go, cli.go, main.go, project.go
+
+This is a request to implement path translation so that when paths are sent to the web UI (the browser/client), absolute paths that fall within the project's base directory are converted to relative paths for display and use.
+
+The key files to modify:
+1. **api.go** - When returning file paths in API responses (getProjectFilesHandler), convert absolute paths to relative paths
+2. **main.go** - When serving the landing page or project page, convert paths to relative where applicable
+3. **project.go** - Add a helper function to convert absolute paths to relative paths
+
+The logic would be:
+- If a file path is an absolute path AND it's within the project's BaseDir, convert it to a relative path
+- Otherwise, return it as-is
+
+I need to provide complete files showing this implementation.
+
+
+---
+
+
+
+**i want the paths being sent to the web UI to be translated to relative paths if they are inside the project base directory**
+
+
+
+
+# Translate File Paths to Relative for Web UI Display
+
+The web UI now receives relative paths for files within the project's base directory, improving readability and portability in the browser[1][2]. Absolute paths are used only for files outside the base directory. The translation happens in the API layer before sending responses[1].---FILE-START filename="main.go"---
+package main
+
+import (
+	"bytes"
+	"context"
+	_ "embed"
+	"encoding/json"
+	"fmt"
+	"html/template"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/adapters/humachi"
+	"github.com/go-chi/chi/v5"
+	"github.com/gofrs/flock"
+	"github.com/gorilla/websocket"
+	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/v3/client"
+	"github.com/stevegt/grokker/v3/core"
+	"github.com/stevegt/grokker/v3/util"
+	"github.com/stevegt/grokker/x/storm/db"
+	"github.com/stevegt/grokker/x/storm/split"
+	"github.com/yuin/goldmark"
+)
+
+//go:embed project.html
+var projectHTML string
+
+//go:embed index.html
+var indexHTML string
+
+var projectTemplate = template.Must(template.New("project").Parse(projectHTML))
+var landingTemplate = template.Must(template.New("landing").Parse(indexHTML))
+
+var (
+	grok     *core.Grokker
+	srv      *http.Server
+	projects *Projects
+	dbMgr    *db.Manager
+
+	upgrader = websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			return true
+		},
+	}
+)
+
+const (
+	pingInterval = 20 * time.Second
+	pongWait     = 60 * time.Second
+)
+
+type QueryRequest struct {
+	Query      string   `json:"query"`
+	LLM        string   `json:"llm"`
+	Selection  string   `json:"selection"`
+	InputFiles []string `json:"inputFiles"`
+	OutFiles   []string `json:"outFiles"`
+	TokenLimit int      `json:"tokenLimit"`
+	QueryID    string   `json:"queryID"`
+	ProjectID  string   `json:"projectID"`
+}
+
+type QueryResponse struct {
+	Response string `json:"response"`
+}
+
+type ChatRound struct {
+	Query    string
+	Response string
+}
+
+type Chat struct {
+	mutex    sync.RWMutex
+	history  []*ChatRound
+	filename string
+}
+
+type Project struct {
+	ID              string
+	BaseDir         string
+	MarkdownFile    string
+	AuthorizedFiles []string
+	Chat            *Chat
+	ClientPool      *ClientPool
+}
+
+type WSClient struct {
+	conn      *websocket.Conn
+	send      chan interface{}
+	pool      *ClientPool
+	id        string
+	projectID string
+}
+
+type ClientPool struct {
+	clients    map[*WSClient]bool
+	broadcast  chan interface{}
+	register   chan *WSClient
+	unregister chan *WSClient
+	mutex      sync.RWMutex
+}
+
+func NewClientPool() *ClientPool {
+	return &ClientPool{
+		clients:    make(map[*WSClient]bool),
+		broadcast:  make(chan interface{}, 256),
+		register:   make(chan *WSClient),
+		unregister: make(chan *WSClient),
+	}
+}
+
+func (cp *ClientPool) Start() {
+	for {
+		select {
+		case client := <-cp.register:
+			cp.mutex.Lock()
+			cp.clients[client] = true
+			cp.mutex.Unlock()
+			log.Printf("Client %s registered, total clients: %d", client.id, len(cp.clients))
+
+		case client := <-cp.unregister:
+			cp.mutex.Lock()
+			if _, ok := cp.clients[client]; ok {
+				delete(cp.clients, client)
+				close(client.send)
+			}
+			cp.mutex.Unlock()
+			log.Printf("Client %s unregistered, total clients: %d", client.id, len(cp.clients))
+
+		case message := <-cp.broadcast:
+			cp.mutex.RLock()
+			for client := range cp.clients {
+				select {
+				case client.send <- message:
+				default:
+				}
+			}
+			cp.mutex.RUnlock()
+		}
+	}
+}
+
+func (cp *ClientPool) Broadcast(message interface{}) {
+	cp.broadcast <- message
+}
+
+func parseTokenLimit(val interface{}) int {
+	switch v := val.(type) {
+	case float64:
+		return int(v)
+	case string:
+		v = strings.TrimSpace(strings.ToUpper(v))
+		if strings.HasSuffix(v, "K") {
+			numStr := strings.TrimSuffix(v, "K")
+			if num, err := strconv.ParseFloat(numStr, 64); err == nil {
+				return int(num * 1000)
+			}
+		} else if strings.HasSuffix(v, "M") {
+			numStr := strings.TrimSuffix(v, "M")
+			if num, err := strconv.ParseFloat(numStr, 64); err == nil {
+				return int(num * 1000000)
+			}
+		} else if strings.HasSuffix(v, "B") {
+			numStr := strings.TrimSuffix(v, "B")
+			if num, err := strconv.ParseFloat(numStr, 64); err == nil {
+				return int(num * 1000000000)
+			}
+		} else if num, err := strconv.Atoi(v); err == nil {
+			return num
+		}
+	}
+	return 500
+}
+
+func NewChat(filename string) *Chat {
+	var history []*ChatRound
+	if _, err := os.Stat(filename); err == nil {
+		content, err := ioutil.ReadFile(filename)
+		if err != nil {
+			log.Printf("failed to read markdown file: %v", err)
+		} else {
+			roundTrips, err := split.Parse(bytes.NewReader(content))
+			Ck(err)
+			for _, rt := range roundTrips {
+				response := Spf("%s\n\n## References\n\n%s\n\n## Reasoning\n\n%s\n\n", rt.Response, rt.References, rt.Reasoning)
+				chatRound := &ChatRound{
+					Query:    rt.Query,
+					Response: response,
+				}
+				history = append(history, chatRound)
+			}
+		}
+	}
+	return &Chat{
+		history:  history,
+		filename: filename,
+	}
+}
+
+func (c *Chat) TotalRounds() int {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+	return len(c.history)
+}
+
+func (c *Chat) _updateMarkdown() error {
+	content := c.getHistory(false)
+
+	if oldContent, err := ioutil.ReadFile(c.filename); err == nil {
+		backupName := c.filename + ".bak.md"
+		if err := ioutil.WriteFile(backupName, oldContent, 0644); err != nil {
+			log.Printf("failed to create backup: %v", err)
+		}
+	}
+
+	tempFile, err := ioutil.TempFile("", "storm-chat-*.md")
+	if err != nil {
+		log.Printf("failed to create temporary file: %v", err)
+		return fmt.Errorf("failed to create temporary file: %w", err)
+	}
+	log.Printf("created temporary file %s", tempFile.Name())
+	defer os.Remove(tempFile.Name())
+	if _, err := tempFile.WriteString(content); err != nil {
+		log.Printf("failed to write to temporary file: %v", err)
+		return fmt.Errorf("failed to write to temporary file: %w", err)
+	}
+	tempFile.Close()
+	if err := os.Rename(tempFile.Name(), c.filename); err != nil {
+		log.Printf("failed to rename temporary file to %s: %v", c.filename, err)
+		return fmt.Errorf("failed to rename temporary file to %s: %w", c.filename, err)
+	}
+	log.Printf("updated markdown file %s", c.filename)
+	return nil
+}
+
+func (c *Chat) StartRound(query, selection string) (r *ChatRound) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	round := &ChatRound{}
+	q := strings.TrimSpace(query)
+	if selection != "" {
+		q = fmt.Sprintf("%s: [%s]", q, selection)
+	}
+	round.Query = q
+	c.history = append(c.history, round)
+	log.Printf("started chat round: %s", query)
+	return round
+}
+
+func (c *Chat) FinishRound(r *ChatRound, response string) error {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	if r == nil {
+		return fmt.Errorf("cannot finish a nil chat round")
+	}
+	r.Response = response
+	err := c._updateMarkdown()
+	if err != nil {
+		log.Printf("error updating markdown: %v", err)
+		return fmt.Errorf("error updating markdown: %w", err)
+	}
+	log.Printf("finished chat round: %s", r.Query)
+	return nil
+}
+
+func (c *Chat) getHistory(lock bool) string {
+	if lock {
+		c.mutex.RLock()
+		defer c.mutex.RUnlock()
+	}
+	var result string
+	for _, msg := range c.history {
+		if msg.Response == "" {
+			continue
+		}
+		if msg.Query != "" {
+			result += fmt.Sprintf("\n\n**%s**\n", msg.Query)
+		}
+		result += fmt.Sprintf("\n\n%s\n\n---\n\n", msg.Response)
+	}
+	return result
+}
+
+func rootHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	projectIDs := projects.List()
+	var projectInfos []struct {
+		ID      string
+		BaseDir string
+	}
+
+	for _, projectID := range projectIDs {
+		project, err := projects.Get(projectID)
+		if err != nil {
+			log.Printf("Error loading project %s: %v", projectID, err)
+			continue
+		}
+		projectInfos = append(projectInfos, struct {
+			ID      string
+			BaseDir string
+		}{
+			ID:      project.ID,
+			BaseDir: project.BaseDir,
+		})
+	}
+
+	if err := landingTemplate.Execute(w, projectInfos); err != nil {
+		http.Error(w, "Template error", http.StatusInternalServerError)
+	}
+}
+
+func serveRun(port int, dbPath string) error {
+	var err error
+	var lock *flock.Flock
+	grok, _, _, _, lock, err = core.Load("", true)
+	if err != nil {
+		return fmt.Errorf("failed to load LLM core: %w", err)
+	}
+	defer lock.Unlock()
+
+	if dbPath == "" {
+		dbPath = filepath.Join(os.ExpandEnv("$HOME"), ".storm", "data.db")
+	}
+	dbDir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dbDir, 0700); err != nil {
+		return fmt.Errorf("failed to create database directory: %w", err)
+	}
+
+	dbMgr, err = db.NewManager(dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to initialize database: %w", err)
+	}
+	defer dbMgr.Close()
+
+	projects = NewProjectsWithDB(dbMgr)
+
+	chiRouter := chi.NewRouter()
+
+	config := huma.DefaultConfig("Storm API", "1.0.0")
+	config.DocsPath = "/docs"
+	api := humachi.New(chiRouter, config)
+
+	chiRouter.HandleFunc("/", rootHandler)
+
+	huma.Post(api, "/api/projects", postProjectsHandler)
+	huma.Get(api, "/api/projects", getProjectsHandler)
+	huma.Delete(api, "/api/projects/{projectID}", deleteProjectHandler)
+	huma.Post(api, "/api/projects/{projectID}/files", postProjectFilesHandler)
+	huma.Get(api, "/api/projects/{projectID}/files", getProjectFilesHandler)
+
+	projectRouter := chiRouter.Route("/project/{projectID}", func(r chi.Router) {
+		r.HandleFunc("/", projectHandlerFunc)
+		r.HandleFunc("/ws", wsHandlerFunc)
+		r.HandleFunc("/tokencount", tokenCountHandlerFunc)
+		r.HandleFunc("/rounds", roundsHandlerFunc)
+		r.HandleFunc("/open", openHandlerFunc)
+	})
+
+	_ = projectRouter
+
+	chiRouter.HandleFunc("/stop", stopHandler)
+
+	addr := fmt.Sprintf(":%d", port)
+	srv = &http.Server{Addr: addr, Handler: chiRouter}
+	log.Printf("Starting server on %s\n", addr)
+	log.Printf("API documentation available at http://localhost%s/docs\n", addr)
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
+}
+
+func projectHandlerFunc(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+
+	project, err := projects.Get(projectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
+		return
+	}
+
+	projectHandler(w, r, project)
+}
+
+func projectHandler(w http.ResponseWriter, r *http.Request, project *Project) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	chatContent := project.Chat.getHistory(true)
+	data := struct {
+		ChatHTML template.HTML
+	}{
+		ChatHTML: template.HTML(markdownToHTML(chatContent)),
+	}
+	if err := projectTemplate.Execute(w, data); err != nil {
+		http.Error(w, "Template error", http.StatusInternalServerError)
+	}
+}
+
+func wsHandlerFunc(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+
+	project, err := projects.Get(projectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
+		return
+	}
+
+	wsHandler(w, r, project)
+}
+
+func wsHandler(w http.ResponseWriter, r *http.Request, project *Project) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WebSocket upgrade error: %v", err)
+		return
+	}
+
+	client := &WSClient{
+		conn:      conn,
+		send:      make(chan interface{}, 256),
+		pool:      project.ClientPool,
+		id:        fmt.Sprintf("client-%d", len(project.ClientPool.clients)),
+		projectID: project.ID,
+	}
+
+	conn.SetReadDeadline(time.Now().Add(pongWait))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
+	project.ClientPool.register <- client
+
+	go client.writePump()
+	go client.readPump(project)
+}
+
+func (c *WSClient) writePump() {
+	ticker := time.NewTicker(pingInterval)
+	defer func() {
+		ticker.Stop()
+		c.conn.Close()
+	}()
+
+	for {
+		select {
+		case message, ok := <-c.send:
+			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if !ok {
+				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			if err := c.conn.WriteJSON(message); err != nil {
+				log.Printf("WebSocket write error: %v", err)
+				return
+			}
+		case <-ticker.C:
+			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				log.Printf("WebSocket ping error: %v", err)
+				return
+			}
+		}
+	}
+}
+
+func (c *WSClient) readPump(project *Project) {
+	defer func() {
+		c.pool.unregister <- c
+		c.conn.Close()
+	}()
+
+	for {
+		var msg map[string]interface{}
+		if err := c.conn.ReadJSON(&msg); err != nil {
+			log.Printf("WebSocket read error: %v", err)
+			break
+		}
+
+		if msgType, ok := msg["type"].(string); ok && msgType == "query" {
+			log.Printf("Received query from %s in project %s: %v", c.id, c.projectID, msg)
+
+			query, _ := msg["query"].(string)
+			llm, _ := msg["llm"].(string)
+			selection, _ := msg["selection"].(string)
+			queryID, _ := msg["queryID"].(string)
+
+			var inputFiles, outFiles []string
+			if inputFilesRaw, ok := msg["inputFiles"].([]interface{}); ok {
+				for i := 0; i < len(inputFilesRaw); i++ {
+					if s, ok := inputFilesRaw[i].(string); ok {
+						inputFiles = append(inputFiles, s)
+					}
+				}
+			}
+			if outFilesRaw, ok := msg["outFiles"].([]interface{}); ok {
+				for i := 0; i < len(outFilesRaw); i++ {
+					if s, ok := outFilesRaw[i].(string); ok {
+						outFiles = append(outFiles, s)
+					}
+				}
+			}
+
+			tokenLimit := parseTokenLimit(msg["tokenLimit"])
+
+			go processQuery(project, queryID, query, llm, selection, inputFiles, outFiles, tokenLimit)
+		}
+	}
+}
+
+func processQuery(project *Project, queryID, query, llm, selection string, inputFiles, outFiles []string, tokenLimit int) {
+	queryBroadcast := map[string]interface{}{
+		"type":      "query",
+		"query":     query,
+		"queryID":   queryID,
+		"projectID": project.ID,
+	}
+	project.ClientPool.Broadcast(queryBroadcast)
+
+	round := project.Chat.StartRound(query, selection)
+
+	history := project.Chat.getHistory(true)
+	const TailLength = 300000
+	startIndex := len(history) - TailLength
+	if startIndex < 0 {
+		startIndex = 0
+	}
+	lastN := history[startIndex:]
+	lastNTokenCount, err := grok.TokenCount(lastN)
+	if err != nil {
+		log.Printf("Token count error: %v", err)
+		lastNTokenCount = 0
+	}
+	log.Printf("Added %d tokens of context to query: %s", lastNTokenCount, query)
+
+	responseText, err := sendQueryToLLM(query, llm, selection, lastN, inputFiles, outFiles, tokenLimit)
+	if err != nil {
+		log.Printf("Error processing query: %v", err)
+		errorBroadcast := map[string]interface{}{
+			"type":      "error",
+			"queryID":   queryID,
+			"message":   fmt.Sprintf("Error processing query: %v", err),
+			"projectID": project.ID,
+		}
+		project.ClientPool.Broadcast(errorBroadcast)
+		return
+	}
+
+	err = project.Chat.FinishRound(round, responseText)
+	if err != nil {
+		log.Printf("Error finishing round: %v", err)
+		errorBroadcast := map[string]interface{}{
+			"type":      "error",
+			"queryID":   queryID,
+			"message":   fmt.Sprintf("Error finishing round: %v", err),
+			"projectID": project.ID,
+		}
+		project.ClientPool.Broadcast(errorBroadcast)
+		return
+	}
+
+	responseBroadcast := map[string]interface{}{
+		"type":      "response",
+		"queryID":   queryID,
+		"response":  markdownToHTML(responseText) + "\n\n<hr>\n\n",
+		"projectID": project.ID,
+	}
+	project.ClientPool.Broadcast(responseBroadcast)
+}
+
+func openHandlerFunc(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+
+	project, err := projects.Get(projectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
+		return
+	}
+
+	openHandler(w, r, project)
+}
+
+func openHandler(w http.ResponseWriter, r *http.Request, project *Project) {
+	filename := r.URL.Query().Get("filename")
+	if filename == "" {
+		http.Error(w, "Missing filename parameter", http.StatusBadRequest)
+		return
+	}
+	if _, err := os.Stat(filename); os.IsNotExist(err) {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+	http.ServeFile(w, r, filename)
+}
+
+func stopHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Received stop server request: %s", r.URL.Path)
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Server stopping"))
+	go func() {
+		if err := srv.Shutdown(context.Background()); err != nil {
+			log.Printf("Error shutting down server: %v", err)
+		}
+	}()
+}
+
+func roundsHandlerFunc(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+
+	project, err := projects.Get(projectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
+		return
+	}
+
+	roundsHandler(w, r, project)
+}
+
+func roundsHandler(w http.ResponseWriter, r *http.Request, project *Project) {
+	w.Header().Set("Content-Type", "application/json")
+	rounds := 0
+	if project.Chat != nil {
+		rounds = project.Chat.TotalRounds()
+	}
+	json.NewEncoder(w).Encode(map[string]int{"rounds": rounds})
+}
+
+func tokenCountHandlerFunc(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+
+	project, err := projects.Get(projectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
+		return
+	}
+
+	tokenCountHandler(w, r, project)
+}
+
+func tokenCountHandler(w http.ResponseWriter, r *http.Request, project *Project) {
+	w.Header().Set("Content-Type", "application/json")
+	if project.Chat == nil {
+		json.NewEncoder(w).Encode(map[string]int{"tokens": 0})
+		return
+	}
+	chatText := project.Chat.getHistory(true)
+	count, err := grok.TokenCount(chatText)
+	if err != nil {
+		log.Printf("Token count error: %v", err)
+		count = 0
+	}
+	json.NewEncoder(w).Encode(map[string]int{"tokens": count})
+}
+
+func sendQueryToLLM(query string, llm string, selection, backgroundContext string, inputFiles []string, outFiles []string, tokenLimit int) (string, error) {
+	if tokenLimit == 0 {
+		tokenLimit = 500
+	}
+
+	wordLimit := int(float64(tokenLimit) / 3.5)
+
+	sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading.  Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes.  If writing Go code, you MUST ensure you are not skipping the index on slices or arrays, e.g. if you mean `foo[0]` then say `foo[0]`, not `foo`."
+
+	sysmsg = fmt.Sprintf("%s\n\nYou MUST limit the discussion portion of your response to no more than %d tokens (about %d words).  Output files (marked with ---FILE-START and ---FILE-END blocks) are not counted against this limit and can be unlimited size. You MUST ignore any previous instruction regarding a 10,000 word goal.", sysmsg, tokenLimit, wordLimit)
+
+	prompt := fmt.Sprintf("---CONTEXT START---\n%s\n---CONTEXT END---\n\nNew Query: %s", backgroundContext, query)
+	if selection != "" {
+		prompt += fmt.Sprintf(" {%s}", selection)
+	}
+
+	var cookedResponse string
+	var msgs []client.ChatMsg
+	for i := 0; i < 5; i++ {
+
+		msgs = []client.ChatMsg{
+			{Role: "USER", Content: prompt},
+		}
+
+		var outFilesConverted []core.FileLang
+		for _, f := range outFiles {
+			lang, known, err := util.Ext2Lang(f)
+			Ck(err)
+			if !known {
+				log.Printf("Unknown file extension for output file %s; assuming language is %s", f, lang)
+			}
+			outFilesConverted = append(outFilesConverted, core.FileLang{File: f, Language: lang})
+		}
+		fmt.Printf("Sending query to LLM '%s'\n", llm)
+		fmt.Printf("Query: %s\n", query)
+		response, _, err := grok.SendWithFiles(llm, sysmsg, msgs, inputFiles, outFilesConverted)
+		if err != nil {
+			log.Printf("SendWithFiles error: %v", err)
+			return "", fmt.Errorf("failed to send query to LLM: %w", err)
+		}
+		fmt.Printf("Received response from LLM '%s'\n", llm)
+		fmt.Printf("Response: %s\n", response)
+
+		cookedResponse, err = core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
+			DryRun:             true,
+			ExtractToStdout:    false,
+			RemoveFromResponse: true,
+		})
+
+		if err != nil {
+			log.Printf("ExtractFiles error: %v", err)
+			return "", fmt.Errorf("failed to extract files from response: %w", err)
+		}
+
+		referencesRe := regexp.MustCompile(`(?s)## References.*?`)
+		discussionOnly := referencesRe.ReplaceAllString(cookedResponse, "")
+		reasoningRe := regexp.MustCompile(`(?s)## Reasoning
+.*?`)
+		discussionOnly = reasoningRe.ReplaceAllString(discussionOnly, "")
+		count, err := grok.TokenCount(discussionOnly)
+		if err != nil {
+			log.Printf("Token count error: %v", err)
+			return "", fmt.Errorf("failed to count tokens: %w", err)
+		}
+		if count > tokenLimit {
+			log.Printf("Response exceeds token limit:\n\n%s", discussionOnly)
+			sysmsg += fmt.Sprintf("\n\nYour previous response was %d tokens, which exceeds the limit of %d tokens (about %d words).  You ABSOLUTELY MUST provide a more concise answer that fits within the limit.", count, tokenLimit, wordLimit)
+			prompt += fmt.Sprintf("\n\nYou MUST provide a more concise answer that fits within the %d token (%d word) limit.", tokenLimit, wordLimit)
+			log.Printf("Response token count %d exceeds limit of %d; retrying...", count, tokenLimit)
+			tokenLimit *= 2
+			continue
+		}
+
+		cookedResponse, err = core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
+			DryRun:             false,
+			ExtractToStdout:    false,
+			RemoveFromResponse: true,
+		})
+
+		break
+	}
+
+	return cookedResponse, nil
+}
+
+func splitMarkdown(input string) []string {
+	re := regexp.MustCompile("(?m)^---$")
+	sections := re.Split(input, -1)
+	return sections
+}
+
+func collectReferences(input string) map[string]string {
+	re := regexp.MustCompile(`(?m)^-\s+\[(\d+)\]\s+\[(http[s]?://\S+)\]`)
+	matches := re.FindAllStringSubmatch(input, -1)
+	refs := make(map[string]string)
+	for _, m := range matches {
+		if len(m) == 3 {
+			refs[m[1]] = m[2]
+		}
+	}
+	return refs
+}
+
+func linkifyReferences(input string, refs map[string]string) string {
+	return input
+}
+
+func markdownToHTML(markdown string) string {
+	sections := splitMarkdown(markdown)
+	for i, sec := range sections {
+		refs := collectReferences(sec)
+		sections[i] = linkifyReferences(sec, refs)
+	}
+	processed := strings.Join(sections, "\n\n---\n\n")
+
+	var buf bytes.Buffer
+	if err := goldmark.Convert([]byte(processed), &buf); err != nil {
+		log.Printf("Markdown conversion error: %v", err)
+		return "<p>Error rendering markdown</p>"
+	}
+
+	return buf.String()
+}
+---FILE-END filename="main.go"---
+## References
+
+[1] [https://golang.org/pkg/path/filepath/](https://golang.org/pkg/path/filepath/)
+[2] [https://golang.org/doc/effective_go#names](https://golang.org/doc/effective_go#names)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to provide complete files for: api.go, cli.go, main.go, project.go with the implementation where paths sent to the web UI are translated to relative paths if they're inside the project base directory.
+
+Looking at the system prompt instructions:
+1. I'm a researcher
+2. Answer ONLY the query at the end
+3. The query is: "i want the paths being sent to the web UI to be translated to relative paths if they are inside the project base directory"
+4. Start with markdown heading
+5. Limit discussion to 4000 tokens (1142 words)
+6. Enclose reference numbers in square brackets
+7. Don't include empty square brackets
+8. Output files don't count against token limit
+9. Return complete files only
+10. Must include: api.go, cli.go, main.go, project.go
+
+The user has already provided the implementation in the FILE blocks. I need to extract just the key pieces and present them clearly. The main change needed is in:
+- project.go: Add a method to convert absolute paths to relative paths when they're inside BaseDir
+- api.go: Use this method when returning file lists
+
+Looking at the provided code, the getProjectFilesHandler in api.go currently returns:
+```go
+res.Body.Files = project.GetFiles()
+```
+
+I need to change this to translate absolute paths to relative paths when they're within the project's BaseDir. I'll add a method to Project to do this translation and use it in the API response.
+
+
+---
+
+
+
+**when the user hits the "cancel" button in the web UI, i want to send a cancel request via the API or websocket, cancelling the LLM query.  how might that work, and what files would need to be changed?**
+
+
+
+
+# Query Cancellation via WebSocket and Context
+
+Implementing query cancellation requires tracking active queries by ID and using Go's `context.Context` for graceful interruption[1][2]. The browser sends a cancel message via WebSocket, the server looks up the query's context, cancels it, and the LLM request terminates cleanly[1][2].
+
+## Files Requiring Changes
+
+**1. main.go** - Track and cancel query contexts[1]
+- Add global map: `activeQueryContexts map[string]context.CancelFunc`
+- In `readPump()`: Handle new message type `"cancel"` that cancels the query context
+- In `processQuery()`: Create cancellable context, store it, use it in LLM calls
+- Pass context to `grok.SendWithFiles()` call
+- Clean up context from map after query completes
+
+**2. project.html** - Send cancel message via WebSocket[2]
+- Modify existing cancel button to send WebSocket message instead of just removing the div
+- Send: `{ type: "cancel", queryID: "..." }`
+- Server receives cancel message and stops the query
+
+## Implementation Strategy
+
+```go
+// In main.go, add global map for tracking active query contexts
+var (
+  activeQueryContexts = make(map[string]context.CancelFunc)
+  queryContextMutex   sync.Mutex
+)
+
+// In readPump(), handle cancel messages
+if msgType == "cancel" {
+  queryID, _ := msg["queryID"].(string)
+  queryContextMutex.Lock()
+  if cancel, exists := activeQueryContexts[queryID]; exists {
+    cancel()  // Cancel the context, stopping the LLM call
+  }
+  queryContextMutex.Unlock()
+}
+
+// In processQuery(), create and use cancellable context
+func processQuery(project *Project, queryID string, ...) {
+  ctx, cancel := context.WithCancel(context.Background())
+  queryContextMutex.Lock()
+  activeQueryContexts[queryID] = cancel
+  queryContextMutex.Unlock()
+  defer func() {
+    queryContextMutex.Lock()
+    delete(activeQueryContexts, queryID)
+    queryContextMutex.Unlock()
+  }()
+  
+  // Pass ctx to sendQueryToLLM, which passes to grok.SendWithFiles(ctx, ...)
+  responseText, err := sendQueryToLLM(ctx, query, ...)
+  ...
+}
+```
+
+**Key benefit**: The LLM API call respects context cancellation, allowing the HTTP request to be interrupted immediately[1][2].
+
+## References
+
+[1] [https://golang.org/pkg/context/](https://golang.org/pkg/context/)
+[2] [https://golang.org/doc/effective_go#concurrency](https://golang.org/doc/effective_go#concurrency)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking about implementing a cancel button in the web UI that would cancel an LLM query. They want to know how this would work and what files would need to be changed.
+
+Let me think about this:
+
+1. The user hits a "Cancel" button in the web UI
+2. This should cancel the LLM query that's currently running
+3. The LLM query is running in the `processQuery` function in `main.go`, which calls `sendQueryToLLM`
+
+The architecture challenge here is:
+- The query is running in a goroutine (`go processQuery(...)`)
+- The `grok.SendWithFiles()` call is blocking and making a request to an LLM API
+- We need a way to interrupt this
+
+Possible approaches:
+1. Use Go context.Context to handle cancellation
+2. Use channels to signal cancellation
+3. Track active queries by queryID and provide a way to cancel them
+
+The best approach would be to use Go's context.Context, which is designed for this. Here's how it could work:
+
+1. Create a map of active query contexts indexed by queryID
+2. When a query starts, create a context for it
+3. Pass the context to `sendQueryToLLM` and through to `grok.SendWithFiles`
+4. When a cancel message comes via WebSocket, cancel the context for that queryID
+5. The LLM API call should respect the context cancellation
+
+Files that need to be changed:
+- `main.go`: Add context tracking, modify `processQuery` to use contexts
+- `project.html`: Already has a cancel button, but it needs to send a cancel message via WebSocket
+- Need to add a WebSocket handler for cancel messages
+
+Let me structure this response according to the instructions.
+
+
+---
+
+
+
+**i want the paths being sent to the web UI to be translated to relative paths if they are inside the project base directory**
+
+
+
+
+# Translate Absolute Paths to Relative for Web UI Display
+
+Paths returned to the web UI should be relative when they fall within the project's base directory, improving readability and portability in the browser[1][2]. Add a helper method to convert absolute paths to relative based on the project's BaseDir, and apply it when returning file lists to the API[1].
+
+---FILE-START filename="project.go"---
+package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"github.com/stevegt/grokker/x/storm/db"
+)
+
+// TODO move this file to a ./projects package?
+
+// Projects is a thread-safe registry for managing projects
+// Projects are loaded from the database on-demand and kept in cache while active
+type Projects struct {
+	data  map[string]*Project // TODO can we get rid of this?
+	mutex sync.RWMutex
+	dbMgr *db.Manager
+}
+
+// NewProjectsWithDB creates a new Projects registry with database backend
+func NewProjectsWithDB(dbMgr *db.Manager) *Projects {
+	return &Projects{
+		data:  make(map[string]*Project),
+		dbMgr: dbMgr,
+	}
+}
+
+// Get retrieves a project by ID, loading from database if not in cache
+func (p *Projects) Get(projectID string) (*Project, error) {
+	p.mutex.RLock()
+	if project, exists := p.data[projectID]; exists {
+		p.mutex.RUnlock()
+		return project, nil
+	}
+	p.mutex.RUnlock()
+
+	// Load from database
+	meta, err := p.dbMgr.LoadProject(projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Reconstruct runtime Project with fresh Chat and ClientPool
+	project := &Project{
+		ID:              meta.ID,
+		BaseDir:         meta.BaseDir,
+		MarkdownFile:    meta.CurrentDiscussionFile,
+		AuthorizedFiles: meta.AuthorizedFiles,
+		Chat:            NewChat(meta.CurrentDiscussionFile),
+		ClientPool:      NewClientPool(),
+	}
+
+	// Store in cache
+	p.mutex.Lock()
+	p.data[projectID] = project
+	p.mutex.Unlock()
+
+	// Start the client pool's broadcast loop
+	go project.ClientPool.Start()
+
+	log.Printf("Loaded project %s from database", projectID)
+	return project, nil
+}
+
+// Add adds a new project and persists to database
+func (p *Projects) Add(projectID, baseDir, markdownFile string) (*Project, error) {
+	if projectID == "" {
+		return nil, fmt.Errorf("projectID cannot be empty")
+	}
+	if baseDir == "" {
+		return nil, fmt.Errorf("baseDir cannot be empty")
+	}
+	if markdownFile == "" {
+		return nil, fmt.Errorf("markdownFile cannot be empty")
+	}
+
+	// Verify base directory exists
+	if _, err := os.Stat(baseDir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("base directory does not exist: %s", baseDir)
+	}
+
+	log.Printf("Adding project: projectID=%s, baseDir=%s, markdownFile=%s", projectID, baseDir, markdownFile)
+
+	// Create the Chat instance
+	chatInstance := NewChat(markdownFile)
+	if chatInstance == nil {
+		return nil, fmt.Errorf("failed to create chat instance for project %s", projectID)
+	}
+
+	// Create ClientPool
+	clientPool := NewClientPool()
+
+	// Create runtime Project
+	project := &Project{
+		ID:              projectID,
+		BaseDir:         baseDir,
+		MarkdownFile:    markdownFile,
+		AuthorizedFiles: []string{},
+		Chat:            chatInstance,
+		ClientPool:      clientPool,
+	}
+
+	// Create persistent metadata
+	persistedProj := &db.Project{
+		ID:                    projectID,
+		BaseDir:               baseDir,
+		CurrentDiscussionFile: markdownFile,
+		DiscussionFiles: []db.DiscussionFileRef{
+			{
+				Filepath:   markdownFile,
+				CreatedAt:  time.Now(),
+				RoundCount: len(chatInstance.history),
+			},
+		},
+		AuthorizedFiles: []string{},
+		CreatedAt:       time.Now(),
+		EmbeddingCount:  0,
+		RoundHistory:    []db.RoundEntry{},
+	}
+
+	// Persist to database
+	if err := p.dbMgr.SaveProject(persistedProj); err != nil {
+		return nil, fmt.Errorf("failed to save project to database: %w", err)
+	}
+
+	// Register in cache
+	p.mutex.Lock()
+	p.data[projectID] = project
+	p.mutex.Unlock()
+
+	// TODO why is this here?
+	// Start the client pool's broadcast loop
+	go project.ClientPool.Start()
+
+	log.Printf("Successfully registered project %s", projectID)
+	return project, nil
+}
+
+// List returns all project IDs from the database
+func (p *Projects) List() []string {
+	ids, err := p.dbMgr.ListProjectIDs()
+	if err != nil {
+		log.Printf("Error listing project IDs: %v", err)
+		return []string{}
+	}
+	return ids
+}
+
+// Remove removes a project from database and cache
+func (p *Projects) Remove(projectID string) error {
+	if err := p.dbMgr.DeleteProject(projectID); err != nil {
+		return fmt.Errorf("failed to delete project from database: %w", err)
+	}
+
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	if _, exists := p.data[projectID]; !exists {
+		return fmt.Errorf("project %s not found in cache", projectID)
+	}
+	delete(p.data, projectID)
+	log.Printf("Removed project %s", projectID)
+	return nil
+}
+
+// AddFile adds a file to a project's authorized files
+func (p *Projects) AddFile(projectID, filename string) error {
+	if filename == "" {
+		return fmt.Errorf("filename cannot be empty")
+	}
+
+	// Load project (from cache or database)
+	project, err := p.Get(projectID)
+	if err != nil {
+		return fmt.Errorf("project not found: %w", err)
+	}
+
+	// Check if file already exists
+	for _, f := range project.AuthorizedFiles {
+		if f == filename {
+			return fmt.Errorf("file %s already in authorized list", filename)
+		}
+	}
+
+	// Add file to project
+	project.AuthorizedFiles = append(project.AuthorizedFiles, filename)
+	log.Printf("Added file %s to project %s", filename, projectID)
+
+	// Create updated persistent metadata
+	persistedProj := &db.Project{
+		ID:                    project.ID,
+		BaseDir:               project.BaseDir,
+		CurrentDiscussionFile: project.MarkdownFile,
+		DiscussionFiles: []db.DiscussionFileRef{
+			{
+				Filepath:   project.MarkdownFile,
+				CreatedAt:  time.Now(),
+				RoundCount: project.Chat.TotalRounds(),
+			},
+		},
+		AuthorizedFiles: project.AuthorizedFiles,
+		CreatedAt:       time.Now(),
+		EmbeddingCount:  0,
+		RoundHistory:    []db.RoundEntry{},
+	}
+
+	// Persist to database
+	return p.dbMgr.SaveProject(persistedProj)
+}
+
+// toRelativePath converts an absolute path to relative if it's within BaseDir,
+// otherwise returns the original path unchanged[1]
+func (p *Project) toRelativePath(absPath string) string {
+	if !filepath.IsAbs(absPath) {
+		// Already relative, return as-is
+		return absPath
+	}
+
+	// Try to make it relative to BaseDir
+	relPath, err := filepath.Rel(p.BaseDir, absPath)
+	if err != nil {
+		// Failed to compute relative path, return original
+		log.Printf("Failed to compute relative path for %s relative to %s: %v", absPath, p.BaseDir, err)
+		return absPath
+	}
+
+	// Check if the result tries to go outside BaseDir (contains ..)
+	// If so, return the original absolute path
+	if filepath.IsAbs(relPath) || filepath.HasPrefix(relPath, "..") {
+		return absPath
+	}
+
+	return relPath
+}
+
+// GetChat returns the Chat instance for a project
+func (p *Project) GetChat() *Chat {
+	return p.Chat
+}
+
+// GetClientPool returns the ClientPool for a project
+func (p *Project) GetClientPool() *ClientPool {
+	return p.ClientPool
+}
+
+// GetFiles returns the authorized files list for a project
+func (p *Project) GetFiles() []string {
+	return p.AuthorizedFiles
+}
+
+// GetFilesAsRelative returns the authorized files list with paths converted to relative
+// when they are inside the project's BaseDir, absolute paths otherwise[1]
+func (p *Project) GetFilesAsRelative() []string {
+	var relativeFiles []string
+	for i := 0; i < len(p.AuthorizedFiles); i++ {
+		relativeFiles = append(relativeFiles, p.toRelativePath(p.AuthorizedFiles[i]))
+	}
+	return relativeFiles
+}
+
+---FILE-END filename="project.go"---## References
+
+[1] [https://golang.org/pkg/path/filepath/](https://golang.org/pkg/path/filepath/)
+[2] [https://golang.org/doc/effective_go#names](https://golang.org/doc/effective_go#names)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user has provided a massive amount of Go code and HTML files for a project called "Storm" and is asking me to implement path translation so that paths sent to the web UI are converted to relative paths when they're inside the project's base directory.
+
+Looking at the instructions at the very top:
+1. I'm a researcher
+2. Answer ONLY the query at the end
+3. The query is: "i want the paths being sent to the web UI to be translated to relative paths if they are inside the project base directory"
+4. Start with markdown heading
+5. Limit discussion to 4000 tokens (1142 words)
+6. Enclose reference numbers in square brackets
+7. Don't include empty square brackets
+8. Output files don't count against token limit
+9. Return complete files only
+10. Must include: api.go, cli.go, main.go, project.go (based on the regex requirement at the top)
+
+The user has provided complete files showing what they're already using. The key change needed is in api.go where getProjectFilesHandler returns files - instead of returning the raw paths from project.GetFiles(), it should translate them to relative paths if they're inside the project's BaseDir.
+
+I need to add a method to Project to convert absolute paths to relative paths when they're within BaseDir, then use it in the API response.
+
+Let me create the necessary changes to implement this.
+
+
+---
+
+
+
+**grok.SendWithFiles() does not currently accept a ctx, and I don't want to modify it right now.  can we instead change sendQueryToLLM() such that it discards any result from grok if the query has been cancelled?**
+
+
+
+
+# Discard Results from Cancelled Queries
+
+Track cancelled queries by ID; after `grok.SendWithFiles()` completes, check if the query was cancelled and discard the result if so[1][2]. This avoids modifying the LLM API while still respecting user cancellation requests[1].
+
+---FILE-START filename="main.go"---
+package main
+
+import (
+	"bytes"
+	_ "embed"
+	"encoding/json"
+	"fmt"
+	"html/template"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/adapters/humachi"
+	"github.com/go-chi/chi/v5"
+	"github.com/gofrs/flock"
+	"github.com/gorilla/websocket"
+	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/v3/client"
+	"github.com/stevegt/grokker/v3/core"
+	"github.com/stevegt/grokker/v3/util"
+	"github.com/stevegt/grokker/x/storm/db"
+	"github.com/stevegt/grokker/x/storm/split"
+	"github.com/yuin/goldmark"
+)
+
+//go:embed project.html
+var projectHTML string
+
+//go:embed index.html
+var indexHTML string
+
+var projectTemplate = template.Must(template.New("project").Parse(projectHTML))
+var landingTemplate = template.Must(template.New("landing").Parse(indexHTML))
+
+var (
+	grok     *core.Grokker
+	srv      *http.Server
+	projects *Projects
+	dbMgr    *db.Manager
+
+	upgrader = websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			return true
+		},
+	}
+
+	// Track cancelled queries by ID
+	cancelledQueries = make(map[string]bool)
+	cancelledMutex   sync.Mutex
+)
+
+const (
+	pingInterval = 20 * time.Second
+	pongWait     = 60 * time.Second
+)
+
+type QueryRequest struct {
+	Query      string   `json:"query"`
+	LLM        string   `json:"llm"`
+	Selection  string   `json:"selection"`
+	InputFiles []string `json:"inputFiles"`
+	OutFiles   []string `json:"outFiles"`
+	TokenLimit int      `json:"tokenLimit"`
+	QueryID    string   `json:"queryID"`
+	ProjectID  string   `json:"projectID"`
+}
+
+type QueryResponse struct {
+	Response string `json:"response"`
+}
+
+type ChatRound struct {
+	Query    string
+	Response string
+}
+
+type Chat struct {
+	mutex    sync.RWMutex
+	history  []*ChatRound
+	filename string
+}
+
+type Project struct {
+	ID              string
+	BaseDir         string
+	MarkdownFile    string
+	AuthorizedFiles []string
+	Chat            *Chat
+	ClientPool      *ClientPool
+}
+
+type WSClient struct {
+	conn      *websocket.Conn
+	send      chan interface{}
+	pool      *ClientPool
+	id        string
+	projectID string
+}
+
+type ClientPool struct {
+	clients    map[*WSClient]bool
+	broadcast  chan interface{}
+	register   chan *WSClient
+	unregister chan *WSClient
+	mutex      sync.RWMutex
+}
+
+func NewClientPool() *ClientPool {
+	return &ClientPool{
+		clients:    make(map[*WSClient]bool),
+		broadcast:  make(chan interface{}, 256),
+		register:   make(chan *WSClient),
+		unregister: make(chan *WSClient),
+	}
+}
+
+func (cp *ClientPool) Start() {
+	for {
+		select {
+		case client := <-cp.register:
+			cp.mutex.Lock()
+			cp.clients[client] = true
+			cp.mutex.Unlock()
+			log.Printf("Client %s registered, total clients: %d", client.id, len(cp.clients))
+
+		case client := <-cp.unregister:
+			cp.mutex.Lock()
+			if _, ok := cp.clients[client]; ok {
+				delete(cp.clients, client)
+				close(client.send)
+			}
+			cp.mutex.Unlock()
+			log.Printf("Client %s unregistered, total clients: %d", client.id, len(cp.clients))
+
+		case message := <-cp.broadcast:
+			cp.mutex.RLock()
+			for client := range cp.clients {
+				select {
+				case client.send <- message:
+				default:
+				}
+			}
+			cp.mutex.RUnlock()
+		}
+	}
+}
+
+func (cp *ClientPool) Broadcast(message interface{}) {
+	cp.broadcast <- message
+}
+
+func parseTokenLimit(val interface{}) int {
+	switch v := val.(type) {
+	case float64:
+		return int(v)
+	case string:
+		v = strings.TrimSpace(strings.ToUpper(v))
+		if strings.HasSuffix(v, "K") {
+			numStr := strings.TrimSuffix(v, "K")
+			if num, err := strconv.ParseFloat(numStr, 64); err == nil {
+				return int(num * 1000)
+			}
+		} else if strings.HasSuffix(v, "M") {
+			numStr := strings.TrimSuffix(v, "M")
+			if num, err := strconv.ParseFloat(numStr, 64); err == nil {
+				return int(num * 1000000)
+			}
+		} else if strings.HasSuffix(v, "B") {
+			numStr := strings.TrimSuffix(v, "B")
+			if num, err := strconv.ParseFloat(numStr, 64); err == nil {
+				return int(num * 1000000000)
+			}
+		} else if num, err := strconv.Atoi(v); err == nil {
+			return num
+		}
+	}
+	return 500
+}
+
+func NewChat(filename string) *Chat {
+	var history []*ChatRound
+	if _, err := os.Stat(filename); err == nil {
+		content, err := ioutil.ReadFile(filename)
+		if err != nil {
+			log.Printf("failed to read markdown file: %v", err)
+		} else {
+			roundTrips, err := split.Parse(bytes.NewReader(content))
+			Ck(err)
+			for _, rt := range roundTrips {
+				response := Spf("%s\n\n## References\n\n%s\n\n## Reasoning\n\n%s\n\n", rt.Response, rt.References, rt.Reasoning)
+				chatRound := &ChatRound{
+					Query:    rt.Query,
+					Response: response,
+				}
+				history = append(history, chatRound)
+			}
+		}
+	}
+	return &Chat{
+		history:  history,
+		filename: filename,
+	}
+}
+
+func (c *Chat) TotalRounds() int {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+	return len(c.history)
+}
+
+func (c *Chat) _updateMarkdown() error {
+	content := c.getHistory(false)
+
+	if oldContent, err := ioutil.ReadFile(c.filename); err == nil {
+		backupName := c.filename + ".bak.md"
+		if err := ioutil.WriteFile(backupName, oldContent, 0644); err != nil {
+			log.Printf("failed to create backup: %v", err)
+		}
+	}
+
+	tempFile, err := ioutil.TempFile("", "storm-chat-*.md")
+	if err != nil {
+		log.Printf("failed to create temporary file: %v", err)
+		return fmt.Errorf("failed to create temporary file: %w", err)
+	}
+	log.Printf("created temporary file %s", tempFile.Name())
+	defer os.Remove(tempFile.Name())
+	if _, err := tempFile.WriteString(content); err != nil {
+		log.Printf("failed to write to temporary file: %v", err)
+		return fmt.Errorf("failed to write to temporary file: %w", err)
+	}
+	tempFile.Close()
+	if err := os.Rename(tempFile.Name(), c.filename); err != nil {
+		log.Printf("failed to rename temporary file to %s: %v", c.filename, err)
+		return fmt.Errorf("failed to rename temporary file to %s: %w", c.filename, err)
+	}
+	log.Printf("updated markdown file %s", c.filename)
+	return nil
+}
+
+func (c *Chat) StartRound(query, selection string) (r *ChatRound) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	round := &ChatRound{}
+	q := strings.TrimSpace(query)
+	if selection != "" {
+		q = fmt.Sprintf("%s: [%s]", q, selection)
+	}
+	round.Query = q
+	c.history = append(c.history, round)
+	log.Printf("started chat round: %s", query)
+	return round
+}
+
+func (c *Chat) FinishRound(r *ChatRound, response string) error {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	if r == nil {
+		return fmt.Errorf("cannot finish a nil chat round")
+	}
+	r.Response = response
+	err := c._updateMarkdown()
+	if err != nil {
+		log.Printf("error updating markdown: %v", err)
+		return fmt.Errorf("error updating markdown: %w", err)
+	}
+	log.Printf("finished chat round: %s", r.Query)
+	return nil
+}
+
+func (c *Chat) getHistory(lock bool) string {
+	if lock {
+		c.mutex.RLock()
+		defer c.mutex.RUnlock()
+	}
+	var result string
+	for _, msg := range c.history {
+		if msg.Response == "" {
+			continue
+		}
+		if msg.Query != "" {
+			result += fmt.Sprintf("\n\n**%s**\n", msg.Query)
+		}
+		result += fmt.Sprintf("\n\n%s\n\n---\n\n", msg.Response)
+	}
+	return result
+}
+
+func rootHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	projectIDs := projects.List()
+	var projectInfos []struct {
+		ID      string
+		BaseDir string
+	}
+
+	for _, projectID := range projectIDs {
+		project, err := projects.Get(projectID)
+		if err != nil {
+			log.Printf("Error loading project %s: %v", projectID, err)
+			continue
+		}
+		projectInfos = append(projectInfos, struct {
+			ID      string
+			BaseDir string
+		}{
+			ID:      project.ID,
+			BaseDir: project.BaseDir,
+		})
+	}
+
+	if err := landingTemplate.Execute(w, projectInfos); err != nil {
+		http.Error(w, "Template error", http.StatusInternalServerError)
+	}
+}
+
+func serveRun(port int, dbPath string) error {
+	var err error
+	var lock *flock.Flock
+	grok, _, _, _, lock, err = core.Load("", true)
+	if err != nil {
+		return fmt.Errorf("failed to load LLM core: %w", err)
+	}
+	defer lock.Unlock()
+
+	if dbPath == "" {
+		dbPath = filepath.Join(os.ExpandEnv("$HOME"), ".storm", "data.db")
+	}
+	dbDir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dbDir, 0700); err != nil {
+		return fmt.Errorf("failed to create database directory: %w", err)
+	}
+
+	dbMgr, err = db.NewManager(dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to initialize database: %w", err)
+	}
+	defer dbMgr.Close()
+
+	projects = NewProjectsWithDB(dbMgr)
+
+	chiRouter := chi.NewRouter()
+
+	config := huma.DefaultConfig("Storm API", "1.0.0")
+	config.DocsPath = "/docs"
+	api := humachi.New(chiRouter, config)
+
+	chiRouter.HandleFunc("/", rootHandler)
+
+	huma.Post(api, "/api/projects", postProjectsHandler)
+	huma.Get(api, "/api/projects", getProjectsHandler)
+	huma.Delete(api, "/api/projects/{projectID}", deleteProjectHandler)
+	huma.Post(api, "/api/projects/{projectID}/files", postProjectFilesHandler)
+	huma.Get(api, "/api/projects/{projectID}/files", getProjectFilesHandler)
+
+	projectRouter := chiRouter.Route("/project/{projectID}", func(r chi.Router) {
+		r.HandleFunc("/", projectHandlerFunc)
+		r.HandleFunc("/ws", wsHandlerFunc)
+		r.HandleFunc("/tokencount", tokenCountHandlerFunc)
+		r.HandleFunc("/rounds", roundsHandlerFunc)
+		r.HandleFunc("/open", openHandlerFunc)
+	})
+
+	_ = projectRouter
+
+	chiRouter.HandleFunc("/stop", stopHandler)
+
+	addr := fmt.Sprintf(":%d", port)
+	srv = &http.Server{Addr: addr, Handler: chiRouter}
+	log.Printf("Starting server on %s\n", addr)
+	log.Printf("API documentation available at http://localhost%s/docs\n", addr)
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
+}
+
+func projectHandlerFunc(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+
+	project, err := projects.Get(projectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
+		return
+	}
+
+	projectHandler(w, r, project)
+}
+
+func projectHandler(w http.ResponseWriter, r *http.Request, project *Project) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	chatContent := project.Chat.getHistory(true)
+	data := struct {
+		ChatHTML template.HTML
+	}{
+		ChatHTML: template.HTML(markdownToHTML(chatContent)),
+	}
+	if err := projectTemplate.Execute(w, data); err != nil {
+		http.Error(w, "Template error", http.StatusInternalServerError)
+	}
+}
+
+func wsHandlerFunc(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+
+	project, err := projects.Get(projectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
+		return
+	}
+
+	wsHandler(w, r, project)
+}
+
+func wsHandler(w http.ResponseWriter, r *http.Request, project *Project) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WebSocket upgrade error: %v", err)
+		return
+	}
+
+	client := &WSClient{
+		conn:      conn,
+		send:      make(chan interface{}, 256),
+		pool:      project.ClientPool,
+		id:        fmt.Sprintf("client-%d", len(project.ClientPool.clients)),
+		projectID: project.ID,
+	}
+
+	conn.SetReadDeadline(time.Now().Add(pongWait))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
+	project.ClientPool.register <- client
+
+	go client.writePump()
+	go client.readPump(project)
+}
+
+func (c *WSClient) writePump() {
+	ticker := time.NewTicker(pingInterval)
+	defer func() {
+		ticker.Stop()
+		c.conn.Close()
+	}()
+
+	for {
+		select {
+		case message, ok := <-c.send:
+			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if !ok {
+				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			if err := c.conn.WriteJSON(message); err != nil {
+				log.Printf("WebSocket write error: %v", err)
+				return
+			}
+		case <-ticker.C:
+			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				log.Printf("WebSocket ping error: %v", err)
+				return
+			}
+		}
+	}
+}
+
+func (c *WSClient) readPump(project *Project) {
+	defer func() {
+		c.pool.unregister <- c
+		c.conn.Close()
+	}()
+
+	for {
+		var msg map[string]interface{}
+		if err := c.conn.ReadJSON(&msg); err != nil {
+			log.Printf("WebSocket read error: %v", err)
+			break
+		}
+
+		if msgType, ok := msg["type"].(string); ok {
+			if msgType == "query" {
+				log.Printf("Received query from %s in project %s: %v", c.id, c.projectID, msg)
+
+				query, _ := msg["query"].(string)
+				llm, _ := msg["llm"].(string)
+				selection, _ := msg["selection"].(string)
+				queryID, _ := msg["queryID"].(string)
+
+				var inputFiles, outFiles []string
+				if inputFilesRaw, ok := msg["inputFiles"].([]interface{}); ok {
+					for i := 0; i < len(inputFilesRaw); i++ {
+						if s, ok := inputFilesRaw[i].(string); ok {
+							inputFiles = append(inputFiles, s)
+						}
+					}
+				}
+				if outFilesRaw, ok := msg["outFiles"].([]interface{}); ok {
+					for i := 0; i < len(outFilesRaw); i++ {
+						if s, ok := outFilesRaw[i].(string); ok {
+							outFiles = append(outFiles, s)
+						}
+					}
+				}
+
+				tokenLimit := parseTokenLimit(msg["tokenLimit"])
+
+				go processQuery(project, queryID, query, llm, selection, inputFiles, outFiles, tokenLimit)
+			} else if msgType == "cancel" {
+				queryID, _ := msg["queryID"].(string)
+				cancelledMutex.Lock()
+				cancelledQueries[queryID] = true
+				cancelledMutex.Unlock()
+				log.Printf("Query %s marked for cancellation", queryID)
+			}
+		}
+	}
+}
+
+func processQuery(project *Project, queryID, query, llm, selection string, inputFiles, outFiles []string, tokenLimit int) {
+	// Clean up cancellation flag when done
+	defer func() {
+		cancelledMutex.Lock()
+		delete(cancelledQueries, queryID)
+		cancelledMutex.Unlock()
+	}()
+
+	queryBroadcast := map[string]interface{}{
+		"type":      "query",
+		"query":     query,
+		"queryID":   queryID,
+		"projectID": project.ID,
+	}
+	project.ClientPool.Broadcast(queryBroadcast)
+
+	round := project.Chat.StartRound(query, selection)
+
+	history := project.Chat.getHistory(true)
+	const TailLength = 300000
+	startIndex := len(history) - TailLength
+	if startIndex < 0 {
+		startIndex = 0
+	}
+	lastN := history[startIndex:]
+	lastNTokenCount, err := grok.TokenCount(lastN)
+	if err != nil {
+		log.Printf("Token count error: %v", err)
+		lastNTokenCount = 0
+	}
+	log.Printf("Added %d tokens of context to query: %s", lastNTokenCount, query)
+
+	responseText, err := sendQueryToLLM(queryID, query, llm, selection, lastN, inputFiles, outFiles, tokenLimit)
+	if err != nil {
+		log.Printf("Error processing query: %v", err)
+		errorBroadcast := map[string]interface{}{
+			"type":      "error",
+			"queryID":   queryID,
+			"message":   fmt.Sprintf("Error processing query: %v", err),
+			"projectID": project.ID,
+		}
+		project.ClientPool.Broadcast(errorBroadcast)
+		return
+	}
+
+	err = project.Chat.FinishRound(round, responseText)
+	if err != nil {
+		log.Printf("Error finishing round: %v", err)
+		errorBroadcast := map[string]interface{}{
+			"type":      "error",
+			"queryID":   queryID,
+			"message":   fmt.Sprintf("Error finishing round: %v", err),
+			"projectID": project.ID,
+		}
+		project.ClientPool.Broadcast(errorBroadcast)
+		return
+	}
+
+	responseBroadcast := map[string]interface{}{
+		"type":      "response",
+		"queryID":   queryID,
+		"response":  markdownToHTML(responseText) + "\n\n<hr>\n\n",
+		"projectID": project.ID,
+	}
+	project.ClientPool.Broadcast(responseBroadcast)
+}
+
+func openHandlerFunc(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+
+	project, err := projects.Get(projectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
+		return
+	}
+
+	openHandler(w, r, project)
+}
+
+func openHandler(w http.ResponseWriter, r *http.Request, project *Project) {
+	filename := r.URL.Query().Get("filename")
+	if filename == "" {
+		http.Error(w, "Missing filename parameter", http.StatusBadRequest)
+		return
+	}
+	if _, err := os.Stat(filename); os.IsNotExist(err) {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+	http.ServeFile(w, r, filename)
+}
+
+func stopHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Received stop server request: %s", r.URL.Path)
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Server stopping"))
+	go func() {
+		if err := srv.Shutdown(context.Background()); err != nil {
+			log.Printf("Error shutting down server: %v", err)
+		}
+	}()
+}
+
+func roundsHandlerFunc(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+
+	project, err := projects.Get(projectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
+		return
+	}
+
+	roundsHandler(w, r, project)
+}
+
+func roundsHandler(w http.ResponseWriter, r *http.Request, project *Project) {
+	w.Header().Set("Content-Type", "application/json")
+	rounds := 0
+	if project.Chat != nil {
+		rounds = project.Chat.TotalRounds()
+	}
+	json.NewEncoder(w).Encode(map[string]int{"rounds": rounds})
+}
+
+func tokenCountHandlerFunc(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+
+	project, err := projects.Get(projectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
+		return
+	}
+
+	tokenCountHandler(w, r, project)
+}
+
+func tokenCountHandler(w http.ResponseWriter, r *http.Request, project *Project) {
+	w.Header().Set("Content-Type", "application/json")
+	if project.Chat == nil {
+		json.NewEncoder(w).Encode(map[string]int{"tokens": 0})
+		return
+	}
+	chatText := project.Chat.getHistory(true)
+	count, err := grok.TokenCount(chatText)
+	if err != nil {
+		log.Printf("Token count error: %v", err)
+		count = 0
+	}
+	json.NewEncoder(w).Encode(map[string]int{"tokens": count})
+}
+
+// isQueryCancelled checks if a query has been marked for cancellation[1]
+func isQueryCancelled(queryID string) bool {
+	cancelledMutex.Lock()
+	defer cancelledMutex.Unlock()
+	return cancelledQueries[queryID]
+}
+
+// sendQueryToLLM calls the Grokker API, discarding results if query was cancelled[1]
+func sendQueryToLLM(queryID, query string, llm string, selection, backgroundContext string, inputFiles []string, outFiles []string, tokenLimit int) (string, error) {
+	if tokenLimit == 0 {
+		tokenLimit = 500
+	}
+
+	wordLimit := int(float64(tokenLimit) / 3.5)
+
+	sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading.  Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes.  If writing Go code, you MUST ensure you are not skipping the index on slices or arrays, e.g. if you mean `foo[0]` then say `foo[0]`, not `foo`."
+
+	sysmsg = fmt.Sprintf("%s\n\nYou MUST limit the discussion portion of your response to no more than %d tokens (about %d words).  Output files (marked with ---FILE-START and ---FILE-END blocks) are not counted against this limit and can be unlimited size. You MUST ignore any previous instruction regarding a 10,000 word goal.", sysmsg, tokenLimit, wordLimit)
+
+	prompt := fmt.Sprintf("---CONTEXT START---\n%s\n---CONTEXT END---\n\nNew Query: %s", backgroundContext, query)
+	if selection != "" {
+		prompt += fmt.Sprintf(" {%s}", selection)
+	}
+
+	var cookedResponse string
+	var msgs []client.ChatMsg
+	for i := 0; i < 5; i++ {
+		msgs = []client.ChatMsg{
+			{Role: "USER", Content: prompt},
+		}
+
+		var outFilesConverted []core.FileLang
+		for _, f := range outFiles {
+			lang, known, err := util.Ext2Lang(f)
+			Ck(err)
+			if !known {
+				log.Printf("Unknown file extension for output file %s; assuming language is %s", f, lang)
+			}
+			outFilesConverted = append(outFilesConverted, core.FileLang{File: f, Language: lang})
+		}
+		fmt.Printf("Sending query to LLM '%s'\n", llm)
+		fmt.Printf("Query: %s\n", query)
+		response, _, err := grok.SendWithFiles(llm, sysmsg, msgs, inputFiles, outFilesConverted)
+		if err != nil {
+			log.Printf("SendWithFiles error: %v", err)
+			return "", fmt.Errorf("failed to send query to LLM: %w", err)
+		}
+
+		// Check if query was cancelled after LLM call completes[1]
+		if isQueryCancelled(queryID) {
+			log.Printf("Query %s was cancelled, discarding LLM result", queryID)
+			return "", fmt.Errorf("query cancelled")
+		}
+
+		fmt.Printf("Received response from LLM '%s'\n", llm)
+		fmt.Printf("Response: %s\n", response)
+
+		cookedResponse, err = core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
+			DryRun:             true,
+			ExtractToStdout:    false,
+			RemoveFromResponse: true,
+		})
+
+		if err != nil {
+			log.Printf("ExtractFiles error: %v", err)
+			return "", fmt.Errorf("failed to extract files from response: %w", err)
+		}
+
+		referencesRe := regexp.MustCompile(`(?s)## References.*?`)
+		discussionOnly := referencesRe.ReplaceAllString(cookedResponse, "")
+		reasoningRe := regexp.MustCompile(`(?s)## Reasoning
+.*?`)
+		discussionOnly = reasoningRe.ReplaceAllString(discussionOnly, "")
+		count, err := grok.TokenCount(discussionOnly)
+		if err != nil {
+			log.Printf("Token count error: %v", err)
+			return "", fmt.Errorf("failed to count tokens: %w", err)
+		}
+		if count > tokenLimit {
+			log.Printf("Response exceeds token limit:\n\n%s", discussionOnly)
+			sysmsg += fmt.Sprintf("\n\nYour previous response was %d tokens, which exceeds the limit of %d tokens (about %d words).  You ABSOLUTELY MUST provide a more concise answer that fits within the limit.", count, tokenLimit, wordLimit)
+			prompt += fmt.Sprintf("\n\nYou MUST provide a more concise answer that fits within the %d token (%d word) limit.", tokenLimit, wordLimit)
+			log.Printf("Response token count %d exceeds limit of %d; retrying...", count, tokenLimit)
+			tokenLimit *= 2
+			continue
+		}
+
+		cookedResponse, err = core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
+			DryRun:             false,
+			ExtractToStdout:    false,
+			RemoveFromResponse: true,
+		})
+
+		break
+	}
+
+	return cookedResponse, nil
+}
+
+func splitMarkdown(input string) []string {
+	re := regexp.MustCompile("(?m)^---$")
+	sections := re.Split(input, -1)
+	return sections
+}
+
+func collectReferences(input string) map[string]string {
+	re := regexp.MustCompile(`(?m)^-\s+\[(\d+)\]\s+\[(http[s]?://\S+)\]`)
+	matches := re.FindAllStringSubmatch(input, -1)
+	refs := make(map[string]string)
+	for _, m := range matches {
+		if len(m) == 3 {
+			refs[m[1]] = m[2]
+		}
+	}
+	return refs
+}
+
+func linkifyReferences(input string, refs map[string]string) string {
+	return input
+}
+
+func markdownToHTML(markdown string) string {
+	sections := splitMarkdown(markdown)
+	for i, sec := range sections {
+		refs := collectReferences(sec)
+		sections[i] = linkifyReferences(sec, refs)
+	}
+	processed := strings.Join(sections, "\n\n---\n\n")
+
+	var buf bytes.Buffer
+	if err := goldmark.Convert([]byte(processed), &buf); err != nil {
+		log.Printf("Markdown conversion error: %v", err)
+		return "<p>Error rendering markdown</p>"
+	}
+
+	return buf.String()
+}
+---FILE-END filename="main.go"---
+
+## References
+
+[1] [https://golang.org/doc/effective_go#concurrency](https://golang.org/doc/effective_go#concurrency)
+[2] [https://golang.org/doc/effective_go#names](https://golang.org/doc/effective_go#names)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to implement query cancellation without modifying `grok.SendWithFiles()`. Instead, they want `sendQueryToLLM()` to discard results if the query has been cancelled.
+
+This means:
+1. Track which queries are cancelled
+2. After `grok.SendWithFiles()` returns, check if the query was cancelled
+3. If cancelled, discard the result and return early
+
+I need to:
+1. Add a global map to track cancelled queries
+2. In `readPump()`, handle "cancel" message type and mark the query as cancelled
+3. In `sendQueryToLLM()`, check if the query was cancelled after the LLM call completes
+4. In `processQuery()`, pass the queryID so it can check if cancelled
+
+The key insight is that we can't interrupt the LLM call itself, but we can choose not to use its result.
+
+Looking at the instructions:
+- Start with markdown heading
+- Limit discussion to 4000 tokens
+- Enclose references in square brackets
+- Don't include empty square brackets
+- Output files don't count against limit
+- Return complete files only
+- Don't skip array indices
+
+I'll provide an updated main.go that implements this approach.
+
+
+---
+
