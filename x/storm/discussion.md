@@ -12159,6 +12159,8 @@ Scroll positioning and WebSocket connectivity are now stable, with a streamlined
 
 ## Reasoning
 
+## Reasoning
+
 
 
 
@@ -35834,11 +35836,10 @@ I need to add the conversion logic in readPump() to resolve relative paths back 
 **add a 'file forget' command**
 
 
-
-
 # Add 'file forget' CLI Command for Removing Files
 
 Implements a new `file forget` subcommand that removes authorized files from a project[1]. The command sends a DELETE request to remove the file from the project's authorized list via the HTTP API[1][2].
+
 ## References
 
 [1] [https://golang.org/doc/effective_go#names](https://golang.org/doc/effective_go#names)
@@ -35860,8 +35861,6 @@ Implements a new `file forget` subcommand that removes authorized files from a p
 - [10] [https://pkg.go.dev/github.com/danielgtaylor/huma](https://pkg.go.dev/github.com/danielgtaylor/huma)
 - [11] [https://github.com/spf13/cobra-cli/issues/106](https://github.com/spf13/cobra-cli/issues/106)
 - [12] [https://github.com/go-chi/chi/blob/master/README.md](https://github.com/go-chi/chi/blob/master/README.md)
-
-
 
 ## Reasoning
 
@@ -35893,13 +35892,12 @@ Looking at main.go, I see huma API endpoints being registered. So I need to add 
 Let me provide the complete updated files with the file forget command added.
 
 
+
 ---
 
 
 
 **add a 'file forget' command**
-
-
 
 
 # Add 'file forget' Subcommand for File Deletion
@@ -35961,8 +35959,6 @@ func (p *Projects) RemoveFile(projectID, filename string) error {
 - [5] [https://pkg.go.dev/net/http](https://pkg.go.dev/net/http)
 - [6] [https://github.com/spf13/cobra/blob/main/site/content/user_guide.md](https://github.com/spf13/cobra/blob/main/site/content/user_guide.md)
 
-
-
 ## Reasoning
 
 The user is asking me to add a 'file forget' command. Looking at the provided code, I can see:
@@ -35983,13 +35979,12 @@ So what's needed:
 Looking at the constraint: I must limit discussion to 500 tokens. This is a MUCH more restrictive limit than before. Let me be very concise.
 
 
+
 ---
 
 
 
 **add a 'file forget' command**
-
-
 
 
 # File Forget Subcommand Implementation Complete
@@ -36030,8 +36025,6 @@ The complete files provided show all necessary changes integrated into the codeb
 - [5] [https://www.codementor.io/@noelkamphoa/creating-delete-endpoints-with-spring-boot-a-quick-guide-2bwafy87rf](https://www.codementor.io/@noelkamphoa/creating-delete-endpoints-with-spring-boot-a-quick-guide-2bwafy87rf)
 - [6] [https://zio.dev/zio-cli/commands/](https://zio.dev/zio-cli/commands/)
 
-
-
 ## Reasoning
 
 The user is asking me to add a 'file forget' command. Let me look at what they've provided - they've given me complete Go files showing the implementation they want.
@@ -36059,6 +36052,98 @@ Let me follow the instructions:
 6. Don't skip array indices in Go code
 
 The user has already shown me the complete implementation, so I should just provide the files and brief discussion confirming this is done.
+
+
+
+---
+
+
+
+**when a file is added or deleted from the CLI, send a websocket message to the web UI to update the list of files on the page**
+
+
+
+
+# Broadcast File Changes via WebSocket to Update UI in Real-Time
+
+When files are added or deleted via CLI, the server broadcasts a WebSocket message to all connected clients so the file list updates automatically without page reload[1][2]. Add file-change broadcast messages in the API handlers and handle them in the web UI JavaScript[1].
+
+## Key Changes
+
+**1. main.go** - Broadcast file changes after API operations[1]
+- After `projects.AddFile()` succeeds, broadcast message: `{type: "fileListUpdated", projectID, files}`
+- After `projects.RemoveFile()` succeeds, broadcast message: `{type: "fileListUpdated", projectID, files}`
+- Include updated file list so clients can refresh
+
+**2. project.html** - Handle file update messages[2]
+- Add handler in `ws.onmessage` for `message.type === 'fileListUpdated'`
+- Call `loadFileList()` to refresh from server
+- File selections persist in IndexedDB; updated list merges with existing selections
+
+## Implementation
+
+```go
+// In main.go, after successful AddFile or RemoveFile
+if message, ok := project.GetClientPool(); ok {
+  updatedFiles := project.GetFilesAsRelative()
+  broadcast := map[string]interface{}{
+    "type": "fileListUpdated",
+    "projectID": projectID,
+    "files": updatedFiles,
+  }
+  project.ClientPool.Broadcast(broadcast)
+}
+```
+
+```javascript
+// In project.html ws.onmessage
+else if (message.type === 'fileListUpdated') {
+  loadFileList();  // Refresh file list from server
+}
+```
+
+## References
+
+[1] [https://golang.org/doc/effective_go#concurrency](https://golang.org/doc/effective_go#concurrency)
+[2] [https://developer.mozilla.org/en-US/docs/Web/API/WebSocket/send](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket/send)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to implement a feature where "when a file is added or deleted from the CLI, send a websocket message to the web UI to update the list of files on the page".
+
+Looking at the instructions:
+1. I'm a researcher
+2. Answer ONLY the query at the end
+3. The query is: "when a file is added or deleted from the CLI, send a websocket message to the web UI to update the list of files on the page"
+4. I MUST limit discussion to 500 tokens (about 142 words)
+5. Start with markdown heading
+6. Enclose reference numbers in square brackets
+7. Don't include empty square brackets
+8. Output files don't count against token limit
+9. Return complete files only
+10. Don't skip array indices in Go code
+
+The user has provided complete files. They're asking me to implement a feature where CLI file operations broadcast updates via WebSocket to all connected clients so the UI updates in real-time.
+
+Currently:
+- CLI can add/delete files via HTTP API
+- Web UI loads files and can select them
+- Web UI displays files in a table
+
+What's needed:
+1. When API adds/deletes a file, broadcast a WebSocket message to all connected clients
+2. Update the file list UI when this message is received
+3. This requires changes to: main.go (API handlers to broadcast), project.html (handle the broadcast message)
+
+Let me provide a concise solution.
 
 
 ---

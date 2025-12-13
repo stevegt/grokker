@@ -195,7 +195,7 @@ func parseTokenLimit(val interface{}) int {
 			return num
 		}
 	}
-	return 500 // default
+	return 8192 // default
 }
 
 // NewChat creates a new Chat instance using the given markdown filename.
