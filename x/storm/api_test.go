@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -123,7 +122,7 @@ func TestAPIEndpoints(t *testing.T) {
 		t.Fatalf("Failed to create output file: %v", err)
 	}
 
-	// Test 4: Add files to project
+	// Test 3: Add files to project
 	addFilesPayload := map[string]interface{}{
 		"filenames": []string{inputFile, outputFile},
 	}
@@ -180,28 +179,35 @@ func TestAPIEndpoints(t *testing.T) {
 		t.Errorf("Expected 2 files, got %d", len(files))
 	}
 
-	// Test 6: Delete a file from project (URL-encode the absolute path)[1]
-	fileToDelete := inputFile
-	encodedPath := url.QueryEscape(fileToDelete)
-	deleteURL := fmt.Sprintf("%s/api/projects/%s/files/%s", daemonAddr, projectID, encodedPath)
-	req, err := http.NewRequest("DELETE", deleteURL, nil)
-	if err != nil {
-		t.Fatalf("Failed to create DELETE request: %v", err)
+	// Test 5: Forget files using POST with list[1]
+	forgetPayload := map[string]interface{}{
+		"filenames": []string{inputFile},
 	}
+	jsonData, err = json.Marshal(forgetPayload)
+	if err != nil {
+		t.Fatalf("Failed to marshal forget files request: %v", err)
+	}
+
+	forgetURL := fmt.Sprintf("%s/api/projects/%s/files/forget", daemonAddr, projectID)
+	req, err := http.NewRequest("POST", forgetURL, bytes.NewReader(jsonData))
+	if err != nil {
+		t.Fatalf("Failed to create POST request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{}
 	resp, err = client.Do(req)
 	if err != nil {
-		t.Fatalf("Failed to delete file: %v", err)
+		t.Fatalf("Failed to forget files: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := ioutil.ReadAll(resp.Body)
-		t.Fatalf("Delete file failed with status %d: %s", resp.StatusCode, string(body))
+		t.Fatalf("Forget files failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Test 7: Verify file was deleted
+	// Test 6: Verify file was forgotten
 	resp, err = http.Get(fmt.Sprintf("%s/api/projects/%s/files", daemonAddr, projectID))
 	if err != nil {
 		t.Fatalf("Failed to list project files after deletion: %v", err)
@@ -219,10 +225,10 @@ func TestAPIEndpoints(t *testing.T) {
 	}
 
 	if len(files2) != 1 {
-		t.Errorf("Expected 1 file after deletion, got %d", len(files2))
+		t.Errorf("Expected 1 file after forget, got %d", len(files2))
 	}
 
-	// Test 8: Delete project
+	// Test 7: Delete project
 	deleteProjectURL := fmt.Sprintf("%s/api/projects/%s", daemonAddr, projectID)
 	req, err = http.NewRequest("DELETE", deleteProjectURL, nil)
 	if err != nil {

@@ -4,25 +4,9 @@ import (
 	"context"
 	_ "embed"
 	"log"
-	"net/url"
-	"path/filepath"
 
 	"github.com/danielgtaylor/huma/v2"
 )
-
-// FileDeleteInput for deleting a file from a project
-type FileDeleteInput struct {
-	ProjectID string `path:"projectID" doc:"Project identifier" required:"true"`
-	Filename  string `path:"filename" doc:"URL-encoded absolute file path" required:"true"`
-}
-
-type FileDeleteResponse struct {
-	Body struct {
-		ProjectID string `json:"projectID" doc:"Project identifier"`
-		Filename  string `json:"filename" doc:"Deleted filename"`
-		Message   string `json:"message" doc:"Deletion status"`
-	} `doc:"File deletion result"`
-}
 
 // ProjectAddInput uses explicit Body field for Huma request body control
 type ProjectAddInput struct {
@@ -68,7 +52,7 @@ type ProjectDeleteResponse struct {
 	} `doc:"Project deletion result"`
 }
 
-// FileAddInput for adding files to a project - extract projectID from path parameter
+// FileAddInput for adding files to a project
 type FileAddInput struct {
 	ProjectID string `path:"projectID" doc:"Project identifier" required:"true"`
 	Body      struct {
@@ -82,6 +66,22 @@ type FileAddResponse struct {
 		Added     []string `json:"added" doc:"List of successfully added files"`
 		Failed    []string `json:"failed" doc:"List of files that failed to add"`
 	} `doc:"Result of file additions"`
+}
+
+// FileForgetInput for removing files from a project[1]
+type FileForgetInput struct {
+	ProjectID string `path:"projectID" doc:"Project identifier" required:"true"`
+	Body      struct {
+		Filenames []string `json:"filenames" doc:"List of absolute file paths to remove" required:"true"`
+	} `doc:"Files to remove"`
+}
+
+type FileForgetResponse struct {
+	Body struct {
+		ProjectID string   `json:"projectID" doc:"Project identifier"`
+		Removed   []string `json:"removed" doc:"List of successfully removed files"`
+		Failed    []string `json:"failed" doc:"List of files that failed to remove"`
+	} `doc:"Result of file removals"`
 }
 
 // FileListInput for retrieving files from a project
@@ -184,53 +184,25 @@ func postProjectFilesHandler(ctx context.Context, input *FileAddInput) (*FileAdd
 	return res, nil
 }
 
-// deleteProjectFilesHandler handles DELETE /api/projects/{projectID}/files/{filename}[1]
-// Filename parameter is URL-encoded absolute file path
-func deleteProjectFilesHandler(ctx context.Context, input *FileDeleteInput) (*FileDeleteResponse, error) {
+// postProjectFilesForgetHandler handles POST /api/projects/{projectID}/files/forget - remove files from project[1]
+func postProjectFilesForgetHandler(ctx context.Context, input *FileForgetInput) (*FileForgetResponse, error) {
 	projectID := input.ProjectID
-	encodedFilename := input.Filename
 
-	// URL-decode the filename parameter[1]
-	filename, err := url.QueryUnescape(encodedFilename)
-	if err != nil {
-		return nil, huma.Error400BadRequest("Invalid filename encoding")
-	}
+	res := &FileForgetResponse{}
+	res.Body.ProjectID = projectID
+	res.Body.Removed = []string{}
+	res.Body.Failed = []string{}
 
-	log.Printf("DEBUG: Received encoded filename %s, decoded to %s", encodedFilename, filename)
-
-	// Load project to find matching file in AuthorizedFiles list
-	project, err := projects.Get(projectID)
-	if err != nil {
-		return nil, huma.Error404NotFound("Project not found")
-	}
-
-	// Find exact match for the decoded absolute path[1]
-	var matchedFile string
-	for i := 0; i < len(project.AuthorizedFiles); i++ {
-		storedFile := project.AuthorizedFiles[i]
-		if storedFile == filename {
-			matchedFile = storedFile
-			break
+	for _, filename := range input.Body.Filenames {
+		if err := projects.RemoveFile(projectID, filename); err != nil {
+			res.Body.Failed = append(res.Body.Failed, filename)
+		} else {
+			res.Body.Removed = append(res.Body.Removed, filename)
 		}
 	}
 
-	if matchedFile == "" {
-		log.Printf("DEBUG: File %s not found in project %s. Available files: %v", filename, projectID, project.AuthorizedFiles)
-		return nil, huma.Error404NotFound("File not found in project")
-	}
-
-	// Remove the matched file from the project
-	if err := projects.RemoveFile(projectID, matchedFile); err != nil {
-		return nil, huma.Error404NotFound("Failed to delete file")
-	}
-
-	res := &FileDeleteResponse{}
-	res.Body.ProjectID = projectID
-	res.Body.Filename = filename
-	res.Body.Message = "File removed successfully"
-
 	// Broadcast file list update to all connected WebSocket clients[1]
-	project, err = projects.Get(projectID)
+	project, err := projects.Get(projectID)
 	if err == nil {
 		updatedFiles := project.GetFilesAsRelative()
 		broadcast := map[string]interface{}{
@@ -242,12 +214,10 @@ func deleteProjectFilesHandler(ctx context.Context, input *FileDeleteInput) (*Fi
 		log.Printf("Broadcasted file list update for project %s", projectID)
 	}
 
-	log.Printf("DEBUG: File %s removed from project %s", filename, projectID)
 	return res, nil
 }
 
 // getProjectFilesHandler handles GET /api/projects/{projectID}/files - list files for project
-// Returns relative paths when files are inside the project's base directory[1]
 func getProjectFilesHandler(ctx context.Context, input *FileListInput) (*FileListResponse, error) {
 	projectID := input.ProjectID
 

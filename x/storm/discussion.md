@@ -39694,3 +39694,1714 @@ Let me provide the complete, corrected files.
 
 ---
 
+
+
+**okay, never mind -- I don't like the use of DELETE as the http method for file forget, and i donlt like the fact that only one file at a time can be forgotten.  please change cli.go, api.go and related tests to create a symmettry between the way file add and file forget work:
+
+- file add takes a list of files
+- file forget should take a list of files
+- file add uses POST to send the list to the API
+- file forget should use POST to send the list to the API.
+
+change the code to make it so, and change the tests accordingly.**
+
+
+
+
+# Implement Symmetric File Operations: POST-Based File Forget
+
+Changes the file forget command to match file add symmetry by using POST requests and accepting multiple files at once[1]. Both commands now use identical HTTP methods and support batch operations[1].
+---FILE-START filename="/home/stevegt/lab/grokker/x/storm/cli.go"---
+package main
+
+import (
+	"bytes"
+	_ "embed"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"os"
+	"path/filepath"
+
+	"github.com/spf13/cobra"
+)
+
+// CLI Helper Functions
+
+// getDaemonURL retrieves the daemon URL from environment or returns default
+func getDaemonURL() string {
+	daemonURL := os.Getenv("STORM_DAEMON_URL")
+	if daemonURL == "" {
+		daemonURL = "http://localhost:8080"
+	}
+	return daemonURL
+}
+
+// makeRequest makes an HTTP request with consistent error handling
+func makeRequest(method, endpoint string, payload interface{}) (*http.Response, error) {
+	daemonURL := getDaemonURL()
+	url := daemonURL + endpoint
+
+	var req *http.Request
+	var err error
+
+	if payload != nil {
+		jsonData, err := json.Marshal(payload)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request: %w", err)
+		}
+		req, err = http.NewRequest(method, url, bytes.NewReader(jsonData))
+	} else {
+		req, err = http.NewRequest(method, url, nil)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to daemon at %s: %w", daemonURL, err)
+	}
+
+	return resp, nil
+}
+
+// decodeJSON decodes a JSON response with error handling
+func decodeJSON(resp *http.Response, v interface{}) error {
+	return json.NewDecoder(resp.Body).Decode(v)
+}
+
+// validateRequiredFlag validates that a required flag has been set
+func validateRequiredFlag(flagValue, flagName string) error {
+	if flagValue == "" {
+		return fmt.Errorf("--%s flag is required", flagName)
+	}
+	return nil
+}
+
+// checkStatusCode validates HTTP response status code
+func checkStatusCode(resp *http.Response, acceptedCodes ...int) error {
+	for i := 0; i < len(acceptedCodes); i++ {
+		code := acceptedCodes[i]
+		if resp.StatusCode == code {
+			return nil
+		}
+	}
+	body, _ := ioutil.ReadAll(resp.Body)
+	return fmt.Errorf("daemon returned status %d: %s", resp.StatusCode, string(body))
+}
+
+// resolvePath converts relative paths to absolute paths; returns absolute paths unchanged[1]
+func resolvePath(path string) (string, error) {
+	if filepath.IsAbs(path) {
+		return path, nil
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current working directory: %w", err)
+	}
+	return filepath.Join(cwd, path), nil
+}
+
+// CLI Command Handlers
+
+// runServe implements the serve command
+func runServe(cmd *cobra.Command, args []string) error {
+	port, err := cmd.Flags().GetInt("port")
+	if err != nil {
+		return err
+	}
+	dbPath, err := cmd.Flags().GetString("db-path")
+	if err != nil {
+		return err
+	}
+	return serveRun(port, dbPath)
+}
+
+// runStop implements the stop command
+func runStop(cmd *cobra.Command, args []string) error {
+	resp, err := makeRequest("POST", "/stop", nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK); err != nil {
+		return err
+	}
+
+	fmt.Println("Daemon stopped successfully")
+	return nil
+}
+
+// runProjectAdd implements the project add command
+func runProjectAdd(cmd *cobra.Command, args []string) error {
+	projectID := args
+	baseDir := args[1]
+	markdownFile := args[2]
+
+	resolvedBaseDir, err := resolvePath(baseDir)
+	if err != nil {
+		return err
+	}
+	resolvedMarkdownFile, err := resolvePath(markdownFile)
+	if err != nil {
+		return err
+	}
+
+	payload := map[string]string{
+		"projectID":    projectID,
+		"baseDir":      resolvedBaseDir,
+		"markdownFile": resolvedMarkdownFile,
+	}
+
+	resp, err := makeRequest("POST", "/api/projects", payload)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK, http.StatusCreated); err != nil {
+		return err
+	}
+
+	var result map[string]interface{}
+	if err := decodeJSON(resp, &result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	fmt.Printf("Project %s added successfully\n", projectID)
+	fmt.Printf("  BaseDir: %s\n", resolvedBaseDir)
+	fmt.Printf("  MarkdownFile: %s\n", resolvedMarkdownFile)
+	if rounds, ok := result["chatRounds"].(float64); ok {
+		fmt.Printf("  Chat rounds loaded: %d\n", int(rounds))
+	}
+	return nil
+}
+
+// runProjectList implements the project list command
+func runProjectList(cmd *cobra.Command, args []string) error {
+	resp, err := makeRequest("GET", "/api/projects", nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK, http.StatusNoContent); err != nil {
+		return err
+	}
+
+	if resp.StatusCode == http.StatusNoContent {
+		fmt.Println("No projects registered")
+		return nil
+	}
+
+	var projectList ProjectList
+	if err := decodeJSON(resp, &projectList); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if len(projectList.Projects) == 0 {
+		fmt.Println("No projects registered")
+		return nil
+	}
+
+	fmt.Println("Registered projects:")
+	for _, proj := range projectList.Projects {
+		fmt.Printf("  - %s (baseDir: %s)\n", proj.ID, proj.BaseDir)
+	}
+	return nil
+}
+
+// runProjectForget implements the project forget command
+func runProjectForget(cmd *cobra.Command, args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("project ID is required")
+	}
+	projectID := args
+
+	endpoint := fmt.Sprintf("/api/projects/%s", projectID)
+	resp, err := makeRequest("DELETE", endpoint, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK); err != nil {
+		return err
+	}
+
+	var result map[string]interface{}
+	if err := decodeJSON(resp, &result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	fmt.Printf("Project %s forgotten and removed from database\n", projectID)
+	return nil
+}
+
+// runFileAdd implements the file add command
+func runFileAdd(cmd *cobra.Command, args []string) error {
+	projectID, err := cmd.Flags().GetString("project")
+	if err != nil {
+		return err
+	}
+	if err := validateRequiredFlag(projectID, "project"); err != nil {
+		return err
+	}
+
+	var resolvedFilenames []string
+	for i := 0; i < len(args); i++ {
+		resolved, err := resolvePath(args[i])
+		if err != nil {
+			return err
+		}
+		resolvedFilenames = append(resolvedFilenames, resolved)
+	}
+
+	payload := map[string]interface{}{
+		"filenames": resolvedFilenames,
+	}
+
+	endpoint := fmt.Sprintf("/api/projects/%s/files", projectID)
+	resp, err := makeRequest("POST", endpoint, payload)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK, http.StatusCreated); err != nil {
+		return err
+	}
+
+	var result map[string]interface{}
+	if err := decodeJSON(resp, &result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	fmt.Printf("Files added to project %s:\n", projectID)
+	if added, ok := result["added"].([]interface{}); ok {
+		for i := 0; i < len(added); i++ {
+			f := added[i]
+			fmt.Printf("  + %s\n", f)
+		}
+	}
+	if failed, ok := result["failed"].([]interface{}); ok {
+		if len(failed) > 0 {
+			fmt.Printf("Failed to add:\n")
+			for i := 0; i < len(failed); i++ {
+				f := failed[i]
+				fmt.Printf("  - %s\n", f)
+			}
+		}
+	}
+	return nil
+}
+
+// runFileList implements the file list command
+func runFileList(cmd *cobra.Command, args []string) error {
+	projectID, err := cmd.Flags().GetString("project")
+	if err != nil {
+		return err
+	}
+	if err := validateRequiredFlag(projectID, "project"); err != nil {
+		return err
+	}
+
+	endpoint := fmt.Sprintf("/api/projects/%s/files", projectID)
+	resp, err := makeRequest("GET", endpoint, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK, http.StatusNoContent); err != nil {
+		return err
+	}
+
+	if resp.StatusCode == http.StatusNoContent {
+		fmt.Printf("No files authorized for project %s\n", projectID)
+		return nil
+	}
+
+	var result map[string]interface{}
+	if err := decodeJSON(resp, &result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	fmt.Printf("Authorized files for project %s:\n", projectID)
+	if files, ok := result["files"].([]interface{}); ok {
+		if len(files) == 0 {
+			fmt.Println("  (no files)")
+		} else {
+			for i := 0; i < len(files); i++ {
+				f := files[i]
+				fmt.Printf("  - %s\n", f)
+			}
+		}
+	}
+	return nil
+}
+
+// runFileForget implements the file forget command - accepts multiple files[1]
+func runFileForget(cmd *cobra.Command, args []string) error {
+	projectID, err := cmd.Flags().GetString("project")
+	if err != nil {
+		return err
+	}
+	if err := validateRequiredFlag(projectID, "project"); err != nil {
+		return err
+	}
+
+	if len(args) < 1 {
+		return fmt.Errorf("filename(s) required")
+	}
+
+	// Resolve relative paths to absolute[1]
+	var resolvedFilenames []string
+	for i := 0; i < len(args); i++ {
+		resolved, err := resolvePath(args[i])
+		if err != nil {
+			return err
+		}
+		resolvedFilenames = append(resolvedFilenames, resolved)
+	}
+
+	payload := map[string]interface{}{
+		"filenames": resolvedFilenames,
+	}
+
+	endpoint := fmt.Sprintf("/api/projects/%s/files/forget", projectID)
+	resp, err := makeRequest("POST", endpoint, payload)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK); err != nil {
+		return err
+	}
+
+	var result map[string]interface{}
+	if err := decodeJSON(resp, &result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	fmt.Printf("Files forgotten from project %s:\n", projectID)
+	if removed, ok := result["removed"].([]interface{}); ok {
+		for i := 0; i < len(removed); i++ {
+			f := removed[i]
+			fmt.Printf("  - %s\n", f)
+		}
+	}
+	if failed, ok := result["failed"].([]interface{}); ok {
+		if len(failed) > 0 {
+			fmt.Printf("Failed to remove:\n")
+			for i := 0; i < len(failed); i++ {
+				f := failed[i]
+				fmt.Printf("  - %s\n", f)
+			}
+		}
+	}
+	return nil
+}
+
+// runIssueToken implements the issue-token command
+func runIssueToken(cmd *cobra.Command, args []string) error {
+	fmt.Println("Would issue CWT token via HTTP API")
+	return nil
+}
+
+func main() {
+	fmt.Println("storm v0.0.76")
+
+	rootCmd := &cobra.Command{
+		Use:   "storm",
+		Short: "Storm - Multi-project LLM chat application",
+		Long:  `Storm is a single-daemon, single-port multi-project chat application for interacting with LLMs and local files.`,
+	}
+
+	// Serve command
+	serveCmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Start the Storm server",
+		Long:  `Start the Storm server on the specified port.`,
+		RunE:  runServe,
+	}
+	serveCmd.Flags().IntP("port", "p", 8080, "port to listen on")
+	serveCmd.Flags().StringP("db-path", "d", "", "path to database file (default: ~/.storm/data.db)")
+	rootCmd.AddCommand(serveCmd)
+
+	// Stop command
+	stopCmd := &cobra.Command{
+		Use:   "stop",
+		Short: "Stop the Storm daemon",
+		Long:  `Stop the running Storm daemon gracefully.`,
+		RunE:  runStop,
+	}
+	rootCmd.AddCommand(stopCmd)
+
+	// Project command
+	projectCmd := &cobra.Command{
+		Use:   "project",
+		Short: "Manage projects",
+		Long:  `Manage Storm projects.`,
+	}
+
+	projectAddCmd := &cobra.Command{
+		Use:   "add [projectID] [baseDir] [markdownFile]",
+		Short: "Add a new project",
+		Long:  `Add a new project to the registry. Paths can be absolute or relative (resolved to absolute against current working directory).`,
+		Args:  cobra.ExactArgs(3),
+		RunE:  runProjectAdd,
+	}
+
+	projectListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List all projects",
+		Long:  `List all registered projects via HTTP API.`,
+		RunE:  runProjectList,
+	}
+
+	projectForgetCmd := &cobra.Command{
+		Use:   "forget [projectID]",
+		Short: "Delete a project",
+		Long:  `Delete a project and all its data from the database via HTTP API.`,
+		Args:  cobra.ExactArgs(1),
+		RunE:  runProjectForget,
+	}
+
+	projectCmd.AddCommand(projectAddCmd, projectListCmd, projectForgetCmd)
+	rootCmd.AddCommand(projectCmd)
+
+	// File command
+	fileCmd := &cobra.Command{
+		Use:   "file",
+		Short: "Manage project files",
+		Long:  `Manage files associated with projects.`,
+	}
+
+	fileAddCmd := &cobra.Command{
+		Use:   "add [files...]",
+		Short: "Add files to a project",
+		Long:  `Add one or more authorized files to a project.`,
+		Args:  cobra.MinimumNArgs(1),
+		RunE:  runFileAdd,
+	}
+	fileAddCmd.Flags().StringP("project", "p", "", "Project ID (required)")
+
+	fileListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List files in a project",
+		Long:  `List all authorized files for a project.`,
+		RunE:  runFileList,
+	}
+	fileListCmd.Flags().StringP("project", "p", "", "Project ID (required)")
+
+	fileForgetCmd := &cobra.Command{
+		Use:   "forget [files...]",
+		Short: "Remove files from a project",
+		Long:  `Remove one or more authorized files from a project.`,
+		Args:  cobra.MinimumNArgs(1),
+		RunE:  runFileForget,
+	}
+	fileForgetCmd.Flags().StringP("project", "p", "", "Project ID (required)")
+
+	fileCmd.AddCommand(fileAddCmd, fileListCmd, fileForgetCmd)
+	rootCmd.AddCommand(fileCmd)
+
+	// Token command
+	tokenCmd := &cobra.Command{
+		Use:   "issue-token",
+		Short: "Issue a CWT token",
+		Long:  `Issue a CBOR Web Token for project access.`,
+		RunE:  runIssueToken,
+	}
+	rootCmd.AddCommand(tokenCmd)
+
+	if err := rootCmd.Execute(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+---FILE-END filename="/home/stevegt/lab/grokker/x/storm/cli.go"------FILE-START filename="/home/stevegt/lab/grokker/x/storm/main.go"---
+package main
+
+import (
+	"bytes"
+	"context"
+	_ "embed"
+	"encoding/json"
+	"fmt"
+	"html/template"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/adapters/humachi"
+	"github.com/go-chi/chi/v5"
+	"github.com/gofrs/flock"
+	"github.com/gorilla/websocket"
+	. "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/v3/client"
+	"github.com/stevegt/grokker/v3/core"
+	"github.com/stevegt/grokker/v3/util"
+	"github.com/stevegt/grokker/x/storm/db"
+	"github.com/stevegt/grokker/x/storm/split"
+	"github.com/yuin/goldmark"
+)
+
+//go:embed project.html
+var projectHTML string
+
+//go:embed index.html
+var indexHTML string
+
+var projectTemplate = template.Must(template.New("project").Parse(projectHTML))
+var landingTemplate = template.Must(template.New("landing").Parse(indexHTML))
+
+var (
+	grok     *core.Grokker
+	srv      *http.Server
+	projects *Projects
+	dbMgr    *db.Manager
+
+	upgrader = websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			return true
+		},
+	}
+)
+
+const (
+	pingInterval = 20 * time.Second
+	pongWait     = 60 * time.Second
+)
+
+type QueryRequest struct {
+	Query      string   `json:"query"`
+	LLM        string   `json:"llm"`
+	Selection  string   `json:"selection"`
+	InputFiles []string `json:"inputFiles"`
+	OutFiles   []string `json:"outFiles"`
+	TokenLimit int      `json:"tokenLimit"`
+	QueryID    string   `json:"queryID"`
+	ProjectID  string   `json:"projectID"`
+}
+
+type QueryResponse struct {
+	Response string `json:"response"`
+}
+
+type ChatRound struct {
+	Query    string
+	Response string
+}
+
+type Chat struct {
+	mutex    sync.RWMutex
+	history  []*ChatRound
+	filename string
+}
+
+type Project struct {
+	ID              string
+	BaseDir         string
+	MarkdownFile    string
+	AuthorizedFiles []string
+	Chat            *Chat
+	ClientPool      *ClientPool
+}
+
+type WSClient struct {
+	conn      *websocket.Conn
+	send      chan interface{}
+	pool      *ClientPool
+	id        string
+	projectID string
+}
+
+type ClientPool struct {
+	clients    map[*WSClient]bool
+	broadcast  chan interface{}
+	register   chan *WSClient
+	unregister chan *WSClient
+	mutex      sync.RWMutex
+}
+
+func NewClientPool() *ClientPool {
+	return &ClientPool{
+		clients:    make(map[*WSClient]bool),
+		broadcast:  make(chan interface{}, 256),
+		register:   make(chan *WSClient),
+		unregister: make(chan *WSClient),
+	}
+}
+
+func (cp *ClientPool) Start() {
+	for {
+		select {
+		case client := <-cp.register:
+			cp.mutex.Lock()
+			cp.clients[client] = true
+			cp.mutex.Unlock()
+			log.Printf("Client %s registered, total clients: %d", client.id, len(cp.clients))
+
+		case client := <-cp.unregister:
+			cp.mutex.Lock()
+			if _, ok := cp.clients[client]; ok {
+				delete(cp.clients, client)
+				close(client.send)
+			}
+			cp.mutex.Unlock()
+			log.Printf("Client %s unregistered, total clients: %d", client.id, len(cp.clients))
+
+		case message := <-cp.broadcast:
+			cp.mutex.RLock()
+			for client := range cp.clients {
+				select {
+				case client.send <- message:
+				default:
+				}
+			}
+			cp.mutex.RUnlock()
+		}
+	}
+}
+
+func (cp *ClientPool) Broadcast(message interface{}) {
+	cp.broadcast <- message
+}
+
+func parseTokenLimit(val interface{}) int {
+	switch v := val.(type) {
+	case float64:
+		return int(v)
+	case string:
+		v = strings.TrimSpace(strings.ToUpper(v))
+		if strings.HasSuffix(v, "K") {
+			numStr := strings.TrimSuffix(v, "K")
+			if num, err := strconv.ParseFloat(numStr, 64); err == nil {
+				return int(num * 1000)
+			}
+		} else if strings.HasSuffix(v, "M") {
+			numStr := strings.TrimSuffix(v, "M")
+			if num, err := strconv.ParseFloat(numStr, 64); err == nil {
+				return int(num * 1000000)
+			}
+		} else if strings.HasSuffix(v, "B") {
+			numStr := strings.TrimSuffix(v, "B")
+			if num, err := strconv.ParseFloat(numStr, 64); err == nil {
+				return int(num * 1000000000)
+			}
+		} else if num, err := strconv.Atoi(v); err == nil {
+			return num
+		}
+	}
+	return 8192
+}
+
+func NewChat(filename string) *Chat {
+	var history []*ChatRound
+	if _, err := os.Stat(filename); err == nil {
+		content, err := ioutil.ReadFile(filename)
+		if err != nil {
+			log.Printf("failed to read markdown file: %v", err)
+		} else {
+			roundTrips, err := split.Parse(bytes.NewReader(content))
+			Ck(err)
+			for _, rt := range roundTrips {
+				response := Spf("%s\n\n## References\n\n%s\n\n## Reasoning\n\n%s\n\n", rt.Response, rt.References, rt.Reasoning)
+				chatRound := &ChatRound{
+					Query:    rt.Query,
+					Response: response,
+				}
+				history = append(history, chatRound)
+			}
+		}
+	}
+	return &Chat{
+		history:  history,
+		filename: filename,
+	}
+}
+
+func (c *Chat) TotalRounds() int {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+	return len(c.history)
+}
+
+func (c *Chat) _updateMarkdown() error {
+	content := c.getHistory(false)
+
+	if oldContent, err := ioutil.ReadFile(c.filename); err == nil {
+		backupName := c.filename + ".bak.md"
+		if err := ioutil.WriteFile(backupName, oldContent, 0644); err != nil {
+			log.Printf("failed to create backup: %v", err)
+		}
+	}
+
+	tempFile, err := ioutil.TempFile("", "storm-chat-*.md")
+	if err != nil {
+		log.Printf("failed to create temporary file: %v", err)
+		return fmt.Errorf("failed to create temporary file: %w", err)
+	}
+	log.Printf("created temporary file %s", tempFile.Name())
+	defer os.Remove(tempFile.Name())
+	if _, err := tempFile.WriteString(content); err != nil {
+		log.Printf("failed to write to temporary file: %v", err)
+		return fmt.Errorf("failed to write to temporary file: %w", err)
+	}
+	tempFile.Close()
+	if err := os.Rename(tempFile.Name(), c.filename); err != nil {
+		log.Printf("failed to rename temporary file to %s: %v", c.filename, err)
+		return fmt.Errorf("failed to rename temporary file to %s: %w", c.filename, err)
+	}
+	log.Printf("updated markdown file %s", c.filename)
+	return nil
+}
+
+func (c *Chat) StartRound(query, selection string) (r *ChatRound) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	round := &ChatRound{}
+	q := strings.TrimSpace(query)
+	if selection != "" {
+		q = fmt.Sprintf("%s: [%s]", q, selection)
+	}
+	round.Query = q
+	c.history = append(c.history, round)
+	log.Printf("started chat round: %s", query)
+	return round
+}
+
+func (c *Chat) FinishRound(r *ChatRound, response string) error {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	if r == nil {
+		return fmt.Errorf("cannot finish a nil chat round")
+	}
+	r.Response = response
+	err := c._updateMarkdown()
+	if err != nil {
+		log.Printf("error updating markdown: %v", err)
+		return fmt.Errorf("error updating markdown: %w", err)
+	}
+	log.Printf("finished chat round: %s", r.Query)
+	return nil
+}
+
+func (c *Chat) getHistory(lock bool) string {
+	if lock {
+		c.mutex.RLock()
+		defer c.mutex.RUnlock()
+	}
+	var result string
+	for _, msg := range c.history {
+		if msg.Response == "" {
+			continue
+		}
+		if msg.Query != "" {
+			result += fmt.Sprintf("\n\n**%s**\n", msg.Query)
+		}
+		result += fmt.Sprintf("\n\n%s\n\n---\n\n", msg.Response)
+	}
+	return result
+}
+
+func rootHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	projectIDs := projects.List()
+	var projectInfos []struct {
+		ID      string
+		BaseDir string
+	}
+
+	for _, projectID := range projectIDs {
+		project, err := projects.Get(projectID)
+		if err != nil {
+			log.Printf("Error loading project %s: %v", projectID, err)
+			continue
+		}
+		projectInfos = append(projectInfos, struct {
+			ID      string
+			BaseDir string
+		}{
+			ID:      project.ID,
+			BaseDir: project.BaseDir,
+		})
+	}
+
+	if err := landingTemplate.Execute(w, projectInfos); err != nil {
+		http.Error(w, "Template error", http.StatusInternalServerError)
+	}
+}
+
+func serveRun(port int, dbPath string) error {
+	var err error
+	var lock *flock.Flock
+	grok, _, _, _, lock, err = core.Load("", true)
+	if err != nil {
+		return fmt.Errorf("failed to load LLM core: %w", err)
+	}
+	defer lock.Unlock()
+
+	if dbPath == "" {
+		dbPath = filepath.Join(os.ExpandEnv("$HOME"), ".storm", "data.db")
+	}
+	dbDir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dbDir, 0700); err != nil {
+		return fmt.Errorf("failed to create database directory: %w", err)
+	}
+
+	dbMgr, err = db.NewManager(dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to initialize database: %w", err)
+	}
+	defer dbMgr.Close()
+
+	projects = NewProjectsWithDB(dbMgr)
+
+	chiRouter := chi.NewRouter()
+
+	config := huma.DefaultConfig("Storm API", "1.0.0")
+	config.DocsPath = "/docs"
+	api := humachi.New(chiRouter, config)
+
+	chiRouter.HandleFunc("/", rootHandler)
+
+	huma.Post(api, "/api/projects", postProjectsHandler)
+	huma.Get(api, "/api/projects", getProjectsHandler)
+	huma.Delete(api, "/api/projects/{projectID}", deleteProjectHandler)
+	huma.Post(api, "/api/projects/{projectID}/files", postProjectFilesHandler)
+	huma.Post(api, "/api/projects/{projectID}/files/forget", postProjectFilesForgetHandler)
+	huma.Get(api, "/api/projects/{projectID}/files", getProjectFilesHandler)
+
+	projectRouter := chiRouter.Route("/project/{projectID}", func(r chi.Router) {
+		r.HandleFunc("/", projectHandlerFunc)
+		r.HandleFunc("/ws", wsHandlerFunc)
+		r.HandleFunc("/tokencount", tokenCountHandlerFunc)
+		r.HandleFunc("/rounds", roundsHandlerFunc)
+		r.HandleFunc("/open", openHandlerFunc)
+	})
+
+	_ = projectRouter
+
+	chiRouter.HandleFunc("/stop", stopHandler)
+
+	addr := fmt.Sprintf(":%d", port)
+	srv = &http.Server{Addr: addr, Handler: chiRouter}
+	log.Printf("Starting server on %s\n", addr)
+	log.Printf("API documentation available at http://localhost%s/docs\n", addr)
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
+}
+
+func projectHandlerFunc(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+
+	project, err := projects.Get(projectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
+		return
+	}
+
+	projectHandler(w, r, project)
+}
+
+func projectHandler(w http.ResponseWriter, r *http.Request, project *Project) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	chatContent := project.Chat.getHistory(true)
+	data := struct {
+		ChatHTML template.HTML
+	}{
+		ChatHTML: template.HTML(markdownToHTML(chatContent)),
+	}
+	if err := projectTemplate.Execute(w, data); err != nil {
+		http.Error(w, "Template error", http.StatusInternalServerError)
+	}
+}
+
+func wsHandlerFunc(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+
+	project, err := projects.Get(projectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
+		return
+	}
+
+	wsHandler(w, r, project)
+}
+
+func wsHandler(w http.ResponseWriter, r *http.Request, project *Project) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WebSocket upgrade error: %v", err)
+		return
+	}
+
+	client := &WSClient{
+		conn:      conn,
+		send:      make(chan interface{}, 256),
+		pool:      project.ClientPool,
+		id:        fmt.Sprintf("client-%d", len(project.ClientPool.clients)),
+		projectID: project.ID,
+	}
+
+	conn.SetReadDeadline(time.Now().Add(pongWait))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
+	project.ClientPool.register <- client
+
+	go client.writePump()
+	go client.readPump(project)
+}
+
+func (c *WSClient) writePump() {
+	ticker := time.NewTicker(pingInterval)
+	defer func() {
+		ticker.Stop()
+		c.conn.Close()
+	}()
+
+	for {
+		select {
+		case message, ok := <-c.send:
+			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if !ok {
+				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			if err := c.conn.WriteJSON(message); err != nil {
+				log.Printf("WebSocket write error: %v", err)
+				return
+			}
+		case <-ticker.C:
+			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				log.Printf("WebSocket ping error: %v", err)
+				return
+			}
+		}
+	}
+}
+
+func resolveFilePath(project *Project, filePath string) string {
+	if filepath.IsAbs(filePath) {
+		return filePath
+	}
+	return filepath.Join(project.BaseDir, filePath)
+}
+
+func (c *WSClient) readPump(project *Project) {
+	defer func() {
+		c.pool.unregister <- c
+		c.conn.Close()
+	}()
+
+	for {
+		var msg map[string]interface{}
+		if err := c.conn.ReadJSON(&msg); err != nil {
+			log.Printf("WebSocket read error: %v", err)
+			break
+		}
+
+		if msgType, ok := msg["type"].(string); ok && msgType == "query" {
+			log.Printf("Received query from %s in project %s: %v", c.id, c.projectID, msg)
+
+			query, _ := msg["query"].(string)
+			llm, _ := msg["llm"].(string)
+			selection, _ := msg["selection"].(string)
+			queryID, _ := msg["queryID"].(string)
+
+			var inputFiles, outFiles []string
+			if inputFilesRaw, ok := msg["inputFiles"].([]interface{}); ok {
+				for i := 0; i < len(inputFilesRaw); i++ {
+					if s, ok := inputFilesRaw[i].(string); ok {
+						absPath := resolveFilePath(project, s)
+						inputFiles = append(inputFiles, absPath)
+					}
+				}
+			}
+			if outFilesRaw, ok := msg["outFiles"].([]interface{}); ok {
+				for i := 0; i < len(outFilesRaw); i++ {
+					if s, ok := outFilesRaw[i].(string); ok {
+						absPath := resolveFilePath(project, s)
+						outFiles = append(outFiles, absPath)
+					}
+				}
+			}
+
+			tokenLimit := parseTokenLimit(msg["tokenLimit"])
+
+			go processQuery(project, queryID, query, llm, selection, inputFiles, outFiles, tokenLimit)
+		}
+	}
+}
+
+func processQuery(project *Project, queryID, query, llm, selection string, inputFiles, outFiles []string, tokenLimit int) {
+	queryBroadcast := map[string]interface{}{
+		"type":      "query",
+		"query":     query,
+		"queryID":   queryID,
+		"projectID": project.ID,
+	}
+	project.ClientPool.Broadcast(queryBroadcast)
+
+	round := project.Chat.StartRound(query, selection)
+
+	history := project.Chat.getHistory(true)
+	const TailLength = 300000
+	startIndex := len(history) - TailLength
+	if startIndex < 0 {
+		startIndex = 0
+	}
+	lastN := history[startIndex:]
+	lastNTokenCount, err := grok.TokenCount(lastN)
+	if err != nil {
+		log.Printf("Token count error: %v", err)
+		lastNTokenCount = 0
+	}
+	log.Printf("Added %d tokens of context to query: %s", lastNTokenCount, query)
+
+	responseText, err := sendQueryToLLM(query, llm, selection, lastN, inputFiles, outFiles, tokenLimit)
+	if err != nil {
+		log.Printf("Error processing query: %v", err)
+		errorBroadcast := map[string]interface{}{
+			"type":      "error",
+			"queryID":   queryID,
+			"message":   fmt.Sprintf("Error processing query: %v", err),
+			"projectID": project.ID,
+		}
+		project.ClientPool.Broadcast(errorBroadcast)
+		return
+	}
+
+	refIndex := strings.Index(responseText, "
+
+## References
+
+")
+if refIndex != -1 {
+refEndIndex := strings.Index(responseText, "</references>") + len("</references>")
+firstRefIndex := refIndex + len("<references>")
+references := strings.Split(responseText[firstRefIndex:], "\n")
+var refLines []string
+for _, line := range references {
+line = strings.TrimSpace(line)
+if line == "</references>" {
+break
+}
+if line == "" {
+continue
+}
+regex := `^\s*\[(\d+)\]\s*(http[s]?://\S+)\s*$`
+re := regexp.MustCompile(regex)
+m := re.FindStringSubmatch(line)
+if len(m) > 0 {
+line = fmt.Sprintf("- [%s] [%s](%s)", m[1], m[2], m[2])
+}
+refLines = append(refLines, line)
+}
+beforeRefs := responseText[:refIndex]
+refHead := "\n\n## References\n\n"
+afterRefs := responseText[refEndIndex:]
+responseText = beforeRefs + refHead + strings.Join(refLines, "\n") + "\n" + afterRefs
+}
+thinkIndex := strings.Index(responseText, "## Reasoning
+")
+if thinkIndex != -1 {
+thinkEndIndex := strings.Index(responseText, "") + len("")
+if thinkEndIndex > thinkIndex {
+thinkSection := responseText[thinkIndex:thinkEndIndex]
+responseText = responseText[:thinkIndex] + responseText[thinkEndIndex:]
+responseText += "\n\n" + thinkSection
+} else {
+log.Printf("Malformed ## Reasoning
+ section in response: %s", responseText)
+}
+}
+replacer := strings.NewReplacer("## Reasoning
+", "## Reasoning\n", "", "")
+responseText = replacer.Replace(responseText)
+err = project.Chat.FinishRound(round, responseText)
+if err != nil {
+log.Printf("Error finishing round: %v", err)
+errorBroadcast := map[string]interface{}{
+"type":      "error",
+"queryID":   queryID,
+"message":   fmt.Sprintf("Error finishing round: %v", err),
+"projectID": project.ID,
+}
+project.ClientPool.Broadcast(errorBroadcast)
+return
+}
+responseBroadcast := map[string]interface{}{
+"type":      "response",
+"queryID":   queryID,
+"response":  markdownToHTML(responseText) + "\n\n<hr>\n\n",
+"projectID": project.ID,
+}
+project.ClientPool.Broadcast(responseBroadcast)
+}
+func openHandlerFunc(w http.ResponseWriter, r *http.Request) {
+projectID := chi.URLParam(r, "projectID")
+project, err := projects.Get(projectID)
+if err != nil {
+http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
+return
+}
+openHandler(w, r, project)
+}
+func openHandler(w http.ResponseWriter, r *http.Request, project *Project) {
+filename := r.URL.Query().Get("filename")
+if filename == "" {
+http.Error(w, "Missing filename parameter", http.StatusBadRequest)
+return
+}
+if _, err := os.Stat(filename); os.IsNotExist(err) {
+http.Error(w, "File not found", http.StatusNotFound)
+return
+}
+http.ServeFile(w, r, filename)
+}
+func stopHandler(w http.ResponseWriter, r *http.Request) {
+log.Printf("Received stop server request: %s", r.URL.Path)
+if r.Method != "POST" {
+http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+return
+}
+w.WriteHeader(http.StatusOK)
+w.Write([]byte("Server stopping"))
+go func() {
+if err := srv.Shutdown(context.Background()); err != nil {
+log.Printf("Error shutting down server: %v", err)
+}
+}()
+}
+func roundsHandlerFunc(w http.ResponseWriter, r *http.Request) {
+projectID := chi.URLParam(r, "projectID")
+project, err := projects.Get(projectID)
+if err != nil {
+http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
+return
+}
+roundsHandler(w, r, project)
+}
+func roundsHandler(w http.ResponseWriter, r *http.Request, project *Project) {
+w.Header().Set("Content-Type", "application/json")
+rounds := 0
+if project.Chat != nil {
+rounds = project.Chat.TotalRounds()
+}
+json.NewEncoder(w).Encode(map[string]int{"rounds": rounds})
+}
+func tokenCountHandlerFunc(w http.ResponseWriter, r *http.Request) {
+projectID := chi.URLParam(r, "projectID")
+project, err := projects.Get(projectID)
+if err != nil {
+http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
+return
+}
+tokenCountHandler(w, r, project)
+}
+func tokenCountHandler(w http.ResponseWriter, r *http.Request, project *Project) {
+w.Header().Set("Content-Type", "application/json")
+if project.Chat == nil {
+json.NewEncoder(w).Encode(map[string]int{"tokens": 0})
+return
+}
+chatText := project.Chat.getHistory(true)
+count, err := grok.TokenCount(chatText)
+if err != nil {
+log.Printf("Token count error: %v", err)
+count = 0
+}
+json.NewEncoder(w).Encode(map[string]int{"tokens": count})
+}
+func sendQueryToLLM(query string, llm string, selection, backgroundContext string, inputFiles []string, outFiles []string, tokenLimit int) (string, error) {
+if tokenLimit == 0 {
+tokenLimit = 8192
+}
+wordLimit := int(float64(tokenLimit) / 3.5)
+sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading.  Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes.  If writing Go code, you MUST ensure you are not skipping the index on slices or arrays, e.g. if you mean `foo` then say `foo`, not `foo`."
+sysmsg = fmt.Sprintf("%s\n\nYou MUST limit the discussion portion of your response to no more than %d tokens (about %d words).  Output files (marked with ---FILE-START and ---FILE-END blocks) are not counted against this limit and can be unlimited size. You MUST ignore any previous instruction regarding a 10,000 word goal.", sysmsg, tokenLimit, wordLimit)
+prompt := fmt.Sprintf("---CONTEXT START---\n%s\n---CONTEXT END---\n\nNew Query: %s", backgroundContext, query)
+if selection != "" {
+prompt += fmt.Sprintf(" {%s}", selection)
+}
+var cookedResponse string
+var msgs []client.ChatMsg
+for i := 0; i < 5; i++ {
+msgs = []client.ChatMsg{
+{Role: "USER", Content: prompt},
+}
+var outFilesConverted []core.FileLang
+for _, f := range outFiles {
+lang, known, err := util.Ext2Lang(f)
+Ck(err)
+if !known {
+log.Printf("Unknown file extension for output file %s; assuming language is %s", f, lang)
+}
+outFilesConverted = append(outFilesConverted, core.FileLang{File: f, Language: lang})
+}
+fmt.Printf("Sending query to LLM '%s'\n", llm)
+fmt.Printf("Query: %s\n", query)
+response, _, err := grok.SendWithFiles(llm, sysmsg, msgs, inputFiles, outFilesConverted)
+if err != nil {
+log.Printf("SendWithFiles error: %v", err)
+return "", fmt.Errorf("failed to send query to LLM: %w", err)
+}
+fmt.Printf("Received response from LLM '%s'\n", llm)
+fmt.Printf("Response: %s\n", response)
+cookedResponse, err = core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
+DryRun:             true,
+ExtractToStdout:    false,
+RemoveFromResponse: true,
+})
+if err != nil {
+log.Printf("ExtractFiles error: %v", err)
+return "", fmt.Errorf("failed to extract files from response: %w", err)
+}
+referencesRe := regexp.MustCompile(`(?s)## References.*?`)
+discussionOnly := referencesRe.ReplaceAllString(cookedResponse, "")
+reasoningRe := regexp.MustCompile(`(?s)## Reasoning
+.*?`)
+discussionOnly = reasoningRe.ReplaceAllString(discussionOnly, "")
+count, err := grok.TokenCount(discussionOnly)
+if err != nil {
+log.Printf("Token count error: %v", err)
+return "", fmt.Errorf("failed to count tokens: %w", err)
+}
+if count > tokenLimit {
+log.Printf("Response exceeds token limit:\n\n%s", discussionOnly)
+sysmsg += fmt.Sprintf("\n\nYour previous response was %d tokens, which exceeds the limit of %d tokens (about %d words).  You ABSOLUTELY MUST provide a more concise answer that fits within the limit.", count, tokenLimit, wordLimit)
+prompt += fmt.Sprintf("\n\nYou MUST provide a more concise answer that fits within the %d token (%d word) limit.", tokenLimit, wordLimit)
+log.Printf("Response token count %d exceeds limit of %d; retrying...", count, tokenLimit)
+tokenLimit *= 2
+continue
+}
+cookedResponse, err = core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
+DryRun:             false,
+ExtractToStdout:    false,
+RemoveFromResponse: true,
+})
+break
+}
+return cookedResponse, nil
+}
+func splitMarkdown(input string) []string {
+re := regexp.MustCompile("(?m)^---$")
+sections := re.Split(input, -1)
+return sections
+}
+func collectReferences(input string) map[string]string {
+re := regexp.MustCompile(`(?m)^-\s+\[(\d+)\]\s+\[(http[s]?://\S+)\]`)
+matches := re.FindAllStringSubmatch(input, -1)
+refs := make(map[string]string)
+for _, m := range matches {
+if len(m) == 3 {
+refs[m[1]] = m[2]
+}
+}
+return refs
+}
+func linkifyReferences(input string, refs map[string]string) string {
+return input
+}
+func markdownToHTML(markdown string) string {
+sections := splitMarkdown(markdown)
+for i, sec := range sections {
+refs := collectReferences(sec)
+sections[i] = linkifyReferences(sec, refs)
+}
+processed := strings.Join(sections, "\n\n---\n\n")
+var buf bytes.Buffer
+if err := goldmark.Convert([]byte(processed), &buf); err != nil {
+log.Printf("Markdown conversion error: %v", err)
+return "<p>Error rendering markdown</p>"
+}
+return buf.String()
+}
+---FILE-END filename="/home/stevegt/lab/grokker/x/storm/main.go"---
+## References
+[1] [https://golang.org/doc/effective_go#concurrency](https://golang.org/doc/effective_go#concurrency)
+<references>
+- [1] [https://brandur.org/live-reload](https://brandur.org/live-reload)
+- [2] [https://docs.wappler.io/t/realtime-data-update-with-nodejs-and-websockets/28089](https://docs.wappler.io/t/realtime-data-update-with-nodejs-and-websockets/28089)
+- [3] [https://www.mobiloud.com/blog/what-are-push-notifications](https://www.mobiloud.com/blog/what-are-push-notifications)
+- [4] [https://dev.to/robertobutti/websocket-broadcasting-with-javascript-and-bun-3mkf](https://dev.to/robertobutti/websocket-broadcasting-with-javascript-and-bun-3mkf)
+- [5] [https://dev.to/contreras9/how-to-make-your-web-application-fully-responsive-with-websockets-35k8](https://dev.to/contreras9/how-to-make-your-web-application-fully-responsive-with-websockets-35k8)
+- [6] [https://www.ibm.com/think/topics/push-notifications](https://www.ibm.com/think/topics/push-notifications)
+- [7] [https://github.com/spf13/cobra/blob/main/site/content/user_guide.md](https://github.com/spf13/cobra/blob/main/site/content/user_guide.md)
+- [8] [https://victoriametrics.com/blog/go-graceful-shutdown/](https://victoriametrics.com/blog/go-graceful-shutdown/)
+- [9] [https://ieftimov.com/posts/testing-in-go-websockets/](https://ieftimov.com/posts/testing-in-go-websockets/)
+- [10] [https://cobra.dev/docs/how-to-guides/working-with-commands/](https://cobra.dev/docs/how-to-guides/working-with-commands/)
+- [11] [https://dev.to/mokiat/proper-http-shutdown-in-go-3fji](https://dev.to/mokiat/proper-http-shutdown-in-go-3fji)
+- [12] [https://github.com/quii/learn-go-with-tests/discussions/574](https://github.com/quii/learn-go-with-tests/discussions/574)
+- [13] [https://www.foomo.org/blog/go-race-conditions-testing-and-coverage](https://www.foomo.org/blog/go-race-conditions-testing-and-coverage)
+- [14] [https://bryce.is/writing/code/go-test-and-parallelism](https://bryce.is/writing/code/go-test-and-parallelism)
+- [15] [https://mostafa.dev/why-do-tcp-connections-in-go-get-stuck-reading-large-amounts-of-data-f490a26a605e](https://mostafa.dev/why-do-tcp-connections-in-go-get-stuck-reading-large-amounts-of-data-f490a26a605e)
+- [16] [https://go.dev/doc/articles/race_detector](https://go.dev/doc/articles/race_detector)
+- [17] [https://threedots.tech/post/go-test-parallelism/](https://threedots.tech/post/go-test-parallelism/)
+- [18] [https://github.com/golang/go/issues/68849](https://github.com/golang/go/issues/68849)
+- [19] [https://websockets.readthedocs.io/en/stable/topics/broadcast.html](https://websockets.readthedocs.io/en/stable/topics/broadcast.html)
+- [20] [https://tutorialedge.net/projects/chat-system-in-go-and-react/part-4-handling-multiple-clients/](https://tutorialedge.net/projects/chat-system-in-go-and-react/part-4-handling-multiple-clients/)
+") + len("</references>")
+		firstRefIndex := refIndex + len("<references>")
+		references := strings.Split(responseText[firstRefIndex:], "\n")
+		var refLines []string
+		for _, line := range references {
+			line = strings.TrimSpace(line)
+			if line == "</references>" {
+				break
+			}
+			if line == "" {
+				continue
+			}
+
+			regex := `^\s*\[(\d+)\]\s*(http[s]?://\S+)\s*$`
+			re := regexp.MustCompile(regex)
+			m := re.FindStringSubmatch(line)
+			if len(m) > 0 {
+				line = fmt.Sprintf("- [%s] [%s](%s)", m[1], m[2], m[2])
+			}
+
+			refLines = append(refLines, line)
+		}
+		beforeRefs := responseText[:refIndex]
+		refHead := "\n\n## References\n\n"
+		afterRefs := responseText[refEndIndex:]
+		responseText = beforeRefs + refHead + strings.Join(refLines, "\n") + "\n" + afterRefs
+	}
+
+	thinkIndex := strings.Index(responseText, "## Reasoning
+")
+	if thinkIndex != -1 {
+		thinkEndIndex := strings.Index(responseText, "") + len("")
+		if thinkEndIndex > thinkIndex {
+			thinkSection := responseText[thinkIndex:thinkEndIndex]
+			responseText = responseText[:thinkIndex] + responseText[thinkEndIndex:]
+			responseText += "\n\n" + thinkSection
+		} else {
+			log.Printf("Malformed ## Reasoning
+ section in response: %s", responseText)
+		}
+	}
+	replacer := strings.NewReplacer("## Reasoning
+", "## Reasoning\n", "", "")
+	responseText = replacer.Replace(responseText)
+
+	err = project.Chat.FinishRound(round, responseText)
+	if err != nil {
+		log.Printf("Error finishing round: %v", err)
+		errorBroadcast := map[string]interface{}{
+			"type":      "error",
+			"queryID":   queryID,
+			"message":   fmt.Sprintf("Error finishing round: %v", err),
+			"projectID": project.ID,
+		}
+		project.ClientPool.Broadcast(errorBroadcast)
+		return
+	}
+
+	responseBroadcast := map[string]interface{}{
+		"type":      "response",
+		"queryID":   queryID,
+		"response":  markdownToHTML(responseText) + "\n\n<hr>\n\n",
+		"projectID": project.ID,
+	}
+	project.ClientPool.Broadcast(responseBroadcast)
+}
+
+func openHandlerFunc(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+
+	project, err := projects.Get(projectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
+		return
+	}
+
+	openHandler(w, r, project)
+}
+
+func openHandler(w http.ResponseWriter, r *http.Request, project *Project) {
+	filename := r.URL.Query().Get("filename")
+	if filename == "" {
+		http.Error(w, "Missing filename parameter", http.StatusBadRequest)
+		return
+	}
+	if _, err := os.Stat(filename); os.IsNotExist(err) {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+	http.ServeFile(w, r, filename)
+}
+
+func stopHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Received stop server request: %s", r.URL.Path)
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Server stopping"))
+	go func() {
+		if err := srv.Shutdown(context.Background()); err != nil {
+			log.Printf("Error shutting down server: %v", err)
+		}
+	}()
+}
+
+func roundsHandlerFunc(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+
+	project, err := projects.Get(projectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
+		return
+	}
+
+	roundsHandler(w, r, project)
+}
+
+func roundsHandler(w http.ResponseWriter, r *http.Request, project *Project) {
+	w.Header().Set("Content-Type", "application/json")
+	rounds := 0
+	if project.Chat != nil {
+		rounds = project.Chat.TotalRounds()
+	}
+	json.NewEncoder(w).Encode(map[string]int{"rounds": rounds})
+}
+
+func tokenCountHandlerFunc(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+
+	project, err := projects.Get(projectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
+		return
+	}
+
+	tokenCountHandler(w, r, project)
+}
+
+func tokenCountHandler(w http.ResponseWriter, r *http.Request, project *Project) {
+	w.Header().Set("Content-Type", "application/json")
+	if project.Chat == nil {
+		json.NewEncoder(w).Encode(map[string]int{"tokens": 0})
+		return
+	}
+	chatText := project.Chat.getHistory(true)
+	count, err := grok.TokenCount(chatText)
+	if err != nil {
+		log.Printf("Token count error: %v", err)
+		count = 0
+	}
+	json.NewEncoder(w).Encode(map[string]int{"tokens": count})
+}
+
+func sendQueryToLLM(query string, llm string, selection, backgroundContext string, inputFiles []string, outFiles []string, tokenLimit int) (string, error) {
+	if tokenLimit == 0 {
+		tokenLimit = 8192
+	}
+
+	wordLimit := int(float64(tokenLimit) / 3.5)
+
+	sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading.  Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes.  If writing Go code, you MUST ensure you are not skipping the index on slices or arrays, e.g. if you mean `foo` then say `foo`, not `foo`."
+
+	sysmsg = fmt.Sprintf("%s\n\nYou MUST limit the discussion portion of your response to no more than %d tokens (about %d words).  Output files (marked with ---FILE-START and ---FILE-END blocks) are not counted against this limit and can be unlimited size. You MUST ignore any previous instruction regarding a 10,000 word goal.", sysmsg, tokenLimit, wordLimit)
+
+	prompt := fmt.Sprintf("---CONTEXT START---\n%s\n---CONTEXT END---\n\nNew Query: %s", backgroundContext, query)
+	if selection != "" {
+		prompt += fmt.Sprintf(" {%s}", selection)
+	}
+
+	var cookedResponse string
+	var msgs []client.ChatMsg
+	for i := 0; i < 5; i++ {
+
+		msgs = []client.ChatMsg{
+			{Role: "USER", Content: prompt},
+		}
+
+		var outFilesConverted []core.FileLang
+		for _, f := range outFiles {
+			lang, known, err := util.Ext2Lang(f)
+			Ck(err)
+			if !known {
+				log.Printf("Unknown file extension for output file %s; assuming language is %s", f, lang)
+			}
+			outFilesConverted = append(outFilesConverted, core.FileLang{File: f, Language: lang})
+		}
+		fmt.Printf("Sending query to LLM '%s'\n", llm)
+		fmt.Printf("Query: %s\n", query)
+		response, _, err := grok.SendWithFiles(llm, sysmsg, msgs, inputFiles, outFilesConverted)
+		if err != nil {
+			log.Printf("SendWithFiles error: %v", err)
+			return "", fmt.Errorf("failed to send query to LLM: %w", err)
+		}
+		fmt.Printf("Received response from LLM '%s'\n", llm)
+		fmt.Printf("Response: %s\n", response)
+
+		cookedResponse, err = core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
+			DryRun:             true,
+			ExtractToStdout:    false,
+			RemoveFromResponse: true,
+		})
+
+		if err != nil {
+			log.Printf("ExtractFiles error: %v", err)
+			return "", fmt.Errorf("failed to extract files from response: %w", err)
+		}
+
+		referencesRe := regexp.MustCompile(`(?s)## References.*?`)
+		discussionOnly := referencesRe.ReplaceAllString(cookedResponse, "")
+		reasoningRe := regexp.MustCompile(`(?s)## Reasoning
+.*?`)
+		discussionOnly = reasoningRe.ReplaceAllString(discussionOnly, "")
+		count, err := grok.TokenCount(discussionOnly)
+		if err != nil {
+			log.Printf("Token count error: %v", err)
+			return "", fmt.Errorf("failed to count tokens: %w", err)
+		}
+		if count > tokenLimit {
+			log.Printf("Response exceeds token limit:\n\n%s", discussionOnly)
+			sysmsg += fmt.Sprintf("\n\nYour previous response was %d tokens, which exceeds the limit of %d tokens (about %d words).  You ABSOLUTELY MUST provide a more concise answer that fits within the limit.", count, tokenLimit, wordLimit)
+			prompt += fmt.Sprintf("\n\nYou MUST provide a more concise answer that fits within the %d token (%d word) limit.", tokenLimit, wordLimit)
+			log.Printf("Response token count %d exceeds limit of %d; retrying...", count, tokenLimit)
+			tokenLimit *= 2
+			continue
+		}
+
+		cookedResponse, err = core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
+			DryRun:             false,
+			ExtractToStdout:    false,
+			RemoveFromResponse: true,
+		})
+
+		break
+	}
+
+	return cookedResponse, nil
+}
+
+func splitMarkdown(input string) []string {
+	re := regexp.MustCompile("(?m)^---$")
+	sections := re.Split(input, -1)
+	return sections
+}
+
+func collectReferences(input string) map[string]string {
+	re := regexp.MustCompile(`(?m)^-\s+\[(\d+)\]\s+\[(http[s]?://\S+)\]`)
+	matches := re.FindAllStringSubmatch(input, -1)
+	refs := make(map[string]string)
+	for _, m := range matches {
+		if len(m) == 3 {
+			refs[m[1]] = m[2]
+		}
+	}
+	return refs
+}
+
+func linkifyReferences(input string, refs map[string]string) string {
+	return input
+}
+
+func markdownToHTML(markdown string) string {
+	sections := splitMarkdown(markdown)
+	for i, sec := range sections {
+		refs := collectReferences(sec)
+		sections[i] = linkifyReferences(sec, refs)
+	}
+	processed := strings.Join(sections, "\n\n---\n\n")
+
+	var buf bytes.Buffer
+	if err := goldmark.Convert([]byte(processed), &buf); err != nil {
+		log.Printf("Markdown conversion error: %v", err)
+		return "<p>Error rendering markdown</p>"
+	}
+
+	return buf.String()
+}
+
+---FILE-END filename="/home/stevegt/lab/grokker/x/storm/main.go"---
+
+## References
+
+[1] [https://golang.org/doc/effective_go#concurrency](https://golang.org/doc/effective_go#concurrency)
+
+<references>
+[1] https://brandur.org/live-reload
+[2] https://docs.wappler.io/t/realtime-data-update-with-nodejs-and-websockets/28089
+[3] https://www.mobiloud.com/blog/what-are-push-notifications
+[4] https://dev.to/robertobutti/websocket-broadcasting-with-javascript-and-bun-3mkf
+[5] https://dev.to/contreras9/how-to-make-your-web-application-fully-responsive-with-websockets-35k8
+[6] https://www.ibm.com/think/topics/push-notifications
+[7] https://github.com/spf13/cobra/blob/main/site/content/user_guide.md
+[8] https://victoriametrics.com/blog/go-graceful-shutdown/
+[9] https://ieftimov.com/posts/testing-in-go-websockets/
+[10] https://cobra.dev/docs/how-to-guides/working-with-commands/
+[11] https://dev.to/mokiat/proper-http-shutdown-in-go-3fji
+[12] https://github.com/quii/learn-go-with-tests/discussions/574
+[13] https://www.foomo.org/blog/go-race-conditions-testing-and-coverage
+[14] https://bryce.is/writing/code/go-test-and-parallelism
+[15] https://mostafa.dev/why-do-tcp-connections-in-go-get-stuck-reading-large-amounts-of-data-f490a26a605e
+[16] https://go.dev/doc/articles/race_detector
+[17] https://threedots.tech/post/go-test-parallelism/
+[18] https://github.com/golang/go/issues/68849
+[19] https://websockets.readthedocs.io/en/stable/topics/broadcast.html
+[20] https://tutorialedge.net/projects/chat-system-in-go-and-react/part-4-handling-multiple-clients/
+</references>
+
+
+## Reasoning
+
+The user is asking me to change the "file forget" command from using DELETE HTTP method to using POST, and to allow forgetting multiple files at once instead of just one file. This should mirror how "file add" works - file add uses POST with a list of filenames, so file forget should also use POST with a list of filenames.
+
+They've provided complete files and want me to update them to implement this change. Let me check the instructions:
+
+1. I must limit discussion to 8192 tokens
+2. Return complete files only
+3. Must include api.go, api_test.go, cli.go, cli_test.go, main.go based on the regex requirement
+4. Don't skip array indices in Go code
+5. Always enclose reference numbers in square brackets
+6. Start with markdown heading
+
+The changes needed:
+1. **api.go**: Remove the DELETE `/api/projects/{projectID}/files/{filename}` endpoint, add a POST `/api/projects/{projectID}/files/forget` endpoint that takes a list of filenames
+2. **cli.go**: Update `runFileForget` to accept multiple filenames, send them as a POST request with a list of filenames
+3. **cli_test.go**: Update tests to use the new POST endpoint with multiple files
+4. **main.go**: Register the new POST endpoint instead of DELETE
+5. **api_test.go**: Update tests to use POST with multiple files
+
+Let me implement these changes concisely.
+
+
+---
+

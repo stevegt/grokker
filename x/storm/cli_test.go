@@ -227,7 +227,7 @@ func TestCLIFileList(t *testing.T) {
 	}
 }
 
-// TestCLIFileForget tests the file forget subcommand
+// TestCLIFileForget tests the file forget subcommand with multiple files
 func TestCLIFileForget(t *testing.T) {
 	daemonPort := 59994
 	daemonURL, cleanup := startTestDaemon(t, daemonPort)
@@ -242,18 +242,23 @@ func TestCLIFileForget(t *testing.T) {
 		t.Fatalf("Failed to create input file: %v", err)
 	}
 
+	outputFile := filepath.Join(projectDir, "output.json")
+	if err := ioutil.WriteFile(outputFile, []byte("{}"), 0644); err != nil {
+		t.Fatalf("Failed to create output file: %v", err)
+	}
+
 	_, errOutput, err := runCLICommand(daemonURL, "project", "add", projectID, projectDir, markdownFile)
 	if err != nil {
 		t.Fatalf("Failed to add test project: %v, stderr: %s", err, errOutput)
 	}
 
-	_, errOutput, err = runCLICommand(daemonURL, "file", "add", "--project", projectID, inputFile)
+	_, errOutput, err = runCLICommand(daemonURL, "file", "add", "--project", projectID, inputFile, outputFile)
 	if err != nil {
-		t.Fatalf("Failed to add test file: %v, stderr: %s", err, errOutput)
+		t.Fatalf("Failed to add test files: %v, stderr: %s", err, errOutput)
 	}
 
-	// Forget using absolute path (inputFile is absolute)
-	output, errOutput, err := runCLICommand(daemonURL, "file", "forget", "--project", projectID, inputFile)
+	// Forget using multiple files
+	output, errOutput, err := runCLICommand(daemonURL, "file", "forget", "--project", projectID, inputFile, outputFile)
 	if err != nil {
 		t.Fatalf("file forget command failed: %v, stderr: %s", err, errOutput)
 	}
@@ -262,13 +267,16 @@ func TestCLIFileForget(t *testing.T) {
 		t.Errorf("Expected 'forgotten' in output, got: %s", output)
 	}
 
-	// Verify file is no longer listed
+	// Verify files are no longer listed
 	listOutput, errOutput, err := runCLICommand(daemonURL, "file", "list", "--project", projectID)
 	if err != nil {
 		t.Fatalf("file list command failed: %v, stderr: %s", err, errOutput)
 	}
 	if bytes.Contains([]byte(listOutput), []byte("input.csv")) {
-		t.Errorf("Expected file to be absent from list output, got: %s", listOutput)
+		t.Errorf("Expected input file to be absent from list output, got: %s", listOutput)
+	}
+	if bytes.Contains([]byte(listOutput), []byte("output.json")) {
+		t.Errorf("Expected output file to be absent from list output, got: %s", listOutput)
 	}
 }
 

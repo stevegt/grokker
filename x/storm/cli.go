@@ -8,7 +8,6 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 
@@ -106,12 +105,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-
 	dbPath, err := cmd.Flags().GetString("db-path")
 	if err != nil {
 		return err
 	}
-
 	return serveRun(port, dbPath)
 }
 
@@ -248,7 +245,7 @@ func runFileAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Resolve relative paths to absolute[1]
+	// Resolve relative paths to absolute
 	var resolvedFilenames []string
 	for i := 0; i < len(args); i++ {
 		resolved, err := resolvePath(args[i])
@@ -342,7 +339,7 @@ func runFileList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runFileForget implements the file forget command[1]
+// runFileForget implements the file forget command - accepts multiple files
 func runFileForget(cmd *cobra.Command, args []string) error {
 	projectID, err := cmd.Flags().GetString("project")
 	if err != nil {
@@ -353,19 +350,25 @@ func runFileForget(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(args) < 1 {
-		return fmt.Errorf("filename is required")
+		return fmt.Errorf("filename(s) required")
 	}
 
-	// Resolve relative path to absolute[1]
-	resolved, err := resolvePath(args[0])
-	if err != nil {
-		return err
+	// Resolve relative paths to absolute
+	var resolvedFilenames []string
+	for i := 0; i < len(args); i++ {
+		resolved, err := resolvePath(args[i])
+		if err != nil {
+			return err
+		}
+		resolvedFilenames = append(resolvedFilenames, resolved)
 	}
 
-	// URL-encode the absolute path and send in URL[1]
-	encodedPath := url.QueryEscape(resolved)
-	endpoint := fmt.Sprintf("/api/projects/%s/files/%s", projectID, encodedPath)
-	resp, err := makeRequest("DELETE", endpoint, nil)
+	payload := map[string]interface{}{
+		"filenames": resolvedFilenames,
+	}
+
+	endpoint := fmt.Sprintf("/api/projects/%s/files/forget", projectID)
+	resp, err := makeRequest("POST", endpoint, payload)
 	if err != nil {
 		return err
 	}
@@ -375,7 +378,27 @@ func runFileForget(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Printf("File %s forgotten in project %s\n", resolved, projectID)
+	var result map[string]interface{}
+	if err := decodeJSON(resp, &result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	fmt.Printf("Files forgotten from project %s:\n", projectID)
+	if removed, ok := result["removed"].([]interface{}); ok {
+		for i := 0; i < len(removed); i++ {
+			f := removed[i]
+			fmt.Printf("  - %s\n", f)
+		}
+	}
+	if failed, ok := result["failed"].([]interface{}); ok {
+		if len(failed) > 0 {
+			fmt.Printf("Failed to remove:\n")
+			for i := 0; i < len(failed); i++ {
+				f := failed[i]
+				fmt.Printf("  - %s\n", f)
+			}
+		}
+	}
 	return nil
 }
 
@@ -457,7 +480,7 @@ func main() {
 	fileAddCmd := &cobra.Command{
 		Use:   "add [files...]",
 		Short: "Add files to a project",
-		Long:  `Add one or more authorized files to a project. Paths can be absolute or relative (resolved to absolute).`,
+		Long:  `Add one or more authorized files to a project.`,
 		Args:  cobra.MinimumNArgs(1),
 		RunE:  runFileAdd,
 	}
@@ -472,10 +495,10 @@ func main() {
 	fileListCmd.Flags().StringP("project", "p", "", "Project ID (required)")
 
 	fileForgetCmd := &cobra.Command{
-		Use:   "forget [filename]",
-		Short: "Remove a file from a project",
-		Long:  `Remove an authorized file from a project. Filename can be absolute or relative (resolved to absolute).`,
-		Args:  cobra.ExactArgs(1),
+		Use:   "forget [files...]",
+		Short: "Remove files from a project",
+		Long:  `Remove one or more authorized files from a project.`,
+		Args:  cobra.MinimumNArgs(1),
 		RunE:  runFileForget,
 	}
 	fileForgetCmd.Flags().StringP("project", "p", "", "Project ID (required)")
