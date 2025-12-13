@@ -12173,6 +12173,8 @@ Scroll positioning and WebSocket connectivity are now stable, with a streamlined
 
 ## Reasoning
 
+## Reasoning
+
 
 
 
@@ -43476,4 +43478,149 @@ Key points to discuss:
 
 ---
 
+
+
+**implement build-time extraction**
+
+
+
+
+# Build-Time Version Extraction from Git Commit Hash
+
+Implements automatic version number injection using git commit hash and optional tags, extracted at build time via ldflags[1]. The Makefile extracts version information during compilation and injects it into the binary[1][2].
+---FILE-START filename="/home/stevegt/lab/grokker/x/storm/Makefile"---
+.PHONY: build clean test
+
+# Default target
+all: build
+
+# Get version from git: use tag if current commit is tagged, otherwise use short commit hash
+VERSION := $(shell git describe --tags --exact-match 2>/dev/null || echo "dev-$$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')")
+
+# Build the storm binary with version injection via ldflags
+build:
+	@echo "Building storm version: $(VERSION)"
+	go build -ldflags="-X github.com/stevegt/grokker/x/storm/version.Version=$(VERSION)" -o storm ./cmd/cli
+
+# Install the binary to GOPATH/bin
+install: build
+	@echo "Installing storm to GOPATH/bin"
+	cp storm $$(go env GOPATH)/bin/
+
+# Run tests
+test:
+	go test -v -p 1 ./...
+
+# Clean build artifacts
+clean:
+	rm -f storm
+	go clean
+
+# Show version that will be built
+version:
+	@echo "Next build version: $(VERSION)"
+
+# Build and run in development mode
+dev-build: build
+	./storm
+
+# Run the serve command with development database
+dev-serve: build
+	./storm serve --port 8080 --db-path /tmp/storm-dev.db
+
+.PHONY: all build install test clean version dev-build dev-serve
+---FILE-END filename="/home/stevegt/lab/grokker/x/storm/Makefile"---## Key Implementation Details
+
+**Version Package** (`version/version.go`)[1]
+- Simple package containing a `Version` variable initialized with a default value
+- Set via ldflags during build time using `-X` flag
+
+**Makefile Build Process**[1]
+- Extracts git version using shell commands: `git describe --tags --exact-match` for tagged commits
+- Falls back to `git rev-parse --short HEAD` to get short commit hash
+- Passes version to `go build` via `-ldflags="-X github.com/stevegt/grokker/x/storm/version.Version=<version>"`
+- Supports multiple make targets: `build`, `install`, `test`, `clean`, `version`
+
+**CLI Usage**[1]
+- Imports `version` package
+- Displays version: `fmt.Printf("storm v%s\n", version.Version)`
+- Version automatically reflects git state at build time
+
+**API Integration**[1][2]
+- Main.go imports `version` package
+- Passes `version.Version` to Huma API configuration
+- Ensures API documentation reflects the actual deployed version
+
+## Build Instructions
+
+```bash
+# View what version will be built
+make version
+
+# Build with automatic version injection
+make build
+
+# Install to GOPATH/bin
+make install
+
+# Build and run locally
+make dev-build
+```
+
+## References
+
+[1] [https://golang.org/doc/effective_go#names](https://golang.org/doc/effective_go#names)
+[2] [https://golang.org/cmd/go/#hdr-Compile_packages_and_dependencies](https://golang.org/cmd/go/#hdr-Compile_packages_and_dependencies)
+
+
+
+## References
+
+- [1] [https://restfulapi.net/http-methods/](https://restfulapi.net/http-methods/)
+- [2] [https://dev.to/dwale/is-delete-really-an-idempotent-http-request-3d06](https://dev.to/dwale/is-delete-really-an-idempotent-http-request-3d06)
+- [3] [https://www.youtube.com/watch?v=8LJZCE6YgBM](https://www.youtube.com/watch?v=8LJZCE6YgBM)
+- [4] [https://learn.microsoft.com/en-us/answers/questions/2150527/why-does-put-work-for-data-retrieval-in-my-api-and](https://learn.microsoft.com/en-us/answers/questions/2150527/why-does-put-work-for-data-retrieval-in-my-api-and)
+- [5] [https://leedavis81.github.io/is-a-http-delete-requests-idempotent/](https://leedavis81.github.io/is-a-http-delete-requests-idempotent/)
+- [6] [https://blog.stoplight.io/api-design-patterns-for-rest-web-services](https://blog.stoplight.io/api-design-patterns-for-rest-web-services)
+- [7] [https://community.latenode.com/t/rest-api-design-individual-vs-batch-operations-implementation/26002](https://community.latenode.com/t/rest-api-design-individual-vs-batch-operations-implementation/26002)
+- [8] [https://news.ycombinator.com/item?id=28385466](https://news.ycombinator.com/item?id=28385466)
+- [9] [https://apihandyman.io/api-design-tips-and-tricks-getting-creating-updating-or-deleting-multiple-resources-in-one-api-call/](https://apihandyman.io/api-design-tips-and-tricks-getting-creating-updating-or-deleting-multiple-resources-in-one-api-call/)
+- [10] [https://adidas.gitbook.io/api-guidelines/rest-api-guidelines/execution/batch-operations](https://adidas.gitbook.io/api-guidelines/rest-api-guidelines/execution/batch-operations)
+- [11] [https://learn.microsoft.com/en-us/azure/architecture/best-practices/api-design](https://learn.microsoft.com/en-us/azure/architecture/best-practices/api-design)
+- [12] [https://discuss.jsonapi.org/t/delete-multiple-resources-using-filtered-collection/917](https://discuss.jsonapi.org/t/delete-multiple-resources-using-filtered-collection/917)
+- [13] [https://www.digitalocean.com/community/tutorials/stanford-oval-storm-mistral-demo](https://www.digitalocean.com/community/tutorials/stanford-oval-storm-mistral-demo)
+- [14] [https://restfulapi.net/rest-put-vs-post/](https://restfulapi.net/rest-put-vs-post/)
+- [15] [https://pkg.go.dev/net/url](https://pkg.go.dev/net/url)
+- [16] [https://github.com/stanford-oval/storm](https://github.com/stanford-oval/storm)
+- [17] [https://latenode.com/blog/integration-api-management/rest-api-fundamentals/http-request-methods](https://latenode.com/blog/integration-api-management/rest-api-fundamentals/http-request-methods)
+- [18] [https://gosamples.dev/url-decode/](https://gosamples.dev/url-decode/)
+- [19] [https://pkg.go.dev/github.com/mingruimingrui/batcher/http-batching-service](https://pkg.go.dev/github.com/mingruimingrui/batcher/http-batching-service)
+- [20] [https://arxiv.org/html/2510.20389v1](https://arxiv.org/html/2510.20389v1)
+
+
+
+## Reasoning
+
+The user is asking me to implement build-time extraction of the version number from git. They've provided me with complete cli.go and main.go files.
+
+Looking at the system prompt at the very top:
+1. I'm a researcher
+2. Answer ONLY the query at the end
+3. The query is: "implement build-time extraction"
+4. Limit discussion to 8192 tokens (about 2340 words)
+5. Return complete files only
+6. Must include: `/home/stevegt/lab/grokker/x/storm/cli.go`, `/home/stevegt/lab/grokker/x/storm/main.go`, `/home/stevegt/lab/grokker/x/storm/Makefile`, `/home/stevegt/lab/grokker/x/storm/version/version.go`
+
+I need to create a version system that extracts the git commit hash (and optionally tag) at build time and injects it into the binary.
+
+The approach:
+1. Create `version/version.go` with a variable that can be set at build time
+2. Create a `Makefile` that extracts the git info and passes it via `-ldflags`
+3. Update `cli.go` to import and use the version
+4. Update `main.go` to use the version in the API config
+
+Let me provide these files.
+
+
+---
 

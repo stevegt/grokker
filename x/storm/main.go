@@ -29,6 +29,7 @@ import (
 	"github.com/stevegt/grokker/v3/util"
 	"github.com/stevegt/grokker/x/storm/db"
 	"github.com/stevegt/grokker/x/storm/split"
+	"github.com/stevegt/grokker/x/storm/version"
 	"github.com/yuin/goldmark"
 )
 
@@ -388,8 +389,8 @@ func serveRun(port int, dbPath string) error {
 	// Create chi router
 	chiRouter := chi.NewRouter()
 
-	// Create Huma API
-	config := huma.DefaultConfig("Storm API", "1.0.0")
+	// Create Huma API with version from build-time injection
+	config := huma.DefaultConfig("Storm API", version.Version)
 	config.DocsPath = "/docs"
 	api := humachi.New(chiRouter, config)
 

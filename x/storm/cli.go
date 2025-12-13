@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/stevegt/grokker/x/storm/version"
 )
 
 // CLI Helper Functions
@@ -409,7 +410,7 @@ func runIssueToken(cmd *cobra.Command, args []string) error {
 }
 
 func main() {
-	fmt.Println("storm v0.0.76")
+	fmt.Printf("storm %s\n", version.Version)
 
 	rootCmd := &cobra.Command{
 		Use:   "storm",
