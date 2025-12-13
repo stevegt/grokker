@@ -418,13 +418,18 @@
             spinner.style.marginLeft = "10px";
             messageDiv.appendChild(spinner);
             
-            // Add cancel button
+            // Add cancel button[1]
             var cancelBtn = document.createElement("button");
             cancelBtn.textContent = "Cancel";
             cancelBtn.style.marginLeft = "5px";
             cancelBtn.style.fontSize = "10px";
             cancelBtn.style.padding = "5px 10px";
             cancelBtn.addEventListener("click", function() {
+              // Send cancel message via WebSocket[1]
+              ws.send(JSON.stringify({
+                type: "cancel",
+                queryID: message.queryID
+              }));
               messageDiv.remove();
               generateTOC();
               delete pendingQueryDivs[message.queryID];
@@ -821,4 +826,5 @@
   </script>
 </body>
 </html>
+
 

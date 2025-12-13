@@ -55,6 +55,10 @@ var (
 			return true // Allow all origins for now
 		},
 	}
+
+	// Track cancelled queries by queryID[1]
+	cancelledQueries = make(map[string]bool)
+	cancelledMutex   sync.Mutex
 )
 
 const (
@@ -549,45 +553,61 @@ func (c *WSClient) readPump(project *Project) {
 		}
 
 		// Handle incoming query messages from clients
-		if msgType, ok := msg["type"].(string); ok && msgType == "query" {
-			log.Printf("Received query from %s in project %s: %v", c.id, c.projectID, msg)
+		if msgType, ok := msg["type"].(string); ok {
+			if msgType == "query" {
+				log.Printf("Received query from %s in project %s: %v", c.id, c.projectID, msg)
 
-			// Extract query parameters
-			query, _ := msg["query"].(string)
-			llm, _ := msg["llm"].(string)
-			selection, _ := msg["selection"].(string)
-			queryID, _ := msg["queryID"].(string)
+				// Extract query parameters
+				query, _ := msg["query"].(string)
+				llm, _ := msg["llm"].(string)
+				selection, _ := msg["selection"].(string)
+				queryID, _ := msg["queryID"].(string)
 
-			// Extract arrays and resolve relative paths to absolute[1]
-			var inputFiles, outFiles []string
-			if inputFilesRaw, ok := msg["inputFiles"].([]interface{}); ok {
-				for i := 0; i < len(inputFilesRaw); i++ {
-					if s, ok := inputFilesRaw[i].(string); ok {
-						absPath := resolveFilePath(project, s)
-						inputFiles = append(inputFiles, absPath)
+				// Extract arrays and resolve relative paths to absolute[1]
+				var inputFiles, outFiles []string
+				if inputFilesRaw, ok := msg["inputFiles"].([]interface{}); ok {
+					for i := 0; i < len(inputFilesRaw); i++ {
+						if s, ok := inputFilesRaw[i].(string); ok {
+							absPath := resolveFilePath(project, s)
+							inputFiles = append(inputFiles, absPath)
+						}
 					}
 				}
-			}
-			if outFilesRaw, ok := msg["outFiles"].([]interface{}); ok {
-				for i := 0; i < len(outFilesRaw); i++ {
-					if s, ok := outFilesRaw[i].(string); ok {
-						absPath := resolveFilePath(project, s)
-						outFiles = append(outFiles, absPath)
+				if outFilesRaw, ok := msg["outFiles"].([]interface{}); ok {
+					for i := 0; i < len(outFilesRaw); i++ {
+						if s, ok := outFilesRaw[i].(string); ok {
+							absPath := resolveFilePath(project, s)
+							outFiles = append(outFiles, absPath)
+						}
 					}
 				}
+
+				// Extract and parse tokenLimit with shorthand support (1K, 2M, etc.)
+				tokenLimit := parseTokenLimit(msg["tokenLimit"])
+
+				// Process the query
+				go processQuery(project, queryID, query, llm, selection, inputFiles, outFiles, tokenLimit)
+			} else if msgType == "cancel" {
+				// Handle query cancellation[1]
+				queryID, _ := msg["queryID"].(string)
+				cancelledMutex.Lock()
+				cancelledQueries[queryID] = true
+				cancelledMutex.Unlock()
+				log.Printf("Query %s marked for cancellation", queryID)
 			}
-
-			// Extract and parse tokenLimit with shorthand support (1K, 2M, etc.)
-			tokenLimit := parseTokenLimit(msg["tokenLimit"])
-
-			// Process the query
-			go processQuery(project, queryID, query, llm, selection, inputFiles, outFiles, tokenLimit)
 		}
 	}
 }
 
 // processQuery processes a query and broadcasts results to all clients in the project.
 func processQuery(project *Project, queryID, query, llm, selection string, inputFiles, outFiles []string, tokenLimit int) {
+	// Clean up cancellation flag when done[1]
+	defer func() {
+		cancelledMutex.Lock()
+		delete(cancelledQueries, queryID)
+		cancelledMutex.Unlock()
+	}()
+
 	// Broadcast the query to all clients in this project
 	queryBroadcast := map[string]interface{}{
 		"type":      "query",
@@ -615,7 +635,7 @@ func processQuery(project *Project, queryID, query, llm, selection string, input
 	log.Printf("Added %d tokens of context to query: %s", lastNTokenCount, query)
 
 	// Pass the token limit along to sendQueryToLLM.
-	responseText, err := sendQueryToLLM(query, llm, selection, lastN, inputFiles, outFiles, tokenLimit)
+	responseText, err := sendQueryToLLM(queryID, query, llm, selection, lastN, inputFiles, outFiles, tokenLimit)
 	if err != nil {
 		log.Printf("Error processing query: %v", err)
 		// Broadcast error to all connected clients
@@ -793,8 +813,16 @@ func tokenCountHandler(w http.ResponseWriter, r *http.Request, project *Project)
 	json.NewEncoder(w).Encode(map[string]int{"tokens": count})
 }
 
+// isQueryCancelled checks if a query has been marked for cancellation[1]
+func isQueryCancelled(queryID string) bool {
+	cancelledMutex.Lock()
+	defer cancelledMutex.Unlock()
+	return cancelledQueries[queryID]
+}
+
 // sendQueryToLLM calls the Grokker API to obtain a markdown-formatted text.
-func sendQueryToLLM(query string, llm string, selection, backgroundContext string, inputFiles []string, outFiles []string, tokenLimit int) (string, error) {
+// Checks if the query was cancelled after the LLM call completes and discards the result if so.
+func sendQueryToLLM(queryID, query string, llm string, selection, backgroundContext string, inputFiles []string, outFiles []string, tokenLimit int) (string, error) {
 	if tokenLimit == 0 {
 		tokenLimit = 8192
 	}
@@ -836,6 +864,13 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 			log.Printf("SendWithFiles error: %v", err)
 			return "", fmt.Errorf("failed to send query to LLM: %w", err)
 		}
+
+		// Check if query was cancelled after LLM call completes
+		if isQueryCancelled(queryID) {
+			log.Printf("Query %s was cancelled, discarding LLM result", queryID)
+			return "", fmt.Errorf("query cancelled")
+		}
+
 		fmt.Printf("Received response from LLM '%s'\n", llm)
 		fmt.Printf("Response: %s\n", response)
 
