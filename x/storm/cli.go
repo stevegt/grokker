@@ -100,6 +100,12 @@ func resolvePath(path string) (string, error) {
 
 // CLI Command Handlers
 
+// runVersion implements the version command
+func runVersion(cmd *cobra.Command, args []string) error {
+	// don't need to print anything, because main() already does
+	return nil
+}
+
 // runServe implements the serve command
 func runServe(cmd *cobra.Command, args []string) error {
 	port, err := cmd.Flags().GetInt("port")
@@ -417,6 +423,15 @@ func main() {
 		Short: "Storm - Multi-project LLM chat application",
 		Long:  `Storm is a single-daemon, single-port multi-project chat application for interacting with LLMs and local files.`,
 	}
+
+	// Version command
+	versionCmd := &cobra.Command{
+		Use:   "version",
+		Short: "Display version information",
+		Long:  `Display the current version of Storm.`,
+		RunE:  runVersion,
+	}
+	rootCmd.AddCommand(versionCmd)
 
 	// Serve command
 	serveCmd := &cobra.Command{

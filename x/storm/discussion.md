@@ -12175,6 +12175,8 @@ Scroll positioning and WebSocket connectivity are now stable, with a streamlined
 
 ## Reasoning
 
+## Reasoning
+
 
 
 
@@ -43483,8 +43485,6 @@ Key points to discuss:
 **implement build-time extraction**
 
 
-
-
 # Build-Time Version Extraction from Git Commit Hash
 
 Implements automatic version number injection using git commit hash and optional tags, extracted at build time via ldflags[1]. The Makefile extracts version information during compilation and injects it into the binary[1][2].
@@ -43597,8 +43597,6 @@ make dev-build
 - [19] [https://pkg.go.dev/github.com/mingruimingrui/batcher/http-batching-service](https://pkg.go.dev/github.com/mingruimingrui/batcher/http-batching-service)
 - [20] [https://arxiv.org/html/2510.20389v1](https://arxiv.org/html/2510.20389v1)
 
-
-
 ## Reasoning
 
 The user is asking me to implement build-time extraction of the version number from git. They've provided me with complete cli.go and main.go files.
@@ -43620,6 +43618,95 @@ The approach:
 4. Update `main.go` to use the version in the API config
 
 Let me provide these files.
+
+
+
+---
+
+
+
+**add a 'version' subcommand**
+
+
+
+
+# Add 'version' Subcommand to Storm CLI
+
+Adds a new `version` subcommand that displays the current build version injected at compile time[1]. The command imports and displays the version from the `version` package that was set via build-time ldflags[1][2].
+## Implementation Details
+
+**Version Command Handler** (`cli.go`)[1]
+- `runVersion()` function displays the version using the injected version constant
+- Output format: `storm <version>` (e.g., `storm dev-abc1234` or `storm v0.1.5`)
+- Leverages the version package variable set at build time via Makefile ldflags
+
+**Command Registration** (`cli.go`)[1]
+- `versionCmd` Cobra command created with `Use: "version"` and `Short: "Display version information"`
+- Added to root command before other subcommands for easy discoverability
+- Executes `runVersion()` when user runs `storm version`
+
+**Usage Examples**[1][2]
+```bash
+# Display version
+storm version
+
+# Output (development build)
+storm dev-abc1234
+
+# Output (tagged release)
+storm v0.1.5
+```
+
+## References
+
+[1] [https://golang.org/doc/effective_go#names](https://golang.org/doc/effective_go#names)
+[2] [https://pkg.go.dev/github.com/spf13/cobra](https://pkg.go.dev/github.com/spf13/cobra)
+
+
+
+## References
+
+- [1] [https://storm.apache.org/releases/2.8.3/STORM-UI-REST-API.html](https://storm.apache.org/releases/2.8.3/STORM-UI-REST-API.html)
+- [2] [https://huma.rocks/features/operations/](https://huma.rocks/features/operations/)
+- [3] [https://www.youtube.com/watch?v=6BdUV1pAWa8](https://www.youtube.com/watch?v=6BdUV1pAWa8)
+- [4] [https://github.com/LAA-Software-Engineering/golang-rest-api-template](https://github.com/LAA-Software-Engineering/golang-rest-api-template)
+- [5] [https://github.com/danielgtaylor/huma](https://github.com/danielgtaylor/huma)
+- [6] [https://blog.stoplight.io/api-design-patterns-for-rest-web-services](https://blog.stoplight.io/api-design-patterns-for-rest-web-services)
+- [7] [https://sentry.io/answers/sending-json-via-an-http-post-request-in-go/](https://sentry.io/answers/sending-json-via-an-http-post-request-in-go/)
+- [8] [https://pkg.go.dev/path/filepath](https://pkg.go.dev/path/filepath)
+- [9] [https://tyk.io/blog/api-design-guidance-bulk-and-batch-import/](https://tyk.io/blog/api-design-guidance-bulk-and-batch-import/)
+- [10] [https://www.practical-go-lessons.com/post/go-how-to-send-post-http-requests-with-a-json-body-cbhvuqa220ds70kp2lkg](https://www.practical-go-lessons.com/post/go-how-to-send-post-http-requests-with-a-json-body-cbhvuqa220ds70kp2lkg)
+- [11] [https://gobyexample.com/file-paths](https://gobyexample.com/file-paths)
+- [12] [https://learn.microsoft.com/en-us/azure/architecture/best-practices/api-design](https://learn.microsoft.com/en-us/azure/architecture/best-practices/api-design)
+- [13] [https://cloud.google.com/blog/topics/developers-practitioners/efficient-file-management-using-batch-requests-google-apps-script](https://cloud.google.com/blog/topics/developers-practitioners/efficient-file-management-using-batch-requests-google-apps-script)
+- [14] [https://api7.ai/learning-center/api-101/http-methods-in-apis](https://api7.ai/learning-center/api-101/http-methods-in-apis)
+- [15] [https://stackoverflow.blog/2020/03/02/best-practices-for-rest-api-design/](https://stackoverflow.blog/2020/03/02/best-practices-for-rest-api-design/)
+- [16] [https://goperf.dev/01-common-patterns/batching-ops/](https://goperf.dev/01-common-patterns/batching-ops/)
+- [17] [https://www.youtube.com/watch?v=8LJZCE6YgBM](https://www.youtube.com/watch?v=8LJZCE6YgBM)
+- [18] [https://pkg.go.dev/net/url](https://pkg.go.dev/net/url)
+
+
+
+## Reasoning
+
+The user is asking me to add a 'version' subcommand. They've provided complete files showing the current implementation, and I need to add a version subcommand to the CLI.
+
+Looking at the instructions at the very top of the system prompt:
+1. I'm a researcher
+2. Answer ONLY the query at the end
+3. The query is: "add a 'version' subcommand"
+4. Limit discussion to 8192 tokens
+5. Return complete files only
+6. Must include: cli.go, main.go, version/version.go based on the regex requirement
+
+The user has already imported the version package in cli.go and main.go uses it. Now I need to add a `version` subcommand to the CLI that displays the version information.
+
+Looking at the current cli.go, I can see how to add a new command. I need to:
+1. Create a `runVersion` function that displays the version
+2. Create a `versionCmd` Cobra command
+3. Add it to the root command
+
+This is a simple change - just add the version subcommand handler and register it.
 
 
 ---
