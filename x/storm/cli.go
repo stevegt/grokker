@@ -331,7 +331,8 @@ func runFileForget(cmd *cobra.Command, args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("filename is required")
 	}
-	filename := args
+	var filename string
+	filename = args[0]
 
 	endpoint := fmt.Sprintf("/api/projects/%s/files/%s", projectID, filename)
 	resp, err := makeRequest("DELETE", endpoint, nil)

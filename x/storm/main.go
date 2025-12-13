@@ -796,7 +796,7 @@ func tokenCountHandler(w http.ResponseWriter, r *http.Request, project *Project)
 // sendQueryToLLM calls the Grokker API to obtain a markdown-formatted text.
 func sendQueryToLLM(query string, llm string, selection, backgroundContext string, inputFiles []string, outFiles []string, tokenLimit int) (string, error) {
 	if tokenLimit == 0 {
-		tokenLimit = 500
+		tokenLimit = 8192
 	}
 
 	wordLimit := int(float64(tokenLimit) / 3.5)
