@@ -166,6 +166,19 @@ func postProjectFilesHandler(ctx context.Context, input *FileAddInput) (*FileAdd
 		}
 	}
 
+	// Broadcast file list update to all connected WebSocket clients[1]
+	project, err := projects.Get(projectID)
+	if err == nil {
+		updatedFiles := project.GetFilesAsRelative()
+		broadcast := map[string]interface{}{
+			"type":      "fileListUpdated",
+			"projectID": projectID,
+			"files":     updatedFiles,
+		}
+		project.ClientPool.Broadcast(broadcast)
+		log.Printf("Broadcasted file list update for project %s", projectID)
+	}
+
 	return res, nil
 }
 
@@ -181,6 +194,19 @@ func deleteProjectFilesHandler(ctx context.Context, input *FileDeleteInput) (*Fi
 	res.Body.ProjectID = projectID
 	res.Body.Filename = filename
 	res.Body.Message = "File removed successfully"
+
+	// Broadcast file list update to all connected WebSocket clients[1]
+	project, err := projects.Get(projectID)
+	if err == nil {
+		updatedFiles := project.GetFilesAsRelative()
+		broadcast := map[string]interface{}{
+			"type":      "fileListUpdated",
+			"projectID": projectID,
+			"files":     updatedFiles,
+		}
+		project.ClientPool.Broadcast(broadcast)
+		log.Printf("Broadcasted file list update for project %s", projectID)
+	}
 
 	log.Printf("DEBUG: File %s removed from project %s", filename, projectID)
 	return res, nil
@@ -202,3 +228,4 @@ func getProjectFilesHandler(ctx context.Context, input *FileListInput) (*FileLis
 
 	return res, nil
 }
+

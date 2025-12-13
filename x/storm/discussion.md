@@ -36218,3 +36218,48 @@ The files are already complete and ready. I should just acknowledge that the cha
 
 ---
 
+
+
+**you are so confused.  when a file is added or deleted from the CLI, send a websocket message to the web UI to update the list of files on the page.  you haven't yet made those code changes.**
+
+
+
+
+# Broadcast File Changes via WebSocket to Connected Clients
+
+When files are added or deleted via the API, broadcast a WebSocket message to all connected clients so the file list updates in real-time without page reload[1][2].## References
+
+[1] [https://golang.org/doc/effective_go#concurrency](https://golang.org/doc/effective_go#concurrency)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is pointing out that I'm confused and they want me to implement the feature: "when a file is added or deleted from the CLI, send a websocket message to the web UI to update the list of files on the page."
+
+Looking at the provided files:
+1. `api.go` - Has `postProjectFilesHandler` and `deleteProjectFilesHandler`
+2. `main.go` - Has project management but these handlers don't broadcast to WebSocket clients
+3. `project.go` - Has `AddFile` and `RemoveFile` methods
+4. `project.html` - Loads files from server when page loads
+
+The issue is: When `postProjectFilesHandler` or `deleteProjectFilesHandler` are called via the API, they update the project's files but don't broadcast a message to all connected WebSocket clients. The web UI won't know about the changes unless it refreshes the page or re-fetches the file list.
+
+What needs to be done:
+1. In `postProjectFilesHandler` - After successfully adding files, broadcast a WebSocket message to the project's ClientPool
+2. In `deleteProjectFilesHandler` - After successfully removing a file, broadcast a WebSocket message to the project's ClientPool
+3. In `project.html` - Handle the new WebSocket message type to refresh the file list
+
+The message type could be something like `"fileListUpdated"` with the updated file list.
+
+Let me provide the code changes to implement this feature.
+
+
+---
+

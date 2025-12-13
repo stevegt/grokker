@@ -461,6 +461,10 @@
             updateProgressStats();
             updateTokenCount();
             updateScrollButtonVisibility();
+          } else if (message.type === 'fileListUpdated') {
+            // Refresh file list when files are added/deleted via CLI[1]
+            console.log('File list updated via WebSocket');
+            loadFileList();
           }
         } catch (err) {
           console.error('Error processing WebSocket message:', err);
@@ -817,3 +821,4 @@
   </script>
 </body>
 </html>
+
