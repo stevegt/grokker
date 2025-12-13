@@ -179,7 +179,87 @@ func TestAPIEndpoints(t *testing.T) {
 		t.Errorf("Expected 2 files, got %d", len(files))
 	}
 
-	// Test 6: Stop daemon
+	// Test 6: Delete a file from project
+	fileToDelete := filepath.Base(inputFile)
+	deleteURL := fmt.Sprintf("%s/api/projects/%s/files/%s", daemonAddr, projectID, fileToDelete)
+	req, err := http.NewRequest("DELETE", deleteURL, nil)
+	if err != nil {
+		t.Fatalf("Failed to create DELETE request: %v", err)
+	}
+
+	client := &http.Client{}
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("Failed to delete file: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := ioutil.ReadAll(resp.Body)
+		t.Fatalf("Delete file failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Test 7: Verify file was deleted
+	resp, err = http.Get(fmt.Sprintf("%s/api/projects/%s/files", daemonAddr, projectID))
+	if err != nil {
+		t.Fatalf("Failed to list project files after deletion: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var listFilesResp2 map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&listFilesResp2); err != nil {
+		t.Fatalf("Failed to decode list files response: %v", err)
+	}
+
+	files2, ok := listFilesResp2["files"].([]interface{})
+	if !ok {
+		t.Fatalf("Expected files array in response")
+	}
+
+	if len(files2) != 1 {
+		t.Errorf("Expected 1 file after deletion, got %d", len(files2))
+	}
+
+	// Test 8: Delete project
+	deleteProjectURL := fmt.Sprintf("%s/api/projects/%s", daemonAddr, projectID)
+	req, err = http.NewRequest("DELETE", deleteProjectURL, nil)
+	if err != nil {
+		t.Fatalf("Failed to create DELETE project request: %v", err)
+	}
+
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("Failed to delete project: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := ioutil.ReadAll(resp.Body)
+		t.Fatalf("Delete project failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Test 9: Verify project was deleted
+	resp, err = http.Get(daemonAddr + "/api/projects")
+	if err != nil {
+		t.Fatalf("Failed to list projects after deletion: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var listResp2 map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&listResp2); err != nil {
+		t.Fatalf("Failed to decode list response: %v", err)
+	}
+
+	projects2, ok := listResp2["projects"].([]interface{})
+	if !ok {
+		projects2 = []interface{}{}
+	}
+
+	if len(projects2) != 0 {
+		t.Errorf("Expected 0 projects after deletion, got %d", len(projects2))
+	}
+
+	// Test 10: Stop daemon
 	resp, err = http.Post(daemonAddr+"/stop", "application/json", nil)
 	if err != nil {
 		t.Logf("Stop request completed (connection may have closed): %v", err)
@@ -196,5 +276,5 @@ func TestAPIEndpoints(t *testing.T) {
 	if err == nil {
 		t.Errorf("Expected daemon to be stopped, but it is still running")
 	}
-
 }
+

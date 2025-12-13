@@ -36392,3 +36392,58 @@ However, I'm limited to 500 tokens (about 142 words) for the discussion portion.
 
 ---
 
+
+
+**add missing tests**
+
+
+
+
+# Add Missing Test Coverage for File and Project Operations
+
+Adds comprehensive test coverage for new DELETE endpoints and CLI commands, including file deletion, project deletion, and error handling[1][2]. The complete updated test files provide full integration testing across the API, CLI, and WebSocket layers[1].## References
+
+[1] [https://golang.org/doc/effective_go#testing](https://golang.org/doc/effective_go#testing)
+[2] [https://golang.org/doc/effective_go#errors](https://golang.org/doc/effective_go#errors)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to add missing tests. Looking at the instructions at the very top of the system prompt, I need to:
+
+1. I'm a researcher
+2. Answer ONLY the query at the end
+3. The query is: "add missing tests"
+4. Start with markdown heading
+5. Limit discussion to 4000 tokens (1142 words)
+6. Enclose reference numbers in square brackets
+7. Don't include empty square brackets
+8. Output files don't count against token limit
+9. Return complete files only
+10. Must include: `/home/stevegt/lab/grokker/x/storm/api_test.go` and `/home/stevegt/lab/grokker/x/storm/cli_test.go`
+
+The user has provided complete files for api_test.go and cli_test.go. They're asking me to add missing tests.
+
+Looking at the provided test files:
+- `api_test.go` has `TestAPIEndpoints` 
+- `cli_test.go` has various tests
+
+What tests might be missing?
+1. Tests for the new DELETE endpoint for files (`deleteProjectFilesHandler`)
+2. Tests for project forget command
+3. Tests for file forget command
+4. Tests for error cases
+5. Tests for the file list broadcast feature
+
+I should add these missing tests to the provided files.
+
+
+---
+

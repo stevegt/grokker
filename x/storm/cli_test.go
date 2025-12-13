@@ -96,7 +96,7 @@ func startTestDaemon(t *testing.T, port int) (string, func()) {
 	cleanup := func() {
 		// Call /stop endpoint to gracefully shut down daemon
 		stopURL := fmt.Sprintf("%s/stop", daemonURL)
-		resp, err := http.Get(stopURL)
+		resp, err := http.Post(stopURL, "application/json", nil)
 		if err != nil {
 			t.Logf("Error stopping daemon: %v", err)
 		} else {
@@ -225,6 +225,78 @@ func TestCLIFileList(t *testing.T) {
 	if len(output) == 0 {
 		t.Errorf("Expected file list output, got empty string")
 	}
+}
+
+// TestCLIFileForget tests the file forget subcommand
+func TestCLIFileForget(t *testing.T) {
+	daemonPort := 59994
+	daemonURL, cleanup := startTestDaemon(t, daemonPort)
+	defer cleanup()
+
+	projectID := "cli-forget-test-project"
+	projectDir, markdownFile, cleanupProj := setupTestProject(t, projectID)
+	defer cleanupProj()
+
+	inputFile := filepath.Join(projectDir, "input.csv")
+	if err := ioutil.WriteFile(inputFile, []byte("col1,col2\n"), 0644); err != nil {
+		t.Fatalf("Failed to create input file: %v", err)
+	}
+
+	_, errOutput, err := runCLICommand(daemonURL, "project", "add", projectID, projectDir, markdownFile)
+	if err != nil {
+		t.Fatalf("Failed to add test project: %v, stderr: %s", err, errOutput)
+	}
+
+	_, errOutput, err = runCLICommand(daemonURL, "file", "add", "--project", projectID, inputFile)
+	if err != nil {
+		t.Fatalf("Failed to add test file: %v, stderr: %s", err, errOutput)
+	}
+
+	filename := filepath.Base(inputFile)
+	output, errOutput, err := runCLICommand(daemonURL, "file", "forget", "--project", projectID, filename)
+	if err != nil {
+		t.Fatalf("file forget command failed: %v, stderr: %s", err, errOutput)
+	}
+
+	if !bytes.Contains([]byte(output), []byte("removed")) {
+		t.Errorf("Expected 'removed' in output, got: %s", output)
+	}
+}
+
+// TestCLIProjectForget tests the project forget subcommand
+func TestCLIProjectForget(t *testing.T) {
+	daemonPort := 59993
+	daemonURL, cleanup := startTestDaemon(t, daemonPort)
+	defer cleanup()
+
+	projectID := "cli-forget-project-test"
+	projectDir, markdownFile, cleanupProj := setupTestProject(t, projectID)
+	defer cleanupProj()
+
+	_, errOutput, err := runCLICommand(daemonURL, "project", "add", projectID, projectDir, markdownFile)
+	if err != nil {
+		t.Fatalf("Failed to add test project: %v, stderr: %s", err, errOutput)
+	}
+
+	output, errOutput, err := runCLICommand(daemonURL, "project", "forget", projectID)
+	if err != nil {
+		t.Fatalf("project forget command failed: %v, stderr: %s", err, errOutput)
+	}
+
+	if !bytes.Contains([]byte(output), []byte("forgotten")) {
+		t.Errorf("Expected 'forgotten' in output, got: %s", output)
+	}
+
+	// Verify project is no longer listed
+	listOutput, errOutput, err := runCLICommand(daemonURL, "project", "list")
+	if err != nil {
+		t.Fatalf("project list command failed: %v, stderr: %s", err, errOutput)
+	}
+
+	if bytes.Contains([]byte(listOutput), []byte(projectID)) {
+		t.Errorf("Expected project ID to be absent from list output, got: %s", listOutput)
+	}
+
 }
 
 // TestCLIFileAddMissingProjectFlag tests that file add fails without --project flag
