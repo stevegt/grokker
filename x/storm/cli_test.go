@@ -299,6 +299,30 @@ func TestCLIProjectForget(t *testing.T) {
 
 }
 
+// TestCLIStop tests the stop subcommand[1]
+func TestCLIStop(t *testing.T) {
+	daemonPort := 59992
+	daemonURL, cleanup := startTestDaemon(t, daemonPort)
+	defer cleanup()
+
+	output, errOutput, err := runCLICommand(daemonURL, "stop")
+	if err != nil {
+		t.Fatalf("stop command failed: %v, stderr: %s", err, errOutput)
+	}
+
+	if !bytes.Contains([]byte(output), []byte("stopped")) {
+		t.Errorf("Expected 'stopped' in output, got: %s", output)
+	}
+
+	// Verify daemon is actually stopped by attempting to connect
+	time.Sleep(500 * time.Millisecond)
+	resp, err := http.Get(daemonURL)
+	if err == nil {
+		resp.Body.Close()
+		t.Errorf("Expected daemon to be stopped, but it's still running")
+	}
+}
+
 // TestCLIFileAddMissingProjectFlag tests that file add fails without --project flag
 func TestCLIFileAddMissingProjectFlag(t *testing.T) {
 	_, errOutput, err := runCLICommand("http://localhost:8080", "file", "add", "somefile.txt")

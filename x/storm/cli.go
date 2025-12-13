@@ -116,6 +116,22 @@ func runServe(cmd *cobra.Command, args []string) error {
 	return serveRun(port, dbPath)
 }
 
+// runStop implements the stop command
+func runStop(cmd *cobra.Command, args []string) error {
+	resp, err := makeRequest("POST", "/stop", nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK); err != nil {
+		return err
+	}
+
+	fmt.Println("Daemon stopped successfully")
+	return nil
+}
+
 // runProjectAdd implements the project add command
 func runProjectAdd(cmd *cobra.Command, args []string) error {
 	projectID := args[0] // note to LLM: do NOT replace args[0] with args
@@ -374,6 +390,15 @@ func main() {
 	serveCmd.Flags().IntP("port", "p", 8080, "port to listen on")
 	serveCmd.Flags().StringP("db-path", "d", "", "path to database file (default: ~/.storm/data.db)")
 	rootCmd.AddCommand(serveCmd)
+
+	// Stop command
+	stopCmd := &cobra.Command{
+		Use:   "stop",
+		Short: "Stop the Storm daemon",
+		Long:  `Stop the running Storm daemon gracefully.`,
+		RunE:  runStop,
+	}
+	rootCmd.AddCommand(stopCmd)
 
 	// Project command
 	projectCmd := &cobra.Command{
