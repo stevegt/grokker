@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"log"
+	"net/url"
 	"path/filepath"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -12,7 +13,7 @@ import (
 // FileDeleteInput for deleting a file from a project
 type FileDeleteInput struct {
 	ProjectID string `path:"projectID" doc:"Project identifier" required:"true"`
-	Filename  string `path:"filename" doc:"Filename to delete" required:"true"`
+	Filename  string `path:"filename" doc:"URL-encoded absolute file path" required:"true"`
 }
 
 type FileDeleteResponse struct {
@@ -71,7 +72,7 @@ type ProjectDeleteResponse struct {
 type FileAddInput struct {
 	ProjectID string `path:"projectID" doc:"Project identifier" required:"true"`
 	Body      struct {
-		Filenames []string `json:"filenames" doc:"List of files to add" required:"true"`
+		Filenames []string `json:"filenames" doc:"List of absolute file paths" required:"true"`
 	} `doc:"Files to add"`
 }
 
@@ -184,10 +185,18 @@ func postProjectFilesHandler(ctx context.Context, input *FileAddInput) (*FileAdd
 }
 
 // deleteProjectFilesHandler handles DELETE /api/projects/{projectID}/files/{filename}[1]
-// Matches files by basename since stored files may be absolute paths
+// Filename parameter is URL-encoded absolute file path
 func deleteProjectFilesHandler(ctx context.Context, input *FileDeleteInput) (*FileDeleteResponse, error) {
 	projectID := input.ProjectID
-	filename := input.Filename
+	encodedFilename := input.Filename
+
+	// URL-decode the filename parameter[1]
+	filename, err := url.QueryUnescape(encodedFilename)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid filename encoding")
+	}
+
+	log.Printf("DEBUG: Received encoded filename %s, decoded to %s", encodedFilename, filename)
 
 	// Load project to find matching file in AuthorizedFiles list
 	project, err := projects.Get(projectID)
@@ -195,19 +204,18 @@ func deleteProjectFilesHandler(ctx context.Context, input *FileDeleteInput) (*Fi
 		return nil, huma.Error404NotFound("Project not found")
 	}
 
-	// Find the file in AuthorizedFiles that matches the given filename[1]
-	// The filename parameter is just a basename, but stored files may be absolute or relative paths
+	// Find exact match for the decoded absolute path[1]
 	var matchedFile string
 	for i := 0; i < len(project.AuthorizedFiles); i++ {
 		storedFile := project.AuthorizedFiles[i]
-		// Check if the basename matches or the full path matches
-		if filepath.Base(storedFile) == filename || storedFile == filename {
+		if storedFile == filename {
 			matchedFile = storedFile
 			break
 		}
 	}
 
 	if matchedFile == "" {
+		log.Printf("DEBUG: File %s not found in project %s. Available files: %v", filename, projectID, project.AuthorizedFiles)
 		return nil, huma.Error404NotFound("File not found in project")
 	}
 
@@ -254,4 +262,3 @@ func getProjectFilesHandler(ctx context.Context, input *FileListInput) (*FileLis
 
 	return res, nil
 }
-

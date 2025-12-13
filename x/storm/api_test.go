@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -179,9 +180,10 @@ func TestAPIEndpoints(t *testing.T) {
 		t.Errorf("Expected 2 files, got %d", len(files))
 	}
 
-	// Test 6: Delete a file from project
-	fileToDelete := filepath.Base(inputFile)
-	deleteURL := fmt.Sprintf("%s/api/projects/%s/files/%s", daemonAddr, projectID, fileToDelete)
+	// Test 6: Delete a file from project (URL-encode the absolute path)[1]
+	fileToDelete := inputFile
+	encodedPath := url.QueryEscape(fileToDelete)
+	deleteURL := fmt.Sprintf("%s/api/projects/%s/files/%s", daemonAddr, projectID, encodedPath)
 	req, err := http.NewRequest("DELETE", deleteURL, nil)
 	if err != nil {
 		t.Fatalf("Failed to create DELETE request: %v", err)
@@ -277,4 +279,3 @@ func TestAPIEndpoints(t *testing.T) {
 		t.Errorf("Expected daemon to be stopped, but it is still running")
 	}
 }
-

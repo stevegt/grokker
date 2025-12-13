@@ -252,14 +252,23 @@ func TestCLIFileForget(t *testing.T) {
 		t.Fatalf("Failed to add test file: %v, stderr: %s", err, errOutput)
 	}
 
-	filename := filepath.Base(inputFile)
-	output, errOutput, err := runCLICommand(daemonURL, "file", "forget", "--project", projectID, filename)
+	// Forget using absolute path (inputFile is absolute)
+	output, errOutput, err := runCLICommand(daemonURL, "file", "forget", "--project", projectID, inputFile)
 	if err != nil {
 		t.Fatalf("file forget command failed: %v, stderr: %s", err, errOutput)
 	}
 
-	if !bytes.Contains([]byte(output), []byte("removed")) {
-		t.Errorf("Expected 'removed' in output, got: %s", output)
+	if !bytes.Contains([]byte(output), []byte("forgotten")) {
+		t.Errorf("Expected 'forgotten' in output, got: %s", output)
+	}
+
+	// Verify file is no longer listed
+	listOutput, errOutput, err := runCLICommand(daemonURL, "file", "list", "--project", projectID)
+	if err != nil {
+		t.Fatalf("file list command failed: %v, stderr: %s", err, errOutput)
+	}
+	if bytes.Contains([]byte(listOutput), []byte("input.csv")) {
+		t.Errorf("Expected file to be absent from list output, got: %s", listOutput)
 	}
 }
 

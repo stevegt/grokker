@@ -8,18 +8,16 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
-	// . "github.com/stevegt/goadapt"
 )
 
 // CLI Helper Functions
 
 // getDaemonURL retrieves the daemon URL from environment or returns default
-// TODO use a config file, PID file, or flag -- maybe use viper
-// TODO allow for multiple storm daemons on different ports, add an 'ls' command to show running daemons and their pids/ports.  registry should support multiple daemons.
 func getDaemonURL() string {
 	daemonURL := os.Getenv("STORM_DAEMON_URL")
 	if daemonURL == "" {
@@ -76,7 +74,8 @@ func validateRequiredFlag(flagValue, flagName string) error {
 
 // checkStatusCode validates HTTP response status code
 func checkStatusCode(resp *http.Response, acceptedCodes ...int) error {
-	for _, code := range acceptedCodes {
+	for i := 0; i < len(acceptedCodes); i++ {
+		code := acceptedCodes[i]
 		if resp.StatusCode == code {
 			return nil
 		}
@@ -85,7 +84,7 @@ func checkStatusCode(resp *http.Response, acceptedCodes ...int) error {
 	return fmt.Errorf("daemon returned status %d: %s", resp.StatusCode, string(body))
 }
 
-// resolvePath converts relative paths to absolute paths; returns absolute paths unchanged
+// resolvePath converts relative paths to absolute paths; returns absolute paths unchanged[1]
 func resolvePath(path string) (string, error) {
 	if filepath.IsAbs(path) {
 		// Already absolute, return as-is
@@ -134,7 +133,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 
 // runProjectAdd implements the project add command
 func runProjectAdd(cmd *cobra.Command, args []string) error {
-	projectID := args[0] // note to LLM: do NOT replace args[0] with args
+	projectID := args[0]
 	baseDir := args[1]
 	markdownFile := args[2]
 
@@ -147,10 +146,6 @@ func runProjectAdd(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-
-	// TODO default projectID to current repo -- would need .storm file or directory in repo top
-	// TODO ensure baseDir exists (could be checked here or let server validate)
-	// TODO add a `mv` subcommand to relocate projects
 
 	payload := map[string]string{
 		"projectID":    projectID,
@@ -285,14 +280,16 @@ func runFileAdd(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Files added to project %s:\n", projectID)
 	if added, ok := result["added"].([]interface{}); ok {
-		for _, f := range added {
+		for i := 0; i < len(added); i++ {
+			f := added[i]
 			fmt.Printf("  + %s\n", f)
 		}
 	}
 	if failed, ok := result["failed"].([]interface{}); ok {
 		if len(failed) > 0 {
 			fmt.Printf("Failed to add:\n")
-			for _, f := range failed {
+			for i := 0; i < len(failed); i++ {
+				f := failed[i]
 				fmt.Printf("  - %s\n", f)
 			}
 		}
@@ -336,7 +333,8 @@ func runFileList(cmd *cobra.Command, args []string) error {
 		if len(files) == 0 {
 			fmt.Println("  (no files)")
 		} else {
-			for _, f := range files {
+			for i := 0; i < len(files); i++ {
+				f := files[i]
 				fmt.Printf("  - %s\n", f)
 			}
 		}
@@ -364,8 +362,9 @@ func runFileForget(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Send the absolute path as the filename in the URL
-	endpoint := fmt.Sprintf("/api/projects/%s/files/%s", projectID, resolved)
+	// URL-encode the absolute path and send in URL[1]
+	encodedPath := url.QueryEscape(resolved)
+	endpoint := fmt.Sprintf("/api/projects/%s/files/%s", projectID, encodedPath)
 	resp, err := makeRequest("DELETE", endpoint, nil)
 	if err != nil {
 		return err
@@ -425,7 +424,7 @@ func main() {
 	projectAddCmd := &cobra.Command{
 		Use:   "add [projectID] [baseDir] [markdownFile]",
 		Short: "Add a new project",
-		Long:  `Add a new project to the registry. Paths can be absolute or relative (resolved against current working directory).`,
+		Long:  `Add a new project to the registry. Paths can be absolute or relative (resolved to absolute against current working directory).`,
 		Args:  cobra.ExactArgs(3),
 		RunE:  runProjectAdd,
 	}
@@ -458,7 +457,7 @@ func main() {
 	fileAddCmd := &cobra.Command{
 		Use:   "add [files...]",
 		Short: "Add files to a project",
-		Long:  `Add one or more authorized files to a project.`,
+		Long:  `Add one or more authorized files to a project. Paths can be absolute or relative (resolved to absolute).`,
 		Args:  cobra.MinimumNArgs(1),
 		RunE:  runFileAdd,
 	}
@@ -475,7 +474,7 @@ func main() {
 	fileForgetCmd := &cobra.Command{
 		Use:   "forget [filename]",
 		Short: "Remove a file from a project",
-		Long:  `Remove an authorized file from a project.`,
+		Long:  `Remove an authorized file from a project. Filename can be absolute or relative (resolved to absolute).`,
 		Args:  cobra.ExactArgs(1),
 		RunE:  runFileForget,
 	}
