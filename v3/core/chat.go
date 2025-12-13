@@ -77,7 +77,7 @@ func (g *Grokker) OpenChatHistory(sysmsg, relPath string) (history *ChatHistory,
 		// get first line
 		lines := strings.Split(string(buf), "\n")
 		// unmarshal first line
-		err = json.Unmarshal([]byte(lines[0]), history)
+		err = json.Unmarshal([]byte(lines), history)
 		Ck(err)
 		// the rest of the file is the chat history; load that into
 		// the chat history object using parseChat
@@ -204,9 +204,8 @@ func (history *ChatHistory) ContinueChat(modelName, prompt string, contextLevel 
 
 	// save the output files
 	_, err = ExtractFiles(outfiles, resp, ExtractOptions{
-		DryRun:             false,
-		ExtractToStdout:    false,
-		RemoveFromResponse: false,
+		DryRun:          false,
+		ExtractToStdout: false,
 	})
 	Ck(err)
 
@@ -567,8 +566,19 @@ type FileLang struct {
 	Language string
 }
 
-var fileStartTmpl = `(?:^|\n)(?i)---FILE-START filename="%s"---\n`
-var fileEndTmpl = `---FILE-END filename="%s"---(?:\s*|\n)*`
+type ExtractResult struct {
+	RawResponse     string   // Original response unchanged
+	CookedResponse  string   // Response with extracted files removed
+	ExtractedFiles  []string // Files that matched outfiles list
+	DetectedFiles   []string // ALL files found in response
+	UnexpectedFiles []string // Files found but NOT in outfiles list
+	BrokenFiles     []string // Files found but missing end marker
+}
+
+var fileStartTmpl = `(?:^|\n)---FILE-START filename="%s"---\n`
+var fileEndTmpl = `(?:^|\n)---FILE-END filename="%s"---(?:$|\n)`
+var fileStartPat = fmt.Sprintf(fileStartTmpl, "(.*?)")
+var fileEndPat = fmt.Sprintf(fileEndTmpl, "(.*?)")
 
 // OutfilesRegex returns a regular expression that matches the format
 // of output files embedded in chat responses.  The Language field of
@@ -650,11 +660,9 @@ func (history *ChatHistory) extractFromChat(outfiles []FileLang, N int, extractT
 				continue
 			}
 			// see if we have a match for this file
-			dryrun := true
-			_, err = ExtractFiles(fl, history.msgs[i].Content, ExtractOptions{
-				DryRun:             dryrun,
-				ExtractToStdout:    false,
-				RemoveFromResponse: false,
+			result, err := ExtractFiles(fl, history.msgs[i].Content, ExtractOptions{
+				DryRun:          true,
+				ExtractToStdout: false,
 			})
 			if err != nil {
 				// file not found in this response
@@ -663,18 +671,16 @@ func (history *ChatHistory) extractFromChat(outfiles []FileLang, N int, extractT
 			foundN++
 			if foundN == N {
 				// we found the Nth most recent version of the file
-				dryrun = false
-				_, err = ExtractFiles(fl, history.msgs[i].Content, ExtractOptions{
-					DryRun:             dryrun,
-					ExtractToStdout:    extractToStdout,
-					RemoveFromResponse: false,
+				result, err = ExtractFiles(fl, history.msgs[i].Content, ExtractOptions{
+					DryRun:          false,
+					ExtractToStdout: extractToStdout,
 				})
 				Ck(err)
 				break
 			}
 		}
 		if foundN < N {
-			return fmt.Errorf("file '%s' was not found in the chat history", fl[0].File)
+			return fmt.Errorf("file '%s' was not found in the chat history", fl.File)
 		}
 	}
 	return
@@ -682,22 +688,22 @@ func (history *ChatHistory) extractFromChat(outfiles []FileLang, N int, extractT
 
 // ExtractOptions contains options for the ExtractFiles function.
 type ExtractOptions struct {
-	DryRun             bool // if true, do not write files
-	ExtractToStdout    bool // if true, write files to stdout instead of disk
-	RemoveFromResponse bool // if true, remove the extracted files from the response
+	DryRun          bool // if true, do not write files
+	ExtractToStdout bool // if true, write files to stdout instead of disk
 }
 
-// ExtractFiles extracts the output files from the given response and
-// saves them to the given files, overwriting any existing files.
-func ExtractFiles(outfiles []FileLang, rawResp string, opts ExtractOptions) (cookedResp string, err error) {
+// ExtractFiles extracts the output files from the given response using line-by-line
+// scanning to identify file blocks. It returns an ExtractResult containing metadata
+// about the extraction including detected files, extracted files, unexpected files,
+// and broken files (missing end markers).
+func ExtractFiles(outfiles []FileLang, rawResp string, opts ExtractOptions) (result ExtractResult, err error) {
 	defer Return(&err)
 
-	cookedResp = rawResp
+	result.RawResponse = rawResp
 	dryrun := opts.DryRun
 	extractToStdout := opts.ExtractToStdout
 
 	// remove the first <think>.*</think> section found
-	// get the start and end markers for the section
 	thinkStartPat := `(?i)^<think>$`
 	thinkEndPat := `^</think>$`
 	thinkStartRe := regexp.MustCompile(thinkStartPat)
@@ -707,7 +713,7 @@ func ExtractFiles(outfiles []FileLang, rawResp string, opts ExtractOptions) (coo
 	var resp string
 	if thinkStartPair != nil && thinkEndPair != nil {
 		// we have a think section, remove it
-		thinkStartIdx := thinkStartPair[0]
+		thinkStartIdx := thinkStartPair
 		thinkEndIdx := thinkEndPair[1]
 		if thinkStartIdx < thinkEndIdx {
 			resp = rawResp[:thinkStartIdx] + rawResp[thinkEndIdx:]
@@ -717,57 +723,126 @@ func ExtractFiles(outfiles []FileLang, rawResp string, opts ExtractOptions) (coo
 		resp = rawResp
 	}
 
-	// loop over the expected outfiles
-	// - we ignore any files the AI provides that are not in the list
+	// Build a map of expected outfiles for quick lookup
+	expectedFiles := make(map[string]bool)
 	for _, fileLang := range outfiles {
-		fn := fileLang.File
-		// get the start and end regexs for this file
-		startPat := Spf(fileStartTmpl, regexp.QuoteMeta(fn))
-		endPat := Spf(fileEndTmpl, regexp.QuoteMeta(fn))
-		startRe := regexp.MustCompile(startPat)
-		endRe := regexp.MustCompile(endPat)
+		expectedFiles[fileLang.File] = true
+	}
 
-		// find the start and end of the file in the response
-		startMarkerPair := startRe.FindStringIndex(resp)
-		if startMarkerPair == nil {
-			Fpf(os.Stderr, "Warning: start marker not found for file '%s'\nregex was: '%s'\n", fn, startPat)
-			Fpf(os.Stderr, "rawResp length: %d\n", len(rawResp))
-			Fpf(os.Stderr, "Response length: %d\n", len(resp))
-			headLen := len(resp)
-			if headLen > 100 {
-				headLen = 100
-			}
-			Fpf(os.Stderr, "Response head: %s\n", resp[:headLen])
-			continue
-		}
-		endMarkerPair := endRe.FindStringIndex(resp)
-		if endMarkerPair == nil {
-			Fpf(os.Stderr, "Warning: end marker not found for file '%s'\nregex was: '%s'\n", fn, endPat)
-			continue
-		}
-		fileStartIdx := startMarkerPair[1] // start of file is after the start marker
-		fileEndIdx := endMarkerPair[0] - 1 // end of file is before the end marker
+	// Compile regex patterns for file detection
+	fileStartRe := regexp.MustCompile(fileStartPat)
+	fileEndRe := regexp.MustCompile(fileEndPat)
 
-		// extract the file content from the response
-		txt := resp[fileStartIdx : fileEndIdx+1]
+	// Line-by-line scanning to detect file blocks
+	lines := strings.Split(resp, "\n")
+	var cookedLines []string
+	activeFilename := ""
+	var activeFileContent []string
+	// TODO do we really need inFileBlock?  why not just check activeFilename != ""?
+	inFileBlock := false
+	detectedFilesMap := make(map[string]bool)
+	fileBlockRanges := make(map[string][2]int) // map of filename -> [startLineIdx, endLineIdx]
 
-		if !dryrun {
-			if extractToStdout {
-				// write raw text to stdout
-				_, err = Pf("%s", txt)
-				Ck(err)
-			} else {
-				// save the text to the file
-				// path := filepath.Join(history.g.Root, fn)
-				err = os.WriteFile(fn, []byte(txt), 0644)
-				Ck(err)
+	for lineIdx, line := range lines {
+		// Check if this line starts a file block
+		startMatches := fileStartRe.FindStringSubmatch(line)
+		if len(startMatches) > 0 {
+			// Extract the filename from the line
+			// TODO do we need fileMatches here?  why not just use startMatches?
+			fileMatches := fileStartRe.FindStringSubmatch(line)
+			if len(fileMatches) > 1 {
+				// If we were already in a file block, mark it as broken
+				if inFileBlock && activeFilename != "" {
+					result.BrokenFiles = append(result.BrokenFiles, activeFilename)
+				}
+				inFileBlock = true
+				activeFilename = fileMatches[1]
+				detectedFilesMap[activeFilename] = true
+				// TODO build result.DetectedFiles list from the map at the end
+				result.DetectedFiles = append(result.DetectedFiles, activeFilename)
+				activeFileContent = []string{}
+				// TODO what is this for?
+				fileBlockRanges[activeFilename] = [2]int{lineIdx, -1}
+				continue
 			}
 		}
 
-		if opts.RemoveFromResponse {
-			// remove the file from the response
-			cookedResp = strings.Replace(cookedResp, resp[startMarkerPair[0]:endMarkerPair[1]], "", 1)
+		// Check if this line ends a file block
+		if inFileBlock && activeFilename != "" {
+			endMatches := fileEndRe.FindStringSubmatch(line)
+			if len(endMatches) > 0 {
+				// Extract the filename to verify it matches
+				// TODO why not just use endMatches?
+				fileMatches := fileEndRegex.FindStringSubmatch(line)
+				if len(fileMatches) > 1 && fileMatches[1] == activeFilename {
+					// Mark the end of this file block
+					rangeInfo := fileBlockRanges[activeFilename]
+					rangeInfo[1] = lineIdx
+					fileBlockRanges[activeFilename] = rangeInfo
+
+					// Process the file if it's expected
+					if expectedFiles[activeFilename] {
+						result.ExtractedFiles = append(result.ExtractedFiles, activeFilename)
+						fileContent := strings.Join(activeFileContent, "\n")
+
+						if !dryrun {
+							if extractToStdout {
+								_, err = Pf("%s", fileContent)
+								Ck(err)
+							} else {
+								err = os.WriteFile(activeFilename, []byte(fileContent), 0644)
+								Ck(err)
+							}
+						}
+					} else {
+						// File was not expected
+						result.UnexpectedFiles = append(result.UnexpectedFiles, activeFilename)
+					}
+
+					inFileBlock = false
+					activeFilename = ""
+					activeFileContent = []string{}
+					continue
+				}
+			}
+		}
+
+		// If we're in a file block, accumulate content
+		if inFileBlock && activeFilename != "" {
+			activeFileContent = append(activeFileContent, line)
+		} else {
+			// If we're not in a file block, add the line to cookedLines
+			cookedLines = append(cookedLines, line)
 		}
 	}
+
+	// If we ended while still in a file block, mark it as broken
+	if inFileBlock && activeFilename != "" {
+		result.BrokenFiles = append(result.BrokenFiles, activeFilename)
+	}
+
+	// Identify unexpected files
+	for filename := range detectedFilesMap {
+		if !expectedFiles[filename] {
+			// Only add if not already in unexpected list
+			found := false
+			for _, uf := range result.UnexpectedFiles {
+				if uf == filename {
+					found = true
+					break
+				}
+			}
+			if !found {
+				result.UnexpectedFiles = append(result.UnexpectedFiles, filename)
+			}
+		}
+	}
+
+	// TODO identify missing files that were in outfiles but not
+	// detected, add to a result.MissingFiles list.
+
+	// Generate cookedResponse by joining non-file lines
+	result.CookedResponse = strings.Join(cookedLines, "\n")
+
 	return
 }
