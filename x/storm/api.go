@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"log"
+	"path/filepath"
 
 	"github.com/danielgtaylor/huma/v2"
 )
@@ -182,11 +183,36 @@ func postProjectFilesHandler(ctx context.Context, input *FileAddInput) (*FileAdd
 	return res, nil
 }
 
+// deleteProjectFilesHandler handles DELETE /api/projects/{projectID}/files/{filename}[1]
+// Matches files by basename since stored files may be absolute paths
 func deleteProjectFilesHandler(ctx context.Context, input *FileDeleteInput) (*FileDeleteResponse, error) {
 	projectID := input.ProjectID
 	filename := input.Filename
 
-	if err := projects.RemoveFile(projectID, filename); err != nil {
+	// Load project to find matching file in AuthorizedFiles list
+	project, err := projects.Get(projectID)
+	if err != nil {
+		return nil, huma.Error404NotFound("Project not found")
+	}
+
+	// Find the file in AuthorizedFiles that matches the given filename[1]
+	// The filename parameter is just a basename, but stored files may be absolute or relative paths
+	var matchedFile string
+	for i := 0; i < len(project.AuthorizedFiles); i++ {
+		storedFile := project.AuthorizedFiles[i]
+		// Check if the basename matches or the full path matches
+		if filepath.Base(storedFile) == filename || storedFile == filename {
+			matchedFile = storedFile
+			break
+		}
+	}
+
+	if matchedFile == "" {
+		return nil, huma.Error404NotFound("File not found in project")
+	}
+
+	// Remove the matched file from the project
+	if err := projects.RemoveFile(projectID, matchedFile); err != nil {
 		return nil, huma.Error404NotFound("Failed to delete file")
 	}
 
@@ -196,7 +222,7 @@ func deleteProjectFilesHandler(ctx context.Context, input *FileDeleteInput) (*Fi
 	res.Body.Message = "File removed successfully"
 
 	// Broadcast file list update to all connected WebSocket clients[1]
-	project, err := projects.Get(projectID)
+	project, err = projects.Get(projectID)
 	if err == nil {
 		updatedFiles := project.GetFilesAsRelative()
 		broadcast := map[string]interface{}{
