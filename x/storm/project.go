@@ -220,12 +220,25 @@ func (p *Projects) RemoveFile(projectID, filename string) error {
 
 	idx := -1
 	for i, f := range project.AuthorizedFiles {
-		if f == filename {
+		// translate both to absolute paths for comparison
+		absF, err1 := filepath.Abs(f)
+		if err1 != nil {
+			log.Printf("Error getting absolute path for %s: %v", f, err1)
+			continue
+		}
+		absFilename, err2 := filepath.Abs(filename)
+		if err2 != nil {
+			log.Printf("Error getting absolute path for %s: %v", filename, err2)
+			continue
+		}
+
+		if absF == absFilename {
 			idx = i
 			break
 		}
 	}
 	if idx == -1 {
+		log.Printf("Project files: %+v", project.AuthorizedFiles)
 		return fmt.Errorf("file %s not found in project %s", filename, projectID)
 	}
 

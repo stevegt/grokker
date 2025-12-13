@@ -195,6 +195,7 @@ func postProjectFilesForgetHandler(ctx context.Context, input *FileForgetInput) 
 
 	for _, filename := range input.Body.Filenames {
 		if err := projects.RemoveFile(projectID, filename); err != nil {
+			log.Printf("Error removing file %s from project %s: %v", filename, projectID, err)
 			res.Body.Failed = append(res.Body.Failed, filename)
 		} else {
 			res.Body.Removed = append(res.Body.Removed, filename)
