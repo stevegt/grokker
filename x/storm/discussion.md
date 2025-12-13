@@ -37812,3 +37812,130 @@ I'll modify the code to resolve paths consistently by applying `resolvePath()` t
 
 ---
 
+
+
+**examine the filename handling in api.go for consistency -- does the API always expect absolute paths, or a mix?**
+
+
+
+
+# API Filename Handling Analysis: Inconsistency in Format Expectations
+
+The API handlers have **inconsistent expectations** for filename formats across different endpoints[1]:
+
+## Handler-by-Handler Analysis
+
+| Handler | Input Format | How Used | Inconsistency |
+|---------|--------------|----------|---------------|
+| **POST /api/projects** | `baseDir`, `markdownFile` | Passed directly to `projects.Add()` | Expects absolute paths (from resolved CLI) |
+| **POST /api/projects/{id}/files** | `filenames` array | Each passed to `projects.AddFile()` | Expects absolute paths (from resolved CLI) |
+| **GET /api/projects/{id}/files** | (none) | Returns `GetFilesAsRelative()` | Returns relative OR absolute paths depending on location |
+| **DELETE /api/projects/{id}/files/{filename}** | `filename` parameter | Treated as basename, matched via `filepath.Base()` | **Expects basename**, but CLI sends absolute path[1] |
+
+## The Core Inconsistency
+
+The DELETE handler is the problem[1]:
+
+```go
+// deleteProjectFilesHandler receives filename from URL path
+// CLI sends: /api/projects/storm/files//tmp/.../input.csv (absolute path)
+// But handler does basename matching:
+if filepath.Base(storedFile) == filename || storedFile == filename {
+  // This tries basename matching first, then exact match
+}
+```
+
+Meanwhile, the CLI now sends absolute paths:
+```go
+// cli.go runFileForget
+resolved, err := resolvePath(args[0])  // Converts to absolute
+endpoint := fmt.Sprintf("/api/projects/%s/files/%s", projectID, resolved)
+// Sends: /api/projects/storm/files//tmp/.../input.csv
+```
+
+## The Problem
+
+**URL path encoding**: When the CLI sends `/api/projects/storm/files//tmp/path/file.csv`, the `/` characters in the path get URL-encoded by the HTTP client. The Huma router then extracts the `filename` parameter as a decoded string. 
+
+However, sending absolute paths in URL paths is problematic because:
+1. The path `/tmp/path/file.csv` contains `/` which are path separators and break URL routing
+2. URL encoding `%2F` for slashes makes the parameter hard to parse correctly
+3. The DELETE endpoint is meant to receive a simple filename, not a full path
+
+## Solution
+
+The API should have **consistent expectations**[1]:
+
+**Option A - Basename-based (recommended)**: 
+- DELETE endpoint expects only the basename
+- CLI should send: `storm file forget input.csv` → `DELETE /api/projects/storm/files/input.csv`
+- Handler matches by basename against stored absolute paths
+
+**Option B - Absolute path-based**:
+- DELETE endpoint expects absolute path (URL-encoded if needed)
+- CLI should send: `DELETE /api/projects/storm/files/%2Ftmp%2F...%2Finput.csv`
+- Handler matches exact absolute path
+- More complex URL handling
+
+**Option A is simpler and more correct** because:
+- Filenames are unique identifiers within a project
+- Users think in terms of filenames, not full paths
+- URL paths remain clean and simple
+
+## References
+
+[1] [https://golang.org/pkg/path/filepath/](https://golang.org/pkg/path/filepath/)
+
+
+
+## References
+
+- [1] [https://go.dev/doc/database/cancel-operations](https://go.dev/doc/database/cancel-operations)
+- [2] [https://docs.hatchet.run/home/cancellation](https://docs.hatchet.run/home/cancellation)
+- [3] [https://victoriametrics.com/blog/go-graceful-shutdown/](https://victoriametrics.com/blog/go-graceful-shutdown/)
+- [4] [https://dev.to/shrsv/go-contexts-a-practical-guide-to-managing-concurrency-and-cancellation-4gm2](https://dev.to/shrsv/go-contexts-a-practical-guide-to-managing-concurrency-and-cancellation-4gm2)
+- [5] [https://vorpus.org/blog/timeouts-and-cancellation-for-humans/](https://vorpus.org/blog/timeouts-and-cancellation-for-humans/)
+- [6] [https://www.freecodecamp.org/news/graceful-shutdowns-k8s-go/](https://www.freecodecamp.org/news/graceful-shutdowns-k8s-go/)
+
+
+
+## Reasoning
+
+The user is asking me to "examine the filename handling in api.go for consistency -- does the API always expect absolute paths, or a mix?"
+
+Looking at the provided api.go file, let me trace through each handler:
+
+1. **postProjectsHandler**: Receives `ProjectAddInput` with `baseDir` and `markdownFile`
+   - No documentation about what format these should be
+   - These get passed directly to `projects.Add()`
+   - Based on the CLI code, these are absolute paths (resolved by CLI before sending)
+
+2. **postProjectFilesHandler**: Receives `FileAddInput` with `Filenames` array
+   - Documentation says "List of files to add"
+   - These get passed directly to `projects.AddFile()`
+   - Based on the CLI code, these should be absolute paths (resolved by CLI before sending)
+
+3. **deleteProjectFilesHandler**: Receives `FileDeleteInput` with `Filename` string
+   - Documentation says "Filename to delete"
+   - This handler searches for matching files by basename using `filepath.Base()`
+   - The received filename is treated as a basename and matched against stored absolute paths
+
+4. **getProjectFilesHandler**: Returns files from `project.GetFilesAsRelative()`
+   - Returns relative paths (if inside BaseDir) or absolute paths (if outside)
+
+So there's an inconsistency:
+- POST (add files): Expects absolute paths from CLI
+- GET (list files): Returns relative or absolute paths to web UI
+- DELETE (remove files): Receives basename from CLI, matches against stored absolute paths
+
+The DELETE handler is doing special matching logic because it receives just a basename but stored files are absolute paths. However, the CLI code shows that `runFileForget` now resolves the path to absolute before sending it.
+
+So if the CLI sends absolute paths for file forget, but the API handler is treating it as a basename and doing matching, there's a disconnect.
+
+Let me re-read the cli.go file... 
+
+The CLI is actually sending the resolved absolute path to the API endpoint, but the handler is extracting just the basename and matching it against stored absolute paths. This creates a mismatch -- the handler should either expect and use the full absolute path directly, or the CLI should send only the basename. Currently, the CLI resolves to absolute but the handler discards that information and does basename matching instead.
+
+
+---
+
