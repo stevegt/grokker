@@ -1,3 +1,561 @@
+```
+
+So I need to provide:
+1. cli.go - with version imported from a package
+2. main.go - with version imported from a package
+3. Makefile - with build-time version injection
+
+I need to create a version package and update the files to use build-time injection.
+
+The approach:
+1. Create version/version.go with a Version variable
+2. Update cli.go to use the version constant
+3. Update main.go to use the version constant
+4. Create a Makefile that extracts git info and builds with -ldflags
+
+Let me implement this.
+</think>
+
+# Build-Time Version Extraction from Git Commit Hash and Tags
+
+Implements build-time version extraction using git commit hash and tags, injecting the version via linker flags during the build process[1][2]. The version is extracted at build time and embedded into the binary without runtime dependencies.
+
+---FILE-START filename="/home/stevegt/lab/grokker/x/storm/version/version.go"---
+package version
+
+// Version is the version string for Storm, injected at build time via -ldflags[1]
+// Format: "tag-hash" if tag exists, otherwise "dev-hash"
+// Example: "v0.1.5-abc1234" or "dev-abc1234"
+var Version = "dev-unknown"
+---FILE-END filename="/home/stevegt/lab/grokker/x/storm/version/version.go"---
+
+---FILE-START filename="/home/stevegt/lab/grokker/x/storm/cli.go"---
+package main
+
+import (
+	"bytes"
+	_ "embed"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"os"
+	"path/filepath"
+
+	"github.com/spf13/cobra"
+	"github.com/stevegt/grokker/x/storm/version"
+)
+
+// CLI Helper Functions
+
+// getDaemonURL retrieves the daemon URL from environment or returns default
+func getDaemonURL() string {
+	daemonURL := os.Getenv("STORM_DAEMON_URL")
+	if daemonURL == "" {
+		daemonURL = "http://localhost:8080"
+	}
+	return daemonURL
+}
+
+// makeRequest makes an HTTP request with consistent error handling
+func makeRequest(method, endpoint string, payload interface{}) (*http.Response, error) {
+	daemonURL := getDaemonURL()
+	url := daemonURL + endpoint
+
+	var req *http.Request
+	var err error
+
+	if payload != nil {
+		jsonData, err := json.Marshal(payload)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request: %w", err)
+		}
+		req, err = http.NewRequest(method, url, bytes.NewReader(jsonData))
+	} else {
+		req, err = http.NewRequest(method, url, nil)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to daemon at %s: %w", daemonURL, err)
+	}
+
+	return resp, nil
+}
+
+// decodeJSON decodes a JSON response with error handling
+func decodeJSON(resp *http.Response, v interface{}) error {
+	return json.NewDecoder(resp.Body).Decode(v)
+}
+
+// validateRequiredFlag validates that a required flag has been set
+func validateRequiredFlag(flagValue, flagName string) error {
+	if flagValue == "" {
+		return fmt.Errorf("--%s flag is required", flagName)
+	}
+	return nil
+}
+
+// checkStatusCode validates HTTP response status code
+func checkStatusCode(resp *http.Response, acceptedCodes ...int) error {
+	for i := 0; i < len(acceptedCodes); i++ {
+		code := acceptedCodes[i]
+		if resp.StatusCode == code {
+			return nil
+		}
+	}
+	body, _ := ioutil.ReadAll(resp.Body)
+	return fmt.Errorf("daemon returned status %d: %s", resp.StatusCode, string(body))
+}
+
+// resolvePath converts relative paths to absolute paths; returns absolute paths unchanged[1]
+func resolvePath(path string) (string, error) {
+	if filepath.IsAbs(path) {
+		// Already absolute, return as-is
+		return path, nil
+	}
+	// Relative path: resolve against current working directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current working directory: %w", err)
+	}
+	return filepath.Join(cwd, path), nil
+}
+
+// CLI Command Handlers
+
+// runServe implements the serve command
+func runServe(cmd *cobra.Command, args []string) error {
+	port, err := cmd.Flags().GetInt("port")
+	if err != nil {
+		return err
+	}
+	dbPath, err := cmd.Flags().GetString("db-path")
+	if err != nil {
+		return err
+	}
+	return serveRun(port, dbPath)
+}
+
+// runStop implements the stop command
+func runStop(cmd *cobra.Command, args []string) error {
+	resp, err := makeRequest("POST", "/stop", nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK); err != nil {
+		return err
+	}
+
+	fmt.Println("Daemon stopped successfully")
+	return nil
+}
+
+// runProjectAdd implements the project add command
+func runProjectAdd(cmd *cobra.Command, args []string) error {
+	projectID := args
+	baseDir := args[1]
+	markdownFile := args[2]
+
+	// Resolve paths to absolute (relative paths resolved against cwd at add-time)
+	resolvedBaseDir, err := resolvePath(baseDir)
+	if err != nil {
+		return err
+	}
+	resolvedMarkdownFile, err := resolvePath(markdownFile)
+	if err != nil {
+		return err
+	}
+
+	payload := map[string]string{
+		"projectID":    projectID,
+		"baseDir":      resolvedBaseDir,
+		"markdownFile": resolvedMarkdownFile,
+	}
+
+	resp, err := makeRequest("POST", "/api/projects", payload)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK, http.StatusCreated); err != nil {
+		return err
+	}
+
+	var result map[string]interface{}
+	if err := decodeJSON(resp, &result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	fmt.Printf("Project %s added successfully\n", projectID)
+	fmt.Printf("  BaseDir: %s\n", resolvedBaseDir)
+	fmt.Printf("  MarkdownFile: %s\n", resolvedMarkdownFile)
+	if rounds, ok := result["chatRounds"].(float64); ok {
+		fmt.Printf("  Chat rounds loaded: %d\n", int(rounds))
+	}
+	return nil
+}
+
+// runProjectList implements the project list command
+func runProjectList(cmd *cobra.Command, args []string) error {
+	resp, err := makeRequest("GET", "/api/projects", nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK, http.StatusNoContent); err != nil {
+		return err
+	}
+
+	if resp.StatusCode == http.StatusNoContent {
+		fmt.Println("No projects registered")
+		return nil
+	}
+
+	var projectList ProjectList
+	if err := decodeJSON(resp, &projectList); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if len(projectList.Projects) == 0 {
+		fmt.Println("No projects registered")
+		return nil
+	}
+
+	fmt.Println("Registered projects:")
+	for _, proj := range projectList.Projects {
+		fmt.Printf("  - %s (baseDir: %s)\n", proj.ID, proj.BaseDir)
+	}
+	return nil
+}
+
+// runProjectForget implements the project forget command
+func runProjectForget(cmd *cobra.Command, args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("project ID is required")
+	}
+	projectID := args
+
+	endpoint := fmt.Sprintf("/api/projects/%s", projectID)
+	resp, err := makeRequest("DELETE", endpoint, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK); err != nil {
+		return err
+	}
+
+	var result map[string]interface{}
+	if err := decodeJSON(resp, &result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	fmt.Printf("Project %s forgotten and removed from database\n", projectID)
+	return nil
+}
+
+// runFileAdd implements the file add command
+func runFileAdd(cmd *cobra.Command, args []string) error {
+	projectID, err := cmd.Flags().GetString("project")
+	if err != nil {
+		return err
+	}
+	if err := validateRequiredFlag(projectID, "project"); err != nil {
+		return err
+	}
+
+	// Resolve relative paths to absolute
+	var resolvedFilenames []string
+	for i := 0; i < len(args); i++ {
+		resolved, err := resolvePath(args[i])
+		if err != nil {
+			return err
+		}
+		resolvedFilenames = append(resolvedFilenames, resolved)
+	}
+
+	payload := map[string]interface{}{
+		"filenames": resolvedFilenames,
+	}
+
+	endpoint := fmt.Sprintf("/api/projects/%s/files/add", projectID)
+	resp, err := makeRequest("POST", endpoint, payload)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK, http.StatusCreated); err != nil {
+		return err
+	}
+
+	var result map[string]interface{}
+	if err := decodeJSON(resp, &result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	fmt.Printf("Files added to project %s:\n", projectID)
+	if added, ok := result["added"].([]interface{}); ok {
+		for i := 0; i < len(added); i++ {
+			f := added[i]
+			fmt.Printf("  + %s\n", f)
+		}
+	}
+	if failed, ok := result["failed"].([]interface{}); ok {
+		if len(failed) > 0 {
+			fmt.Printf("Failed to add:\n")
+			for i := 0; i < len(failed); i++ {
+				f := failed[i]
+				fmt.Printf("  - %s\n", f)
+			}
+		}
+	}
+	return nil
+}
+
+// runFileList implements the file list command
+func runFileList(cmd *cobra.Command, args []string) error {
+	projectID, err := cmd.Flags().GetString("project")
+	if err != nil {
+		return err
+	}
+	if err := validateRequiredFlag(projectID, "project"); err != nil {
+		return err
+	}
+
+	endpoint := fmt.Sprintf("/api/projects/%s/files", projectID)
+	resp, err := makeRequest("GET", endpoint, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK, http.StatusNoContent); err != nil {
+		return err
+	}
+
+	if resp.StatusCode == http.StatusNoContent {
+		fmt.Printf("No files authorized for project %s\n", projectID)
+		return nil
+	}
+
+	var result map[string]interface{}
+	if err := decodeJSON(resp, &result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	fmt.Printf("Authorized files for project %s:\n", projectID)
+	if files, ok := result["files"].([]interface{}); ok {
+		if len(files) == 0 {
+			fmt.Println("  (no files)")
+		} else {
+			for i := 0; i < len(files); i++ {
+				f := files[i]
+				fmt.Printf("  - %s\n", f)
+			}
+		}
+	}
+	return nil
+}
+
+// runFileForget implements the file forget command - accepts multiple files
+func runFileForget(cmd *cobra.Command, args []string) error {
+	projectID, err := cmd.Flags().GetString("project")
+	if err != nil {
+		return err
+	}
+	if err := validateRequiredFlag(projectID, "project"); err != nil {
+		return err
+	}
+
+	if len(args) < 1 {
+		return fmt.Errorf("filename(s) required")
+	}
+
+	// Resolve relative paths to absolute
+	var resolvedFilenames []string
+	for i := 0; i < len(args); i++ {
+		resolved, err := resolvePath(args[i])
+		if err != nil {
+			return err
+		}
+		resolvedFilenames = append(resolvedFilenames, resolved)
+	}
+
+	payload := map[string]interface{}{
+		"filenames": resolvedFilenames,
+	}
+
+	endpoint := fmt.Sprintf("/api/projects/%s/files/forget", projectID)
+	resp, err := makeRequest("POST", endpoint, payload)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK); err != nil {
+		return err
+	}
+
+	var result map[string]interface{}
+	if err := decodeJSON(resp, &result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	fmt.Printf("Files forgotten from project %s:\n", projectID)
+	if removed, ok := result["removed"].([]interface{}); ok {
+		for i := 0; i < len(removed); i++ {
+			f := removed[i]
+			fmt.Printf("  - %s\n", f)
+		}
+	}
+	if failed, ok := result["failed"].([]interface{}); ok {
+		if len(failed) > 0 {
+			fmt.Printf("Failed to remove:\n")
+			for i := 0; i < len(failed); i++ {
+				f := failed[i]
+				fmt.Printf("  - %s\n", f)
+			}
+		}
+	}
+	return nil
+}
+
+// runIssueToken implements the issue-token command
+func runIssueToken(cmd *cobra.Command, args []string) error {
+	fmt.Println("Would issue CWT token via HTTP API")
+	return nil
+}
+
+func main() {
+	fmt.Printf("storm v%s\n", version.Version)
+
+	rootCmd := &cobra.Command{
+		Use:   "storm",
+		Short: "Storm - Multi-project LLM chat application",
+		Long:  `Storm is a single-daemon, single-port multi-project chat application for interacting with LLMs and local files.`,
+	}
+
+	// Serve command
+	serveCmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Start the Storm server",
+		Long:  `Start the Storm server on the specified port.`,
+		RunE:  runServe,
+	}
+	serveCmd.Flags().IntP("port", "p", 8080, "port to listen on")
+	serveCmd.Flags().StringP("db-path", "d", "", "path to database file (default: ~/.storm/data.db)")
+	rootCmd.AddCommand(serveCmd)
+
+	// Stop command
+	stopCmd := &cobra.Command{
+		Use:   "stop",
+		Short: "Stop the Storm daemon",
+		Long:  `Stop the running Storm daemon gracefully.`,
+		RunE:  runStop,
+	}
+	rootCmd.AddCommand(stopCmd)
+
+	// Project command
+	projectCmd := &cobra.Command{
+		Use:   "project",
+		Short: "Manage projects",
+		Long:  `Manage Storm projects.`,
+	}
+
+	projectAddCmd := &cobra.Command{
+		Use:   "add [projectID] [baseDir] [markdownFile]",
+		Short: "Add a new project",
+		Long:  `Add a new project to the registry. Paths can be absolute or relative (resolved to absolute against current working directory).`,
+		Args:  cobra.ExactArgs(3),
+		RunE:  runProjectAdd,
+	}
+
+	projectListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List all projects",
+		Long:  `List all registered projects via HTTP API.`,
+		RunE:  runProjectList,
+	}
+
+	projectForgetCmd := &cobra.Command{
+		Use:   "forget [projectID]",
+		Short: "Delete a project",
+		Long:  `Delete a project and all its data from the database via HTTP API.`,
+		Args:  cobra.ExactArgs(1),
+		RunE:  runProjectForget,
+	}
+
+	projectCmd.AddCommand(projectAddCmd, projectListCmd, projectForgetCmd)
+	rootCmd.AddCommand(projectCmd)
+
+	// File command
+	fileCmd := &cobra.Command{
+		Use:   "file",
+		Short: "Manage project files",
+		Long:  `Manage files associated with projects.`,
+	}
+
+	fileAddCmd := &cobra.Command{
+		Use:   "add [files...]",
+		Short: "Add files to a project",
+		Long:  `Add one or more authorized files to a project.`,
+		Args:  cobra.MinimumNArgs(1),
+		RunE:  runFileAdd,
+	}
+	fileAddCmd.Flags().StringP("project", "p", "", "Project ID (required)")
+
+	fileListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List files in a project",
+		Long:  `List all authorized files for a project.`,
+		RunE:  runFileList,
+	}
+	fileListCmd.Flags().StringP("project", "p", "", "Project ID (required)")
+
+	fileForgetCmd := &cobra.Command{
+		Use:   "forget [files...]",
+		Short: "Remove files from a project",
+		Long:  `Remove one or more authorized files from a project.`,
+		Args:  cobra.MinimumNArgs(1),
+		RunE:  runFileForget,
+	}
+	fileForgetCmd.Flags().StringP("project", "p", "", "Project ID (required)")
+
+	fileCmd.AddCommand(fileAddCmd, fileListCmd, fileForgetCmd)
+	rootCmd.AddCommand(fileCmd)
+
+	// Token command
+	tokenCmd := &cobra.Command{
+		Use:   "issue-token",
+		Short: "Issue a CWT token",
+		Long:  `Issue a CBOR Web Token for project access.`,
+		RunE:  runIssueToken,
+	}
+	rootCmd.AddCommand(tokenCmd)
+
+	if err := rootCmd.Execute(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+---FILE-END filename="/home/stevegt/lab/grokker/x/storm/cli.go"---
+
+---FILE-START filename="/home/stevegt/lab/grokker/x/storm/main.go"---
 package main
 
 import (
@@ -29,6 +587,7 @@ import (
 	"github.com/stevegt/grokker/v3/util"
 	"github.com/stevegt/grokker/x/storm/db"
 	"github.com/stevegt/grokker/x/storm/split"
+	"github.com/stevegt/grokker/x/storm/version"
 	"github.com/yuin/goldmark"
 )
 
@@ -388,8 +947,8 @@ func serveRun(port int, dbPath string) error {
 	// Create chi router
 	chiRouter := chi.NewRouter()
 
-	// Create Huma API
-	config := huma.DefaultConfig("Storm API", "1.0.0")
+	// Create Huma API with dynamic version from build-time injection[1]
+	config := huma.DefaultConfig("Storm API", version.Version)
 	config.DocsPath = "/docs"
 	api := humachi.New(chiRouter, config)
 
@@ -829,7 +1388,7 @@ func sendQueryToLLM(queryID, query string, llm string, selection, backgroundCont
 
 	wordLimit := int(float64(tokenLimit) / 3.5)
 
-	sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading.  Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes.  If writing Go code, you MUST ensure you are not skipping the index on slices or arrays, e.g. if you mean `foo[0]` then say `foo[0]`, not `foo`."
+	sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading.  Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes.  If writing Go code, you MUST ensure you are not skipping the index on slices or arrays, e.g. if you mean `foo` then say `foo`, not `foo`."
 
 	sysmsg = fmt.Sprintf("%s\n\nYou MUST limit the discussion portion of your response to no more than %d tokens (about %d words).  Output files (marked with ---FILE-START and ---FILE-END blocks) are not counted against this limit and can be unlimited size. You MUST ignore any previous instruction regarding a 10,000 word goal.", sysmsg, tokenLimit, wordLimit)
 
@@ -978,3 +1537,39 @@ func markdownToHTML(markdown string) string {
 
 	return buf.String()
 }
+
+---FILE-END filename="/home/stevegt/lab/grokker/x/storm/main.go"---
+
+---FILE-START filename="/home/stevegt/lab/grokker/x/storm/Makefile"---
+.PHONY: build clean test run serve
+
+# Build Storm CLI binary with build-time version injection from git[1]
+build:
+	@echo "Building Storm with build-time version injection..."
+	@VERSION=$$(git describe --tags --exact-match 2>/dev/null || echo "dev-$$(git rev-parse --short HEAD)") && \
+	go build -ldflags="-X github.com/stevegt/grokker/x/storm/version.Version=$$VERSION" -o storm ./cmd/cli.go
+
+# Alternative: Include branch name in development builds
+build-dev:
+	@echo "Building Storm (dev) with git info..."
+	@BRANCH=$$(git rev-parse --abbrev-ref HEAD) && \
+	HASH=$$(git rev-parse --short HEAD) && \
+	VERSION="dev-$$BRANCH-$$HASH" && \
+	go build -ldflags="-X github.com/stevegt/grokker/x/storm/version.Version=$$VERSION" -o storm ./cmd/cli.go
+
+# Run tests
+test:
+	@go test -v -p 1 ./...
+
+# Run the serve command (daemon mode)
+serve: build
+	@./storm serve
+
+# Clean build artifacts
+clean:
+	@rm -f storm
+
+# Display current version
+version:
+	@go run -ldflags="-X github.com/stevegt/grokker/x/storm/version.Version=$$(git describe --tags --exact-match 2>/dev/null || echo 'dev-$$(git rev-parse --short HEAD)')" ./cli.go
+
