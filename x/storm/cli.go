@@ -259,7 +259,7 @@ func runFileAdd(cmd *cobra.Command, args []string) error {
 		"filenames": resolvedFilenames,
 	}
 
-	endpoint := fmt.Sprintf("/api/projects/%s/files", projectID)
+	endpoint := fmt.Sprintf("/api/projects/%s/files/add", projectID)
 	resp, err := makeRequest("POST", endpoint, payload)
 	if err != nil {
 		return err

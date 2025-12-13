@@ -122,7 +122,7 @@ func TestAPIEndpoints(t *testing.T) {
 		t.Fatalf("Failed to create output file: %v", err)
 	}
 
-	// Test 3: Add files to project
+	// Test 3: Add files to project using /files/add endpoint[1]
 	addFilesPayload := map[string]interface{}{
 		"filenames": []string{inputFile, outputFile},
 	}
@@ -131,7 +131,7 @@ func TestAPIEndpoints(t *testing.T) {
 		t.Fatalf("Failed to marshal add files request: %v", err)
 	}
 
-	url := fmt.Sprintf("%s/api/projects/%s/files", daemonAddr, projectID)
+	url := fmt.Sprintf("%s/api/projects/%s/files/add", daemonAddr, projectID)
 	resp, err = http.Post(url, "application/json", bytes.NewReader(jsonData))
 	if err != nil {
 		t.Fatalf("Failed to add files: %v", err)

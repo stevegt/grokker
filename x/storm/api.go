@@ -151,8 +151,8 @@ func deleteProjectHandler(ctx context.Context, input *ProjectDeleteInput) (*Proj
 	return res, nil
 }
 
-// postProjectFilesHandler handles POST /api/projects/{projectID}/files - add files to project
-func postProjectFilesHandler(ctx context.Context, input *FileAddInput) (*FileAddResponse, error) {
+// postProjectFilesAddHandler handles POST /api/projects/{projectID}/files/add - add files to project
+func postProjectFilesAddHandler(ctx context.Context, input *FileAddInput) (*FileAddResponse, error) {
 	projectID := input.ProjectID
 
 	res := &FileAddResponse{}
