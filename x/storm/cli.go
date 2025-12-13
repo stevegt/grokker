@@ -253,8 +253,18 @@ func runFileAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Resolve relative paths to absolute[1]
+	var resolvedFilenames []string
+	for i := 0; i < len(args); i++ {
+		resolved, err := resolvePath(args[i])
+		if err != nil {
+			return err
+		}
+		resolvedFilenames = append(resolvedFilenames, resolved)
+	}
+
 	payload := map[string]interface{}{
-		"filenames": args,
+		"filenames": resolvedFilenames,
 	}
 
 	endpoint := fmt.Sprintf("/api/projects/%s/files", projectID)
@@ -347,10 +357,15 @@ func runFileForget(cmd *cobra.Command, args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("filename is required")
 	}
-	var filename string
-	filename = args[0]
 
-	endpoint := fmt.Sprintf("/api/projects/%s/files/%s", projectID, filename)
+	// Resolve relative path to absolute[1]
+	resolved, err := resolvePath(args[0])
+	if err != nil {
+		return err
+	}
+
+	// Send the absolute path as the filename in the URL
+	endpoint := fmt.Sprintf("/api/projects/%s/files/%s", projectID, resolved)
 	resp, err := makeRequest("DELETE", endpoint, nil)
 	if err != nil {
 		return err
@@ -361,7 +376,7 @@ func runFileForget(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Printf("File %s removed from project %s\n", filename, projectID)
+	fmt.Printf("File %s forgotten in project %s\n", resolved, projectID)
 	return nil
 }
 
