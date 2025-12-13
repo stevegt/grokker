@@ -879,10 +879,9 @@ func sendQueryToLLM(queryID, query string, llm string, selection, backgroundCont
 		fmt.Printf("Response: %s\n", response)
 
 		// run ExtractFiles first as a dry run to see if we fit in token limit
-		cookedResponse, err = core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
-			DryRun:             true,
-			ExtractToStdout:    false,
-			RemoveFromResponse: true,
+		result, err := core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
+			DryRun:          true,
+			ExtractToStdout: false,
 		})
 
 		if err != nil {
@@ -890,10 +889,15 @@ func sendQueryToLLM(queryID, query string, llm string, selection, backgroundCont
 			return "", fmt.Errorf("failed to extract files from response: %w", err)
 		}
 
+		cookedResponse = result.CookedResponse
+
 		// check token count of cookedResponse -- but first, remove
-		// any ## References and <think> sections
-		referencesRe := regexp.MustCompile(`(?s)## References.*?`)
-		discussionOnly := referencesRe.ReplaceAllString(cookedResponse, "")
+		// any ## References, <references>, and <think> sections
+		discussionOnly := cookedResponse
+		refHeadRe := regexp.MustCompile(`(?s)## References.*?`)
+		discussionOnly := refHeadRe.ReplaceAllString(discussionOnly, "")
+		reftagsRe := regexp.MustCompile(`(?s)<references>.*?</references>`)
+		discussionOnly = reftagsRe.ReplaceAllString(discussionOnly, "")
 		reasoningRe := regexp.MustCompile(`(?s)<think>.*?</think>`)
 		discussionOnly = reasoningRe.ReplaceAllString(discussionOnly, "")
 		count, err := grok.TokenCount(discussionOnly)
@@ -911,11 +915,12 @@ func sendQueryToLLM(queryID, query string, llm string, selection, backgroundCont
 		}
 
 		// successful response within token limit, so now run ExtractFiles for real
-		cookedResponse, err = core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
-			DryRun:             false,
-			ExtractToStdout:    false,
-			RemoveFromResponse: true,
+		result, err = core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
+			DryRun:          false,
+			ExtractToStdout: false,
 		})
+
+		cookedResponse = result.CookedResponse
 
 		break
 	}
