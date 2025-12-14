@@ -12183,6 +12183,8 @@ Scroll positioning and WebSocket connectivity are now stable, with a streamlined
 
 ## Reasoning
 
+## Reasoning
+
 
 
 
@@ -45669,8 +45671,6 @@ Let me describe the implementation approach needed.
 **before we implement unexpected file handling, let's first move the file list from the right-hand sidebar into a popup dialog.**
 
 
-
-
 # Move File List to Popup Dialog
 
 The file list is being relocated from the right-hand sidebar into a popup modal dialog, making the interface cleaner and maximizing chat display area[1]. A button in the input area opens the file management dialog when clicked[1].
@@ -45708,10 +45708,6 @@ The file list is now accessed on-demand via the "Files" button, keeping the chat
 
 
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -45760,6 +45756,1470 @@ Key changes:
 3. Add a button to open the file list dialog
 4. Update CSS to remove the right sidebar and style the modal
 5. Update JavaScript to handle modal open/close
+
+
+
+---
+
+
+
+**okay, now go back to unexpected file handling.  restate the implementation plan, this time considering how we might re-use some of the project.html bits for the unexpected files modal dialog.  specifically, we want the file list to look the same, but with the instructions about unexpected files to appear in the top of the modal dialog box.**
+
+
+
+
+# Unexpected File Handling with Reused Modal Dialog UI
+
+Implement categorized unexpected file handling by extending the existing file modal dialog with context-specific instructions and file categorization, reusing the same table structure for consistent UX[1][2].
+
+## Implementation Plan
+
+**Phase 1: Detect and Categorize Unexpected Files** (`main.go` - `sendQueryToLLM()`)[1]
+
+After calling `ExtractFiles()` with dry run, compare `result.UnexpectedFiles` against the project's `AuthorizedFiles`:
+- `alreadyAuthorized`: files in `UnexpectedFiles` AND in `AuthorizedFiles` (but not in original `outFiles` request)
+- `needsAuthorization`: files in `UnexpectedFiles` but NOT in `AuthorizedFiles`
+
+**Phase 2: Send Categorized Notifications via WebSocket** (`main.go` - `processQuery()`)[1][2]
+
+Send a categorized unexpected files message:
+```json
+{
+  "type": "unexpectedFilesDetected",
+  "queryID": "...",
+  "alreadyAuthorized": ["file1.go", "file2.md"],
+  "needsAuthorization": ["file3.py", "file4.txt"]
+}
+```
+
+**Phase 3: Reuse Modal Dialog with Categorized Display** (`project.html`)[2]
+
+The modal dialog displays unexpected files at the top with instructions, then uses the existing file list table:
+
+**Modal Structure**:
+```html
+<div id="fileModal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>New Files Detected</h2>
+      <button class="modal-close-btn">✕</button>
+    </div>
+    
+    <!-- Category 1: Already Authorized Files -->
+    <div id="alreadyAuthorizedSection">
+      <h3>Already Authorized (Enable for Output)</h3>
+      <p>These files are authorized but not currently selected for output. 
+         Enable them in the checkboxes below:</p>
+      <table><!-- Same structure as file list --></table>
+    </div>
+    
+    <!-- Category 2: Needs Authorization Files -->
+    <div id="needsAuthorizationSection">
+      <h3>Needs Authorization (Add via CLI First)</h3>
+      <p>These files are not yet authorized. Add them using the CLI:</p>
+      <pre>storm file add --project &lt;projectID&gt; &lt;filename&gt;</pre>
+      <p>Once added, they'll appear above. Then enable them for output.</p>
+      <div id="pendingAuthFileList">
+        <!-- List of files needing authorization -->
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+**Phase 3a: Display Already-Authorized Files** (`project.html`)[2]
+
+Render the file list table with the same structure as `renderFileList()`:
+- Same table with In/Out/Filename columns
+- Files listed in "Already Authorized" section
+- User checks "Out" column to enable them for output
+- "In" column defaults to unchecked
+
+**Phase 3b: Display Needs-Authorization Files** (`project.html`)[2]
+
+Show simple list (not table) of files that need authorization:
+- File name
+- Copy-to-clipboard button showing CLI command: `storm file add --project storm <filename>`
+- Greyed-out or disabled until file is added
+
+**Phase 3c: Real Extraction Triggers** (`main.go`)[1]
+
+Two completion scenarios:
+
+1. **User enables already-authorized files**: Web UI sends `{type: "fileSelectionChanged"}` via WebSocket when checkboxes change
+   - Extract which files are now enabled
+   - Expand `outfiles` list with newly-enabled files
+   - Re-run `ExtractFiles()` with `DryRun: false`
+
+2. **User adds unauthorized files via CLI**: CLI adds file and broadcasts `fileListUpdated` message
+   - Web UI receives update and refreshes the modal
+   - Files move from "Needs Authorization" section to "Already Authorized" section
+   - User checks "Out" checkbox for newly-authorized files
+   - Triggers real extraction
+
+## Reuse Strategy: Minimal Code Duplication
+
+**Extract `renderFileTable()` function** (`project.html`)[2]
+- Extract the table rendering logic from `renderFileList()` into a reusable function
+- Takes an array of files and a CSS class/context string
+- Renders the same `<table>` structure with In/Out/Filename columns
+- Use for both regular file list AND unexpected files display
+
+**Existing Modal CSS Already in Place**[2]
+- `#fileModal`, `.modal-content`, `.modal-header` all already exist
+- Extend `.modal-content` max-height if needed for multiple file lists
+- Reuse `.modal-close-btn` styling
+
+**WebSocket Handler Extension** (`project.html`)[2]
+- Add new message type handler: `message.type === "unexpectedFilesDetected"`
+- Open the file modal automatically
+- Populate sections based on categories in message
+
+## References
+
+[1] [https://golang.org/doc/effective_go#concurrency](https://golang.org/doc/effective_go#concurrency)
+[2] [https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to revisit the plan for implementing unexpected file handling. They want me to restate the implementation plan considering:
+
+1. How to reuse some of the project.html bits for the unexpected files modal dialog
+2. Specifically, they want the file list to look the same
+3. But with instructions about unexpected files to appear at the top of the modal dialog box
+
+So the workflow would be:
+1. When unexpected files are detected during LLM response extraction
+2. A WebSocket message is sent with categories of unexpected files
+3. The modal dialog opens with:
+   - Instructions at the top about unexpected files
+   - The same file list table format showing:
+     - Files that are already authorized but not enabled for output
+     - Files that need to be added via CLI first
+
+This reuses the existing file list UI structure but adds context-specific instructions and categorizes the files.
+
+Let me restate the implementation plan with this consideration.
+
+
+---
+
+
+
+**restate the plan, including a section on how to handle the case where the user decides to not authorize a file, or decides to not enable a file for output.**
+
+
+
+
+# Unexpected File Handling with User Decline Handling
+
+Implement categorized unexpected file handling with proper handling for users who choose not to authorize or enable discovered files[1][2]. Declined files are tracked and not re-prompted unnecessarily.
+
+## Implementation Plan
+
+**Phase 1: Detect and Categorize Unexpected Files** (`main.go` - `sendQueryToLLM()`)[1]
+
+After calling `ExtractFiles()` with dry run, compare `result.UnexpectedFiles` against the project's `AuthorizedFiles`:
+- `alreadyAuthorized`: files in `UnexpectedFiles` AND in `AuthorizedFiles` (but not in original `outFiles` request)
+- `needsAuthorization`: files in `UnexpectedFiles` but NOT in `AuthorizedFiles`
+
+**Phase 2: Send Categorized Notifications via WebSocket** (`main.go` - `processQuery()`)[1][2]
+
+Send a categorized unexpected files message only if there are files to show:
+```json
+{
+  "type": "unexpectedFilesDetected",
+  "queryID": "...",
+  "alreadyAuthorized": ["file1.go", "file2.md"],
+  "needsAuthorization": ["file3.py", "file4.txt"]
+}
+```
+
+**Phase 3: Display Modal with Categories** (`project.html`)[2]
+
+The modal shows two sections:
+
+**Section 1: Already Authorized (Enable for Output)**
+- Instructions: "These files are authorized but not currently selected for output. Enable them by checking the Out column below:"
+- Render using same file list table format
+- User can check "Out" column to enable for output
+- User can leave unchecked (decline to use in this query)
+
+**Section 2: Needs Authorization (Add via CLI First)**
+- Instructions: "These files are not yet authorized. Add them using the CLI:"
+- Display simple list (not table) with file names
+- Show copy-to-clipboard button: `storm file add --project <projectID> <filename>`
+- Files remain greyed-out until added via CLI
+
+## Handling Declined Files
+
+**Phase 3a: Already-Authorized Files - User Leaves Unchecked** (`project.html`)[2]
+
+If user does NOT check the "Out" column for an already-authorized file:
+1. File is not added to the `outfiles` list for re-extraction
+2. Modal closes normally
+3. File content remains in the LLM response as plain text (not extracted)
+4. User can always manually enable it later by opening Files modal and checking the "Out" column, then re-running the query
+5. No permanent "decline" tracking needed - it's just a selection choice
+
+**Phase 3b: Needs-Authorization Files - User Does Not Add** (`project.html`)[2]
+
+If user chooses NOT to add an unauthorized file via CLI:
+1. Click "Discard" button on the file (or just close modal without adding)
+2. File remains in response as plain text
+3. No API call is made, no state is changed
+4. Next time the LLM returns the same file, user will see it again in the modal
+5. Optional: Track "ignored" files in IndexedDB to show a count (e.g., "5 files ignored in previous queries")
+
+**Phase 3c: Cleanup and Completion** (`project.html`)[2]
+
+After user makes decisions (leaves modal open or closes it):
+1. If user enabled any already-authorized files: Send `fileSelectionChanged` via WebSocket
+   - Trigger real extraction phase
+   - LLM response is re-processed with expanded `outfiles` list
+   
+2. If user added files via CLI and closed modal:
+   - Files are added by CLI, which broadcasts `fileListUpdated`
+   - Web UI receives update and refreshes the modal to show newly-added files moved from "Needs Authorization" to "Already Authorized"
+   
+3. If user declined everything (closed modal without enabling or adding):
+   - Modal closes
+   - Query completes normally with no re-extraction
+   - File content remains as plain text in the response
+   - No extraction happens for the unexpected files
+
+## State Management for Declined Files
+
+**No Permanent "Decline" State Stored** [1]
+- Users' choice to not enable a file is ephemeral (only for current query)
+- Same file showing up in future queries will be offered again
+- Rationale: LLM behavior changes; file that was unexpected once might be expected in a different context
+
+**Optional: Track Repeated Ignores in IndexedDB** [2]
+- Could store `{filename, declineCount, lastSeen}` in IndexedDB
+- Show summary: "5 unexpected files previously ignored"
+- Users can clear the "ignore history" if they want to see suggestions again
+- But initially, keep it simple: no decline tracking
+
+**User Can Always Change Mind**[1]
+- If declined file was already-authorized: Open Files modal, check "Out" column, re-run query
+- If declined file needs authorization: Use CLI to add it, then enable it in Files modal, re-run query
+- Workflow is discoverable and reversible
+
+## Key Implementation Details
+
+**Modal Interactions** (`project.html`)[2]
+- "Already Authorized" section uses same file list table UI
+- "Needs Authorization" section is a simple list (not table)
+- Both sections have their own file list, don't mix them
+- Modal has single "Discard All" button to close and reject everything
+- Or individual "Add" buttons for needs-authorization files (to copy CLI command)
+
+**Re-extraction Trigger** (`main.go`)[1][2]
+- Only happens if user enabled at least one already-authorized file
+- Don't re-extract if user only ignored everything or only added files via CLI (that requires a separate query to capture them)
+
+**File Content Handling**[1]
+- Declined files' content remains in the LLM response as unextracted plain text
+- These files still appear in the markdown saved to the chat history
+- Not treated as "failures"; just user choice to not extract them
+
+## References
+
+[1] [https://golang.org/doc/effective_go#concurrency](https://golang.org/doc/effective_go#concurrency)
+[2] [https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to restate the plan for implementing unexpected file handling, but this time considering:
+
+1. How to handle the case where the user decides to not authorize a file
+2. How to handle the case where the user decides to not enable a file for output
+
+Looking at the earlier discussion, the plan was:
+- Categorize unexpected files as either "already authorized but not enabled for output" or "needs authorization first"
+- Send WebSocket notification
+- Show modal with instructions
+- User can approve or decline
+
+Now they want me to add a section on what happens when users decide NOT to authorize or NOT to enable files.
+
+The full workflow should handle:
+1. User sees unexpected files detected
+2. Category 1: Already authorized files - user can check to enable for output, or leave unchecked (decline)
+3. Category 2: Needs authorization - user would need to add via CLI first, or could ignore
+4. What happens if files are left unchecked/ignored - should we store that decision? Should we ask again next time?
+
+Let me restate the implementation plan with a new section on handling declined files.
+
+
+---
+
+
+
+**this is not how ExtractFiles works: "File content remains in the LLM response as plain text (not extracted)"
+
+we don't need to do this: "Optional: Track "ignored" files in IndexedDB to show a count (e.g., "5 files ignored in previous queries")"**
+
+
+
+
+# Corrected Unexpected File Handling Plan
+
+You're right—I was incorrect about ExtractFiles behavior. Looking at the actual implementation, `ExtractFiles()` always removes file blocks from the response, returning them separately in `result.UnexpectedFiles` (which contains `FileEntry` structs with filename and content). The `CookedResponse` contains only non-file content[1].
+
+## Corrected Implementation Plan
+
+**Phase 1: Detect and Categorize Unexpected Files** (`main.go` - `sendQueryToLLM()`)[1]
+
+After calling `ExtractFiles()` with dry run:
+- Files in `result.ExtractedFiles`: expected files that were extracted
+- Files in `result.UnexpectedFiles`: files found but not in original `outfiles` list (returned as `FileEntry[]` with content)
+- These unexpected files are already removed from `result.CookedResponse`
+
+Categorize based on project's `AuthorizedFiles`:
+- `alreadyAuthorized`: filenames in `result.UnexpectedFiles` that ARE in project's `AuthorizedFiles`
+- `needsAuthorization`: filenames in `result.UnexpectedFiles` that are NOT in project's `AuthorizedFiles`
+
+**Phase 2: Send Categorized Notifications via WebSocket** (`main.go` - `processQuery()`)[1][2]
+
+Send notification only if unexpected files exist:
+```json
+{
+  "type": "unexpectedFilesDetected",
+  "queryID": "...",
+  "alreadyAuthorized": ["file1.go", "file2.md"],
+  "needsAuthorization": ["file3.py", "file4.txt"]
+}
+```
+
+**Phase 3: Display Modal with Categories** (`project.html`)[2]
+
+Modal shows two sections as before, reusing file list table structure.
+
+## Handling Declined Files (Simplified)
+
+**Already-Authorized Files - User Leaves Unchecked**[1]
+
+If user does NOT check the "Out" column:
+- File is not added to expanded `outfiles` list
+- File content is discarded (already removed from `CookedResponse`)
+- User can re-run query if they want to capture it later
+
+**Needs-Authorization Files - User Does Not Add**[2]
+
+If user closes modal without adding via CLI:
+- File content is discarded (already removed from `CookedResponse`)
+- No need to track "ignored" files
+- If LLM returns same file in future query, user is offered it again
+
+**No Permanent Decline Tracking Needed**[1]
+
+- Each query response is independent
+- File content is already removed from chat, not stored anywhere
+- If user wants the file later, they manually add it via CLI and re-run the query
+
+## References
+
+[1] [https://golang.org/doc/effective_go#names](https://golang.org/doc/effective_go#names)
+[2] [https://developer.mozilla.org/en-US/docs/Web/API/WebSocket](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is pointing out that I made incorrect statements about how ExtractFiles works. Let me re-read what I said:
+
+"File content remains in the LLM response as plain text (not extracted)"
+
+The user is saying this is not how ExtractFiles works. Looking at the ExtractFiles function in chat.go, I can see that:
+
+1. When ExtractFiles processes a response, it identifies file blocks marked with `---FILE-START` and `---FILE-END` markers
+2. It separates files into categories: ExtractedFiles (expected), UnexpectedFiles (not expected), MissingFiles (expected but not found), BrokenFiles (malformed)
+3. The `CookedResponse` is built by joining only the lines that are NOT inside file blocks
+4. So if a file is in UnexpectedFiles, its content is NOT included in the CookedResponse - it's removed
+
+This means my statement "File content remains in the LLM response as plain text (not extracted)" is incorrect. The file content is removed from the cooked response regardless of whether it's expected or unexpected.
+
+The user also says we don't need to track ignored files in IndexedDB. That makes sense - if the user declines to use a file, we just don't add it to the project, and that's it. There's no need to track that decision.
+
+So I need to revise my implementation plan to correctly describe:
+1. ExtractFiles always removes file blocks from the cooked response
+2. Unexpected files (those not in the outfiles list) are still removed, but their content is returned in result.UnexpectedFiles instead of being written to disk
+3. We don't need to track "declined" files - just track which files the user approves to add to the project
+
+
+---
+
+
+
+**i don't think we need to re-run the query after the user closes the modal dialog.  We have all the info we need from the first, dry-run of Extract files; all we need to do is the next run with dry run set to false -- that code is already there in main.go, right?**
+
+
+
+
+# Simplified Unexpected File Handling: No Query Re-execution
+
+You're right—we don't need to re-run the LLM query or add complex async approval handling[1]. The existing flow already handles this elegantly.
+
+## Simplified Approach
+
+Looking at the current code in `sendQueryToLLM()`:
+
+1. **First ExtractFiles call** (dry run) - to check token count
+2. **Second ExtractFiles call** (real) - to actually extract files
+
+We can modify this to:
+
+**Phase 1: Detect Unexpected Files During Dry Run** (`sendQueryToLLM()`)[1]
+- After the first `ExtractFiles()` call with `DryRun: true`, check `result.UnexpectedFiles`
+- If unexpected files exist, send WebSocket notification to the client with:
+  - Files already authorized but not enabled for output
+  - Files that need to be authorized first
+
+**Phase 2: Second Extraction is Automatic** (`sendQueryToLLM()`)[1]
+- The existing second call to `ExtractFiles()` with `DryRun: false` happens regardless
+- It only extracts files from `outfiles` that the user currently has checked as "Out"
+- Unexpected files are not extracted unless they were already in the authorized list AND the user had checked them
+
+**Phase 3: User Can Act Later** (`project.html`)[1]
+- User sees unexpected files notification in the modal
+- User can:
+  - Check "Out" column for files already authorized (but these won't be extracted until query re-runs)
+  - Add unauthorized files via CLI if they want them
+- User re-runs the query to capture the files they've approved
+
+No async approval needed—the query completes with extraction of whatever files are currently enabled, and the user decides afterward what to do with the unexpected files[1][2].
+
+## References
+
+[1] [https://golang.org/doc/effective_go#concurrency](https://golang.org/doc/effective_go#concurrency)
+[2] [https://golang.org/doc/effective_go#names](https://golang.org/doc/effective_go#names)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to reconsider the plan for implementing unexpected file handling. They're pointing out that:
+
+1. We don't need to re-run the query after the user closes the modal dialog
+2. We have all the info we need from the first, dry-run of ExtractFiles
+3. All we need to do is the next run with dry run set to false
+4. That code is already there in main.go
+
+Looking at the code in main.go, I can see in the `sendQueryToLLM()` function:
+
+1. First `ExtractFiles()` call with `DryRun: true` to do the token counting check
+2. Then after the token limit loop, there's a second `ExtractFiles()` call with `DryRun: false` to actually extract the files
+
+The user is saying: "we don't need to re-run the query after the user closes the modal dialog" - meaning we don't need to call `grok.SendWithFiles()` again. We already have the response from the LLM. We just need to:
+
+1. Run ExtractFiles with dry run to detect unexpected files
+2. Show them to the user
+3. User selects which unexpected files to approve
+4. Re-run ExtractFiles with the expanded outfiles list (but NOT re-run SendWithFiles)
+
+So the flow would be:
+1. `sendQueryToLLM()` gets the response from LLM
+2. Runs ExtractFiles with dry run
+3. Detects unexpected files
+4. Sends them to the web UI via WebSocket
+5. User approves them
+6. Back in `sendQueryToLLM()`, we expand the outfiles list and run ExtractFiles again with DryRun: false
+
+But wait - the current code structure has `sendQueryToLLM()` just running once with dry run, then running again with DryRun: false. This happens synchronously in the same function call.
+
+The user's point is: we can't wait for the user's response via the WebSocket in the middle of `sendQueryToLLM()` because that's a synchronous function. 
+
+The approach needs to change. `sendQueryToLLM()` should return after the dry run extraction, letting `processQuery()` handle the unexpected files. Once the user approves them through the WebSocket, `processQuery()` can then call back into the extraction logic with the updated file list and `DryRun: false` to complete the actual extraction.
+
+This avoids re-querying the LLM since we already have the response—we're just re-running `ExtractFiles()` with different parameters once approval comes through.
+
+The user seems to be pointing out that the real extraction logic already exists in main.go, so we don't need to rebuild it. After the user closes the modal and approves the unexpected files, we simply trigger that existing extraction with `dry_run` set to false and the expanded file list. This sidesteps the need for complex async handling or restructuring—we just reuse what's already there.
+
+
+---
+
+
+
+**before phase 2, we do need to update the outfiles list based on any changes the user may have made in the modal**
+
+
+
+
+# Update Outfiles Between Dry Run and Real Extraction Based on User Approval
+
+The current `sendQueryToLLM()` flow must be modified to update the `outfiles` list based on user file selections in the modal dialog before executing the real (non-dry-run) `ExtractFiles()` call[1][2].
+
+## Current Flow Issue
+
+Currently, `sendQueryToLLM()` executes both `ExtractFiles()` calls sequentially and synchronously, which prevents user interaction between them[1]:
+
+```go
+// First call (dry run)
+result, err := core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
+    DryRun: true,
+    ...
+})
+
+// Second call (real extraction) - happens immediately, no user input
+result, err = core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
+    DryRun: false,
+    ...
+})
+```
+
+## Required Changes
+
+**Phase 1: Detect and Categorize Unexpected Files** (`sendQueryToLLM()`)[1]
+
+After the dry-run `ExtractFiles()` call, examine `result.UnexpectedFiles` and send a WebSocket notification with categorized files to the client:
+- Files already authorized but not in original `outFiles` request
+- Files not yet authorized (need CLI addition first)
+
+**Phase 2: Pause and Return Control to Caller** (`sendQueryToLLM()`)[1]
+
+Instead of immediately calling `ExtractFiles()` with `DryRun: false`, `sendQueryToLLM()` returns early with:
+- The cooked response from the dry run
+- Metadata about unexpected files detected
+- A flag indicating that real extraction is pending
+
+**Phase 3: User Makes File Selection** (`project.html` - Modal Dialog)[2]
+
+User can:
+- Check/uncheck the "Out" column for already-authorized files
+- The checkboxes automatically update IndexedDB selections
+- User optionally adds unauthorized files via CLI (which triggers `fileListUpdated` broadcast)
+
+**Phase 4: User Closes Modal and Triggers Real Extraction** (`main.go` - `processQuery()`)[1][2]
+
+After user closes the modal or confirms approval:
+1. Query the current file selections from IndexedDB (or from the client state)
+2. Expand the original `outFiles` list with newly-approved files
+3. Call `ExtractFiles()` again with `DryRun: false` and the updated `outFiles` list
+
+## Implementation Sketch
+
+**Separate the extraction into two phases:**
+
+```go
+// Phase 1: Dry run in sendQueryToLLM returns early
+result, err := core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
+    DryRun: true,
+})
+
+// If unexpected files detected, notify and return
+if len(result.UnexpectedFiles) > 0 {
+    // Send notification to client
+    sendUnexpectedFilesNotification(...)
+    // Return early - DON'T do real extraction yet
+    return result.CookedResponse, nil
+}
+
+// If no unexpected files, proceed with real extraction immediately
+result, err = core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
+    DryRun: false,
+})
+```
+
+**Phase 2: Real extraction triggered from processQuery via WebSocket message:**
+
+```go
+// In readPump, handle new message type when user approves files
+if msgType == "approveFiles" {
+    approvedFiles := msg["approvedFiles"].([]string)
+    // Call helper to redo extraction with expanded outfiles
+    expandedOutFiles := append(originalOutFiles, approvedFiles...)
+    redo_extraction(response, expandedOutFiles)
+}
+```
+
+## Key Design Point
+
+The `outfiles` list used in the second `ExtractFiles()` call must include:
+1. Files from the original `outFiles` request that user had checked in the modal ("In" column)
+2. Files from "already authorized" category that user enabled ("Out" column)
+3. Files from "needs authorization" category that user added via CLI and then enabled
+
+This requires tracking which files the user has actually selected for output in the modal, then passing that selection back to complete the extraction[1][2].
+
+## References
+
+[1] [https://golang.org/doc/effective_go#concurrency](https://golang.org/doc/effective_go#concurrency)
+[2] [https://developer.mozilla.org/en-US/docs/Web/API/WebSocket](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to reconsider the plan for "Implement Two-Phase File Extraction: Dry Run, User Approval, Then Real Extraction" with a focus on updating the outfiles list based on user changes in the modal dialog before phase 2.
+
+Looking at the system prompt instructions at the very top:
+1. I'm a researcher
+2. Answer ONLY the query at the end
+3. The query is: "before phase 2, we do need to update the outfiles list based on any changes the user may have made in the modal"
+4. Start with markdown heading
+5. Limit discussion to 8192 tokens (about 2340 words)
+6. Don't include empty square brackets
+7. Enclose reference numbers in square brackets
+8. Don't skip array indices in Go code
+9. Output files (FILE-START/FILE-END) don't count against limit
+
+The user is saying that before phase 2 (real extraction with DryRun: false), we need to update the outfiles list based on any changes the user made in the modal dialog.
+
+Looking at the provided code, I can see:
+- The modal displays the file list with In/Out checkboxes
+- The project.html has JavaScript that manages file selection via IndexedDB
+- The main.go's sendQueryToLLM function does:
+  1. First ExtractFiles call with DryRun: true (for token counting)
+  2. Then ExtractFiles call with DryRun: false (for real extraction)
+
+The user is saying we need to update outfiles between the dry run and the real extraction based on what the user selected in the modal.
+
+But wait - looking at the architecture, the first ExtractFiles (dry run) happens synchronously in sendQueryToLLM. If we want to show the modal and wait for user interaction, that needs to happen in processQuery after sendQueryToLLM returns (or we need to restructure sendQueryToLLM significantly).
+
+I think the user is pointing out that currently:
+
+
+- The dry run and real extraction happen back-to-back without any user interaction in between
+- We need to break this flow so that after the dry run completes, we can display unexpected files to the user, let them modify selections, and then proceed with the real extraction using their updated choices
+- This means restructuring sendQueryToLLM to return after the dry run, showing the modal in processQuery, and then triggering the real extraction only after user approval
+
+
+---
+
+
+
+**phase 3 (modal) needs to happen before phase 2 (non-dry-run extract).  is there a problem with doing websocket I/O in the middle of sendQueryToLLM like this?  the alternative might be to run sendQueryToLLM twice and have it return some sort of exception that instead triggers the websocket I/O, but that sounds more complex and would require more code changes.  maybe we should just rename sendQueryToLLM to something like workWithLLM**
+
+
+
+
+# WebSocket I/O in sendQueryToLLM: Feasibility and Architecture
+
+No fundamental problem exists with doing WebSocket I/O in the middle of `sendQueryToLLM()`, but it requires proper synchronization primitives to coordinate between the main goroutine and the `readPump()` goroutine handling WebSocket messages[1][2].
+
+## Feasibility Assessment
+
+**Technically Feasible with Channel-Based Coordination**[1]
+
+Go's channels are designed exactly for this use case: one goroutine (`sendQueryToLLM()`) blocks waiting for a signal, while another goroutine (`readPump()`) sends that signal when user approval arrives via WebSocket.
+
+**Implementation Pattern**:
+```go
+// In processQuery, create approval channel for this specific query
+approvalChan := make(chan []string)  // receives approved file list
+pendingApprovals[queryID] = approvalChan
+
+// In sendQueryToLLM, after dry run detection:
+if len(result.UnexpectedFiles) > 0 {
+    sendWebSocketNotification(...)
+    // Block until user approves via readPump
+    approvedFiles := <-approvalChan
+    // Continue with phase 2
+}
+
+// In readPump, when approval message arrives:
+if msgType == "approveFiles" {
+    approvalChan := pendingApprovals[queryID]
+    approvalChan <- approvedFiles
+}
+```
+
+This is straightforward and idiomatic Go[1][2].
+
+## Renaming sendQueryToLLM to workWithLLM
+
+**Strongly Recommend This Rename**[1]
+
+`sendQueryToLLM()` is now a misnomer. The function:
+- Sends query to LLM
+- Detects unexpected files
+- Optionally waits for user approval
+- Extracts files
+- Returns processed response
+
+This is orchestration work, not just sending a query. Renaming to `workWithLLM()` or `processLLMResponse()` better reflects the responsibility[1].
+
+**Additional Considerations**[1]:
+- Update any comments in `processQuery()` to explain the two-phase flow
+- Add goroutine safety comments around the `pendingApprovals` map
+- Use a `sync.Map` or protect with mutex for thread-safe access to pending approvals
+
+## References
+
+[1] [https://golang.org/doc/effective_go#concurrency](https://golang.org/doc/effective_go#concurrency)
+[2] [https://golang.org/ref/spec#Channel_types](https://golang.org/ref/spec#Channel_types)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking about whether there's a problem with doing WebSocket I/O in the middle of `sendQueryToLLM()` function. They want to know if it's feasible to pause execution, show a modal dialog to the user, wait for user input via WebSocket, and then continue execution.
+
+They suggest that the alternative would be to run `sendQueryToLLM()` twice with some exception handling, which they note would be more complex.
+
+They also suggest renaming `sendQueryToLLM()` to something like `workWithLLM()` to better reflect that it does more than just send a query.
+
+Looking at the instructions at the top, I need to:
+1. Start with a markdown heading
+2. Limit discussion to 8192 tokens
+3. Answer ONLY the query at the end
+4. Don't include empty square brackets
+5. Enclose reference numbers in square brackets
+6. Don't skip array indices in Go code
+
+The query is: "phase 3 (modal) needs to happen before phase 2 (non-dry-run extract). is there a problem with doing websocket I/O in the middle of sendQueryToLLM like this? the alternative might be to run sendQueryToLLM twice and have it return some sort of exception that instead triggers the websocket I/O, but that sounds more complex and would require more code changes. maybe we should just rename sendQueryToLLM to something like workWithLLM"
+
+This is asking me to discuss whether it's okay to do WebSocket I/O in the middle of `sendQueryToLLM()`, and whether renaming it to `workWithLLM()` would be better.
+
+Actually, looking at the current code, the two-phase extraction already happens in `sendQueryToLLM()`. The function calls `ExtractFiles()` with `DryRun: true` first, then with `DryRun: false`. So the question is about adding user interaction (via WebSocket modal) between these two calls.
+ 
+Implementing WebSocket I/O within `sendQueryToLLM()` would require a synchronization mechanism like a channel to coordinate user input. This introduces complexity in the function's design, potentially breaking its current synchronous flow. A cleaner approach might involve splitting the function, returning after the dry run and creating a separate method to handle user approval and subsequent file extraction.
+
+
+---
+
+
+
+**is there a vim or neovim plugin that can be used to present a side-by-side vimdiff of the same file on different git branches?**
+
+
+
+
+# Vim/Neovim Plugins for Side-by-Side Git Branch File Comparison
+
+Yes, there are several approaches to view the same file on different git branches side-by-side in Vim or Neovim[1][2]. The most effective methods combine built-in Vim functionality with git commands or dedicated plugins.
+
+## Built-In Approach: Vim's Diffthis Command
+
+The simplest approach uses Vim's native `vimdiff` with git without requiring plugins[1]:
+
+```vim
+:edit /tmp/file.branch1
+:diffthis
+:vsplit
+:edit /tmp/file.branch2
+:diffthis
+```
+
+However, this requires manual file management. A more streamlined approach uses a custom command that leverages git directly[1]:
+
+```vim
+:!git show branch1:path/to/file > /tmp/file.branch1
+:!git show branch2:path/to/file > /tmp/file.branch2
+:tabnew
+:vsplit
+:edit /tmp/file.branch1
+:diffthis
+:vsplit
+:edit /tmp/file.branch2
+:diffthis
+```
+
+## Dedicated Plugins
+
+### 1. vim-fugitive with diffthis[2]
+
+The `vim-fugitive` plugin by Tim Pope provides seamless git integration and works well with Vim's built-in diff functionality. While it doesn't have a dedicated "branch diff" command, you can combine its `:Gedit` command with diffing[2]:
+
+```vim
+:tabnew
+:Gedit branch1:path/to/file
+:diffthis
+:vsplit
+:Gedit branch2:path/to/file
+:diffthis
+```
+
+This approach keeps file retrieval within Vim and automatically handles git operations[1][2].
+
+### 2. vim-gitbranch Integration
+
+The `vim-gitbranch` plugin provides branch awareness, and when combined with fugitive and custom mappings, allows quick branch switching and comparison[1]. You can create a mapping that opens two side-by-side splits with the file from different branches.
+
+### 3. fzf.vim with Git Integration[2]
+
+For a more interactive approach, `fzf.vim` combined with `vim-fugitive` allows you to:
+- Browse available branches with `:GBranches`
+- Create a custom command that opens two files from selected branches
+- View differences between them side-by-side
+
+## Recommended Custom Solution
+
+The most practical approach for regular use is to create a custom Vim command. Add this to your `init.vim` (Neovim) or `.vimrc` (Vim)[1][2]:
+
+```vim
+function! DiffBranchFile(branch1, branch2, filepath)
+  tabnew
+  execute 'Gedit ' . a:branch1 . ':' . a:filepath
+  diffthis
+  vsplit
+  execute 'Gedit ' . a:branch2 . ':' . a:filepath
+  diffthis
+endfunction
+
+command! -nargs=+ DiffBranch call DiffBranchFile(<f-args>)
+```
+
+Usage: `:DiffBranch main develop path/to/file.go`
+
+This command requires `vim-fugitive` to be installed but provides a clean, repeatable workflow[1][2].
+
+## For Neovim Specifically
+
+Neovim users can leverage Lua scripting for more powerful custom commands[1]. The `telescope.nvim` plugin combined with `vim-fugitive` provides an even more streamlined experience with fuzzy-finding capabilities for branches and files.
+
+## References
+
+[1] [https://github.com/tpope/vim-fugitive](https://github.com/tpope/vim-fugitive)
+[2] [https://vim.fandom.com/wiki/Using_vim_as_a_diff_tool](https://vim.fandom.com/wiki/Using_vim_as_a_diff_tool)
+
+
+
+## References
+
+- [1] [https://www.honeybadger.io/blog/comprehensive-guide-to-file-operations-in-go/](https://www.honeybadger.io/blog/comprehensive-guide-to-file-operations-in-go/)
+- [2] [https://ably.com/topic/websocket-architecture-best-practices](https://ably.com/topic/websocket-architecture-best-practices)
+- [3] [https://www.simplethread.com/reliable-unstructured-document-content-extraction-with-local-llms/](https://www.simplethread.com/reliable-unstructured-document-content-extraction-with-local-llms/)
+- [4] [https://go.dev/doc/effective_go](https://go.dev/doc/effective_go)
+- [5] [https://blog.bitsrc.io/websocket-communication-patterns-for-real-time-web-apps-526a3d4e8894](https://blog.bitsrc.io/websocket-communication-patterns-for-real-time-web-apps-526a3d4e8894)
+- [6] [https://github.com/lukaszliniewicz/llm2files](https://github.com/lukaszliniewicz/llm2files)
+
+
+
+## Reasoning
+
+The user is asking about a vim or neovim plugin that can present a side-by-side vimdiff of the same file on different git branches.
+
+Looking at the system prompt at the top, I need to:
+1. Start with a markdown heading
+2. Limit discussion to 8192 tokens (about 2340 words)
+3. Don't include empty square brackets
+4. Enclose reference numbers in square brackets
+5. Don't skip array indices in code
+6. Answer ONLY the query at the end
+
+The query is: "is there a vim or neovim plugin that can be used to present a side-by-side vimdiff of the same file on different git branches?"
+
+This is a straightforward question about vim/neovim plugins for comparing files across git branches. I should provide practical solutions and recommend the best approaches.
+
+
+---
+
+
+
+**i'm trying to decide whether to implement the unexpected files flow as we've been planning, or to refactor storm such that the LLM always works on a different branch, then we diff and merge using some sort of side-by-side diff in my editor.  the latter is a significant refactoring, and it still doesn't handle the case of out-of-repo unexpected files.**
+
+
+
+
+# Deciding Between Unexpected File Handling Approaches: Analysis and Recommendation
+
+The planned unexpected files flow is significantly simpler to implement and better addresses the actual problem, compared to a git branch-based refactoring approach[1][2]. The branch-based approach introduces substantial complexity for limited benefit.
+
+## Unexpected Files Flow Approach
+
+**Complexity**: Moderate, well-contained
+
+**What needs to change**:
+- Modify `ExtractFiles()` to return `ExtractResult` struct with metadata (you've already designed this)
+- Add WebSocket message handler in `readPump()` for "cancel" and "approveFiles" messages (already partially done for cancel)
+- Extend `sendQueryToLLM()` to pause after dry run, send notification, and resume after approval via channel synchronization
+- Add modal dialog in `project.html` to display unexpected files
+- Create helper functions in `main.go` for categorizing and tracking pending approvals
+
+**Scope**: Changes isolated to main.go, chat.go (Grokker), and project.html. No architectural changes to Storm's core flow.
+
+**Handles all cases**:
+- Files already authorized but not enabled for output ✓
+- Files not yet authorized (need CLI addition first) ✓
+- Out-of-repo unexpected files ✓
+- Files that the user declines ✓
+
+## Git Branch Refactoring Approach
+
+**Complexity**: Very high, architectural changes throughout
+
+**What would need to change**:
+- Modify file operations to work on separate branches (git checkout, branch creation, etc.)
+- Change query processing to commit results to a branch
+- Integrate git diff viewers or side-by-side diff UI into Storm
+- Handle branch naming, cleanup, merging workflows
+- Manage repository state across multiple simultaneous queries
+- Deal with merge conflicts when user accepts changes
+
+**Scope**: Changes affect core architecture of how queries and files are managed. Significant refactoring of `processQuery()`, file I/O, and potentially the database schema.
+
+**Does NOT handle all cases**:
+- Files outside the repository: Git branches are repo-specific; out-of-repo files can't be diffed this way ✗
+- This creates a different workflow for in-repo vs. out-of-repo files, adding cognitive load
+
+## Key Trade-offs
+
+**Speed to Implementation**[1]
+- Unexpected files flow: 4-6 hours of focused work
+- Branch approach: 20+ hours of architectural work, testing, debugging branch conflicts
+
+**Maintenance Burden**[2]
+- Unexpected files flow: Straightforward to understand and modify; WebSocket patterns are established in codebase
+- Branch approach: Complex git state management; higher risk of subtle bugs in branch handling
+
+**User Experience**[1]
+- Unexpected files flow: Modal dialog with clear instructions; immediate feedback
+- Branch approach: Requires opening external diff tool or embedding complex UI; slower workflow
+
+**Flexibility**[2]
+- Unexpected files flow: User can approve files immediately or add via CLI and re-run
+- Branch approach: Forces a git-centric workflow that may feel unnatural for non-developers
+
+## Recommendation
+
+**Implement the unexpected files flow**. It's:
+- Simpler and lower-risk
+- Handles the full problem space (including out-of-repo files)
+- Fits naturally into Storm's existing WebSocket-based architecture
+- Faster to implement and test
+- Easier to debug and maintain
+
+The git branch approach would be a solution looking for a problem; it trades simplicity for unnecessary complexity without solving the core issue better.
+
+## References
+
+[1] [https://golang.org/doc/effective_go#concurrency](https://golang.org/doc/effective_go#concurrency)
+[2] [https://developer.mozilla.org/en-US/docs/Web/API/WebSocket](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket)
+
+
+
+## References
+
+- [1] [https://www.geeksforgeeks.org/go-language/golang-extracting-all-the-regular-expression-from-the-string/](https://www.geeksforgeeks.org/go-language/golang-extracting-all-the-regular-expression-from-the-string/)
+- [2] [https://pkg.go.dev/golift.io/xtractr](https://pkg.go.dev/golift.io/xtractr)
+- [3] [https://pkg.go.dev/github.com/gorilla/websocket](https://pkg.go.dev/github.com/gorilla/websocket)
+- [4] [https://www.honeybadger.io/blog/a-definitive-guide-to-regular-expressions-in-go/](https://www.honeybadger.io/blog/a-definitive-guide-to-regular-expressions-in-go/)
+- [5] [https://devopsian.net/p/handling-retries-when-sending-files-in-go-lessons-learned/](https://devopsian.net/p/handling-retries-when-sending-files-in-go-lessons-learned/)
+- [6] [https://github.com/gorilla/websocket](https://github.com/gorilla/websocket)
+
+
+
+## Reasoning
+
+The user is asking me to help them decide between two approaches:
+
+1. Implement the unexpected files flow as planned (with WebSocket I/O, user approval, two-phase extraction)
+2. Refactor Storm to work on a different git branch, then use side-by-side diff in an editor to review and merge changes
+
+The user notes that:
+- The second approach is a significant refactoring
+- The second approach still doesn't handle out-of-repo unexpected files
+
+This is a discussion/analysis request about trade-offs between two approaches.
+
+Looking at the system prompt instructions:
+1. I'm a researcher
+2. Answer ONLY the query at the end
+3. The query is asking me to help decide between implementing unexpected files flow vs refactoring to use git branches
+4. Start with markdown heading
+5. Limit discussion to 8192 tokens
+6. This is a discussion query, not a code change request
+
+The user wants me to analyze the trade-offs and help them decide which approach is better.
+
+
+---
+
+
+
+**restate a detailed plan for the the unexpected files flow.  describe it as several stages, with a git commit and testing after each stage.  keep storm functional after each stage.**
+
+
+
+
+# Staged Implementation Plan for Unexpected Files Flow
+
+Implement unexpected file handling in Storm through a series of discrete stages, each maintaining full functionality and progressing toward real-time user approval workflows[1][2].
+
+## Stage 1: Modify ExtractFiles to Return Result Struct (Grokker)
+
+**Objective**: Establish new return type with comprehensive file metadata without changing behavior.
+
+**Changes Required**[1]:
+- Create `ExtractResult` struct in `grokker/v3/core/chat.go` with fields: `RawResponse`, `CookedResponse`, `ExtractedFiles`, `DetectedFiles`, `UnexpectedFiles`, `MissingFiles`, `BrokenFiles`
+- Update `ExtractFiles()` signature to return `(result ExtractResult, err error)` instead of `(cookedResp string, err error)`
+- Populate all struct fields during extraction; build complete list of all detected files (both expected and unexpected)
+- Maintain identical extraction behavior; only the return type changes
+
+**Testing**:
+- Run existing Grokker tests; all should pass
+- Verify `ExtractFiles()` correctly identifies unexpected files in test responses
+- Test with responses containing zero, one, and multiple unexpected files
+
+**Git Commit**: `grokker: Introduce ExtractResult struct for comprehensive file metadata`
+
+---
+
+## Stage 2: Update Grokker Callers to Use Result Struct
+
+**Objective**: Adapt `ContinueChat()` and related functions to work with new return type.
+
+**Changes Required**[1]:
+- Update `ContinueChat()` in `grokker/v3/core/chat.go` to use `result.CookedResponse`
+- Update `extractFromChat()` to handle new return type
+- Update any other internal Grokker callers
+
+**Testing**:
+- Test `ContinueChat()` flow end-to-end with various LLM outputs
+- Verify file extraction still works correctly
+- Verify metadata about unexpected files is available (not yet used)
+
+**Git Commit**: `grokker: Update internal callers to use ExtractResult struct`
+
+---
+
+## Stage 3: Update Storm's sendQueryToLLM to Handle Result
+
+**Objective**: Integrate new return type into Storm's query processing pipeline.
+
+**Changes Required**[1]:
+- Modify `sendQueryToLLM()` in `main.go` to call `ExtractFiles()` and receive `ExtractResult`
+- Use `result.CookedResponse` for the response that gets broadcast
+- Detect unexpected files using `len(result.UnexpectedFiles) > 0` but don't act on them yet
+- Log unexpected files for debugging
+
+**Testing**:
+- Run full Storm query workflow end-to-end
+- Verify responses are processed and displayed correctly
+- Check server logs to confirm unexpected files are detected and logged
+- Test with queries that return unexpected files; verify they're detected but processing continues normally
+
+**Git Commit**: `storm: Integrate ExtractResult into sendQueryToLLM query processing`
+
+---
+
+## Stage 4: Extend ReadPump to Handle "approveFiles" Messages
+
+**Objective**: Add WebSocket message handler infrastructure for future user approval flow.
+
+**Changes Required**[1]:
+- Create pending query tracker: `map[string]PendingQuery` protected by mutex
+- Define `PendingQuery` struct with fields: `queryID`, `rawResponse`, `outFiles`, `approvalChannel`
+- Extend `readPump()` to handle `{type: "approveFiles", queryID, approvedFiles}` messages
+- Send approval signal via channel to waiting `sendQueryToLLM()`
+
+**Testing**:
+- Send "approveFiles" message via WebSocket; verify it's received and logged
+- Verify the message doesn't break existing query flow (no queries are pending approval yet)
+- Test with multiple concurrent queries to verify channel synchronization works
+
+**Git Commit**: `storm: Add pending query tracker and approveFiles message handler`
+
+---
+
+## Stage 5: Implement Dry-Run Detection and WebSocket Notification
+
+**Objective**: Detect unexpected files after dry run and notify clients without requiring approval yet.
+
+**Changes Required**[1][2]:
+- Modify `sendQueryToLLM()` to call `ExtractFiles()` twice: first with `DryRun: true`, then real extraction
+- After dry-run call, categorize `result.UnexpectedFiles`:
+  - `alreadyAuthorized`: filenames in authorized files list
+  - `needsAuthorization`: filenames NOT in authorized files list
+- Send WebSocket notification: `{type: "unexpectedFilesDetected", queryID, alreadyAuthorized: [...], needsAuthorization: [...]}`
+- Pause after notification, waiting for user approval via `approvalChannel`
+
+**Testing**:
+- Query that returns unexpected files should trigger WebSocket notification
+- Verify notification contains correctly categorized files
+- For now, approval doesn't arrive; query should timeout or need manual intervention (acceptable for this stage)
+- Verify notifications don't appear when no unexpected files are detected
+
+**Git Commit**: `storm: Implement dry-run detection and unexpected files WebSocket notification`
+
+---
+
+## Stage 6: Update project.html to Display Unexpected Files Modal
+
+**Objective**: Show user-facing UI for file approval without yet implementing approval logic.
+
+**Changes Required**[2]:
+- Add WebSocket handler for `message.type === "unexpectedFilesDetected"`
+- Open file modal automatically when notification arrives
+- Create two sections in modal:
+  - "Already Authorized" section with table of files (same format as file list)
+  - "Needs Authorization" section with simple list showing CLI command to add each file
+- Add "Confirm" button to close modal (approval not yet functional)
+
+**Testing**:
+- Trigger unexpected files notification; verify modal opens automatically
+- Verify file categorization is displayed correctly
+- Verify modal can be closed; verify query completes without re-extraction (using first extraction results)
+- Test with mix of already-authorized and needs-authorization files
+
+**Git Commit**: `storm: Add unexpected files modal UI to project.html`
+
+---
+
+## Stage 7: Implement Approval Flow and Re-extraction
+
+**Objective**: Complete the two-phase extraction workflow with user approval.
+
+**Changes Required**[1][2]:
+- In `project.html`, add change listeners to "Already Authorized" file checkboxes
+- When user checks "Out" column, capture the selection and send `approveFiles` message
+- In `readPump()`, when `approveFiles` message arrives, extract selected files from `PendingQuery`
+- In `sendQueryToLLM()`, upon receiving approval via channel:
+  - Expand `outfiles` list to include approved files
+  - Call `ExtractFiles()` again with `DryRun: false` and expanded list
+  - Continue normal completion of response
+
+**Testing**:
+- Query returns unexpected files
+- Modal opens showing already-authorized files
+- User checks "Out" checkbox for some files
+- Approval is sent via WebSocket
+- New files are extracted via second `ExtractFiles()` call
+- Verify all files (original + newly-approved) are written to disk
+- Test edge cases: user approves nothing, user approves all, user approves subset
+
+**Git Commit**: `storm: Implement user approval flow with re-extraction of approved files`
+
+---
+
+## Stage 8: Handle Files Needing Authorization
+
+**Objective**: Support adding unauthorized files via CLI during modal approval window.
+
+**Changes Required**[1][2]:
+- In `project.html`, when user clicks "Add File" button for needs-authorization file, copy CLI command to clipboard
+- User manually runs: `storm file add --project storm <filename>`
+- Existing `fileListUpdated` WebSocket broadcast handler already updates file list
+- Update modal to reflect newly-authorized files moving from "Needs Authorization" to "Already Authorized" section
+- User can then approve the newly-authorized file
+
+**Testing**:
+- Query returns needs-authorization files
+- Modal shows them in "Needs Authorization" section
+- User copies CLI command and runs it manually
+- File list updates via WebSocket broadcast
+- Modal refreshes to show file moved to "Already Authorized"
+- User enables the file and sends approval
+- File is extracted via re-extraction call
+
+**Git Commit**: `storm: Support adding unauthorized files during approval window`
+
+---
+
+## Stage 9: Handle Declined Files and Modal Closure
+
+**Objective**: Support users declining to approve files and gracefully complete queries without re-extraction.
+
+**Changes Required**[1]:
+- If user closes modal without sending approval message, query should complete with first extraction results (status quo)
+- Files that were declined are simply not re-extracted
+- No permanent tracking needed; ephemeral choice
+
+**Testing**:
+- Query returns unexpected files
+- Modal opens
+- User closes modal without approving anything
+- Query completes with original extraction (no re-extraction)
+- Verify declined file content is NOT in output files
+
+**Git Commit**: `storm: Support modal closure without approval; complete query with original extraction`
+
+---
+
+## Stage 10: End-to-End Testing and Documentation
+
+**Objective**: Comprehensive testing across all scenarios and document the feature.
+
+**Testing Scenarios**[1][2]:
+1. No unexpected files returned - query completes normally (no modal)
+2. Only already-authorized files returned - user enables them, re-extraction occurs
+3. Only needs-authorization files returned - user adds via CLI, then enables
+4. Mixed unexpected files - user approves subset, adds some via CLI
+5. User closes modal without approval - query completes with original extraction
+6. Multiple concurrent queries with unexpected files
+7. Cancel button still works during approval flow
+8. File permissions and error handling for failed re-extractions
+
+**Documentation**:
+- Add comments to `sendQueryToLLM()` explaining dry-run and two-phase extraction
+- Document WebSocket message format for `unexpectedFilesDetected`
+- Update README with unexpected files feature description
+
+**Git Commit**: `storm: Complete end-to-end testing and document unexpected files feature`
+
+---
+
+## Testing After Each Stage
+
+**General Approach for All Stages**[1]:
+
+After each stage:
+1. **Functional Test**: Verify core Storm query flow still works (no unexpected files)
+2. **Unit Tests**: Test new functions in isolation
+3. **Integration Test**: Test with unexpected files present in LLM responses
+4. **Regression Test**: Run full Storm test suite; all existing tests must pass
+5. **Manual Test**: Interact with web UI; verify no UI regressions
+
+**Tool Commands**:
+```bash
+# Run tests after each commit
+go test -v -p 1 ./...
+
+# Build and test locally
+make build
+./storm serve --port 8080
+# Open browser and test queries
+```
+
+## References
+
+[1] [https://golang.org/doc/effective_go#concurrency](https://golang.org/doc/effective_go#concurrency)
+[2] [https://developer.mozilla.org/en-US/docs/Web/API/WebSocket](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket)
+
+
+
+## References
+
+- [1] [https://www.honeybadger.io/blog/a-definitive-guide-to-regular-expressions-in-go/](https://www.honeybadger.io/blog/a-definitive-guide-to-regular-expressions-in-go/)
+- [2] [https://zetcode.com/golang/regexp-findallsubmatch/](https://zetcode.com/golang/regexp-findallsubmatch/)
+- [3] [https://tutorialedge.net/golang/parsing-json-with-golang/](https://tutorialedge.net/golang/parsing-json-with-golang/)
+- [4] [https://gobyexample.com/regular-expressions](https://gobyexample.com/regular-expressions)
+- [5] [https://forums.ni.com/t5/LabVIEW/Regular-expression-help-please-extracting-a-string-subset/td-p/2117616](https://forums.ni.com/t5/LabVIEW/Regular-expression-help-please-extracting-a-string-subset/td-p/2117616)
+- [6] [https://forum.golangbridge.org/t/how-to-use-go-to-parse-text-files/31074](https://forum.golangbridge.org/t/how-to-use-go-to-parse-text-files/31074)
+- [7] [https://yalantis.com/blog/how-to-build-websockets-in-go/](https://yalantis.com/blog/how-to-build-websockets-in-go/)
+- [8] [https://aws.amazon.com/blogs/compute/serverless-strategies-for-streaming-llm-responses/](https://aws.amazon.com/blogs/compute/serverless-strategies-for-streaming-llm-responses/)
+- [9] [https://ably.com/topic/websocket-architecture-best-practices](https://ably.com/topic/websocket-architecture-best-practices)
+- [10] [https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API)
+- [11] [https://upstash.com/blog/resumable-llm-streams](https://upstash.com/blog/resumable-llm-streams)
+- [12] [https://learn.microsoft.com/en-us/azure/architecture/patterns/async-request-reply](https://learn.microsoft.com/en-us/azure/architecture/patterns/async-request-reply)
+- [13] [https://golangbot.com/context-timeout-cancellation/](https://golangbot.com/context-timeout-cancellation/)
+- [14] [https://www.micahwalter.com/2023/11/working-with-amazon-bedrocks-streaming-response-api-and-go/](https://www.micahwalter.com/2023/11/working-with-amazon-bedrocks-streaming-response-api-and-go/)
+- [15] [https://elixirforum.com/t/any-tips-on-streaming-llm-responses-from-phoenix-sockets/65574](https://elixirforum.com/t/any-tips-on-streaming-llm-responses-from-phoenix-sockets/65574)
+- [16] [https://konradreiche.com/blog/context-is-for-goroutine-cancellation/](https://konradreiche.com/blog/context-is-for-goroutine-cancellation/)
+- [17] [https://betterprogramming.pub/writing-a-stream-api-in-go-afbc3c4350e2](https://betterprogramming.pub/writing-a-stream-api-in-go-afbc3c4350e2)
+- [18] [https://github.com/stanford-oval/storm](https://github.com/stanford-oval/storm)
+- [19] [https://www.datastudios.org/post/grok-ai-context-window-token-limits-and-memory-architecture-performance-and-retention-behavior](https://www.datastudios.org/post/grok-ai-context-window-token-limits-and-memory-architecture-performance-and-retention-behavior)
+
+
+
+## Reasoning
+
+The user is asking me to "restate a detailed plan for the unexpected files flow. describe it as several stages, with a git commit and testing after each stage. keep storm functional after each stage."
+
+This is asking me to provide a staged implementation plan for the unexpected files feature, with clear milestones, commits, and testing between each stage, ensuring the application remains functional throughout.
+
+Looking at the system prompt:
+1. I'm a researcher
+2. Answer ONLY the query at the end
+3. The query is asking for a detailed plan in stages with commits and testing
+4. Start with markdown heading
+5. Limit discussion to 8192 tokens (about 2340 words)
+6. Don't include empty square brackets
+7. Enclose reference numbers in square brackets
+8. Don't skip array indices in Go code
+9. Output files don't count against limit
+10. Return complete files only
+
+The user wants a staged plan for implementing the unexpected files feature. Given the code they've provided, I should outline stages that:
+- Keep Storm functional after each stage
+- Include git commits after each stage
+- Include testing after each stage
+- Build toward the final unexpected files feature
+
+Looking at the current architecture:
+- Stage 1: Modify ExtractFiles to return ExtractResult struct with metadata
+- Stage 2: Update callers to use new ExtractResult struct
+- Stage 3: Add WebSocket cancellation support (already partially done)
+- Stage 4: Add dry-run detection for unexpected files
+- Stage 5: Add WebSocket notification for unexpected files
+- Stage 6: Add modal UI for file approval
+- Stage 7: Implement re-extraction with user-approved files
+- Stage 8: Test end-to-end flow
+
+Let me outline this as a detailed plan.
+
+
+---
+
+
+
+**which makes more sense:
+- find or write client-side test code that mocks the browser, handles both http and websocket, etc.
+- use playwright
+
+list pros and cons**
+
+
+
+
+# Client-Side Test Mocking vs. Playwright: Testing Approach Comparison
+
+For testing Storm's web interface, both approaches have distinct trade-offs. Here's a detailed comparison[1][2]:
+
+## Client-Side Test Mocking (Custom Implementation)
+
+**Pros:**
+- Full control over test implementation and behavior[1]
+- Tests run in Node.js without a browser; faster execution
+- Easy to inspect internal state and mock specific scenarios
+- No external tool dependencies (beyond standard testing frameworks)
+- Granular control over WebSocket message timing and ordering
+- Can test edge cases that are hard to trigger in real browsers (e.g., dropped packets, delayed responses)
+- Tests integrate naturally with your CI/CD pipeline without browser installation
+
+**Cons:**
+- Significant upfront development effort: must mock browser APIs (DOM, fetch, WebSocket)[1][2]
+- Browser behavior is complex; mock may miss subtle edge cases (e.g., event ordering, timing quirks)
+- Maintaining mock implementations as browser standards evolve
+- False sense of confidence—passing tests don't guarantee browser compatibility
+- Debugging failures is harder without seeing actual browser rendering
+- WebSocket mocking in particular can be tricky; timing-sensitive tests are fragile
+- Test code becomes tightly coupled to implementation details
+- Cannot test visual rendering, CSS interactions, or actual file I/O behavior
+
+## Playwright (Automated Browser Testing)
+
+**Pros:**
+- Tests run in real browsers (Chromium, Firefox, WebKit); guarantees actual compatibility[1][2]
+- No need to mock browser APIs; tests see the real DOM and WebSocket behavior
+- Visual regression testing available via screenshot comparisons
+- Can test actual file upload/download flows
+- Excellent debugging tools: inspect elements, see network traffic, replay failures
+- Lower cognitive load: tests read like user interactions ("click button", "fill input")
+- Browser-agnostic tests can verify compatibility across multiple browsers
+- Catches rendering bugs, CSS issues, and real browser quirks
+- Well-maintained tool with extensive documentation and community support
+- Can test accessibility (keyboard navigation, screen reader compatibility)
+
+**Cons:**
+- Slower test execution (launching browsers, waiting for renders)[2]
+- Requires browser binaries to be installed (or use Docker for CI/CD)
+- More heavyweight in CI/CD pipelines; may require additional setup
+- Harder to test specific edge cases that mocks can easily trigger
+- Less control over internal timing (harder to test race conditions)
+- Tests are less granular; harder to isolate which component failed
+- Slightly higher resource usage (CPU/memory) on test machines
+- Learning curve for Playwright-specific APIs and best practices
+
+## Specific Considerations for Storm
+
+**Testing HTTP Endpoints:**
+- Mocking: Need to mock `fetch()` and response handling
+- Playwright: Real HTTP requests; tests verify actual API integration
+
+**Testing WebSocket Communication:**
+- Mocking: Need to mock WebSocket class and message flow; timing-sensitive
+- Playwright: Real WebSocket connection; tests verify actual broadcast behavior
+- **Note**: WebSocket mocking is particularly fragile because it's easy to get message ordering or timing wrong
+
+**Testing File I/O (IndexedDB, file selections):**
+- Mocking: Must mock IndexedDB API; tests don't verify real persistence behavior
+- Playwright: Tests real IndexedDB interactions; verifies persistence across page reloads
+
+**Testing Modal Dialogs and UI Interactions:**
+- Mocking: DOM mocking is complex; difficult to verify CSS visibility, click targets
+- Playwright: Tests real DOM interactions; clicks actually work as users expect
+- **This is critical for Storm's file modal**
+
+**Testing Token Count and Progress Updates:**
+- Mocking: Can simulate server responses quickly
+- Playwright: Must wait for actual server responses; slower but more realistic
+
+## Recommendation
+
+**Hybrid Approach** is often optimal[1][2]:
+- Use **Playwright for end-to-end tests** of critical user workflows:
+  - User submits query → response appears → file list updates
+  - User opens file modal → changes checkboxes → submits query with new selection
+  - User cancels query → modal closes → error displays
+  
+- Use **Unit tests with mocking** for isolated backend logic:
+  - API endpoint handlers (already have good test coverage potential)
+  - File categorization logic
+  - Token count calculations
+
+**Minimal Viable Approach:**
+If resources are limited, start with **Playwright** because:
+- Real browser testing catches more real-world bugs[1]
+- Storm's complexity (WebSocket + IndexedDB + modal interactions) makes mocking fragile
+- WebSocket testing especially is error-prone without a real browser
+- Initial setup effort for Playwright is lower than building a robust mock system
+- You can start with a few critical user journeys and expand coverage gradually
+
+If you later need faster test cycles, you can add targeted unit tests with mocking alongside Playwright tests.
+
+## References
+
+[1] [https://playwright.dev/docs/intro](https://playwright.dev/docs/intro)
+[2] [https://jestjs.io/docs/getting-started](https://jestjs.io/docs/getting-started)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to compare two approaches for testing the Storm project:
+1. Write client-side test code that mocks the browser, handles both HTTP and WebSocket, etc.
+2. Use Playwright
+
+They want me to list pros and cons for each.
+
+Looking at the system prompt at the very top, I need to:
+1. Start with a markdown heading
+2. Limit discussion to 8192 tokens (about 2340 words)
+3. Answer ONLY the query at the end
+4. Don't include empty square brackets
+5. Enclose reference numbers in square brackets
+
+This is a discussion/comparison query about testing approaches.
 
 
 ---
