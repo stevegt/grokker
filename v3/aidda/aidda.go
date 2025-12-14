@@ -825,7 +825,7 @@ func generate(g *core.Grokker, modelName string, p *Prompt) (err error) {
 	}
 
 	// save the output files
-	_, err := core.ExtractFiles(outFls, resp, core.ExtractOptions{
+	_, err = core.ExtractFiles(outFls, resp, core.ExtractOptions{
 		DryRun:          false,
 		ExtractToStdout: false,
 	})
