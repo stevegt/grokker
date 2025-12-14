@@ -1,0 +1,31 @@
+<think>
+I need to create a comprehensive response with all metadata sections.
+This includes thinking, the file, references, and reasoning.
+The user should see all parts processed correctly.
+</think>
+
+Based on the request, I've created the following file:
+
+---FILE-START filename="result.txt"---
+Complete Solution File
+
+This file demonstrates a comprehensive response structure.
+It contains properly formatted content.
+All metadata sections are handled appropriately.
+The file extraction process should work correctly.
+---FILE-END filename="result.txt"---
+
+## References
+
+- [1] [https://example.com/reference1](https://example.com/reference1)
+- [2] [https://example.com/reference2](https://example.com/reference2)
+
+## Reasoning
+
+The solution was derived through careful analysis of the requirements:
+- Understanding the expected output format
+- Creating properly structured file blocks
+- Ensuring all metadata is correctly positioned
+- Validating the extraction process
+
+This comprehensive example demonstrates proper handling of complex responses.

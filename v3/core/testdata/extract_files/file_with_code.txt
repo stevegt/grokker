@@ -1,0 +1,62 @@
+Here is the complete Go source file:
+
+---FILE-START filename="main.go"---
+package main
+
+import (
+	"fmt"
+	"os"
+	"strings"
+)
+
+type Config struct {
+	Name    string
+	Version string
+	Debug   bool
+}
+
+func (c *Config) String() string {
+	return fmt.Sprintf("Config{Name: %s, Version: %s, Debug: %v}", c.Name, c.Version, c.Debug)
+}
+
+func parseConfig(data []byte) (*Config, error) {
+	lines := strings.Split(string(data), "\n")
+	cfg := &Config{}
+	
+	for _, line := range lines {
+		if strings.HasPrefix(line, "name=") {
+			cfg.Name = strings.TrimPrefix(line, "name=")
+		} else if strings.HasPrefix(line, "version=") {
+			cfg.Version = strings.TrimPrefix(line, "version=")
+		} else if strings.HasPrefix(line, "debug=") {
+			cfg.Debug = strings.TrimPrefix(line, "debug=") == "true"
+		}
+	}
+	
+	return cfg, nil
+}
+
+func main() {
+	if len(os.Args) < 2 {
+		fmt.Println("Usage: program <config-file>")
+		os.Exit(1)
+	}
+	
+	data, err := os.ReadFile(os.Args[1])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading config: %v\n", err)
+		os.Exit(1)
+	}
+	
+	cfg, err := parseConfig(data)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing config: %v\n", err)
+		os.Exit(1)
+	}
+	
+	fmt.Println("Loaded configuration:")
+	fmt.Println(cfg)
+}
+---FILE-END filename="main.go"---
+
+This is a complete, functional Go program with proper structure and error handling.

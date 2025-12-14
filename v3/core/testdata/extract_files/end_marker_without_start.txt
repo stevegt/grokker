@@ -1,0 +1,7 @@
+This response has some content but an orphaned end marker.
+
+Some regular text without a matching file block.
+
+---FILE-END filename="orphaned.txt"---
+
+The above end marker has no corresponding start marker, which is invalid.

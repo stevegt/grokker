@@ -1,0 +1,9 @@
+Here is the output file:
+
+---FILE-START filename="output.txt"---
+This is a simple test file.
+It contains multiple lines.
+Each line should be preserved exactly.
+---FILE-END filename="output.txt"---
+
+That completes the file extraction.

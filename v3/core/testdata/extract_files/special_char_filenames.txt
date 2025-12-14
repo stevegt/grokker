@@ -1,0 +1,27 @@
+I'll create files with special characters in their names:
+
+---FILE-START filename="my-file.json"---
+{
+  "name": "test",
+  "version": "1.0.0",
+  "enabled": true
+}
+---FILE-END filename="my-file.json"---
+
+---FILE-START filename="src/main.go"---
+package main
+
+func main() {
+	println("Main function")
+}
+---FILE-END filename="src/main.go"---
+
+---FILE-START filename="config_prod.yaml"---
+server:
+  host: localhost
+  port: 8080
+database:
+  connection_string: postgres://localhost/db
+---FILE-END filename="config_prod.yaml"---
+
+All files with special characters have been created.

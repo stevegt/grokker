@@ -1,0 +1,18 @@
+I've analyzed the question and created the following file:
+
+---FILE-START filename="report.txt"---
+Research Report Summary
+
+Key Findings:
+- First finding based on reference material
+- Second finding from cited sources
+- Conclusion based on analysis
+---FILE-END filename="report.txt"---
+
+## References
+
+- [1] [https://example.com/source1](https://example.com/source1)
+- [2] [https://example.com/source2](https://example.com/source2)
+- [3] [https://example.com/source3](https://example.com/source3)
+
+All sources have been properly cited above.

@@ -1,0 +1,9 @@
+I'll create a file with Windows line endings:
+
+---FILE-START filename="windows.txt"---
+Line 1 with CRLF
+Line 2 with CRLF
+Line 3 with CRLF
+---FILE-END filename="windows.txt"---
+
+The above file should preserve CRLF line endings if present in the original response.

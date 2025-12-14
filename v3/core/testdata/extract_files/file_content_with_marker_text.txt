@@ -1,0 +1,33 @@
+I'll create a README that documents file markers:
+
+---FILE-START filename="readme.md"---
+# File Extraction Format
+
+This document explains the file marker format used in responses.
+
+## Marker Format
+
+Files are marked with the following format:
+
+---FILE-START filename="filename"---
+[file content goes here]
+---FILE-END filename="filename"---
+
+Note that the start marker is:
+`---FILE-START filename="<name>"---`
+
+And the end marker is:
+`---FILE-END filename="<name>"---`
+
+These markers are used to delimit file content in responses.
+
+## Implementation
+
+When parsing responses, look for lines that match:
+- Start: `---FILE-START filename="..."`
+- End: `---FILE-END filename="..."`
+
+Content between these markers should be extracted exactly as-is.
+---FILE-END filename="readme.md"---
+
+This file contains documentation about the marker format itself.

@@ -1,0 +1,35 @@
+I'll create three Go files for you.
+
+First, the primary file:
+
+---FILE-START filename="file1.go"---
+package main
+
+import "fmt"
+
+func main() {
+	fmt.Println("Hello from file1")
+}
+---FILE-END filename="file1.go"---
+
+Now the second file:
+
+---FILE-START filename="file2.go"---
+package main
+
+func helper() string {
+	return "Helper function from file2"
+}
+---FILE-END filename="file2.go"---
+
+And finally the third file:
+
+---FILE-START filename="file3.go"---
+package main
+
+func utility() {
+	println("Utility function from file3")
+}
+---FILE-END filename="file3.go"---
+
+These three files work together to provide the complete solution.

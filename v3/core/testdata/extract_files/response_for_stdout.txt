@@ -1,0 +1,13 @@
+I'll create a file suitable for stdout output:
+
+---FILE-START filename="stdout.txt"---
+Output for standard output stream.
+
+This content should be displayed on stdout
+when the ExtractToStdout option is enabled.
+
+Multiple lines are included to test
+the stdout extraction functionality.
+---FILE-END filename="stdout.txt"---
+
+The file is ready for standard output redirection.

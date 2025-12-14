@@ -203,11 +203,26 @@ func (history *ChatHistory) ContinueChat(modelName, prompt string, contextLevel 
 	history.msgs = append(history.msgs, client.ChatMsg{Role: "ASSISTANT", Content: resp})
 
 	// save the output files
-	_, err = ExtractFiles(outfiles, resp, ExtractOptions{
+	result, err := ExtractFiles(outfiles, resp, ExtractOptions{
 		DryRun:          false,
 		ExtractToStdout: false,
 	})
 	Ck(err)
+
+	// Log extraction results for debugging
+	if len(result.BrokenFiles) > 0 {
+		Debug("ExtractFiles: broken files: %v", result.BrokenFiles)
+	}
+	if len(result.MissingFiles) > 0 {
+		Debug("ExtractFiles: missing files: %v", result.MissingFiles)
+	}
+	if len(result.UnexpectedFiles) > 0 {
+		unexpectedNames := make([]string, len(result.UnexpectedFiles))
+		for i, uf := range result.UnexpectedFiles {
+			unexpectedNames[i] = uf.Filename
+		}
+		Debug("ExtractFiles: unexpected files: %v", unexpectedNames)
+	}
 
 	return
 }
@@ -742,7 +757,7 @@ func ExtractFiles(outfiles []FileLang, rawResp string, opts ExtractOptions) (res
 	lines := strings.Split(resp, "\n")
 	var cookedLines []string
 
-	// active files is a stack so files can nest
+	// activeFiles is a stack so files can nest
 	activeFiles := []FileEntry{}
 
 	// detectedFilesMap keeps track of files that were detected with both
@@ -768,46 +783,69 @@ func ExtractFiles(outfiles []FileLang, rawResp string, opts ExtractOptions) (res
 			if len(activeFiles) == 0 {
 				// Found an end marker without a matching start marker; add to broken files
 				result.BrokenFiles = append(result.BrokenFiles, fn)
+				// Skip processing this orphaned end marker
+				continue
 			}
+			process := true
 			// ensure fn matches the top of the stack
 			top := activeFiles[len(activeFiles)-1]
 			if top.Filename != fn {
-				// Mismatched end marker; mark both files as broken
-				result.BrokenFiles = append(result.BrokenFiles, top.Filename)
+				process = false
+				// Mismatched end marker; mark fn as broken
 				result.BrokenFiles = append(result.BrokenFiles, fn)
-			} else {
-				// fn == top.Filename; finalize this file
-				detectedFilesMap[fn] = true
-				// pop from stack
-				activeFiles = activeFiles[:len(activeFiles)-1]
-				// Process the file if it's expected
-				if expectedFiles[fn] {
-					result.ExtractedFiles = append(result.ExtractedFiles, fn)
-					fileContent := strings.Join(top.Content, "\n")
-					if !dryrun {
-						if extractToStdout {
-							_, err = Pf("%s", fileContent)
-							Ck(err)
-						} else {
-							err = os.WriteFile(fn, []byte(fileContent), 0644)
-							Ck(err)
-						}
+				// find the matching start marker in the stack
+				foundIndex := -1
+				for i := len(activeFiles) - 2; i >= 0; i-- {
+					if activeFiles[i].Filename == fn {
+						foundIndex = i
+						break
 					}
-				} else {
-					// File was not expected
-					result.UnexpectedFiles = append(result.UnexpectedFiles, top)
+				}
+				if foundIndex != -1 {
+					process = true
+					// Pop all files above the found index and mark them as broken
+					for j := len(activeFiles) - 1; j >= foundIndex; j-- {
+						result.BrokenFiles = append(result.BrokenFiles, activeFiles[j].Filename)
+						activeFiles = activeFiles[:len(activeFiles)-1]
+					}
 				}
 			}
-		}
 
-		// If we're in a file block, accumulate content in each file
-		// in the stack
+			if !process {
+				continue
+			}
+
+			// fn == top.Filename; process this file
+			detectedFilesMap[fn] = true
+			// pop from stack
+			activeFiles = activeFiles[:len(activeFiles)-1]
+			// Save the file if it's expected
+			if expectedFiles[fn] {
+				result.ExtractedFiles = append(result.ExtractedFiles, fn)
+				fileContent := strings.Join(top.Content, "\n")
+				if !dryrun {
+					if extractToStdout {
+						_, err = Pf("%s", fileContent)
+						Ck(err)
+					} else {
+						err = os.WriteFile(fn, []byte(fileContent), 0644)
+						Ck(err)
+					}
+				}
+			} else {
+				// File was not expected
+				result.UnexpectedFiles = append(result.UnexpectedFiles, top)
+			}
+			continue // don't include end marker line in cookedLines
+		} // end of file marker
+
 		if len(activeFiles) > 0 {
+			// we're in a file block -- accumulate content in each file in the stack
 			for i := range activeFiles {
 				activeFiles[i].Content = append(activeFiles[i].Content, line)
 			}
 		} else {
-			// If we're not in a file block, add the line to cookedLines
+			// we're not in a file block  -- add the line to cookedLines
 			cookedLines = append(cookedLines, line)
 		}
 	}

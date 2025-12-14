@@ -1,0 +1,13 @@
+I'll create the expected file:
+
+---FILE-START filename="expected.txt"---
+This is the expected file content.
+---FILE-END filename="expected.txt"---
+
+I also created an unexpected file for reference:
+
+---FILE-START filename="unexpected_output.txt"---
+This file was not requested but is included for informational purposes.
+---FILE-END filename="unexpected_output.txt"---
+
+Both files are complete.
