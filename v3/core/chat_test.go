@@ -1,12 +1,33 @@
 package core
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
 func TestExtractFilesBasic(t *testing.T) {
+	// get current directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get current directory: %v", err)
+	}
+	// create a temporary directory for output files
+	tmpDir, err := os.MkdirTemp("", "extract_test")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	// defer os.RemoveAll(tmpDir)
+	fmt.Println("Temp dir:", tmpDir)
+
+	// cd to the temp directory
+	err = os.Chdir(tmpDir)
+	if err != nil {
+		t.Fatalf("Failed to change directory: %v", err)
+	}
+	defer os.Chdir(cwd)
+
 	tests := []struct {
 		name             string
 		testdataFile     string
@@ -19,7 +40,7 @@ func TestExtractFilesBasic(t *testing.T) {
 	}{
 		{
 			name:             "single_file_complete",
-			testdataFile:     "testdata/extract_files/single_file_complete.txt",
+			testdataFile:     "single_file_complete.txt",
 			outfiles:         []FileLang{{File: "output.txt", Language: "text"}},
 			expectExtracted:  []string{"output.txt"},
 			expectMissing:    []string{},
@@ -29,7 +50,7 @@ func TestExtractFilesBasic(t *testing.T) {
 		},
 		{
 			name:             "multiple_files_sequential",
-			testdataFile:     "testdata/extract_files/multiple_files_sequential.txt",
+			testdataFile:     "multiple_files_sequential.txt",
 			outfiles:         []FileLang{{File: "file1.go", Language: "go"}, {File: "file2.go", Language: "go"}, {File: "file3.go", Language: "go"}},
 			expectExtracted:  []string{"file1.go", "file2.go", "file3.go"},
 			expectMissing:    []string{},
@@ -39,7 +60,7 @@ func TestExtractFilesBasic(t *testing.T) {
 		},
 		{
 			name:             "file_with_code",
-			testdataFile:     "testdata/extract_files/file_with_code.txt",
+			testdataFile:     "file_with_code.txt",
 			outfiles:         []FileLang{{File: "main.go", Language: "go"}},
 			expectExtracted:  []string{"main.go"},
 			expectMissing:    []string{},
@@ -49,7 +70,7 @@ func TestExtractFilesBasic(t *testing.T) {
 		},
 		{
 			name:             "response_missing_file",
-			testdataFile:     "testdata/extract_files/response_missing_file.txt",
+			testdataFile:     "response_missing_file.txt",
 			outfiles:         []FileLang{{File: "expected.txt", Language: "text"}, {File: "provided.txt", Language: "text"}},
 			expectExtracted:  []string{"provided.txt"},
 			expectMissing:    []string{"expected.txt"},
@@ -59,7 +80,7 @@ func TestExtractFilesBasic(t *testing.T) {
 		},
 		{
 			name:             "response_with_extra_file",
-			testdataFile:     "testdata/extract_files/response_with_extra_file.txt",
+			testdataFile:     "response_with_extra_file.txt",
 			outfiles:         []FileLang{{File: "expected.txt", Language: "text"}},
 			expectExtracted:  []string{"expected.txt"},
 			expectMissing:    []string{},
@@ -69,7 +90,7 @@ func TestExtractFilesBasic(t *testing.T) {
 		},
 		{
 			name:             "response_mixed_expected_unexpected",
-			testdataFile:     "testdata/extract_files/response_mixed_expected_unexpected.txt",
+			testdataFile:     "response_mixed_expected_unexpected.txt",
 			outfiles:         []FileLang{{File: "file1.txt", Language: "text"}, {File: "file2.txt", Language: "text"}, {File: "file3.txt", Language: "text"}},
 			expectExtracted:  []string{"file1.txt", "file2.txt", "file3.txt"},
 			expectMissing:    []string{},
@@ -79,7 +100,7 @@ func TestExtractFilesBasic(t *testing.T) {
 		},
 		{
 			name:             "file_missing_end_marker",
-			testdataFile:     "testdata/extract_files/file_missing_end_marker.txt",
+			testdataFile:     "file_missing_end_marker.txt",
 			outfiles:         []FileLang{{File: "incomplete.txt", Language: "text"}},
 			expectExtracted:  []string{},
 			expectMissing:    []string{"incomplete.txt"},
@@ -89,7 +110,7 @@ func TestExtractFilesBasic(t *testing.T) {
 		},
 		{
 			name:             "mismatched_file_markers",
-			testdataFile:     "testdata/extract_files/mismatched_file_markers.txt",
+			testdataFile:     "mismatched_file_markers.txt",
 			outfiles:         []FileLang{{File: "file1.txt", Language: "text"}},
 			expectExtracted:  []string{},
 			expectMissing:    []string{"file1.txt"},
@@ -99,7 +120,7 @@ func TestExtractFilesBasic(t *testing.T) {
 		},
 		{
 			name:             "end_marker_without_start",
-			testdataFile:     "testdata/extract_files/end_marker_without_start.txt",
+			testdataFile:     "end_marker_without_start.txt",
 			outfiles:         []FileLang{},
 			expectExtracted:  []string{},
 			expectMissing:    []string{},
@@ -109,7 +130,7 @@ func TestExtractFilesBasic(t *testing.T) {
 		},
 		{
 			name:             "nested_files",
-			testdataFile:     "testdata/extract_files/nested_files.txt",
+			testdataFile:     "nested_files.txt",
 			outfiles:         []FileLang{{File: "outer.txt", Language: "text"}, {File: "inner.txt", Language: "text"}},
 			expectExtracted:  []string{"outer.txt", "inner.txt"},
 			expectMissing:    []string{},
@@ -119,7 +140,7 @@ func TestExtractFilesBasic(t *testing.T) {
 		},
 		{
 			name:             "special_char_filenames",
-			testdataFile:     "testdata/extract_files/special_char_filenames.txt",
+			testdataFile:     "special_char_filenames.txt",
 			outfiles:         []FileLang{{File: "my-file.json", Language: "json"}, {File: "src/main.go", Language: "go"}, {File: "config_prod.yaml", Language: "yaml"}},
 			expectExtracted:  []string{"my-file.json", "src/main.go", "config_prod.yaml"},
 			expectMissing:    []string{},
@@ -129,7 +150,7 @@ func TestExtractFilesBasic(t *testing.T) {
 		},
 		{
 			name:             "file_content_with_marker_text",
-			testdataFile:     "testdata/extract_files/file_content_with_marker_text.txt",
+			testdataFile:     "file_content_with_marker_text.txt",
 			outfiles:         []FileLang{{File: "readme.md", Language: "markdown"}},
 			expectExtracted:  []string{"readme.md"},
 			expectMissing:    []string{},
@@ -139,7 +160,7 @@ func TestExtractFilesBasic(t *testing.T) {
 		},
 		{
 			name:             "empty_file",
-			testdataFile:     "testdata/extract_files/empty_file.txt",
+			testdataFile:     "empty_file.txt",
 			outfiles:         []FileLang{{File: "empty.txt", Language: "text"}},
 			expectExtracted:  []string{"empty.txt"},
 			expectMissing:    []string{},
@@ -149,7 +170,7 @@ func TestExtractFilesBasic(t *testing.T) {
 		},
 		{
 			name:             "response_with_thinking",
-			testdataFile:     "testdata/extract_files/response_with_thinking.txt",
+			testdataFile:     "response_with_thinking.txt",
 			outfiles:         []FileLang{{File: "output.txt", Language: "text"}},
 			expectExtracted:  []string{"output.txt"},
 			expectMissing:    []string{},
@@ -159,7 +180,7 @@ func TestExtractFilesBasic(t *testing.T) {
 		},
 		{
 			name:             "response_with_references",
-			testdataFile:     "testdata/extract_files/response_with_references.txt",
+			testdataFile:     "response_with_references.txt",
 			outfiles:         []FileLang{{File: "report.txt", Language: "text"}},
 			expectExtracted:  []string{"report.txt"},
 			expectMissing:    []string{},
@@ -169,7 +190,7 @@ func TestExtractFilesBasic(t *testing.T) {
 		},
 		{
 			name:             "response_with_reasoning",
-			testdataFile:     "testdata/extract_files/response_with_reasoning.txt",
+			testdataFile:     "response_with_reasoning.txt",
 			outfiles:         []FileLang{{File: "analysis.txt", Language: "text"}},
 			expectExtracted:  []string{"analysis.txt"},
 			expectMissing:    []string{},
@@ -179,7 +200,7 @@ func TestExtractFilesBasic(t *testing.T) {
 		},
 		{
 			name:             "complete_response_with_metadata",
-			testdataFile:     "testdata/extract_files/complete_response_with_metadata.txt",
+			testdataFile:     "complete_response_with_metadata.txt",
 			outfiles:         []FileLang{{File: "result.txt", Language: "text"}},
 			expectExtracted:  []string{"result.txt"},
 			expectMissing:    []string{},
@@ -189,7 +210,7 @@ func TestExtractFilesBasic(t *testing.T) {
 		},
 		{
 			name:             "response_for_dryrun",
-			testdataFile:     "testdata/extract_files/response_for_dryrun.txt",
+			testdataFile:     "response_for_dryrun.txt",
 			outfiles:         []FileLang{{File: "file1.txt", Language: "text"}, {File: "file2.txt", Language: "text"}},
 			expectExtracted:  []string{"file1.txt", "file2.txt"},
 			expectMissing:    []string{},
@@ -199,7 +220,7 @@ func TestExtractFilesBasic(t *testing.T) {
 		},
 		{
 			name:             "response_for_stdout",
-			testdataFile:     "testdata/extract_files/response_for_stdout.txt",
+			testdataFile:     "response_for_stdout.txt",
 			outfiles:         []FileLang{{File: "stdout.txt", Language: "text"}},
 			expectExtracted:  []string{"stdout.txt"},
 			expectMissing:    []string{},
@@ -209,7 +230,7 @@ func TestExtractFilesBasic(t *testing.T) {
 		},
 		{
 			name:             "complex_response_for_dryrun_metadata",
-			testdataFile:     "testdata/extract_files/complex_response_for_dryrun_metadata.txt",
+			testdataFile:     "complex_response_for_dryrun_metadata.txt",
 			outfiles:         []FileLang{{File: "expected1.txt", Language: "text"}, {File: "expected2.txt", Language: "text"}},
 			expectExtracted:  []string{"expected1.txt", "expected2.txt"},
 			expectMissing:    []string{},
@@ -222,9 +243,10 @@ func TestExtractFilesBasic(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Read testdata file
-			data, err := os.ReadFile(tt.testdataFile)
+			infn := filepath.Join(cwd, "testdata", "extract_files", tt.testdataFile)
+			data, err := os.ReadFile(infn)
 			if err != nil {
-				t.Fatalf("Failed to read testdata file %s: %v", tt.testdataFile, err)
+				t.Fatalf("Failed to read testdata file %s: %v", infn, err)
 			}
 
 			// Run ExtractFiles
@@ -274,7 +296,8 @@ func TestExtractFilesFileWriting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp directory: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	// defer os.RemoveAll(tmpDir)
+	fmt.Println("Temp dir:", tmpDir)
 
 	outputFile := filepath.Join(tmpDir, "output.txt")
 	responseContent := "Here is the output file:\n\n---FILE-START filename=\"" + outputFile + "\"---\nTest content\n---FILE-END filename=\"" + outputFile + "\"---\n\nDone."

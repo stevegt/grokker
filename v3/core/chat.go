@@ -595,8 +595,12 @@ type ExtractResult struct {
 	UnexpectedFiles []FileEntry // Files found but NOT in outfiles list
 }
 
-var fileStartTmpl = `(?:^|\n)---FILE-START filename="%s"---\n`
+var fileStartTmpl = `(?:^|\n)---FILE-START filename="%s"---(?:$|\n)`
 var fileEndTmpl = `(?:^|\n)---FILE-END filename="%s"---(?:$|\n)`
+
+// we base fileStartPat and fileEndPat on the templates above so we
+// can be absolutely sure they match the same way in OutfilesRegex and
+// ExtractFiles
 var fileStartPat = fmt.Sprintf(fileStartTmpl, "(.*?)")
 var fileEndPat = fmt.Sprintf(fileEndTmpl, "(.*?)")
 
