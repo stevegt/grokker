@@ -895,7 +895,7 @@ func sendQueryToLLM(queryID, query string, llm string, selection, backgroundCont
 		// any ## References, <references>, and <think> sections
 		discussionOnly := cookedResponse
 		refHeadRe := regexp.MustCompile(`(?s)## References.*?`)
-		discussionOnly := refHeadRe.ReplaceAllString(discussionOnly, "")
+		discussionOnly = refHeadRe.ReplaceAllString(discussionOnly, "")
 		reftagsRe := regexp.MustCompile(`(?s)<references>.*?</references>`)
 		discussionOnly = reftagsRe.ReplaceAllString(discussionOnly, "")
 		reasoningRe := regexp.MustCompile(`(?s)<think>.*?</think>`)
