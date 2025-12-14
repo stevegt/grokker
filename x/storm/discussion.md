@@ -12179,6 +12179,10 @@ Scroll positioning and WebSocket connectivity are now stable, with a streamlined
 
 ## Reasoning
 
+## Reasoning
+
+## Reasoning
+
 
 
 
@@ -43719,8 +43723,6 @@ This is a simple change - just add the version subcommand handler and register i
 Explore different alternatives.**
 
 
-
-
 # Handling Unexpected Output Files from LLM Responses: Alternative Approaches
 
 When an LLM returns files that weren't explicitly requested in the `outFiles` parameter, several design approaches exist to notify the user and provide a mechanism to add these files to the authorized list[1][2].
@@ -43884,8 +43886,6 @@ Looking at the provided code, the `ExtractFiles()` function in `chat.go` current
 - [18] [https://github.com/go-chi/chi](https://github.com/go-chi/chi)
 - [19] [https://pkg.go.dev/github.com/go-chi/chi](https://pkg.go.dev/github.com/go-chi/chi)
 
-
-
 ## Reasoning
 
 The user is asking me to discuss how to implement a feature where:
@@ -43920,13 +43920,12 @@ Let me think about the different alternatives:
 I should discuss the pros and cons of each approach.
 
 
+
 ---
 
 
 
 **alternative 1 could work if we reprocess the raw LLM response, sending it through ExtractFiles again after adding the new file(s) to outfiles list**
-
-
 
 
 # Reprocess LLM Response with Detected Files: Implementation Approach
@@ -43991,8 +43990,6 @@ Implementing Alternative 1 with reprocessing requires detecting unexpected files
 - [5] [https://www.digitalocean.com/community/tutorials/how-to-make-http-requests-in-go](https://www.digitalocean.com/community/tutorials/how-to-make-http-requests-in-go)
 - [6] [https://pkg.go.dev/net/url](https://pkg.go.dev/net/url)
 
-
-
 ## Reasoning
 
 The user is providing extensive context about Storm, a multi-project LLM chat application in Go, and asking me to implement a specific feature. Let me parse what they're asking:
@@ -44018,13 +44015,12 @@ This is a discussion-only request based on the instruction at the top that says 
 This seems to be asking me to discuss/confirm this approach. Let me limit my response to around 500 tokens as instructed, and provide a clear description of how to implement this.
 
 
+
 ---
 
 
 
 **alternative 2 would require modifying chat.go**
-
-
 
 
 # Alternative 2 Implementation: Required chat.go Modifications
@@ -44080,10 +44076,6 @@ err = PromoteFiles(projectID, foundFiles, tempDir)
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 Looking at this, the user's query is: "alternative 2 would require modifying chat.go"
@@ -44115,13 +44107,12 @@ So the user is pointing out that Alternative 2 would require modifications to ch
 I should acknowledge this and discuss what modifications would be needed to chat.go to support Alternative 2.
 
 
+
 ---
 
 
 
 **alternative 1 would not require modifying chat.go**
-
-
 
 
 # Alternative 1 Implementation: No chat.go Modifications Required
@@ -44175,8 +44166,6 @@ Alternative 1 (Post-Processing Detection with WebSocket Notification) is correct
 - [10] [https://go.dev/doc/tutorial/web-service-gin](https://go.dev/doc/tutorial/web-service-gin)
 - [11] [https://thalesdocs.com/ctp/cm/2.14/reference/cckmapi/cm-ext-apis/cm-ext-key-apis/cm-ext-post-delete-key/index.html](https://thalesdocs.com/ctp/cm/2.14/reference/cckmapi/cm-ext-apis/cm-ext-key-apis/cm-ext-post-delete-key/index.html)
 
-
-
 ## Reasoning
 
 The user is asking me to respond to their query. Let me check what they're asking:
@@ -44207,13 +44196,12 @@ The user is making a statement/observation, not really asking a question. But ba
 Let me provide a response that confirms this and explains why.
 
 
+
 ---
 
 
 
 **alternative 3 would require modifying chat.go but would also have the benefit of not duplicating file marker search in main.go**
-
-
 
 
 # Alternative 3: Centralized File Detection in chat.go
@@ -44275,8 +44263,6 @@ This follows the DRY (Don't Repeat Yourself) principle and makes future maintena
 - [18] [https://pkg.go.dev/net/http](https://pkg.go.dev/net/http)
 - [19] [https://mglaman.dev/blog/post-or-put-patch-and-delete-urls-are-cheap-api-design-matters](https://mglaman.dev/blog/post-or-put-patch-and-delete-urls-are-cheap-api-design-matters)
 
-
-
 ## Reasoning
 
 The user is asking me to respond to a query. Let me read the instructions at the very top of the system prompt to understand what I need to do:
@@ -44304,13 +44290,12 @@ I should acknowledge this and discuss why this is the case - if we move the file
 Let me provide a brief response acknowledging this observation.
 
 
+
 ---
 
 
 
 **would alternative 3 allow for real-time interaction with the sendQueryToLLM() flow?  how feasible is it to do that via the API?**
-
-
 
 
 # Alternative 3 and Real-Time Interaction: Feasibility Discussion
@@ -44369,10 +44354,6 @@ None of this can happen until the entire LLM response has been received and the 
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user is asking me a query at the end about whether alternative 3 (Whitelist-Only Extraction with Logging) would allow for real-time interaction with the sendQueryToLLM() flow and how feasible it is to do that via the API.
@@ -44407,13 +44388,12 @@ The feasibility of real-time interaction via API would depend on:
 Let me discuss this.
 
 
+
 ---
 
 
 
 **alternative 4 doesn't sound as good as 3**
-
-
 
 
 # Why Alternative 3 Outperforms Alternative 4
@@ -44468,10 +44448,6 @@ Alternative 3 (Whitelist-Only Extraction with Logging) is indeed superior to Alt
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user is providing me with a lot of code and context, and at the end they're saying:
@@ -44501,13 +44477,12 @@ This is an observation/statement. The user seems to be inviting discussion about
 Let me provide a brief response comparing them.
 
 
+
 ---
 
 
 
 **5 is too complex**
-
-
 
 
 # Alternative 5 Complexity: Simplified Recommendation
@@ -44557,8 +44532,6 @@ This follows the principle of least complexity: solve the immediate problem (det
 - [5] [https://gist.github.com/5f827fb11aee027e22c6b3102ebcc497](https://gist.github.com/5f827fb11aee027e22c6b3102ebcc497)
 - [6] [https://learn.microsoft.com/en-us/azure/architecture/best-practices/api-design](https://learn.microsoft.com/en-us/azure/architecture/best-practices/api-design)
 
-
-
 ## Reasoning
 
 Looking at the system prompt at the very top:
@@ -44595,13 +44568,12 @@ The user is probably asking me to respond to their observation that Alternative 
 I should provide a brief response acknowledging that Alternative 5 is indeed too complex for the problem at hand, and perhaps recommend Alternative 3 or Alternative 4 as better options.
 
 
+
 ---
 
 
 
 **i don't like 6**
-
-
 
 
 # Alternative 3: Simpler and Better Than Hybrid Approach
@@ -44654,8 +44626,6 @@ Implement file detection in `chat.go` without temporary file extraction[1]. When
 - [16] [https://dev.to/truongpx396/common-design-patterns-in-golang-5789](https://dev.to/truongpx396/common-design-patterns-in-golang-5789)
 - [17] [https://leapcell.io/blog/handling-large-file-uploads-in-go-backends-with-streaming-and-temporary-files](https://leapcell.io/blog/handling-large-file-uploads-in-go-backends-with-streaming-and-temporary-files)
 
-
-
 ## Reasoning
 
 The user is asking me to respond to their query at the very end. Let me look at what they're asking:
@@ -44691,13 +44661,12 @@ But this isn't really a query - it's a statement expressing dislike for Alternat
 Let me provide a brief response confirming that Alternative 3 is simpler and better than Alternative 6, and recommend we implement Alternative 3 instead.
 
 
+
 ---
 
 
 
 **i'm thinking maybe a combination of alternatives 1 and 3**
-
-
 
 
 # Combine Alternatives 1 and 3: Detect and Notify Unexpected Files
@@ -44776,8 +44745,6 @@ A combination of Alternatives 1 and 3 is an excellent approach that achieves the
 - [5] [https://blog.bytebytego.com/p/ep91-rest-api-authentication-methods](https://blog.bytebytego.com/p/ep91-rest-api-authentication-methods)
 - [6] [https://github.com/golang-standards/project-layout](https://github.com/golang-standards/project-layout)
 
-
-
 ## Reasoning
 
 The user is asking me to respond to their query at the end. Let me look at the instructions at the very top of the system prompt:
@@ -44808,13 +44775,12 @@ This makes sense - Alternative 3's implementation would naturally fit with Alter
 I should discuss how to combine these two approaches.
 
 
+
 ---
 
 
 
 **wait.  i'm not talking about realtime interactions during grok.SendWithFiles() -- i'm talking about running ExtractFiles, dealing with detected new files by asking the user what to do, then re-running ExtractFiles.**
-
-
 
 
 # Implement Two-Phase File Extraction: Dry Run, User Approval, Then Real Extraction
@@ -44917,8 +44883,6 @@ This keeps the implementation simple: two sequential `ExtractFiles()` calls sepa
 - [5] [https://blog.bytebytego.com/p/ep91-rest-api-authentication-methods](https://blog.bytebytego.com/p/ep91-rest-api-authentication-methods)
 - [6] [https://www.datadoghq.com/blog/go-error-handling/](https://www.datadoghq.com/blog/go-error-handling/)
 
-
-
 ## Reasoning
 
 The user is clarifying what they meant about reprocessing the LLM response. They said "wait. i'm not talking about realtime interactions during grok.SendWithFiles() -- i'm talking about running ExtractFiles, dealing with detected new files by asking the user what to do, then re-running ExtractFiles."
@@ -44955,6 +44919,7 @@ Looking at the user's instructions at the very top, I need to:
 The user is asking me to understand/confirm this approach. I should discuss how to implement this two-phase extraction approach without modifying grok.SendWithFiles().
 
 
+
 ---
 
 
@@ -44962,15 +44927,26 @@ The user is asking me to understand/confirm this approach. I should discuss how 
 **I'm going to add a separate storm project to make the changes to chat.go.  write a storm prompt that i can use to describe enough context to make the changes needed in chat.go and related grokker files.**
 
 
-
-
 # Storm Prompt for chat.go Modifications
 
 Here is a Storm prompt you can use to describe the changes needed for two-phase file extraction with user approval:
 
+## References
+
+
+
+## Reasoning
+
+
+
+
+
 ---
 
-You are a developer tasked with modifying the Grokker library's file extraction system to support two-phase file extraction with user approval. Your task is to enhance the `chat.go` module to detect unexpected files and allow users to approve them before re-extraction.
+
+
+**You are a developer tasked with modifying the Grokker library's file extraction system to support two-phase file extraction with user approval. Your task is to enhance the `chat.go` module to detect unexpected files and allow users to approve them before re-extraction.**
+
 
 ## Context
 
@@ -45009,15 +44985,22 @@ When `ReturnMetadata` is false, callers get back an `ExtractResult` struct where
 [1] https://golang.org/pkg/path/filepath/
 [2] https://golang.org/doc/effective_go#concurrency
 
+## Reasoning
+
+
+
+
+
 ---
 
-This prompt provides enough context for the developer to understand the two-phase extraction workflow, the specific struct modifications needed, and why the changes are being made. It allows them to implement the changes without requiring you to specify every implementation detail.
+
+
+**This prompt provides enough context for the developer to understand the two-phase extraction workflow, the specific struct modifications needed, and why the changes are being made. It allows them to implement the changes without requiring you to specify every implementation detail.**
+
 
 
 
 ## References
-
-
 
 
 
@@ -45045,13 +45028,12 @@ The user wants me to write a PROMPT - not make code changes. They want a Storm-s
 I should write a well-structured Storm prompt that describes the requirements for modifying chat.go's ExtractFiles function to support this workflow.
 
 
+
 ---
 
 
 
 **i like the idea of ExtractFiles returning a struct.**
-
-
 
 
 # ExtractFiles Returning a Struct: Benefits and Implementation Strategy
@@ -45115,10 +45097,6 @@ This change supports the entire unexpected file detection workflow without requi
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user is asking me to respond to their query about liking the idea of ExtractFiles returning a struct.
@@ -45153,13 +45131,12 @@ This is a discussion-only query about the proposed change. The user hasn't asked
 I should provide a brief response agreeing with this approach and explaining the benefits.
 
 
+
 ---
 
 
 
 **we don't need the ReturnMetadata field -- we should always return detailed file detection info**
-
-
 
 
 # Always Return Detailed File Detection Info
@@ -45207,10 +45184,6 @@ Each caller can access `result.IgnoredFiles` to detect unexpected files or ignor
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user is asking me to respond to a query at the end. Let me look at the system prompt at the very top to understand what I should do:
@@ -45235,13 +45208,12 @@ The user is right - if we always return a struct with comprehensive metadata, we
 I should provide a brief response confirming this is a good design decision and explaining why.
 
 
+
 ---
 
 
 
 **rename IgnoredFiles to UnexpectedFiles**
-
-
 
 
 # Rename IgnoredFiles to UnexpectedFiles in ExtractResult Struct
@@ -45297,10 +45269,6 @@ If unexpected files are detected, notify the user before the second extraction r
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user is asking me to rename `IgnoredFiles` to `UnexpectedFiles` in the context of the Storm multi-project chat system.
@@ -45343,13 +45311,12 @@ To implement the two-phase extraction with user approval, we would need a compre
 The key is creating a flexible structure that supports more detailed file extraction metadata while maintaining existing functionality.
 
 
+
 ---
 
 
 
 **do we need the RemoveFromResponse opt if we're returning a struct?  we can easily return both raw and cooked responses in the same struct.**
-
-
 
 
 # Simplify ExtractFiles: Always Return Both Raw and Cooked Responses
@@ -45416,10 +45383,6 @@ This design provides maximum flexibility with minimal API complexity[1][2].
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user is asking a question about whether the `RemoveFromResponse` flag is still needed if `ExtractFiles` returns a struct that can contain both the raw and cooked responses.
@@ -45444,13 +45407,12 @@ Let me discuss the implications:
 This is a good design decision that would make the API cleaner.
 
 
+
 ---
 
 
 
 **restate the instructions to the grokker/core/chat.go storm project.**
-
-
 
 
 # Storm Prompt for grokker/core/chat.go Modifications
@@ -45557,10 +45519,6 @@ The modified `ExtractFiles()` enables this workflow in Storm[1]:
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user is asking me to "restate the instructions to the grokker/core/chat.go storm project."
@@ -45581,6 +45539,227 @@ Looking at the context, the user has been discussing modifying chat.go to:
 The user wants me to write a Storm prompt that they can use to describe these changes to the grokker/core/chat.go project.
 
 Let me create a comprehensive prompt that captures all the requirements for modifying chat.go.
+
+
+
+---
+
+
+
+**revisit plan to "Implement Two-Phase File Extraction: Dry Run, User Approval, Then Real Extraction"
+
+We want any unexpected files that are in the authorized files list but that aren't enabled for output to be manually enabled for output in the web interface; prompt the user accordingly.
+
+we want any unexpected files that aren't in the authorized files list to first be added in the CLI, then manually enabled for output in the web interface; prompt the user accordingly.**
+
+
+# Revisited Two-Phase File Extraction: Categorized Unexpected Files
+
+Implement intelligent handling of unexpected files discovered during LLM response extraction, categorizing them as either "already authorized but not enabled" or "needs authorization first," with distinct user prompts and workflows for each[1][2].
+
+## Implementation Strategy
+
+**Phase 1: Categorize Unexpected Files** (`main.go` - `sendQueryToLLM()`)[1]
+
+After calling `ExtractFiles()` with dry run, compare `result.UnexpectedFiles` against:
+1. Project's `AuthorizedFiles` list from `projects.Get(projectID).AuthorizedFiles`
+2. Create two lists:
+   - `alreadyAuthorized`: files in `UnexpectedFiles` AND in `AuthorizedFiles` (but not in original `outFiles` request)
+   - `needsAuthorization`: files in `UnexpectedFiles` but NOT in `AuthorizedFiles`
+
+**Phase 2: Send Categorized Notifications via WebSocket** (`main.go` - `processQuery()`)[1][2]
+
+If unexpected files detected, send message with both categories:
+```json
+{
+  "type": "unexpectedFiles",
+  "queryID": "...",
+  "alreadyAuthorized": ["file1.go", "file2.md"],
+  "needsAuthorization": ["file3.py", "file4.txt"],
+  "prompts": {
+    "alreadyAuthorized": "The following files are authorized but not currently selected for output. Enable them below:",
+    "needsAuthorization": "The following files are NOT yet authorized. Add them via CLI first, then enable them:"
+  }
+}
+```
+
+**Phase 3a: Web UI for Already-Authorized Files** (`project.html`)[2]
+
+- Display "already authorized" unexpected files in the file sidebar with a visual indicator (badge: "NEW - Not Selected")
+- User can check the "Out" column checkbox to enable them for output
+- These files are already in the `fileList` but were unchecked; user just needs to check the box
+
+**Phase 3b: Web UI for Needs-Authorization Files** (`project.html`)[2]
+
+- Display "needs authorization" unexpected files in a separate collapsible section with:
+  - File name
+  - Message: "Add this file via CLI, then enable it"
+  - Checkbox disabled until file is authorized
+  - Copy-to-clipboard button showing the CLI command: `storm file add --project <projectID> <filename>`
+
+**Phase 3c: Real Extraction Triggers** (`main.go`)[1]
+
+Two completion scenarios:
+
+1. **User enables already-authorized files**: Web UI sends `{type: "fileSelectionChanged"}` when checkboxes change
+   - Extract from `IndexedDB` which files are now enabled
+   - Expand `outfiles` list with newly-enabled files
+   - Re-run `ExtractFiles()` with `DryRun: false`
+
+2. **User adds unauthorized files via CLI**: CLI adds file and broadcasts `fileListUpdated` via existing endpoint
+   - Web UI receives update and automatically enables those files in the "needs authorization" section
+   - User checks the "Out" checkbox for newly-authorized files
+   - Triggers real extraction as above
+
+## Key Implementation Points
+
+**No changes to existing file management** (`api.go`, `cli.go`)[1]
+- File add/forget endpoints continue working as-is
+- Existing authorization flow unchanged
+
+**Leverage existing IndexedDB selection tracking** (`project.html`)[2]
+- The file selection (in/out checkboxes) already persists in IndexedDB
+- Simply add a visual indicator for "unexpected files"
+- Checkboxes auto-enable when files are added
+
+**Progressive disclosure** (`project.html`)[2]
+- "Already authorized" files show in normal file list with badge
+- "Needs authorization" files show in separate section with disabled checkboxes
+- Once user adds file via CLI, checkbox enables automatically
+
+## References
+
+[1] [https://golang.org/doc/effective_go#concurrency](https://golang.org/doc/effective_go#concurrency)
+[2] [https://developer.mozilla.org/en-US/docs/Web/API/WebSocket](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket)
+
+
+
+## References
+
+## Reasoning
+
+The user is asking me to revisit the plan for "Implement Two-Phase File Extraction: Dry Run, User Approval, Then Real Extraction" with new requirements:
+
+1. Unexpected files that ARE in the authorized files list but aren't enabled for output should be manually enabled for output in the web interface (they need prompting)
+2. Unexpected files that AREN'T in the authorized files list should first be added in the CLI, then manually enabled for output in the web interface (they need prompting)
+
+So the workflow is:
+- Phase 1 (Dry Run): Call ExtractFiles with DryRun:true to detect unexpected files
+- Phase 2 (User Decision): 
+  - For files already authorized but not enabled for output: Send notification to enable them in web UI
+  - For files not authorized: Send notification that they need to be added via CLI first, then enable them
+- Phase 3 (Real Extraction): Once approved/enabled, re-run ExtractFiles with expanded outfiles list
+
+Looking at the provided code:
+- api.go has endpoints for file add/forget
+- cli.go has commands for file add/forget
+- main.go handles query processing
+- project.html displays files and has input/output checkboxes
+
+The user wants me to handle unexpected files intelligently based on whether they're already authorized or not.
+
+Let me describe the implementation approach needed.
+
+
+
+---
+
+
+
+**before we implement unexpected file handling, let's first move the file list from the right-hand sidebar into a popup dialog.**
+
+
+
+
+# Move File List to Popup Dialog
+
+The file list is being relocated from the right-hand sidebar into a popup modal dialog, making the interface cleaner and maximizing chat display area[1]. A button in the input area opens the file management dialog when clicked[1].
+
+## Changes Made
+
+**Layout Restructuring**[1]
+- Removed right-side `#fileSidebar` fixed panel
+- Updated `#input-area` CSS grid to accommodate new `filesBtn` button
+- Main chat area now extends to fill full width
+
+**Modal Dialog Implementation**[1]
+- Added `#fileModal` overlay with backdrop
+- `modal-content` contains file management interface  
+- Modal shows/hides with `.show` class for smooth transitions
+- Click outside modal closes it
+
+**File Management Button**[1]
+- New "Files" button in input area opens the file dialog
+- Close button with X icon for dismissing modal
+- All existing file list functionality preserved inside modal
+
+**JavaScript Enhancements**[2]
+- `openFileModal()` and `closeFileModal()` functions control visibility
+- Modal event listeners for open/close actions
+- File selection and management persists in IndexedDB as before
+
+The file list is now accessed on-demand via the "Files" button, keeping the chat interface cleaner while preserving all file I/O functionality[1][2].
+
+## References
+
+[1] [https://developer.mozilla.org/en-US/docs/Web/CSS/position_fixed](https://developer.mozilla.org/en-US/docs/Web/CSS/position_fixed)
+[2] [https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to move the file list from the right-hand sidebar into a popup dialog. Let me analyze the current structure:
+
+Currently, the file list is in a sidebar on the right side of the page:
+```html
+<div id="fileSidebar">
+  <h3>Files</h3>
+  <label style="display:block; margin-bottom:5px;"><input type="checkbox" id="selectAllFiles"> All/None</label>
+  <table>
+    <thead>
+      <tr>
+        <th>In</th>
+        <th>Out</th>
+        <th>Filename</th>
+      </tr>
+    </thead>
+    <tbody id="fileList">
+      <!-- File list will be rendered here -->
+    </tbody>
+  </table>
+</div>
+```
+
+The task is to move this into a popup dialog. I should:
+1. Create a modal/dialog that displays the file list
+2. Add a button to open the dialog
+3. Remove or hide the right sidebar
+4. Update the CSS to style the modal
+5. Update the JavaScript to handle opening/closing the dialog
+
+Let me check the instructions at the top. I need to:
+- Start with markdown heading
+- Limit discussion to 8192 tokens
+- Return complete files only
+- Use FILE-START/FILE-END format
+- Don't include empty square brackets
+- Enclose reference numbers in square brackets
+
+The user is asking to move the file list to a popup dialog. This is a straightforward UI change. I should provide the updated project.html file with the file list moved to a modal dialog.
+
+Key changes:
+1. Remove the #fileSidebar div from the main layout
+2. Create a modal dialog for the file list
+3. Add a button to open the file list dialog
+4. Update CSS to remove the right sidebar and style the modal
+5. Update JavaScript to handle modal open/close
 
 
 ---

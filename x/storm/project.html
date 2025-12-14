@@ -38,17 +38,6 @@
       overflow: hidden;
       position: relative;
     }
-    /* Right sidebar for File I/O */
-    #fileSidebar {
-      width: 250px;
-      background-color: #1e1e1e;
-      border-left: 1px solid #333;
-      padding: 10px;
-      overflow-y: auto;
-    }
-    #fileSidebar h3 { margin-top: 0; }
-    #fileSidebar table { width: 100%; border-collapse: collapse; }
-    #fileSidebar th, #fileSidebar td { border: 1px solid #555; padding: 4px; text-align: center; }
     /* Chat area styles */
     #chat { 
       padding: 20px; 
@@ -101,16 +90,16 @@
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
     }
-    /* Updated input area using CSS Grid to span userInput and statusBox across two rows */
+    /* Updated input area using CSS Grid */
     #input-area { 
       background: #1e1e1e; 
       padding: 10px; 
       box-shadow: 0 -2px 5px rgba(0,0,0,0.1);
       display: grid;
       grid-template-areas: 
-        "llmSelect userInput sendBtn statusBox stopBtn"
-        "tokenLimit   userInput  .       statusBox .";
-      grid-template-columns: auto 1fr auto auto auto;
+        "llmSelect userInput sendBtn filesBtn statusBox stopBtn"
+        "tokenLimit userInput .       .        statusBox .";
+      grid-template-columns: auto 1fr auto auto auto auto;
       grid-template-rows: auto auto;
       gap: 5px;
     }
@@ -149,6 +138,11 @@
     #stopBtn {
       font-size: 10px;
       padding: 5px 10px;
+    }
+    /* Custom style for the files button */
+    #filesBtn {
+      font-size: 12px;
+      padding: 8px 12px;
     }
     #statusBox { 
       display: inline-block; 
@@ -211,6 +205,79 @@
       border: 2px solid #1e1e1e;
       border-radius: 6px;
     }
+    /* Modal dialog styles */
+    #fileModal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.5);
+    }
+    #fileModal.show {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-content {
+      background-color: #1e1e1e;
+      padding: 20px;
+      border: 1px solid #555;
+      border-radius: 8px;
+      width: 90%;
+      max-width: 500px;
+      max-height: 80vh;
+      overflow-y: auto;
+      color: #e0e0e0;
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+      border-bottom: 1px solid #555;
+      padding-bottom: 10px;
+    }
+    .modal-header h2 {
+      margin: 0;
+      font-size: 1.3em;
+    }
+    .modal-close-btn {
+      background-color: #555;
+      color: #e0e0e0;
+      border: 1px solid #777;
+      padding: 5px 10px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    .modal-close-btn:hover {
+      background-color: #666;
+    }
+    #fileSidebarContent {
+      width: 100%;
+    }
+    #fileSidebarContent h3 {
+      margin-top: 0;
+      font-size: 1.1em;
+    }
+    #fileSidebarContent table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    #fileSidebarContent th, #fileSidebarContent td {
+      border: 1px solid #555;
+      padding: 6px;
+      text-align: center;
+    }
+    #fileSidebarContent th {
+      background-color: #2a2a2a;
+      font-weight: bold;
+    }
+    #fileSidebarContent td a {
+      word-break: break-all;
+    }
   </style>
 </head>
 <body>
@@ -240,6 +307,7 @@
         </select>
         <textarea id="userInput" placeholder="Enter query" style="grid-area: userInput;"></textarea>
         <button id="sendBtn" style="grid-area: sendBtn;">Send</button>
+        <button id="filesBtn" style="grid-area: filesBtn;">Files</button>
         <span id="statusBox" style="grid-area: statusBox;">
           <span id="tokenCountText">Token Count: 0</span>
           <br>
@@ -267,23 +335,33 @@
         </div>
       </div>
     </div>
-    <div id="fileSidebar">
-      <h3>Files</h3>
-      <label style="display:block; margin-bottom:5px;"><input type="checkbox" id="selectAllFiles"> All/None</label>
-      <table>
-        <thead>
-          <tr>
-            <th>In</th>
-            <th>Out</th>
-            <th>Filename</th>
-          </tr>
-        </thead>
-        <tbody id="fileList">
-          <!-- File list will be rendered here -->
-        </tbody>
-      </table>
+  </div>
+
+  <!-- File Management Modal Dialog -->
+  <div id="fileModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>File Management</h2>
+        <button class="modal-close-btn" id="closeFileModal">✕</button>
+      </div>
+      <div id="fileSidebarContent">
+        <label style="display:block; margin-bottom:5px;"><input type="checkbox" id="selectAllFiles"> All/None</label>
+        <table>
+          <thead>
+            <tr>
+              <th>In</th>
+              <th>Out</th>
+              <th>Filename</th>
+            </tr>
+          </thead>
+          <tbody id="fileList">
+            <!-- File list will be rendered here -->
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
+
   <script>
     // WebSocket connection
     var ws;
@@ -386,6 +464,17 @@
         link.style.fontSize = fontSize + "em";
         toc.appendChild(link);
       });
+    }
+
+    // File modal functions[1]
+    function openFileModal() {
+      var modal = document.getElementById("fileModal");
+      modal.classList.add("show");
+    }
+
+    function closeFileModal() {
+      var modal = document.getElementById("fileModal");
+      modal.classList.remove("show");
     }
     
     // Initialize WebSocket connection and handlers
@@ -502,6 +591,22 @@
           sidebar.classList.add("collapsed");
         }
       });
+
+      // File modal handlers[1]
+      document.getElementById("filesBtn").addEventListener("click", function() {
+        openFileModal();
+      });
+
+      document.getElementById("closeFileModal").addEventListener("click", function() {
+        closeFileModal();
+      });
+
+      document.getElementById("fileModal").addEventListener("click", function(event) {
+        if (event.target === this) {
+          closeFileModal();
+        }
+      });
+
       // Add preset token limit buttons functionality.
       document.querySelectorAll('.preset-tokencount').forEach(function(btn) {
         btn.addEventListener('click', function() {
@@ -826,5 +931,3 @@
   </script>
 </body>
 </html>
-
-
