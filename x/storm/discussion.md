@@ -48344,3 +48344,114 @@ I need to refactor the tests to use dynamic port allocation instead of hardcoded
 
 ---
 
+
+
+**$ go test -v --run TestWebSocketCancelMessage
+=== RUN   TestWebSocketCancelMessage
+2025/12/14 18:48:52 Starting server on :42087
+2025/12/14 18:48:52 API documentation available at http://localhost:42087/docs
+2025/12/14 18:48:53 Adding project: projectID=ws-cancel-project, baseDir=/tmp/storm-ws-cancel-2707254936/ws-cancel-project, markdownFile=/tmp/storm-ws-cancel-2707254936/ws-cancel-project/chat.md
+INFO: Split storm file into 1 blocks
+INFO: Removing empty last block
+INFO: Parsed 0 roundtrips from storm file
+2025/12/14 18:48:53 Successfully registered project ws-cancel-project
+2025/12/14 18:48:53 DEBUG: Returning response with ID=ws-cancel-project, BaseDir=/tmp/storm-ws-cancel-2707254936/ws-cancel-project, ChatRound=0
+2025/12/14 18:48:53 Client client-0 registered, total clients: 1
+2025/12/14 18:48:53 Query test-cancel-123 marked for cancellation
+    websocket_test.go:272: Query was not marked as cancelled
+2025/12/14 18:48:53 WebSocket read error: websocket: close 1006 (abnormal closure): unexpected EOF
+2025/12/14 18:48:53 Client client-0 unregistered, total clients: 0
+--- FAIL: TestWebSocketCancelMessage (2.01s)
+FAIL
+exit status 1
+FAIL    github.com/stevegt/grokker/x/storm      2.063s**
+
+
+
+
+# Fix WebSocket Cancel Message Test: Add Timing for Async Message Processing
+
+The test failure occurs because the cancel message is sent asynchronously via a goroutine (`readPump`), but the test immediately checks for cancellation without waiting for the message to be processed[1]. Adding a small sleep or using a channel to coordinate message processing resolves this timing issue.
+
+
+## Summary
+
+Fixed the `TestWebSocketCancelMessage` test by adding a 500ms sleep between sending the cancel message and checking if the query was marked as cancelled[1]. This allows time for the asynchronous `readPump` goroutine to receive and process the WebSocket message before verification occurs[1][2].
+
+## References
+
+[1] [https://golang.org/doc/effective_go#concurrency](https://golang.org/doc/effective_go#concurrency)
+[2] [https://golang.org/pkg/time/](https://golang.org/pkg/time/)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is showing me a test failure for `TestWebSocketCancelMessage`. The error is:
+
+```
+    websocket_test.go:272: Query was not marked as cancelled
+```
+
+Looking at line 272 in the websocket_test.go file:
+
+```go
+	if !isCancelled {
+		t.Fatal("Query was not marked as cancelled")
+	}
+```
+
+The test is checking if a query was marked as cancelled after sending a cancel message via WebSocket. The problem is that the cancel message is being sent, but the query is not being marked as cancelled.
+
+Looking at the readPump function in main.go, I can see:
+
+```go
+} else if msgType == "cancel" {
+    // Handle query cancellation[1]
+    queryID, _ := msg["queryID"].(string)
+    cancelledMutex.Lock()
+    cancelledQueries[queryID] = true
+    cancelledMutex.Unlock()
+    log.Printf("Query %s marked for cancellation", queryID)
+}
+```
+
+The logic looks correct. The issue might be that:
+1. The readPump is not receiving the message
+2. The message type is not being parsed correctly
+3. There's a timing issue
+
+Looking at the test code:
+```go
+// Send a cancel message
+cancelMsg := map[string]interface{}{
+    "type":    "cancel",
+    "queryID": "test-cancel-123",
+}
+if err := conn.WriteJSON(cancelMsg); err != nil {
+    t.Fatalf("Failed to send cancel message: %v", err)
+}
+
+// Verify cancel flag is set[1]
+cancelledMutex.Lock()
+isCancelled := cancelledQueries["test-cancel-123"]
+cancelledMutex.Unlock()
+
+if !isCancelled {
+    t.Fatal("Query was not marked as cancelled")
+}
+```
+
+The problem is likely a timing issue - the client sends the message, but readPump might not have processed it yet because there's no wait/sleep between sending and checking. 
+
+Since readPump executes concurrently in its own goroutine, the message processing happens asynchronously. The test immediately checks the cancelled flag without giving readPump enough time to receive and handle the message. I should introduce a delay or polling mechanism to wait for the cancellation to be processed before verifying the state.
+
+
+---
+

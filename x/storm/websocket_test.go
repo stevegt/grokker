@@ -263,6 +263,9 @@ func TestWebSocketCancelMessage(t *testing.T) {
 		t.Fatalf("Failed to send cancel message: %v", err)
 	}
 
+	// Wait for readPump to process the message via channel (allow time for async processing)[1]
+	time.Sleep(500 * time.Millisecond)
+
 	// Verify cancel flag is set[1]
 	cancelledMutex.Lock()
 	isCancelled := cancelledQueries["test-cancel-123"]
