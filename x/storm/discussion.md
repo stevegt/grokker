@@ -48718,3 +48718,79 @@ I'll update the unexpected-files-plan.md file with these status markings to refl
 
 ---
 
+
+
+**what's next?**
+
+
+
+
+# Next Steps: Implement Unexpected Files Feature (Stages 4-10)
+
+Based on the completed code and documentation, here's what's next[1]:
+
+## Immediate Priority: Stage 4 - Pending Query Tracker
+
+**Start with**: Extend `readPump()` to handle `approveFiles` WebSocket messages[1]
+
+1. Add `PendingQuery` struct to track queries awaiting user approval
+2. Create `pendingApprovals` map (protected by mutex) to store queries by `queryID`
+3. Modify `readPump()` to handle new message type: `{type: "approveFiles", queryID, approvedFiles}`
+4. Send approval signal via channel to `sendQueryToLLM()`
+
+This unblocks all downstream stages and establishes the approval mechanism[1].
+
+## Sequential Path Forward
+
+1. **Stage 4** - Pending approval infrastructure (blocking infrastructure)
+2. **Stage 5** - Dry-run detection and WebSocket notification of unexpected files
+3. **Stage 6** - Modal UI updates to display categorized files
+4. **Stage 7** - Re-extraction logic based on user approval
+5. **Stage 8** - Support CLI file addition during approval window
+6. **Stage 9** - Handle modal closure without approval
+7. **Stage 10** - End-to-end testing and documentation
+
+## Testing Already Complete ✅
+
+Your test coverage is comprehensive:
+- ✅ HTTP API integration tests (api_test.go)
+- ✅ CLI blackbox tests (cli_test.go)  
+- ✅ WebSocket connection and messaging (websocket_test.go)
+- ✅ Unit tests for core logic
+
+New feature tests can be added to `websocket_test.go` as stages are implemented[1][2].
+
+## References
+
+[1] [https://golang.org/doc/effective_go#concurrency](https://golang.org/doc/effective_go#concurrency)
+[2] [https://golang.org/pkg/testing/](https://golang.org/pkg/testing/)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking "what's next?" after providing a comprehensive set of code files and documentation for the Storm project, including:
+
+1. Complete test suites (api_test.go, cli_test.go, websocket_test.go)
+2. Main application code (main.go, cli.go)
+3. Web interface (project.html, index.html)
+4. Testing plans (testing-plan.md showing all tests are DONE)
+5. Unexpected files implementation plan (showing stages 1-3 DONE, stages 4-10 TODO)
+
+The user seems to be asking what should be worked on next. Based on the documentation provided, the logical next steps would be:
+
+1. Implement Stage 4-10 of the unexpected files plan (the actual feature implementation)
+2. The testing is complete, so focus is on the feature itself
+3. The next priority should be Stage 4: Extend ReadPump to Handle "approveFiles" Messages
+
+I should provide a concise, clear recommendation of what the next priority should be based on what's already done and what remains.
+
+
+---
+
