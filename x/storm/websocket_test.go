@@ -25,34 +25,48 @@ func getAvailablePort() (int, error) {
 	return listener.Addr().(*net.TCPAddr).Port, nil
 }
 
-// TestWebSocketConnection tests establishing a WebSocket connection to a project
-func TestWebSocketConnection(t *testing.T) {
+// TestSetup encapsulates all setup data for a WebSocket test[1]
+type TestSetup struct {
+	Port        int
+	TmpDir      string
+	DbPath      string
+	ProjectID   string
+	ProjectDir  string
+	MarkdownFile string
+	DaemonURL   string
+	WsURL       string
+}
+
+// setupTest creates temporary directories, starts server, creates project, and returns test setup[1]
+func setupTest(t *testing.T, projectID string) *TestSetup {
 	// Get available port
 	port, err := getAvailablePort()
 	if err != nil {
 		t.Fatalf("Failed to get available port: %v", err)
 	}
 
-	// Set up test environment
-	tmpDir, err := ioutil.TempDir("", "storm-ws-test-")
+	// Create temporary directory
+	tmpDir, err := ioutil.TempDir("", fmt.Sprintf("storm-ws-test-%s-", projectID))
 	if err != nil {
 		t.Fatalf("Failed to create temporary directory: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
 
-	dbPath := filepath.Join(tmpDir, "test.db")
-	projectID := "ws-test-project"
+	// Create project directory
 	projectDir := filepath.Join(tmpDir, projectID)
 	if err := os.MkdirAll(projectDir, 0755); err != nil {
 		t.Fatalf("Failed to create project directory: %v", err)
 	}
 
+	// Create markdown file
 	markdownFile := filepath.Join(projectDir, "chat.md")
 	if err := ioutil.WriteFile(markdownFile, []byte(""), 0644); err != nil {
 		t.Fatalf("Failed to create markdown file: %v", err)
 	}
 
-	// Start server
+	// Database path
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	// Start server in background
 	go func() {
 		if err := serveRun(port, dbPath); err != nil {
 			t.Logf("Server error: %v", err)
@@ -60,8 +74,11 @@ func TestWebSocketConnection(t *testing.T) {
 	}()
 	time.Sleep(2 * time.Second)
 
-	// Create project via HTTP API
+	// Build URLs
 	daemonURL := fmt.Sprintf("http://localhost:%d", port)
+	wsURL := fmt.Sprintf("ws://localhost:%d/project/%s/ws", port, projectID)
+
+	// Create project via HTTP API
 	createProjectPayload := map[string]string{
 		"projectID":    projectID,
 		"baseDir":      projectDir,
@@ -74,13 +91,54 @@ func TestWebSocketConnection(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	// Test WebSocket connection
-	wsURL := fmt.Sprintf("ws://localhost:%d/project/%s/ws", port, projectID)
+	return &TestSetup{
+		Port:         port,
+		TmpDir:       tmpDir,
+		DbPath:       dbPath,
+		ProjectID:    projectID,
+		ProjectDir:   projectDir,
+		MarkdownFile: markdownFile,
+		DaemonURL:    daemonURL,
+		WsURL:        wsURL,
+	}
+}
+
+// teardownTest cleans up temporary directories and stops server[1]
+func teardownTest(t *testing.T, setup *TestSetup) {
+	// Stop server gracefully
+	resp, err := http.Post(setup.DaemonURL+"/stop", "application/json", nil)
+	if err != nil {
+		t.Logf("Warning: error stopping server: %v", err)
+	} else {
+		resp.Body.Close()
+	}
+
+	// Wait for server to shut down
+	time.Sleep(500 * time.Millisecond)
+
+	// Clean up temporary directory
+	if err := os.RemoveAll(setup.TmpDir); err != nil {
+		t.Logf("Warning: failed to remove temporary directory: %v", err)
+	}
+}
+
+// connectWebSocket establishes a WebSocket connection and returns it[1]
+func connectWebSocket(t *testing.T, wsURL string) *websocket.Conn {
 	dialer := websocket.Dialer{}
 	conn, _, err := dialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("Failed to connect to WebSocket: %v", err)
 	}
+	return conn
+}
+
+// TestWebSocketConnection tests establishing a WebSocket connection to a project
+func TestWebSocketConnection(t *testing.T) {
+	setup := setupTest(t, "ws-test-project")
+	defer teardownTest(t, setup)
+
+	// Test WebSocket connection
+	conn := connectWebSocket(t, setup.WsURL)
 	defer conn.Close()
 
 	// Verify connection is open by attempting to write a message
@@ -89,65 +147,16 @@ func TestWebSocketConnection(t *testing.T) {
 		t.Fatalf("WebSocket connection is not functional: %v", err)
 	}
 
-	t.Logf("WebSocket connection successful for project %s", projectID)
+	t.Logf("WebSocket connection successful for project %s", setup.ProjectID)
 }
 
 // TestWebSocketQueryMessage tests sending a query via WebSocket and receiving a response
 func TestWebSocketQueryMessage(t *testing.T) {
-	// Get available port
-	port, err := getAvailablePort()
-	if err != nil {
-		t.Fatalf("Failed to get available port: %v", err)
-	}
-
-	// Set up test environment
-	tmpDir, err := ioutil.TempDir("", "storm-ws-query-")
-	if err != nil {
-		t.Fatalf("Failed to create temporary directory: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	dbPath := filepath.Join(tmpDir, "test.db")
-	projectID := "ws-query-project"
-	projectDir := filepath.Join(tmpDir, projectID)
-	if err := os.MkdirAll(projectDir, 0755); err != nil {
-		t.Fatalf("Failed to create project directory: %v", err)
-	}
-
-	markdownFile := filepath.Join(projectDir, "chat.md")
-	if err := ioutil.WriteFile(markdownFile, []byte(""), 0644); err != nil {
-		t.Fatalf("Failed to create markdown file: %v", err)
-	}
-
-	// Start server
-	go func() {
-		if err := serveRun(port, dbPath); err != nil {
-			t.Logf("Server error: %v", err)
-		}
-	}()
-	time.Sleep(2 * time.Second)
-
-	// Create project via HTTP API
-	daemonURL := fmt.Sprintf("http://localhost:%d", port)
-	createProjectPayload := map[string]string{
-		"projectID":    projectID,
-		"baseDir":      projectDir,
-		"markdownFile": markdownFile,
-	}
-	jsonData, _ := json.Marshal(createProjectPayload)
-	resp, err := http.Post(daemonURL+"/api/projects", "application/json", strings.NewReader(string(jsonData)))
-	if err != nil {
-		t.Fatalf("Failed to create project: %v", err)
-	}
-	resp.Body.Close()
+	setup := setupTest(t, "ws-query-project")
+	defer teardownTest(t, setup)
 
 	// Connect to WebSocket
-	wsURL := fmt.Sprintf("ws://localhost:%d/project/%s/ws", port, projectID)
-	dialer := websocket.Dialer{}
-	conn, _, err := dialer.Dial(wsURL, nil)
-	if err != nil {
-		t.Fatalf("Failed to connect to WebSocket: %v", err)
-	}
+	conn := connectWebSocket(t, setup.WsURL)
 	defer conn.Close()
 
 	// Send a query message
@@ -160,7 +169,7 @@ func TestWebSocketQueryMessage(t *testing.T) {
 		"outFiles":   []string{},
 		"tokenLimit": 0,
 		"queryID":    "test-query-123",
-		"projectID":  projectID,
+		"projectID":  setup.ProjectID,
 	}
 	if err := conn.WriteJSON(queryMsg); err != nil {
 		t.Fatalf("Failed to send query message: %v", err)
@@ -198,60 +207,11 @@ func TestWebSocketQueryMessage(t *testing.T) {
 
 // TestWebSocketCancelMessage tests sending a cancel message via WebSocket
 func TestWebSocketCancelMessage(t *testing.T) {
-	// Get available port
-	port, err := getAvailablePort()
-	if err != nil {
-		t.Fatalf("Failed to get available port: %v", err)
-	}
-
-	// Set up test environment
-	tmpDir, err := ioutil.TempDir("", "storm-ws-cancel-")
-	if err != nil {
-		t.Fatalf("Failed to create temporary directory: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	dbPath := filepath.Join(tmpDir, "test.db")
-	projectID := "ws-cancel-project"
-	projectDir := filepath.Join(tmpDir, projectID)
-	if err := os.MkdirAll(projectDir, 0755); err != nil {
-		t.Fatalf("Failed to create project directory: %v", err)
-	}
-
-	markdownFile := filepath.Join(projectDir, "chat.md")
-	if err := ioutil.WriteFile(markdownFile, []byte(""), 0644); err != nil {
-		t.Fatalf("Failed to create markdown file: %v", err)
-	}
-
-	// Start server
-	go func() {
-		if err := serveRun(port, dbPath); err != nil {
-			t.Logf("Server error: %v", err)
-		}
-	}()
-	time.Sleep(2 * time.Second)
-
-	// Create project via HTTP API
-	daemonURL := fmt.Sprintf("http://localhost:%d", port)
-	createProjectPayload := map[string]string{
-		"projectID":    projectID,
-		"baseDir":      projectDir,
-		"markdownFile": markdownFile,
-	}
-	jsonData, _ := json.Marshal(createProjectPayload)
-	resp, err := http.Post(daemonURL+"/api/projects", "application/json", strings.NewReader(string(jsonData)))
-	if err != nil {
-		t.Fatalf("Failed to create project: %v", err)
-	}
-	resp.Body.Close()
+	setup := setupTest(t, "ws-cancel-project")
+	defer teardownTest(t, setup)
 
 	// Connect to WebSocket
-	wsURL := fmt.Sprintf("ws://localhost:%d/project/%s/ws", port, projectID)
-	dialer := websocket.Dialer{}
-	conn, _, err := dialer.Dial(wsURL, nil)
-	if err != nil {
-		t.Fatalf("Failed to connect to WebSocket: %v", err)
-	}
+	conn := connectWebSocket(t, setup.WsURL)
 	defer conn.Close()
 
 	// Send a cancel message
@@ -280,61 +240,16 @@ func TestWebSocketCancelMessage(t *testing.T) {
 
 // TestWebSocketMultipleClients tests multiple WebSocket clients connected to the same project
 func TestWebSocketMultipleClients(t *testing.T) {
-	// Get available port
-	port, err := getAvailablePort()
-	if err != nil {
-		t.Fatalf("Failed to get available port: %v", err)
-	}
-
-	// Set up test environment
-	tmpDir, err := ioutil.TempDir("", "storm-ws-multi-")
-	if err != nil {
-		t.Fatalf("Failed to create temporary directory: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	dbPath := filepath.Join(tmpDir, "test.db")
-	projectID := "ws-multi-project"
-	projectDir := filepath.Join(tmpDir, projectID)
-	if err := os.MkdirAll(projectDir, 0755); err != nil {
-		t.Fatalf("Failed to create project directory: %v", err)
-	}
-
-	markdownFile := filepath.Join(projectDir, "chat.md")
-	if err := ioutil.WriteFile(markdownFile, []byte(""), 0644); err != nil {
-		t.Fatalf("Failed to create markdown file: %v", err)
-	}
-
-	// Start server
-	go func() {
-		if err := serveRun(port, dbPath); err != nil {
-			t.Logf("Server error: %v", err)
-		}
-	}()
-	time.Sleep(2 * time.Second)
-
-	// Create project via HTTP API
-	daemonURL := fmt.Sprintf("http://localhost:%d", port)
-	createProjectPayload := map[string]string{
-		"projectID":    projectID,
-		"baseDir":      projectDir,
-		"markdownFile": markdownFile,
-	}
-	jsonData, _ := json.Marshal(createProjectPayload)
-	resp, err := http.Post(daemonURL+"/api/projects", "application/json", strings.NewReader(string(jsonData)))
-	if err != nil {
-		t.Fatalf("Failed to create project: %v", err)
-	}
-	resp.Body.Close()
+	setup := setupTest(t, "ws-multi-project")
+	defer teardownTest(t, setup)
 
 	// Connect multiple WebSocket clients
-	wsURL := fmt.Sprintf("ws://localhost:%d/project/%s/ws", port, projectID)
 	dialer := websocket.Dialer{}
 
 	const numClients = 3
 	var conns []*websocket.Conn
 	for i := 0; i < numClients; i++ {
-		conn, _, err := dialer.Dial(wsURL, nil)
+		conn, _, err := dialer.Dial(setup.WsURL, nil)
 		if err != nil {
 			t.Fatalf("Failed to connect client %d to WebSocket: %v", i, err)
 		}
@@ -356,7 +271,7 @@ func TestWebSocketMultipleClients(t *testing.T) {
 		"outFiles":   []string{},
 		"tokenLimit": 0,
 		"queryID":    "broadcast-123",
-		"projectID":  projectID,
+		"projectID":  setup.ProjectID,
 	}
 	if err := conns[0].WriteJSON(queryMsg); err != nil {
 		t.Fatalf("Failed to send query message: %v", err)
@@ -391,75 +306,26 @@ func TestWebSocketMultipleClients(t *testing.T) {
 
 // TestWebSocketBroadcastOnFileListUpdate tests that file list updates are broadcasted to WebSocket clients
 func TestWebSocketBroadcastOnFileListUpdate(t *testing.T) {
-	// Get available port
-	port, err := getAvailablePort()
-	if err != nil {
-		t.Fatalf("Failed to get available port: %v", err)
-	}
-
-	// Set up test environment
-	tmpDir, err := ioutil.TempDir("", "storm-ws-broadcast-")
-	if err != nil {
-		t.Fatalf("Failed to create temporary directory: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	dbPath := filepath.Join(tmpDir, "test.db")
-	projectID := "ws-broadcast-project"
-	projectDir := filepath.Join(tmpDir, projectID)
-	if err := os.MkdirAll(projectDir, 0755); err != nil {
-		t.Fatalf("Failed to create project directory: %v", err)
-	}
-
-	markdownFile := filepath.Join(projectDir, "chat.md")
-	if err := ioutil.WriteFile(markdownFile, []byte(""), 0644); err != nil {
-		t.Fatalf("Failed to create markdown file: %v", err)
-	}
+	setup := setupTest(t, "ws-broadcast-project")
+	defer teardownTest(t, setup)
 
 	// Create a test file
-	testFile := filepath.Join(projectDir, "test.txt")
+	testFile := filepath.Join(setup.ProjectDir, "test.txt")
 	if err := ioutil.WriteFile(testFile, []byte("test content"), 0644); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
-	// Start server
-	go func() {
-		if err := serveRun(port, dbPath); err != nil {
-			t.Logf("Server error: %v", err)
-		}
-	}()
-	time.Sleep(2 * time.Second)
-
-	// Create project via HTTP API
-	daemonURL := fmt.Sprintf("http://localhost:%d", port)
-	createProjectPayload := map[string]string{
-		"projectID":    projectID,
-		"baseDir":      projectDir,
-		"markdownFile": markdownFile,
-	}
-	jsonData, _ := json.Marshal(createProjectPayload)
-	resp, err := http.Post(daemonURL+"/api/projects", "application/json", strings.NewReader(string(jsonData)))
-	if err != nil {
-		t.Fatalf("Failed to create project: %v", err)
-	}
-	resp.Body.Close()
-
 	// Connect WebSocket client
-	wsURL := fmt.Sprintf("ws://localhost:%d/project/%s/ws", port, projectID)
-	dialer := websocket.Dialer{}
-	conn, _, err := dialer.Dial(wsURL, nil)
-	if err != nil {
-		t.Fatalf("Failed to connect to WebSocket: %v", err)
-	}
+	conn := connectWebSocket(t, setup.WsURL)
 	defer conn.Close()
 
 	// Add files via HTTP API to trigger broadcast
 	addFilesPayload := map[string]interface{}{
 		"filenames": []string{testFile},
 	}
-	jsonData, _ = json.Marshal(addFilesPayload)
-	fileURL := fmt.Sprintf("%s/api/projects/%s/files/add", daemonURL, projectID)
-	resp, err = http.Post(fileURL, "application/json", strings.NewReader(string(jsonData)))
+	jsonData, _ := json.Marshal(addFilesPayload)
+	fileURL := fmt.Sprintf("%s/api/projects/%s/files/add", setup.DaemonURL, setup.ProjectID)
+	resp, err := http.Post(fileURL, "application/json", strings.NewReader(string(jsonData)))
 	if err != nil {
 		t.Fatalf("Failed to add files: %v", err)
 	}
@@ -490,66 +356,21 @@ func TestWebSocketBroadcastOnFileListUpdate(t *testing.T) {
 
 // TestWebSocketConnectionCleanup tests that clients are properly cleaned up when disconnecting
 func TestWebSocketConnectionCleanup(t *testing.T) {
-	// Get available port
-	port, err := getAvailablePort()
-	if err != nil {
-		t.Fatalf("Failed to get available port: %v", err)
-	}
-
-	// Set up test environment
-	tmpDir, err := ioutil.TempDir("", "storm-ws-cleanup-")
-	if err != nil {
-		t.Fatalf("Failed to create temporary directory: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	dbPath := filepath.Join(tmpDir, "test.db")
-	projectID := "ws-cleanup-project"
-	projectDir := filepath.Join(tmpDir, projectID)
-	if err := os.MkdirAll(projectDir, 0755); err != nil {
-		t.Fatalf("Failed to create project directory: %v", err)
-	}
-
-	markdownFile := filepath.Join(projectDir, "chat.md")
-	if err := ioutil.WriteFile(markdownFile, []byte(""), 0644); err != nil {
-		t.Fatalf("Failed to create markdown file: %v", err)
-	}
-
-	// Start server
-	go func() {
-		if err := serveRun(port, dbPath); err != nil {
-			t.Logf("Server error: %v", err)
-		}
-	}()
-	time.Sleep(2 * time.Second)
-
-	// Create project via HTTP API
-	daemonURL := fmt.Sprintf("http://localhost:%d", port)
-	createProjectPayload := map[string]string{
-		"projectID":    projectID,
-		"baseDir":      projectDir,
-		"markdownFile": markdownFile,
-	}
-	jsonData, _ := json.Marshal(createProjectPayload)
-	resp, err := http.Post(daemonURL+"/api/projects", "application/json", strings.NewReader(string(jsonData)))
-	if err != nil {
-		t.Fatalf("Failed to create project: %v", err)
-	}
-	resp.Body.Close()
+	setup := setupTest(t, "ws-cleanup-project")
+	defer teardownTest(t, setup)
 
 	// Get the project to check client pool
-	project, err := projects.Get(projectID)
+	project, err := projects.Get(setup.ProjectID)
 	if err != nil {
 		t.Fatalf("Failed to get project: %v", err)
 	}
 
 	// Connect and disconnect multiple times
-	wsURL := fmt.Sprintf("ws://localhost:%d/project/%s/ws", port, projectID)
 	dialer := websocket.Dialer{}
 
 	for iteration := 0; iteration < 3; iteration++ {
 		// Connect
-		conn, _, err := dialer.Dial(wsURL, nil)
+		conn, _, err := dialer.Dial(setup.WsURL, nil)
 		if err != nil {
 			t.Fatalf("Iteration %d: Failed to connect to WebSocket: %v", iteration, err)
 		}
@@ -576,60 +397,11 @@ func TestWebSocketConnectionCleanup(t *testing.T) {
 
 // TestWebSocketPingPong tests ping/pong keepalive mechanism
 func TestWebSocketPingPong(t *testing.T) {
-	// Get available port
-	port, err := getAvailablePort()
-	if err != nil {
-		t.Fatalf("Failed to get available port: %v", err)
-	}
-
-	// Set up test environment
-	tmpDir, err := ioutil.TempDir("", "storm-ws-pingpong-")
-	if err != nil {
-		t.Fatalf("Failed to create temporary directory: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	dbPath := filepath.Join(tmpDir, "test.db")
-	projectID := "ws-pingpong-project"
-	projectDir := filepath.Join(tmpDir, projectID)
-	if err := os.MkdirAll(projectDir, 0755); err != nil {
-		t.Fatalf("Failed to create project directory: %v", err)
-	}
-
-	markdownFile := filepath.Join(projectDir, "chat.md")
-	if err := ioutil.WriteFile(markdownFile, []byte(""), 0644); err != nil {
-		t.Fatalf("Failed to create markdown file: %v", err)
-	}
-
-	// Start server
-	go func() {
-		if err := serveRun(port, dbPath); err != nil {
-			t.Logf("Server error: %v", err)
-		}
-	}()
-	time.Sleep(2 * time.Second)
-
-	// Create project via HTTP API
-	daemonURL := fmt.Sprintf("http://localhost:%d", port)
-	createProjectPayload := map[string]string{
-		"projectID":    projectID,
-		"baseDir":      projectDir,
-		"markdownFile": markdownFile,
-	}
-	jsonData, _ := json.Marshal(createProjectPayload)
-	resp, err := http.Post(daemonURL+"/api/projects", "application/json", strings.NewReader(string(jsonData)))
-	if err != nil {
-		t.Fatalf("Failed to create project: %v", err)
-	}
-	resp.Body.Close()
+	setup := setupTest(t, "ws-pingpong-project")
+	defer teardownTest(t, setup)
 
 	// Connect to WebSocket
-	wsURL := fmt.Sprintf("ws://localhost:%d/project/%s/ws", port, projectID)
-	dialer := websocket.Dialer{}
-	conn, _, err := dialer.Dial(wsURL, nil)
-	if err != nil {
-		t.Fatalf("Failed to connect to WebSocket: %v", err)
-	}
+	conn := connectWebSocket(t, setup.WsURL)
 	defer conn.Close()
 
 	// Set pong handler to track pongs received

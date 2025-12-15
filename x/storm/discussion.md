@@ -48455,3 +48455,67 @@ Since readPump executes concurrently in its own goroutine, the message processin
 
 ---
 
+
+
+**move common websocket test code into setup and teardown functions**
+
+
+
+
+# Refactor WebSocket Tests: Extract Common Setup and Teardown Functions
+
+Refactors websocket_test.go to eliminate code duplication by extracting common setup and teardown logic into reusable helper functions[1]. Each test now calls these helpers instead of repeating 50+ lines of boilerplate code per test[1].
+
+
+## Summary
+
+**Refactored websocket_test.go with extracted helper functions**[1]:
+
+- **`setupTest(t, projectID)`**: Encapsulates all common setup logic (port allocation, directory creation, server startup, project creation, URL construction)
+- **`teardownTest(t, setup)`**: Handles cleanup (server shutdown, temporary directory removal)
+- **`connectWebSocket(t, wsURL)`**: Establishes WebSocket connection with error handling
+
+**Benefits**[1][2]:
+- Reduced code duplication: Each test now ~30-50 lines instead of ~100+ lines
+- Easier maintenance: Changes to setup/teardown logic only need to be made in one place
+- Consistent test structure: All tests follow the same pattern
+- Improved readability: Test logic is now the focus, not boilerplate
+- `TestSetup` struct keeps related data together and is passed to teardown
+
+## References
+
+[1] [https://golang.org/doc/effective_go#concurrency](https://golang.org/doc/effective_go#concurrency)
+[2] [https://golang.org/doc/effective_go#names](https://golang.org/doc/effective_go#names)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to move common websocket test code into setup and teardown functions. This is a code refactoring request to reduce duplication in the websocket_test.go file.
+
+Looking at the websocket_test.go file, I can see that each test function has similar setup code:
+1. Get available port
+2. Create temporary directory
+3. Create project directory
+4. Create markdown file
+5. Start server
+6. Create project via HTTP API
+7. Connect to WebSocket
+
+And similar teardown:
+1. Cleanup temporary directory
+2. Close connections
+
+I should extract this common code into helper functions. According to the instructions at the top, I MUST use FILE-START and FILE-END markers for the complete files only.
+
+Let me create refactored websocket_test.go with setup and teardown helper functions.
+
+
+---
+
