@@ -48598,3 +48598,58 @@ Given the instructions, I need to provide a complete fixed websocket_test.go fil
 
 ---
 
+
+
+**update testing plan DONE status**
+
+
+
+
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to "update testing plan DONE status". Looking at the context, they've provided me with several complete files:
+
+1. api_test.go - HTTP API tests
+2. cli_test.go - CLI tests
+3. main.go - main Storm application
+4. project.html - web UI
+5. testing-plan.md - the testing plan document
+6. websocket_test.go - WebSocket tests (newly created)
+
+The user wants me to review what's actually been completed and update the testing-plan.md file to reflect the current DONE status.
+
+Looking at the testing-plan.md, I can see:
+- Plan A: PARTIALLY DONE (HTTP done, WebSocket TODO)
+- Plan B: DONE
+- Plan C: DONE
+- Plan D: DONE
+- Plan E: PARTIALLY DONE
+
+But now looking at websocket_test.go, they've created WebSocket tests! So I need to update the status to reflect what's actually implemented.
+
+The websocket_test.go file contains:
+- TestWebSocketConnection
+- TestWebSocketQueryMessage
+- TestWebSocketCancelMessage
+- TestWebSocketMultipleClients
+- TestWebSocketBroadcastOnFileListUpdate
+- TestWebSocketConnectionCleanup
+
+So Plan A is now more complete with WebSocket tests implemented.
+
+I need to update testing-plan.md to mark these as DONE and update the status accordingly.
+
+Following the user's strict instructions about FILE-START and FILE-END markers, I must provide the complete updated testing-plan.md file.
+
+
+---
+
