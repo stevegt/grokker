@@ -48653,3 +48653,68 @@ Following the user's strict instructions about FILE-START and FILE-END markers, 
 
 ---
 
+
+
+**update unexpected-files-plan.md with DONE and TODO markers**
+
+
+
+
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to "update unexpected-files-plan.md with DONE and TODO markers".
+
+Looking at the unexpected-files-plan.md file that was provided in the FILE-START/FILE-END blocks, I can see it's a 10-stage implementation plan for the unexpected files feature.
+
+Currently, based on what I can see from the code provided:
+- Stages 1-10 are all described in the document
+- But looking at the actual implementation, I need to determine what's actually DONE vs TODO
+
+Looking at main.go:
+- I can see `ExtractFiles` is being called and the result is being used
+- The code has two calls to `ExtractFiles()` - one with `DryRun: true` and one with `DryRun: false`
+- But I don't see evidence that `ExtractResult` struct is actually being used yet
+
+Looking at the provided code more carefully:
+- The `sendQueryToLLM` function is calling `ExtractFiles` and getting back results
+- It's storing `result.CookedResponse`
+- But I don't see the full implementation of the two-phase extraction with user approval
+
+So it seems like Stages 1-3 might be partially done (ExtractFiles returning a struct), but Stages 4-10 are still TODO.
+
+Actually, wait - looking at the code again in main.go:
+```go
+result, err := core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
+    DryRun:          true,
+    ExtractToStdout: false,
+})
+```
+
+The code is already calling ExtractFiles and using `result.CookedResponse`. So Stage 1-3 appear to be at least partially implemented.
+
+But there's no evidence of:
+- Categorizing unexpected files
+- Sending WebSocket notifications for unexpected files
+- Handling user approval via approveFiles messages
+- Two-phase extraction based on user selection
+
+So I should mark:
+
+
+- Stages 1-3: ✅ DONE (ExtractFiles returns result struct)
+- Stages 4-10: ⏳ TODO (not yet implemented)
+
+I'll update the unexpected-files-plan.md file with these status markings to reflect the current implementation status.
+
+
+---
+
