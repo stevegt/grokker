@@ -42,6 +42,15 @@ var indexHTML string
 var projectTemplate = template.Must(template.New("project").Parse(projectHTML))
 var landingTemplate = template.Must(template.New("landing").Parse(indexHTML))
 
+// PendingQuery tracks queries awaiting user approval for unexpected files
+type PendingQuery struct {
+	queryID          string
+	rawResponse      string
+	outFiles         []core.FileLang
+	approvalChannel  chan []string
+	approvalDeadline time.Time
+}
+
 // Global variables for serve subcommand
 var (
 	grok     *core.Grokker
@@ -57,9 +66,13 @@ var (
 		},
 	}
 
-	// Track cancelled queries by queryID[1]
+	// Track cancelled queries by queryID
 	cancelledQueries = make(map[string]bool)
 	cancelledMutex   sync.Mutex
+
+	// Track pending queries by queryID
+	pendingApprovals = make(map[string]*PendingQuery)
+	pendingMutex     sync.Mutex
 )
 
 const (
@@ -529,7 +542,7 @@ func (c *WSClient) writePump() {
 	}
 }
 
-// resolveFilePath converts a relative path to absolute using the project's BaseDir[1]
+// resolveFilePath converts a relative path to absolute using the project's BaseDir
 func resolveFilePath(project *Project, filePath string) string {
 	if filepath.IsAbs(filePath) {
 		// Already absolute, return as-is
@@ -553,7 +566,7 @@ func (c *WSClient) readPump(project *Project) {
 			break
 		}
 
-		// Handle incoming query messages from clients
+		// Handle incoming messages from clients
 		if msgType, ok := msg["type"].(string); ok {
 			if msgType == "query" {
 				log.Printf("Received query from %s in project %s: %v", c.id, c.projectID, msg)
@@ -564,7 +577,7 @@ func (c *WSClient) readPump(project *Project) {
 				selection, _ := msg["selection"].(string)
 				queryID, _ := msg["queryID"].(string)
 
-				// Extract arrays and resolve relative paths to absolute[1]
+				// Extract arrays and resolve relative paths to absolute
 				var inputFiles, outFiles []string
 				if inputFilesRaw, ok := msg["inputFiles"].([]interface{}); ok {
 					for i := 0; i < len(inputFilesRaw); i++ {
@@ -589,20 +602,95 @@ func (c *WSClient) readPump(project *Project) {
 				// Process the query
 				go processQuery(project, queryID, query, llm, selection, inputFiles, outFiles, tokenLimit)
 			} else if msgType == "cancel" {
-				// Handle query cancellation[1]
+				// Handle query cancellation
 				queryID, _ := msg["queryID"].(string)
 				cancelledMutex.Lock()
 				cancelledQueries[queryID] = true
 				cancelledMutex.Unlock()
 				log.Printf("Query %s marked for cancellation", queryID)
+			} else if msgType == "approveFiles" {
+				// Handle file approval for unexpected files
+				queryID, _ := msg["queryID"].(string)
+				approvedFilesRaw, _ := msg["approvedFiles"].([]interface{})
+
+				// Convert approved files to string slice
+				var approvedFiles []string
+				for i := 0; i < len(approvedFilesRaw); i++ {
+					if f, ok := approvedFilesRaw[i].(string); ok {
+						approvedFiles = append(approvedFiles, f)
+					}
+				}
+
+				// Send approval to pending query over channel to unblock processing
+				pendingMutex.Lock()
+				pending, exists := pendingApprovals[queryID]
+				pendingMutex.Unlock()
+
+				if exists && pending != nil {
+					log.Printf("Sending approval for query %s with %d approved files", queryID, len(approvedFiles))
+					select {
+					case pending.approvalChannel <- approvedFiles:
+						log.Printf("Approval sent to query %s", queryID)
+					case <-time.After(5 * time.Second):
+						log.Printf("WARNING: approval channel timeout for query %s", queryID)
+					}
+				} else {
+					log.Printf("WARNING: received approval for unknown query %s", queryID)
+				}
 			}
 		}
 	}
 }
 
+// addPendingQuery registers a query waiting for user approval
+func addPendingQuery(queryID string, rawResponse string, outFiles []core.FileLang) *PendingQuery {
+	pending := &PendingQuery{
+		queryID:          queryID,
+		rawResponse:      rawResponse,
+		outFiles:         outFiles,
+		approvalChannel:  make(chan []string, 1),
+		approvalDeadline: time.Now().Add(5 * time.Minute),
+	}
+
+	pendingMutex.Lock()
+	pendingApprovals[queryID] = pending
+	pendingMutex.Unlock()
+
+	log.Printf("Added pending query %s, waiting for approval", queryID)
+	return pending
+}
+
+// removePendingQuery cleans up a query that no longer needs approval
+func removePendingQuery(queryID string) {
+	pendingMutex.Lock()
+	pending, exists := pendingApprovals[queryID]
+	if exists {
+		delete(pendingApprovals, queryID)
+		// Close the channel to signal completion
+		close(pending.approvalChannel)
+	}
+	pendingMutex.Unlock()
+
+	if exists {
+		log.Printf("Removed pending query %s", queryID)
+	}
+}
+
+// waitForApproval blocks until user approves files or timeout occurs
+func waitForApproval(pending *PendingQuery) ([]string, error) {
+	select {
+	case approvedFiles := <-pending.approvalChannel:
+		log.Printf("Received approval for query %s with %d files", pending.queryID, len(approvedFiles))
+		return approvedFiles, nil
+	case <-time.After(5 * time.Minute):
+		log.Printf("Approval timeout for query %s, proceeding without approval", pending.queryID)
+		return []string{}, fmt.Errorf("approval timeout")
+	}
+}
+
 // processQuery processes a query and broadcasts results to all clients in the project.
 func processQuery(project *Project, queryID, query, llm, selection string, inputFiles, outFiles []string, tokenLimit int) {
-	// Clean up cancellation flag when done[1]
+	// Clean up cancellation flag when done
 	defer func() {
 		cancelledMutex.Lock()
 		delete(cancelledQueries, queryID)
@@ -814,7 +902,7 @@ func tokenCountHandler(w http.ResponseWriter, r *http.Request, project *Project)
 	json.NewEncoder(w).Encode(map[string]int{"tokens": count})
 }
 
-// isQueryCancelled checks if a query has been marked for cancellation[1]
+// isQueryCancelled checks if a query has been marked for cancellation
 func isQueryCancelled(queryID string) bool {
 	cancelledMutex.Lock()
 	defer cancelledMutex.Unlock()

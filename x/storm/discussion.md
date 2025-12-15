@@ -48794,3 +48794,72 @@ I should provide a concise, clear recommendation of what the next priority shoul
 
 ---
 
+
+
+**implement stage 4**
+
+
+
+
+# Stage 4: Extend ReadPump to Handle "approveFiles" Messages
+
+Implements the pending query tracking infrastructure to support user file approval via WebSocket messages[1][2]. This stage establishes the channel-based coordination mechanism needed for the two-phase file extraction workflow.
+
+
+## Summary
+
+**Stage 4 Implementation Complete**[1]
+
+Added pending query tracking infrastructure to support the two-phase file extraction workflow:
+
+- **PendingQuery struct**: Encapsulates query state with approval channel for signaling user decisions
+- **Pending approvals map**: Thread-safe registry of queries awaiting user approval via mutex protection
+- **readPump enhancement**: Extended WebSocket message handler to recognize and process `approveFiles` messages
+- **Helper functions**: Added `addPendingQuery()`, `removePendingQuery()`, and `waitForApproval()` for managing the query lifecycle
+
+This stage establishes the synchronization primitives needed for Stages 5-10, allowing `sendQueryToLLM()` to pause after dry-run detection and wait for user approval via channel before proceeding with re-extraction[1][2].
+
+## References
+
+[1] [https://golang.org/doc/effective_go#concurrency](https://golang.org/doc/effective_go#concurrency)
+[2] [https://golang.org/ref/spec#Channel_types](https://golang.org/ref/spec#Channel_types)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to "implement stage 4" of the unexpected files plan. Looking at the unexpected-files-plan.md file, Stage 4 is:
+
+**Stage 4: Extend ReadPump to Handle "approveFiles" Messages**
+
+**Status**: ⏳ TODO
+
+**Objective**: Add WebSocket message handler infrastructure for future user approval flow.
+
+**Changes Required**[1]:
+- Create pending query tracker: `map[string]PendingQuery` protected by mutex
+- Define `PendingQuery` struct with fields: `queryID`, `rawResponse`, `outFiles`, `approvalChannel`
+- Extend `readPump()` to handle `{type: "approveFiles", queryID, approvedFiles}` messages
+- Send approval signal via channel to waiting `sendQueryToLLM()`
+
+So I need to implement the pending query tracking infrastructure in main.go. Looking at the current main.go, I can see there's already:
+- cancelledQueries map and cancelledMutex for tracking cancelled queries
+- readPump function that handles query and cancel messages
+
+I need to add:
+1. PendingQuery struct definition
+2. pendingApprovals map and pendingMutex for tracking pending queries
+3. Extend readPump to handle "approveFiles" message type
+4. Helper functions to manage pending queries
+
+Let me implement this in main.go.
+
+
+---
+
