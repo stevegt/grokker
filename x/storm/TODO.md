@@ -4,7 +4,11 @@
 
 # features
 
-- move files list to dialog popup when clicking "files" button
+- ESC exits file modal
+- wrap queries in code block in markdown file 
+  - reformat on read, so result will be written to disk
+- status subcommand to show current status of daemon including queries
+  in progress
 - really need https://playwright.dev/ to test
 - refactor to be able to use one daemon on one port number for multiple projects
   - see discussion.md
@@ -17,11 +21,7 @@
   - make "jump to end" button auto-scroll to the left as well
   - make "jump to end" button be referenced to bottom of chat area
     instead of bottom of main window
-- monitor using inotify and auto relaod and re-render markdown when markdown file changes?
-- wrap queries in code block in markdown file 
-  - reformat on read, so result will be written to disk
-- status subcommand to show current status of daemon including queries
-  in progress
+- monitor using inotify and auto reload and re-render markdown when markdown file changes?
 
 # prompts 
 
