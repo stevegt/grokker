@@ -48264,3 +48264,83 @@ I need to update the websocket_test.go file to remove this problematic check.
 
 ---
 
+
+
+**$ go test -v --run TestWebSocketQueryMessage
+=== RUN   TestWebSocketQueryMessage
+2025/12/14 18:43:29 Starting server on :59990
+2025/12/14 18:43:29 API documentation available at http://localhost:59990/docs
+    websocket_test.go:102: Server error: listen tcp :59990: bind: address already in use
+    websocket_test.go:117: Failed to create project: Post "http://localhost:59990/api/projects": dial tcp 127.0.0.1:59990: connect: connection refused
+--- FAIL: TestWebSocketQueryMessage (2.00s)
+FAIL
+exit status 1
+FAIL    github.com/stevegt/grokker/x/storm      2.059s**
+
+
+
+
+# WebSocket Test Port Binding: Use Dynamic Port Allocation
+
+The tests are failing because they use hardcoded ports that may already be in use or not fully released from previous test runs. Use `httptest.Server` or OS-assigned ports (port 0) to automatically allocate available ports[1][2].
+
+
+## Summary
+
+Fixed WebSocket test port conflicts by replacing hardcoded ports (59985-59991) with dynamically allocated ports using `getAvailablePort()` function[1]. Each test now binds to port 0, which the OS automatically assigns to an available port. This eliminates port conflicts and allows tests to run independently[1][2].
+
+**Key Changes**:
+- Added `getAvailablePort()` helper that binds to `:0` and retrieves the assigned port[1]
+- Updated all test functions to use dynamic ports via `fmt.Sprintf()` for URLs
+- Tests can now run concurrently without interference
+
+## References
+
+[1] [https://golang.org/pkg/net/#Listen](https://golang.org/pkg/net/#Listen)
+[2] [https://golang.org/pkg/testing/](https://golang.org/pkg/testing/)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is showing me that the `go test -v --run TestWebSocketQueryMessage` test is failing with an error about address already in use on port 59990. This is because multiple tests are trying to bind to different ports, but port 59990 is already in use.
+
+The problem is that each test is trying to start a server on a different port, but they're all being run at the same time. The issue is that ports are being reused or not properly released between tests.
+
+Looking at the error:
+```
+2025/12/14 18:43:29 Starting server on :59990
+2025/12/14 18:43:29 API documentation available at http://localhost:59990/docs
+    websocket_test.go:102: Server error: listen tcp :59990: bind: address already in use
+    websocket_test.go:117: Failed to create project: Post "http://localhost:59990/api/projects": dial tcp 127.0.0.1:59990: connect: connection refused
+```
+
+The test is trying to listen on port 59990, but that port is already in use. This could be because:
+1. A previous test didn't clean up properly
+2. The OS hasn't released the port yet (TIME_WAIT state)
+3. Another process is using it
+
+The solution is to either:
+1. Use random/dynamic ports for each test
+2. Use `httptest.Server` which automatically allocates a random port
+3. Add SO_REUSEADDR socket option
+4. Add proper cleanup and waiting
+
+Looking at the websocket_test.go, I can see that each test hardcodes a port (59991, 59990, 59989, etc.). This is problematic because:
+1. If a test fails before cleanup, the port stays bound
+2. Multiple tests can interfere with each other
+3. Different machines may have these ports already in use
+
+The user is asking me to fix the websocket tests. 
+
+I need to refactor the tests to use dynamic port allocation instead of hardcoded ports. The best approach is to let the OS assign available ports automatically, which eliminates port conflicts entirely. I'll update websocket_test.go to use dynamic ports for each test case.
+
+
+---
+

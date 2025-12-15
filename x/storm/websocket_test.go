@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,8 +15,24 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// getAvailablePort returns an available TCP port by binding to port 0
+func getAvailablePort() (int, error) {
+	listener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		return 0, err
+	}
+	defer listener.Close()
+	return listener.Addr().(*net.TCPAddr).Port, nil
+}
+
 // TestWebSocketConnection tests establishing a WebSocket connection to a project
 func TestWebSocketConnection(t *testing.T) {
+	// Get available port
+	port, err := getAvailablePort()
+	if err != nil {
+		t.Fatalf("Failed to get available port: %v", err)
+	}
+
 	// Set up test environment
 	tmpDir, err := ioutil.TempDir("", "storm-ws-test-")
 	if err != nil {
@@ -37,14 +54,14 @@ func TestWebSocketConnection(t *testing.T) {
 
 	// Start server
 	go func() {
-		if err := serveRun(59991, dbPath); err != nil {
+		if err := serveRun(port, dbPath); err != nil {
 			t.Logf("Server error: %v", err)
 		}
 	}()
 	time.Sleep(2 * time.Second)
 
 	// Create project via HTTP API
-	daemonURL := "http://localhost:59991"
+	daemonURL := fmt.Sprintf("http://localhost:%d", port)
 	createProjectPayload := map[string]string{
 		"projectID":    projectID,
 		"baseDir":      projectDir,
@@ -58,7 +75,7 @@ func TestWebSocketConnection(t *testing.T) {
 	resp.Body.Close()
 
 	// Test WebSocket connection
-	wsURL := fmt.Sprintf("ws://localhost:59991/project/%s/ws", projectID)
+	wsURL := fmt.Sprintf("ws://localhost:%d/project/%s/ws", port, projectID)
 	dialer := websocket.Dialer{}
 	conn, _, err := dialer.Dial(wsURL, nil)
 	if err != nil {
@@ -77,6 +94,12 @@ func TestWebSocketConnection(t *testing.T) {
 
 // TestWebSocketQueryMessage tests sending a query via WebSocket and receiving a response
 func TestWebSocketQueryMessage(t *testing.T) {
+	// Get available port
+	port, err := getAvailablePort()
+	if err != nil {
+		t.Fatalf("Failed to get available port: %v", err)
+	}
+
 	// Set up test environment
 	tmpDir, err := ioutil.TempDir("", "storm-ws-query-")
 	if err != nil {
@@ -98,14 +121,14 @@ func TestWebSocketQueryMessage(t *testing.T) {
 
 	// Start server
 	go func() {
-		if err := serveRun(59990, dbPath); err != nil {
+		if err := serveRun(port, dbPath); err != nil {
 			t.Logf("Server error: %v", err)
 		}
 	}()
 	time.Sleep(2 * time.Second)
 
 	// Create project via HTTP API
-	daemonURL := "http://localhost:59990"
+	daemonURL := fmt.Sprintf("http://localhost:%d", port)
 	createProjectPayload := map[string]string{
 		"projectID":    projectID,
 		"baseDir":      projectDir,
@@ -119,7 +142,7 @@ func TestWebSocketQueryMessage(t *testing.T) {
 	resp.Body.Close()
 
 	// Connect to WebSocket
-	wsURL := fmt.Sprintf("ws://localhost:59990/project/%s/ws", projectID)
+	wsURL := fmt.Sprintf("ws://localhost:%d/project/%s/ws", port, projectID)
 	dialer := websocket.Dialer{}
 	conn, _, err := dialer.Dial(wsURL, nil)
 	if err != nil {
@@ -175,6 +198,12 @@ func TestWebSocketQueryMessage(t *testing.T) {
 
 // TestWebSocketCancelMessage tests sending a cancel message via WebSocket
 func TestWebSocketCancelMessage(t *testing.T) {
+	// Get available port
+	port, err := getAvailablePort()
+	if err != nil {
+		t.Fatalf("Failed to get available port: %v", err)
+	}
+
 	// Set up test environment
 	tmpDir, err := ioutil.TempDir("", "storm-ws-cancel-")
 	if err != nil {
@@ -196,14 +225,14 @@ func TestWebSocketCancelMessage(t *testing.T) {
 
 	// Start server
 	go func() {
-		if err := serveRun(59989, dbPath); err != nil {
+		if err := serveRun(port, dbPath); err != nil {
 			t.Logf("Server error: %v", err)
 		}
 	}()
 	time.Sleep(2 * time.Second)
 
 	// Create project via HTTP API
-	daemonURL := "http://localhost:59989"
+	daemonURL := fmt.Sprintf("http://localhost:%d", port)
 	createProjectPayload := map[string]string{
 		"projectID":    projectID,
 		"baseDir":      projectDir,
@@ -217,7 +246,7 @@ func TestWebSocketCancelMessage(t *testing.T) {
 	resp.Body.Close()
 
 	// Connect to WebSocket
-	wsURL := fmt.Sprintf("ws://localhost:59989/project/%s/ws", projectID)
+	wsURL := fmt.Sprintf("ws://localhost:%d/project/%s/ws", port, projectID)
 	dialer := websocket.Dialer{}
 	conn, _, err := dialer.Dial(wsURL, nil)
 	if err != nil {
@@ -248,6 +277,12 @@ func TestWebSocketCancelMessage(t *testing.T) {
 
 // TestWebSocketMultipleClients tests multiple WebSocket clients connected to the same project
 func TestWebSocketMultipleClients(t *testing.T) {
+	// Get available port
+	port, err := getAvailablePort()
+	if err != nil {
+		t.Fatalf("Failed to get available port: %v", err)
+	}
+
 	// Set up test environment
 	tmpDir, err := ioutil.TempDir("", "storm-ws-multi-")
 	if err != nil {
@@ -269,14 +304,14 @@ func TestWebSocketMultipleClients(t *testing.T) {
 
 	// Start server
 	go func() {
-		if err := serveRun(59988, dbPath); err != nil {
+		if err := serveRun(port, dbPath); err != nil {
 			t.Logf("Server error: %v", err)
 		}
 	}()
 	time.Sleep(2 * time.Second)
 
 	// Create project via HTTP API
-	daemonURL := "http://localhost:59988"
+	daemonURL := fmt.Sprintf("http://localhost:%d", port)
 	createProjectPayload := map[string]string{
 		"projectID":    projectID,
 		"baseDir":      projectDir,
@@ -290,7 +325,7 @@ func TestWebSocketMultipleClients(t *testing.T) {
 	resp.Body.Close()
 
 	// Connect multiple WebSocket clients
-	wsURL := fmt.Sprintf("ws://localhost:59988/project/%s/ws", projectID)
+	wsURL := fmt.Sprintf("ws://localhost:%d/project/%s/ws", port, projectID)
 	dialer := websocket.Dialer{}
 
 	const numClients = 3
@@ -353,6 +388,12 @@ func TestWebSocketMultipleClients(t *testing.T) {
 
 // TestWebSocketBroadcastOnFileListUpdate tests that file list updates are broadcasted to WebSocket clients
 func TestWebSocketBroadcastOnFileListUpdate(t *testing.T) {
+	// Get available port
+	port, err := getAvailablePort()
+	if err != nil {
+		t.Fatalf("Failed to get available port: %v", err)
+	}
+
 	// Set up test environment
 	tmpDir, err := ioutil.TempDir("", "storm-ws-broadcast-")
 	if err != nil {
@@ -380,14 +421,14 @@ func TestWebSocketBroadcastOnFileListUpdate(t *testing.T) {
 
 	// Start server
 	go func() {
-		if err := serveRun(59987, dbPath); err != nil {
+		if err := serveRun(port, dbPath); err != nil {
 			t.Logf("Server error: %v", err)
 		}
 	}()
 	time.Sleep(2 * time.Second)
 
 	// Create project via HTTP API
-	daemonURL := "http://localhost:59987"
+	daemonURL := fmt.Sprintf("http://localhost:%d", port)
 	createProjectPayload := map[string]string{
 		"projectID":    projectID,
 		"baseDir":      projectDir,
@@ -401,7 +442,7 @@ func TestWebSocketBroadcastOnFileListUpdate(t *testing.T) {
 	resp.Body.Close()
 
 	// Connect WebSocket client
-	wsURL := fmt.Sprintf("ws://localhost:59987/project/%s/ws", projectID)
+	wsURL := fmt.Sprintf("ws://localhost:%d/project/%s/ws", port, projectID)
 	dialer := websocket.Dialer{}
 	conn, _, err := dialer.Dial(wsURL, nil)
 	if err != nil {
@@ -446,6 +487,12 @@ func TestWebSocketBroadcastOnFileListUpdate(t *testing.T) {
 
 // TestWebSocketConnectionCleanup tests that clients are properly cleaned up when disconnecting
 func TestWebSocketConnectionCleanup(t *testing.T) {
+	// Get available port
+	port, err := getAvailablePort()
+	if err != nil {
+		t.Fatalf("Failed to get available port: %v", err)
+	}
+
 	// Set up test environment
 	tmpDir, err := ioutil.TempDir("", "storm-ws-cleanup-")
 	if err != nil {
@@ -467,14 +514,14 @@ func TestWebSocketConnectionCleanup(t *testing.T) {
 
 	// Start server
 	go func() {
-		if err := serveRun(59986, dbPath); err != nil {
+		if err := serveRun(port, dbPath); err != nil {
 			t.Logf("Server error: %v", err)
 		}
 	}()
 	time.Sleep(2 * time.Second)
 
 	// Create project via HTTP API
-	daemonURL := "http://localhost:59986"
+	daemonURL := fmt.Sprintf("http://localhost:%d", port)
 	createProjectPayload := map[string]string{
 		"projectID":    projectID,
 		"baseDir":      projectDir,
@@ -494,7 +541,7 @@ func TestWebSocketConnectionCleanup(t *testing.T) {
 	}
 
 	// Connect and disconnect multiple times
-	wsURL := fmt.Sprintf("ws://localhost:59986/project/%s/ws", projectID)
+	wsURL := fmt.Sprintf("ws://localhost:%d/project/%s/ws", port, projectID)
 	dialer := websocket.Dialer{}
 
 	for iteration := 0; iteration < 3; iteration++ {
@@ -526,6 +573,12 @@ func TestWebSocketConnectionCleanup(t *testing.T) {
 
 // TestWebSocketPingPong tests ping/pong keepalive mechanism
 func TestWebSocketPingPong(t *testing.T) {
+	// Get available port
+	port, err := getAvailablePort()
+	if err != nil {
+		t.Fatalf("Failed to get available port: %v", err)
+	}
+
 	// Set up test environment
 	tmpDir, err := ioutil.TempDir("", "storm-ws-pingpong-")
 	if err != nil {
@@ -547,14 +600,14 @@ func TestWebSocketPingPong(t *testing.T) {
 
 	// Start server
 	go func() {
-		if err := serveRun(59985, dbPath); err != nil {
+		if err := serveRun(port, dbPath); err != nil {
 			t.Logf("Server error: %v", err)
 		}
 	}()
 	time.Sleep(2 * time.Second)
 
 	// Create project via HTTP API
-	daemonURL := "http://localhost:59985"
+	daemonURL := fmt.Sprintf("http://localhost:%d", port)
 	createProjectPayload := map[string]string{
 		"projectID":    projectID,
 		"baseDir":      projectDir,
@@ -568,7 +621,7 @@ func TestWebSocketPingPong(t *testing.T) {
 	resp.Body.Close()
 
 	// Connect to WebSocket
-	wsURL := fmt.Sprintf("ws://localhost:59985/project/%s/ws", projectID)
+	wsURL := fmt.Sprintf("ws://localhost:%d/project/%s/ws", port, projectID)
 	dialer := websocket.Dialer{}
 	conn, _, err := dialer.Dial(wsURL, nil)
 	if err != nil {
