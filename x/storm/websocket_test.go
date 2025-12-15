@@ -27,14 +27,14 @@ func getAvailablePort() (int, error) {
 
 // TestSetup encapsulates all setup data for a WebSocket test[1]
 type TestSetup struct {
-	Port        int
-	TmpDir      string
-	DbPath      string
-	ProjectID   string
-	ProjectDir  string
+	Port         int
+	TmpDir       string
+	DbPath       string
+	ProjectID    string
+	ProjectDir   string
 	MarkdownFile string
-	DaemonURL   string
-	WsURL       string
+	DaemonURL    string
+	WsURL        string
 }
 
 // setupTest creates temporary directories, starts server, creates project, and returns test setup[1]
@@ -393,56 +393,4 @@ func TestWebSocketConnectionCleanup(t *testing.T) {
 	}
 
 	t.Logf("Connection cleanup test completed successfully")
-}
-
-// TestWebSocketPingPong tests ping/pong keepalive mechanism
-func TestWebSocketPingPong(t *testing.T) {
-	setup := setupTest(t, "ws-pingpong-project")
-	defer teardownTest(t, setup)
-
-	// Connect to WebSocket
-	conn := connectWebSocket(t, setup.WsURL)
-	defer conn.Close()
-
-	// Set pong handler to track pongs received
-	pongReceived := false
-	conn.SetPongHandler(func(appData string) error {
-		pongReceived = true
-		t.Logf("Received pong: %s\n", appData)
-		return nil
-	})
-
-	// Wait for ping message from server
-	pingReceived := false
-	conn.SetReadDeadline(time.Now().Add(30 * time.Second))
-	for i := 0; i < 5; i++ {
-		conn.SetReadDeadline(time.Now().Add(30 * time.Second))
-		messageType, data, err := conn.ReadMessage()
-		if err != nil {
-			if websocket.IsUnexpectedCloseError(err) || err.Error() == "i/o timeout" {
-				break
-			}
-			t.Logf("Read error: %v", err)
-			break
-		}
-
-		if messageType == websocket.PingMessage {
-			pingReceived = true
-			t.Logf("Received ping message from server")
-			// Server expects us to respond with pong
-			if err := conn.WriteMessage(websocket.PongMessage, data); err != nil {
-				t.Logf("Failed to send pong: %v", err)
-			}
-		}
-	}
-
-	if pingReceived {
-		t.Logf("Ping/pong keepalive mechanism verified")
-	} else {
-		t.Logf("Ping/pong test completed (no ping received in time, may be normal)")
-	}
-
-	if !pongReceived {
-		t.Logf("No pong responses were sent (may be normal if no pings were received)")
-	}
 }
