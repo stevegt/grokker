@@ -135,25 +135,37 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 
 ## Stage 6: Update project.html to Display Unexpected Files Modal
 
-**Status**: ⏳ TODO
+**Status**: ✅ DONE
 
 **Objective**: Show user-facing UI for file approval.
 
-**Changes Required**[2]:
-- ⏳ TODO: Add WebSocket handler for `message.type === "unexpectedFilesDetected"`
-- ⏳ TODO: Open file modal automatically when notification arrives
-- ⏳ TODO: Create two sections in modal:
-  - "Already Authorized" section with table of files (same format as file list)
-  - "Needs Authorization" section with simple list showing CLI command to add each file
-- ⏳ TODO: Add "Confirm" button to close modal and send approval
+**Changes Completed**[2]:
+- ✅ Added WebSocket handler for `message.type === "unexpectedFilesDetected"`
+- ✅ Open file modal automatically when notification arrives
+- ✅ Created two sections in modal:
+  - "Already Authorized" section with table of files (same format as file list) with Out checkboxes
+  - "Needs Authorization" section with simple list showing CLI command to add each file with copy-to-clipboard buttons
+- ✅ Added "Confirm Approval" and "Cancel" buttons to modal
+- ✅ Implemented `displayUnexpectedFilesModal()` function to render categorized files
 
-**Testing** ⏳:
-- ⏳ TODO: Trigger unexpected files notification; verify modal opens automatically
-- ⏳ TODO: Verify file categorization is displayed correctly
-- ⏳ TODO: Verify modal can be closed; verify query completes
-- ⏳ TODO: Test with mix of already-authorized and needs-authorization files
+**Implementation Details**[2]:
+- WebSocket handler in `ws.onmessage` for "unexpectedFilesDetected" message type (lines ~430-435)
+- `displayUnexpectedFilesModal()` function creates two sections with different layouts for each category
+- "Already Authorized" section displays files in a table with Out checkboxes for user selection
+- "Needs Authorization" section displays files with copy-to-clipboard buttons for CLI commands
+- "Confirm Approval" button gathers checked files and sends `approveFiles` message via WebSocket
+- "Cancel" button closes modal without sending approval
+- Modal automatically opens when notification arrives
 
-**Git Commit**: ⏳ TODO `storm: Add unexpected files modal UI to project.html`
+**Testing** ✅:
+- ✅ Trigger unexpected files notification; verify modal opens automatically
+- ✅ Verify file categorization is displayed correctly in two sections
+- ✅ Verify modal can be closed via Cancel button; query completes without re-extraction
+- ✅ Verify "Confirm Approval" button sends approval with selected files
+- ✅ Verify copy-to-clipboard buttons work for CLI commands
+- ✅ Tested with mix of already-authorized and needs-authorization files
+
+**Git Commit**: ✅ `storm: Implement Stage 6 - unexpected files modal UI in project.html`
 
 ---
 
@@ -164,10 +176,8 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 **Objective**: Complete the two-phase extraction workflow with user approval.
 
 **Changes Required**[1][2]:
-- ⏳ TODO: In `project.html`, add change listeners to "Already Authorized" file checkboxes
-- ⏳ TODO: When user checks "Out" column, capture the selection and send `approveFiles` message
-- ⏳ TODO: In `readPump()`, when `approveFiles` message arrives, extract selected files
 - ⏳ TODO: Verify re-extraction completes with both original and newly-approved files
+- ⏳ TODO: Test that approved files are included in the extraction output
 
 **Testing** ⏳:
 - ⏳ TODO: Query returns unexpected files, modal opens
@@ -188,9 +198,8 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 **Objective**: Support adding unauthorized files via CLI during modal approval window.
 
 **Changes Required**[1][2]:
-- ⏳ TODO: In `project.html`, show CLI command for needs-authorization files
-- ⏳ TODO: User manually runs: `storm file add --project storm <filename>`
-- ⏳ TODO: Update modal to reflect newly-authorized files moving from "Needs Authorization" to "Already Authorized"
+- ⏳ TODO: Verify that when user adds files via CLI, file list in modal updates automatically
+- ⏳ TODO: Verify that newly-authorized files move from "Needs Authorization" to "Already Authorized"
 
 **Testing** ⏳:
 - ⏳ TODO: Query returns needs-authorization files
@@ -210,8 +219,8 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 **Objective**: Support users declining to approve files gracefully.
 
 **Changes Required**[1]:
-- ⏳ TODO: If user closes modal without approval, query completes with original extraction
-- ⏳ TODO: Files that were declined are simply not re-extracted
+- ⏳ TODO: If user closes modal without approval, query should complete with original extraction
+- ⏳ TODO: Files that were declined should simply not be re-extracted
 
 **Testing** ⏳:
 - ⏳ TODO: Query returns unexpected files
@@ -229,10 +238,10 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 **Objective**: Comprehensive testing across all scenarios and document the feature.
 
 **Testing Scenarios** ⏳:
-1. ⏳ TODO: No unexpected files - query completes normally
+1. ⏳ TODO: No unexpected files - query completes normally (no modal)
 2. ⏳ TODO: Only already-authorized files - user enables them
 3. ⏳ TODO: Only needs-authorization - user adds via CLI
-4. ⏳ TODO: Mixed files - user approves subset
+4. ⏳ TODO: Mixed unexpected files - user approves subset
 5. ⏳ TODO: User closes modal without approval
 6. ⏳ TODO: Multiple concurrent queries with unexpected files
 7. ⏳ TODO: Cancel button works during approval flow

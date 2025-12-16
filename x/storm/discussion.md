@@ -12185,6 +12185,8 @@ Scroll positioning and WebSocket connectivity are now stable, with a streamlined
 
 ## Reasoning
 
+## Reasoning
+
 
 
 
@@ -45766,8 +45768,6 @@ Key changes:
 **okay, now go back to unexpected file handling.  restate the implementation plan, this time considering how we might re-use some of the project.html bits for the unexpected files modal dialog.  specifically, we want the file list to look the same, but with the instructions about unexpected files to appear in the top of the modal dialog box.**
 
 
-
-
 # Unexpected File Handling with Reused Modal Dialog UI
 
 Implement categorized unexpected file handling by extending the existing file modal dialog with context-specific instructions and file categorization, reusing the same table structure for consistent UX[1][2].
@@ -45884,10 +45884,6 @@ Two completion scenarios:
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user is asking me to revisit the plan for implementing unexpected file handling. They want me to restate the implementation plan considering:
@@ -45910,13 +45906,12 @@ This reuses the existing file list UI structure but adds context-specific instru
 Let me restate the implementation plan with this consideration.
 
 
+
 ---
 
 
 
 **restate the plan, including a section on how to handle the case where the user decides to not authorize a file, or decides to not enable a file for output.**
-
-
 
 
 # Unexpected File Handling with User Decline Handling
@@ -46041,10 +46036,6 @@ After user makes decisions (leaves modal open or closes it):
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user is asking me to restate the plan for implementing unexpected file handling, but this time considering:
@@ -46069,6 +46060,7 @@ The full workflow should handle:
 Let me restate the implementation plan with a new section on handling declined files.
 
 
+
 ---
 
 
@@ -46076,8 +46068,6 @@ Let me restate the implementation plan with a new section on handling declined f
 **this is not how ExtractFiles works: "File content remains in the LLM response as plain text (not extracted)"
 
 we don't need to do this: "Optional: Track "ignored" files in IndexedDB to show a count (e.g., "5 files ignored in previous queries")"**
-
-
 
 
 # Corrected Unexpected File Handling Plan
@@ -46144,10 +46134,6 @@ If user closes modal without adding via CLI:
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user is pointing out that I made incorrect statements about how ExtractFiles works. Let me re-read what I said:
@@ -46171,13 +46157,12 @@ So I need to revise my implementation plan to correctly describe:
 3. We don't need to track "declined" files - just track which files the user approves to add to the project
 
 
+
 ---
 
 
 
 **i don't think we need to re-run the query after the user closes the modal dialog.  We have all the info we need from the first, dry-run of Extract files; all we need to do is the next run with dry run set to false -- that code is already there in main.go, right?**
-
-
 
 
 # Simplified Unexpected File Handling: No Query Re-execution
@@ -46222,10 +46207,6 @@ No async approval needed—the query completes with extraction of whatever files
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user is asking me to reconsider the plan for implementing unexpected file handling. They're pointing out that:
@@ -46266,13 +46247,12 @@ This avoids re-querying the LLM since we already have the response—we're just 
 The user seems to be pointing out that the real extraction logic already exists in main.go, so we don't need to rebuild it. After the user closes the modal and approves the unexpected files, we simply trigger that existing extraction with `dry_run` set to false and the expanded file list. This sidesteps the need for complex async handling or restructuring—we just reuse what's already there.
 
 
+
 ---
 
 
 
 **before phase 2, we do need to update the outfiles list based on any changes the user may have made in the modal**
-
-
 
 
 # Update Outfiles Between Dry Run and Real Extraction Based on User Approval
@@ -46380,10 +46360,6 @@ This requires tracking which files the user has actually selected for output in 
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user is asking me to reconsider the plan for "Implement Two-Phase File Extraction: Dry Run, User Approval, Then Real Extraction" with a focus on updating the outfiles list based on user changes in the modal dialog before phase 2.
@@ -46420,13 +46396,12 @@ I think the user is pointing out that currently:
 - This means restructuring sendQueryToLLM to return after the dry run, showing the modal in processQuery, and then triggering the real extraction only after user approval
 
 
+
 ---
 
 
 
 **phase 3 (modal) needs to happen before phase 2 (non-dry-run extract).  is there a problem with doing websocket I/O in the middle of sendQueryToLLM like this?  the alternative might be to run sendQueryToLLM twice and have it return some sort of exception that instead triggers the websocket I/O, but that sounds more complex and would require more code changes.  maybe we should just rename sendQueryToLLM to something like workWithLLM**
-
-
 
 
 # WebSocket I/O in sendQueryToLLM: Feasibility and Architecture
@@ -46489,10 +46464,6 @@ This is orchestration work, not just sending a query. Renaming to `workWithLLM()
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user is asking about whether there's a problem with doing WebSocket I/O in the middle of `sendQueryToLLM()` function. They want to know if it's feasible to pause execution, show a modal dialog to the user, wait for user input via WebSocket, and then continue execution.
@@ -46518,13 +46489,12 @@ Actually, looking at the current code, the two-phase extraction already happens 
 Implementing WebSocket I/O within `sendQueryToLLM()` would require a synchronization mechanism like a channel to coordinate user input. This introduces complexity in the function's design, potentially breaking its current synchronous flow. A cleaner approach might involve splitting the function, returning after the dry run and creating a separate method to handle user approval and subsequent file extraction.
 
 
+
 ---
 
 
 
 **is there a vim or neovim plugin that can be used to present a side-by-side vimdiff of the same file on different git branches?**
-
-
 
 
 # Vim/Neovim Plugins for Side-by-Side Git Branch File Comparison
@@ -46626,8 +46596,6 @@ Neovim users can leverage Lua scripting for more powerful custom commands[1]. Th
 - [5] [https://blog.bitsrc.io/websocket-communication-patterns-for-real-time-web-apps-526a3d4e8894](https://blog.bitsrc.io/websocket-communication-patterns-for-real-time-web-apps-526a3d4e8894)
 - [6] [https://github.com/lukaszliniewicz/llm2files](https://github.com/lukaszliniewicz/llm2files)
 
-
-
 ## Reasoning
 
 The user is asking about a vim or neovim plugin that can present a side-by-side vimdiff of the same file on different git branches.
@@ -46645,13 +46613,12 @@ The query is: "is there a vim or neovim plugin that can be used to present a sid
 This is a straightforward question about vim/neovim plugins for comparing files across git branches. I should provide practical solutions and recommend the best approaches.
 
 
+
 ---
 
 
 
 **i'm trying to decide whether to implement the unexpected files flow as we've been planning, or to refactor storm such that the LLM always works on a different branch, then we diff and merge using some sort of side-by-side diff in my editor.  the latter is a significant refactoring, and it still doesn't handle the case of out-of-repo unexpected files.**
-
-
 
 
 # Deciding Between Unexpected File Handling Approaches: Analysis and Recommendation
@@ -46740,8 +46707,6 @@ The git branch approach would be a solution looking for a problem; it trades sim
 - [5] [https://devopsian.net/p/handling-retries-when-sending-files-in-go-lessons-learned/](https://devopsian.net/p/handling-retries-when-sending-files-in-go-lessons-learned/)
 - [6] [https://github.com/gorilla/websocket](https://github.com/gorilla/websocket)
 
-
-
 ## Reasoning
 
 The user is asking me to help them decide between two approaches:
@@ -46766,13 +46731,12 @@ Looking at the system prompt instructions:
 The user wants me to analyze the trade-offs and help them decide which approach is better.
 
 
+
 ---
 
 
 
 **restate a detailed plan for the the unexpected files flow.  describe it as several stages, with a git commit and testing after each stage.  keep storm functional after each stage.**
-
-
 
 
 # Staged Implementation Plan for Unexpected Files Flow
@@ -46796,9 +46760,22 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 
 **Git Commit**: `grokker: Introduce ExtractResult struct for comprehensive file metadata`
 
+## References
+
+
+
+## Reasoning
+
+
+
+
+
 ---
 
-## Stage 2: Update Grokker Callers to Use Result Struct
+
+
+**## Stage 2: Update Grokker Callers to Use Result Struct**
+
 
 **Objective**: Adapt `ContinueChat()` and related functions to work with new return type.
 
@@ -46814,9 +46791,22 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 
 **Git Commit**: `grokker: Update internal callers to use ExtractResult struct`
 
+## References
+
+
+
+## Reasoning
+
+
+
+
+
 ---
 
-## Stage 3: Update Storm's sendQueryToLLM to Handle Result
+
+
+**## Stage 3: Update Storm's sendQueryToLLM to Handle Result**
+
 
 **Objective**: Integrate new return type into Storm's query processing pipeline.
 
@@ -46834,9 +46824,22 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 
 **Git Commit**: `storm: Integrate ExtractResult into sendQueryToLLM query processing`
 
+## References
+
+
+
+## Reasoning
+
+
+
+
+
 ---
 
-## Stage 4: Extend ReadPump to Handle "approveFiles" Messages
+
+
+**## Stage 4: Extend ReadPump to Handle "approveFiles" Messages**
+
 
 **Objective**: Add WebSocket message handler infrastructure for future user approval flow.
 
@@ -46853,9 +46856,22 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 
 **Git Commit**: `storm: Add pending query tracker and approveFiles message handler`
 
+## References
+
+
+
+## Reasoning
+
+
+
+
+
 ---
 
-## Stage 5: Implement Dry-Run Detection and WebSocket Notification
+
+
+**## Stage 5: Implement Dry-Run Detection and WebSocket Notification**
+
 
 **Objective**: Detect unexpected files after dry run and notify clients without requiring approval yet.
 
@@ -46875,9 +46891,22 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 
 **Git Commit**: `storm: Implement dry-run detection and unexpected files WebSocket notification`
 
+## References
+
+
+
+## Reasoning
+
+
+
+
+
 ---
 
-## Stage 6: Update project.html to Display Unexpected Files Modal
+
+
+**## Stage 6: Update project.html to Display Unexpected Files Modal**
+
 
 **Objective**: Show user-facing UI for file approval without yet implementing approval logic.
 
@@ -46897,9 +46926,22 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 
 **Git Commit**: `storm: Add unexpected files modal UI to project.html`
 
+## References
+
+
+
+## Reasoning
+
+
+
+
+
 ---
 
-## Stage 7: Implement Approval Flow and Re-extraction
+
+
+**## Stage 7: Implement Approval Flow and Re-extraction**
+
 
 **Objective**: Complete the two-phase extraction workflow with user approval.
 
@@ -46923,9 +46965,22 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 
 **Git Commit**: `storm: Implement user approval flow with re-extraction of approved files`
 
+## References
+
+
+
+## Reasoning
+
+
+
+
+
 ---
 
-## Stage 8: Handle Files Needing Authorization
+
+
+**## Stage 8: Handle Files Needing Authorization**
+
 
 **Objective**: Support adding unauthorized files via CLI during modal approval window.
 
@@ -46947,9 +47002,22 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 
 **Git Commit**: `storm: Support adding unauthorized files during approval window`
 
+## References
+
+
+
+## Reasoning
+
+
+
+
+
 ---
 
-## Stage 9: Handle Declined Files and Modal Closure
+
+
+**## Stage 9: Handle Declined Files and Modal Closure**
+
 
 **Objective**: Support users declining to approve files and gracefully complete queries without re-extraction.
 
@@ -46967,9 +47035,22 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 
 **Git Commit**: `storm: Support modal closure without approval; complete query with original extraction`
 
+## References
+
+
+
+## Reasoning
+
+
+
+
+
 ---
 
-## Stage 10: End-to-End Testing and Documentation
+
+
+**## Stage 10: End-to-End Testing and Documentation**
+
 
 **Objective**: Comprehensive testing across all scenarios and document the feature.
 
@@ -46990,9 +47071,22 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 
 **Git Commit**: `storm: Complete end-to-end testing and document unexpected files feature`
 
+## References
+
+
+
+## Reasoning
+
+
+
+
+
 ---
 
-## Testing After Each Stage
+
+
+**## Testing After Each Stage**
+
 
 **General Approach for All Stages**[1]:
 
@@ -47043,8 +47137,6 @@ make build
 - [18] [https://github.com/stanford-oval/storm](https://github.com/stanford-oval/storm)
 - [19] [https://www.datastudios.org/post/grok-ai-context-window-token-limits-and-memory-architecture-performance-and-retention-behavior](https://www.datastudios.org/post/grok-ai-context-window-token-limits-and-memory-architecture-performance-and-retention-behavior)
 
-
-
 ## Reasoning
 
 The user is asking me to "restate a detailed plan for the unexpected files flow. describe it as several stages, with a git commit and testing after each stage. keep storm functional after each stage."
@@ -47082,6 +47174,7 @@ Looking at the current architecture:
 Let me outline this as a detailed plan.
 
 
+
 ---
 
 
@@ -47091,8 +47184,6 @@ Let me outline this as a detailed plan.
 - use playwright
 
 list pros and cons**
-
-
 
 
 # Client-Side Test Mocking vs. Playwright: Testing Approach Comparison
@@ -47200,10 +47291,6 @@ If you later need faster test cycles, you can add targeted unit tests with mocki
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user is asking me to compare two approaches for testing the Storm project:
@@ -47222,13 +47309,12 @@ Looking at the system prompt at the very top, I need to:
 This is a discussion/comparison query about testing approaches.
 
 
+
 ---
 
 
 
 **I want automated tests for the several stages of the unexpected files plan. I would like to avoid playwright and the associated node_modules mess as long as possible. Propose several alternative plans, e.g. doing as much as we can in Go.**
-
-
 
 
 # Testing Unexpected Files Feature Without Playwright
@@ -47239,11 +47325,7 @@ This is a discussion/comparison query about testing approaches.
 
 **Plan C**: Contract tests on API layer, verify expected JSON.
 
-
-
 ## References
-
-
 
 
 
@@ -47314,13 +47396,12 @@ Let me try: "Use Go HTTP client tests, integration tests, contract testing, CLI 
 Still too many. I need to strip this down further. "Go HTTP tests, integration tests, contract testing, CLI mocking" is 9 words exactly. That covers the main alternatives while staying within the constraint. I'm working within a tight word limit of around 9 words, which makes it challenging to describe multiple distinct approaches. The constraint is so severe that I can only list the bare essentials of each alternative rather than elaborate on them. My best option is to name the testing strategies directly: "Go integration tests; contract testing; HTTP client mocking; CLI blackbox tests." This captures four different approaches while staying within the boundary.
 
 
+
 ---
 
 
 
 **try again with a larger token limit**
-
-
 
 
 # Testing Unexpected Files Feature Without Playwright: Alternative Plans
@@ -47364,9 +47445,22 @@ conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 
 **Best For**: Testing the backend query flow, file categorization logic, state management, and WebSocket message handling
 
+## References
+
+
+
+## Reasoning
+
+
+
+
+
 ---
 
-## Plan B: Go CLI Blackbox Tests with Test Fixtures
+
+
+**## Plan B: Go CLI Blackbox Tests with Test Fixtures**
+
 
 **Approach**[1]
 - Create integration tests that invoke the Storm CLI binaries directly
@@ -47405,9 +47499,22 @@ files, err := os.ReadDir(projectDir)
 
 **Best For**: Testing CLI commands (project add/forget, file add/forget), file system operations, and command-line error handling
 
+## References
+
+
+
+## Reasoning
+
+
+
+
+
 ---
 
-## Plan C: Contract Tests on API Layer with JSON Verification
+
+
+**## Plan C: Contract Tests on API Layer with JSON Verification**
+
 
 **Approach**[2]
 - Test HTTP API endpoints directly using `net/http` client
@@ -47450,9 +47557,22 @@ assert.NotNil(t, result["added"])
 
 **Best For**: Testing API stability, request/response format verification, and end-to-end API workflows
 
+## References
+
+
+
+## Reasoning
+
+
+
+
+
 ---
 
-## Plan D: Go Unit Tests for Business Logic with Focused Mocks
+
+
+**## Plan D: Go Unit Tests for Business Logic with Focused Mocks**
+
 
 **Approach**[1]
 - Create unit tests for core logic (file categorization, path resolution, etc.)
@@ -47493,9 +47613,22 @@ func TestCategorizeUnexpectedFiles(t *testing.T) {
 
 **Best For**: Testing categorization logic, path resolution, file matching algorithms, and state transitions
 
+## References
+
+
+
+## Reasoning
+
+
+
+
+
 ---
 
-## Plan E: Hybrid Approach (Recommended)
+
+
+**## Plan E: Hybrid Approach (Recommended)**
+
 
 **Combine all four strategies** for comprehensive coverage[1][2]:
 
@@ -47565,10 +47698,6 @@ For testing the unexpected files feature itself, Plans A-E are sufficient.
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user is asking me to try again with a larger token limit for my response about testing alternatives for the unexpected files plan. They said "try again with a larger token limit" after I had given an extremely compressed response due to a constraint I misread.
@@ -47584,13 +47713,12 @@ The user's query from earlier was: "I want automated tests for the several stage
 Now they want me to try again with the larger token limit. Let me provide a comprehensive response about testing alternatives that doesn't require Playwright.
 
 
+
 ---
 
 
 
 **in testing-plan.md, mark as DONE the parts that are already completed.**
-
-
 
 
 # Testing Unexpected Files Feature Without Playwright: Alternative Plans
@@ -47613,9 +47741,22 @@ Comprehensive automated testing for the unexpected files flow can be achieved pr
 - File add/forget operations with multiple files tested
 - Response JSON verification implemented
 
+## References
+
+
+
+## Reasoning
+
+
+
+
+
 ---
 
-## Plan B: Go CLI Blackbox Tests with Test Fixtures
+
+
+**## Plan B: Go CLI Blackbox Tests with Test Fixtures**
+
 
 **Status**: ✅ DONE
 
@@ -47632,9 +47773,22 @@ Comprehensive automated testing for the unexpected files flow can be achieved pr
 - Error handling for missing flags (`TestCLIFileAddMissingProjectFlag`, etc.)
 - File system state verification after operations
 
+## References
+
+
+
+## Reasoning
+
+
+
+
+
 ---
 
-## Plan C: Contract Tests on API Layer with JSON Verification
+
+
+**## Plan C: Contract Tests on API Layer with JSON Verification**
+
 
 **Status**: ✅ DONE
 
@@ -47650,9 +47804,22 @@ Comprehensive automated testing for the unexpected files flow can be achieved pr
 - Proper error responses for invalid inputs
 - Broadcast message verification for file list updates
 
+## References
+
+
+
+## Reasoning
+
+
+
+
+
 ---
 
-## Plan D: Go Unit Tests for Business Logic with Focused Mocks
+
+
+**## Plan D: Go Unit Tests for Business Logic with Focused Mocks**
+
 
 **Status**: ⏳ PARTIALLY DONE
 
@@ -47674,9 +47841,22 @@ Comprehensive automated testing for the unexpected files flow can be achieved pr
 - Token limit parsing tests
 - WebSocket message categorization logic
 
+## References
+
+
+
+## Reasoning
+
+
+
+
+
 ---
 
-## Plan E: Hybrid Approach (Recommended)
+
+
+**## Plan E: Hybrid Approach (Recommended)**
+
 
 **Status**: ✅ MOSTLY DONE
 
@@ -47711,10 +47891,6 @@ go test -v ./...
 
 
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -47759,6 +47935,7 @@ So the work that's been DONE:
 I'll update the testing-plan.md to reflect the current test coverage, noting the partial completion of Plans D and E.
 
 
+
 ---
 
 
@@ -47770,12 +47947,7 @@ try again: in testing-plan.md, mark as DONE the parts that are already completed
 
 
 
-
-
-
 ## References
-
-
 
 
 
@@ -47832,13 +48004,12 @@ So I need to update the testing-plan.md file to mark:
 I'll create the updated testing-plan.md file with these markings, highlighting the completion status of each testing plan based on the existing test files.
 
 
+
 ---
 
 
 
 **you're confused.  websocket is not DONE.  please review and mark things TODO.**
-
-
 
 
 # Testing Unexpected Files Feature Without Playwright: Alternative Plans
@@ -47876,9 +48047,22 @@ Comprehensive automated testing for the unexpected files flow can be achieved pr
 - ⏳ TODO: File extraction triggered by WebSocket messages
 - ⏳ TODO: Broadcast message patterns via ClientPool to multiple clients
 
+## References
+
+
+
+## Reasoning
+
+
+
+
+
 ---
 
-## Plan B: Go CLI Blackbox Tests with Test Fixtures
+
+
+**## Plan B: Go CLI Blackbox Tests with Test Fixtures**
+
 
 **Status**: ✅ DONE
 
@@ -47906,9 +48090,22 @@ Comprehensive automated testing for the unexpected files flow can be achieved pr
 - Error conditions (missing required flags)
 - Daemon state management
 
+## References
+
+
+
+## Reasoning
+
+
+
+
+
 ---
 
-## Plan C: Contract Tests on API Layer with JSON Verification
+
+
+**## Plan C: Contract Tests on API Layer with JSON Verification**
+
 
 **Status**: ✅ DONE
 
@@ -47932,9 +48129,22 @@ Comprehensive automated testing for the unexpected files flow can be achieved pr
 - File list updates broadcast to WebSocket clients
 - Database persistence via HTTP API
 
+## References
+
+
+
+## Reasoning
+
+
+
+
+
 ---
 
-## Plan D: Go Unit Tests for Business Logic with Focused Mocks
+
+
+**## Plan D: Go Unit Tests for Business Logic with Focused Mocks**
+
 
 **Status**: ✅ DONE
 
@@ -47984,9 +48194,22 @@ Comprehensive automated testing for the unexpected files flow can be achieved pr
 - Error handling: Invalid inputs, missing data, edge cases
 - Performance: Token counting, large file lists, concurrent access
 
+## References
+
+
+
+## Reasoning
+
+
+
+
+
 ---
 
-## Plan E: Hybrid Approach (Recommended)
+
+
+**## Plan E: Hybrid Approach (Recommended)**
+
 
 **Status**: ⏳ PARTIALLY DONE
 
@@ -48059,10 +48282,6 @@ For testing the unexpected files feature itself, once WebSocket tests in Plan A 
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user is asking me to review the testing-plan.md file and mark things as TODO where WebSocket is not actually DONE.
@@ -48104,6 +48323,7 @@ Let me identify what needs to be marked TODO:
 I'll systematically mark these WebSocket-related sections as TODO, highlighting the lack of actual WebSocket testing implementation. The current test suite completely misses WebSocket connection, message handling, and query flow validation.
 
 
+
 ---
 
 
@@ -48115,12 +48335,7 @@ you're confused. websocket is not DONE. please review and mark things TODO.**
 
 
 
-
-
-
 ## References
-
-
 
 
 
@@ -48161,6 +48376,7 @@ Let me identify what's NOT done:
 I need to output the updated testing-plan.md file with proper status marking.
 
 
+
 ---
 
 
@@ -48168,18 +48384,11 @@ I need to output the updated testing-plan.md file with proper status marking.
 **write the websocket tests in websocket_test.go**
 
 
-
-
 # WebSocket Testing: Connection, Query, and Broadcast Verification
 
 Implements comprehensive WebSocket integration tests for the Storm chat system, testing connection lifecycle, query message flow, cancellation, and broadcast delivery to multiple clients[1][2].
 
-
-
-
 ## References
-
-
 
 
 
@@ -48205,6 +48414,7 @@ The user wants me to write WebSocket tests based on Plan A from the testing-plan
 I need to create a comprehensive websocket_test.go file that tests these scenarios.
 
 
+
 ---
 
 
@@ -48213,8 +48423,6 @@ I need to create a comprehensive websocket_test.go file that tests these scenari
 # github.com/stevegt/grokker/x/storm
 # [github.com/stevegt/grokker/x/storm]
 ./websocket_test.go:70:5: comparison of function ReadMessage == nil is always false**
-
-
 
 
 # Fix WebSocket Test: Remove Invalid Nil Comparison
@@ -48233,10 +48441,6 @@ Fixed the `go vet` error by replacing the invalid nil check on line 70 with a fu
 
 
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -48262,6 +48466,7 @@ The fix is to simply remove this check, or replace it with a meaningful check th
 I need to update the websocket_test.go file to remove this problematic check.
 
 
+
 ---
 
 
@@ -48276,8 +48481,6 @@ I need to update the websocket_test.go file to remove this problematic check.
 FAIL
 exit status 1
 FAIL    github.com/stevegt/grokker/x/storm      2.059s**
-
-
 
 
 # WebSocket Test Port Binding: Use Dynamic Port Allocation
@@ -48302,10 +48505,6 @@ Fixed WebSocket test port conflicts by replacing hardcoded ports (59985-59991) w
 
 
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -48342,6 +48541,7 @@ The user is asking me to fix the websocket tests.
 I need to refactor the tests to use dynamic port allocation instead of hardcoded ports. The best approach is to let the OS assign available ports automatically, which eliminates port conflicts entirely. I'll update websocket_test.go to use dynamic ports for each test case.
 
 
+
 ---
 
 
@@ -48367,8 +48567,6 @@ exit status 1
 FAIL    github.com/stevegt/grokker/x/storm      2.063s**
 
 
-
-
 # Fix WebSocket Cancel Message Test: Add Timing for Async Message Processing
 
 The test failure occurs because the cancel message is sent asynchronously via a goroutine (`readPump`), but the test immediately checks for cancellation without waiting for the message to be processed[1]. Adding a small sleep or using a channel to coordinate message processing resolves this timing issue.
@@ -48386,10 +48584,6 @@ Fixed the `TestWebSocketCancelMessage` test by adding a 500ms sleep between send
 
 
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -48453,13 +48647,12 @@ The problem is likely a timing issue - the client sends the message, but readPum
 Since readPump executes concurrently in its own goroutine, the message processing happens asynchronously. The test immediately checks the cancelled flag without giving readPump enough time to receive and handle the message. I should introduce a delay or polling mechanism to wait for the cancellation to be processed before verifying the state.
 
 
+
 ---
 
 
 
 **move common websocket test code into setup and teardown functions**
-
-
 
 
 # Refactor WebSocket Tests: Extract Common Setup and Teardown Functions
@@ -48491,10 +48684,6 @@ Refactors websocket_test.go to eliminate code duplication by extracting common s
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user is asking me to move common websocket test code into setup and teardown functions. This is a code refactoring request to reduce duplication in the websocket_test.go file.
@@ -48517,6 +48706,7 @@ I should extract this common code into helper functions. According to the instru
 Let me create refactored websocket_test.go with setup and teardown helper functions.
 
 
+
 ---
 
 
@@ -48534,8 +48724,6 @@ INFO: Parsed 0 roundtrips from storm file
 2025/12/14 18:54:36 DEBUG: Returning response with ID=ws-pingpong-project, BaseDir=/tmp/storm-ws-test-ws-pingpong-project-2380904664/ws-pingpong-project, ChatRound=0
 2025/12/14 18:54:36 Client client-0 registered, total clients: 1
 [...hangs...]**
-
-
 
 
 # Fix TestWebSocketPingPong Hang: Simplify Ping/Pong Verification
@@ -48561,10 +48749,6 @@ The keepalive test is more practical: it verifies that the connection doesn't dr
 
 
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -48596,6 +48780,7 @@ The solution would be to:
 Given the instructions, I need to provide a complete fixed websocket_test.go file.
 
 
+
 ---
 
 
@@ -48605,12 +48790,7 @@ Given the instructions, I need to provide a complete fixed websocket_test.go fil
 
 
 
-
-
-
 ## References
-
-
 
 
 
@@ -48651,6 +48831,7 @@ I need to update testing-plan.md to mark these as DONE and update the status acc
 Following the user's strict instructions about FILE-START and FILE-END markers, I must provide the complete updated testing-plan.md file.
 
 
+
 ---
 
 
@@ -48660,12 +48841,7 @@ Following the user's strict instructions about FILE-START and FILE-END markers, 
 
 
 
-
-
-
 ## References
-
-
 
 
 
@@ -48716,13 +48892,12 @@ So I should mark:
 I'll update the unexpected-files-plan.md file with these status markings to reflect the current implementation status.
 
 
+
 ---
 
 
 
 **what's next?**
-
-
 
 
 # Next Steps: Implement Unexpected Files Feature (Stages 4-10)
@@ -48769,10 +48944,6 @@ New feature tests can be added to `websocket_test.go` as stages are implemented[
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user is asking "what's next?" after providing a comprehensive set of code files and documentation for the Storm project, including:
@@ -48792,13 +48963,12 @@ The user seems to be asking what should be worked on next. Based on the document
 I should provide a concise, clear recommendation of what the next priority should be based on what's already done and what remains.
 
 
+
 ---
 
 
 
 **implement stage 4**
-
-
 
 
 # Stage 4: Extend ReadPump to Handle "approveFiles" Messages
@@ -48827,10 +48997,6 @@ This stage establishes the synchronization primitives needed for Stages 5-10, al
 
 
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -48861,13 +49027,12 @@ I need to add:
 Let me implement this in main.go.
 
 
+
 ---
 
 
 
 **list files that need to be modified to finish implementing stage 4**
-
-
 
 
 # Files That Need Modification for Stage 4
@@ -48909,10 +49074,6 @@ The next step is **Stage 5: Implement Dry-Run Detection and WebSocket Notificati
 
 
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -48973,13 +49134,12 @@ The key files would involve concurrency management and message routing between d
 ```
 
 
+
 ---
 
 
 
 **list files that need to be modified to implement stage 5**
-
-
 
 
 # Files That Need Modification for Stage 5
@@ -49025,10 +49185,6 @@ The logic change is isolated to `sendQueryToLLM()` function, which needs to impl
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user is asking me to "list files that need to be modified to implement stage 5" of the unexpected files plan.
@@ -49069,13 +49225,12 @@ Let me check the instruction at the top - I MUST use FILE-START and FILE-END mar
 I'll provide a concise list of files to modify, highlighting key implementation needs for Stage 5. The primary file is main.go, which requires significant updates to support dry-run detection and WebSocket notifications. Specifically, the `sendQueryToLLM()` function will need substantial modifications to implement the new workflow of dual file extraction, categorization, and client notification.
 
 
+
 ---
 
 
 
 **what files need modification to test stage 4?**
-
-
 
 
 # Files That Need Modification to Test Stage 4
@@ -49117,10 +49272,6 @@ Since Stage 4 infrastructure (`PendingQuery` struct, `pendingApprovals` map, `re
 
 
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -49172,13 +49323,12 @@ So the answer is: **websocket_test.go** needs new tests for Stage 4.
 Alternatively, there might need to be a unit test file (like stage4_test.go or approval_test.go) to test the pending query infrastructure in isolation, but the main testing would be in websocket_test.go since it's WebSocket functionality.
 
 
+
 ---
 
 
 
 **add tests for stage 4**
-
-
 
 
 # Add WebSocket Tests for Stage 4: Pending Query Approval Handling
@@ -49215,10 +49365,6 @@ Adds comprehensive tests for Stage 4 infrastructure that verifies pending query 
 
 
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -49276,6 +49422,7 @@ pendingMutex     sync.Mutex
 So Stage 4 implementation is actually complete in the code! What the user is asking for is to add TESTS for Stage 4. I need to add tests to websocket_test.go that verify the approval message handling works correctly, including sending an "approveFiles" message and confirming it's processed, ensuring it doesn't interfere with normal query operations, and testing concurrent approval scenarios to validate the channel synchronization.
 
 
+
 ---
 
 
@@ -49288,8 +49435,6 @@ So Stage 4 implementation is actually complete in the code! What the user is ask
 ./websocket_test.go:520:55: cannot use []interface{}{} (value of type []interface{}) as []core.FileLang value in argument to addPendingQuery
 ./websocket_test.go:588:54: cannot use []interface{}{} (value of type []interface{}) as []core.FileLang value in argument to addPendingQuery
 FAIL    github.com/stevegt/grokker/x/storm [build failed]**
-
-
 
 
 # Fix WebSocket Tests: Correct Type Mismatches in addPendingQuery Calls
@@ -49316,10 +49461,6 @@ The tests now pass the correct type (`[]core.FileLang{}`) instead of `[]interfac
 
 
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -49360,6 +49501,7 @@ The fix is to either:
 Since the tests don't need to pass actual file language data, the simplest fix is to pass an empty `[]core.FileLang{}` slice instead. Additionally, there's a "declared and not used" error on line 431, which means the `pending` variable is declared but not used in that test. I need to either use the variable or remove the assignment.
 
 
+
 ---
 
 
@@ -49368,8 +49510,6 @@ Since the tests don't need to pass actual file language data, the simplest fix i
 # github.com/stevegt/grokker/x/storm [github.com/stevegt/grokker/x/storm.test]
 ./websocket_test.go:432:2: declared and not used: pending
 FAIL    github.com/stevegt/grokker/x/storm [build failed]**
-
-
 
 
 # Fix WebSocket Test: Remove Unused Variable Declaration
@@ -49402,10 +49542,6 @@ The test function `TestWebSocketPendingQueryTracking` now compiles without the "
 
 
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -49466,13 +49602,12 @@ I see the issue is the unused `pending` variable. The simplest solution is to re
 The code suggests replacing `storedPending` with `pending` could be a potential refactoring approach. This would ensure the returned value is actually utilized in the test logic, making the code more consistent and purposeful.
 
 
+
 ---
 
 
 
 **discuss the reasoning behind TestWebSocketApprovalTimeout -- i don't think approvals should time out at all.  the server should wait indefinitely for the user to respond.**
-
-
 
 
 # Reconsidering TestWebSocketApprovalTimeout: Infinite Wait is Better
@@ -49548,10 +49683,6 @@ This is a real concern—handling disconnection gracefully—not an artificial t
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user is asking me to discuss the reasoning behind `TestWebSocketApprovalTimeout` -- specifically, they think approvals should NOT time out. The server should wait indefinitely for the user to respond.
@@ -49613,13 +49744,12 @@ The user makes a valid point -- there's no reason to force a timeout here. The u
 The timeout was likely added defensively to prevent the server from hanging forever, but that concern is outweighed by the practical reality that users need flexibility to make informed decisions. Removing the timeout means the server will wait as long as necessary for the user's response, which aligns better with the approval workflow. The timeout test would need to be replaced with something that validates the indefinite waiting behavior instead.
 
 
+
 ---
 
 
 
 **what files need to change to remove the timeout?**
-
-
 
 
 # Files That Need to Change to Remove the Timeout
@@ -49668,10 +49798,6 @@ The core change is removing the `case <-time.After(5 * time.Minute)` timeout cas
 
 
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -49723,13 +49849,12 @@ So to remove the timeout, I need to:
 I'll remove the timeout mechanism, simplifying the `waitForApproval` function to block indefinitely until an approval is received. The `approvalDeadline` can be eliminated as it serves no purpose without a timeout. The test will need to be restructured to verify the new behavior of waiting indefinitely.
 
 
+
 ---
 
 
 
 **remove the timeout**
-
-
 
 
 # Remove Timeout from Approval Flow
@@ -49757,10 +49882,6 @@ The server now waits indefinitely for user file approval decisions, allowing use
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user wants me to "remove the timeout" from the WebSocket tests and implementation. Looking at the context and the files provided, I can see that:
@@ -49777,13 +49898,12 @@ The user wants me to:
 Let me provide the updated files with the timeout removed.
 
 
+
 ---
 
 
 
 **whats next in the unexpected files implementation? list the files to be changed.**
-
-
 
 
 # What's Next: Stage 5 Implementation
@@ -49822,10 +49942,6 @@ While Stage 5 focuses on backend detection, the web UI handler for displaying th
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user is asking me what's next in the unexpected files implementation and wants me to list the files to be changed.
@@ -49860,13 +49976,12 @@ Actually, the instructions at the top say I MUST limit discussion to 8192 tokens
 Let me provide a brief answer listing the files to be changed for Stage 5.
 
 
+
 ---
 
 
 
 **what about tests?**
-
-
 
 
 # What's Next in Testing: Stage 5 Implementation and Testing
@@ -49928,8 +50043,6 @@ Add tests to `websocket_test.go` for Stage 5 implementation[1][2]:
 - [5] [https://pkg.go.dev/net/http/httptest](https://pkg.go.dev/net/http/httptest)
 - [6] [https://groups.google.com/g/golang-nuts/c/KmVFFM980ac](https://groups.google.com/g/golang-nuts/c/KmVFFM980ac)
 
-
-
 ## Reasoning
 
 The user is asking "what's next in testing?" in the context of a Storm project that has extensive test files already implemented.
@@ -49968,13 +50081,12 @@ The next thing would be to:
 The user is asking what's next in testing, so I should provide a brief answer about what testing should be done next based on the implementation status.
 
 
+
 ---
 
 
 
 **implement stage 4 and tests, update unexpected-files-plan.md**
-
-
 
 
 # Stage 4 Implementation Complete: Update unexpected-files-plan.md
@@ -50009,10 +50121,6 @@ Stage 4 is already fully implemented in the provided code. The task is to update
 
 
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -50059,13 +50167,12 @@ I'll verify the existing test coverage for the approval workflow. The tests incl
 I'll update the unexpected-files-plan.md to mark Stage 4 as complete, reflecting the existing implementation and test coverage.
 
 
+
 ---
 
 
 
 **implement stage 5 and tests, update unexpected-files-plan.md**
-
-
 
 
 # Implement Stage 5: Dry-Run Detection and WebSocket Notification
@@ -50111,10 +50218,6 @@ Successfully implemented Stage 5 of the unexpected files feature with:
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user is asking me to "implement stage 5 and tests, update unexpected-files-plan.md"
@@ -50149,6 +50252,7 @@ So the framework for Stage 5 is already partially in place. What's missing:
 I need to implement this functionality and add tests for Stage 5.
 
 
+
 ---
 
 
@@ -50158,8 +50262,6 @@ I need to implement this functionality and add tests for Stage 5.
 ./main.go:1007:55: cannot use result.UnexpectedFiles[k] (variable of struct type core.FileEntry) as string value in argument to append
 ./main.go:1043:52: cannot use approvedFiles (variable of type []string) as []core.FileLang value in argument to append
 FAIL    github.com/stevegt/grokker/x/storm [build failed]**
-
-
 
 
 # Fix Type Mismatches in Stage 5 Implementation
@@ -50186,10 +50288,6 @@ The compilation errors occur because `result.UnexpectedFiles` contains `core.Fil
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user is showing me a compilation error from the Go tests:
@@ -50206,6 +50304,171 @@ Line 1007 is in the Stage 5 implementation where we're trying to extract filenam
 Line 1043 is where we're trying to append `approvedFiles` (a `[]string`) to `outFilesConverted` (which is `[]core.FileLang`). We need to convert the string filenames to `core.FileLang` objects.
 
 I need to fix both of these type mismatches.
+
+
+
+---
+
+
+
+**what's next?  list files to be modified.**
+
+
+# What's Next: Stage 6 Implementation
+
+Based on the unexpected-files-plan.md, the next stage to implement is:
+
+**Stage 6: Update project.html to Display Unexpected Files Modal**
+
+## Files to Modify
+
+**1. project.html** (Required) - Primary changes[1]
+
+The web UI needs to handle the unexpected files notification and display the categorized files:
+
+**WebSocket Message Handler**:
+- Add handler for `message.type === "unexpectedFilesDetected"`
+- Extract `alreadyAuthorized` and `needsAuthorization` file arrays from message
+- Open the file modal automatically when notification arrives
+
+**Modal Content Updates**:
+- Modify modal to display two distinct sections:
+  - **"Already Authorized" Section**: Table showing files that are authorized but not currently selected for output
+    - Display with In/Out checkboxes (same format as existing file list)
+    - Allow user to check "Out" column to enable for output
+  
+  - **"Needs Authorization" Section**: List showing files not yet authorized
+    - Display file names
+    - Show copy-to-clipboard button with CLI command: `storm file add --project <projectID> <filename>`
+    - Indicate these must be added via CLI first
+
+**UI Elements**:
+- Add heading in modal: "Unexpected Files Detected"
+- Add instructions above each section explaining what action is needed
+- Add "Confirm" button to close modal and send approval
+- Add "Discard All" or similar button to close without approval
+
+**JavaScript Changes**:
+- Function to populate modal with categorized files
+- Function to handle "Confirm" button click (send `approveFiles` message via WebSocket)
+- Function to handle file selection changes and send updates
+
+## References
+
+[1] [https://developer.mozilla.org/en-US/docs/Web/API/WebSocket](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket)
+
+
+
+## References
+
+## Reasoning
+
+The user is asking "what's next? list files to be modified."
+
+Looking at the context, they've provided extensive code files and documentation for the Storm project. The unexpected-files-plan.md file shows that:
+
+- Stages 1-5 are DONE
+- Stages 6-10 are TODO
+
+So the next stage to work on is Stage 6: Update project.html to Display Unexpected Files Modal.
+
+Let me check what changes are needed:
+
+Stage 6 requires:
+- Add WebSocket handler for `message.type === "unexpectedFilesDetected"`
+- Open file modal automatically when notification arrives
+- Create two sections in modal showing categorized files
+- Add "Confirm" button to close modal and send approval
+
+The user is asking me to list files that need to be modified for Stage 6. Based on the implementation requirements, I need to identify which files would change:
+
+1. **project.html** - Main changes needed here:
+   - Add JavaScript WebSocket handler for "unexpectedFilesDetected" message
+   - Modify modal to display the unexpected files with categorization
+   - Add sections for "Already Authorized" and "Needs Authorization" files
+   - Add buttons to confirm or manage the approvals
+
+2. Potentially **main.go** - But looking at Stage 5, the backend already sends the notification, so no changes needed here.
+
+So the primary file to modify is **project.html**.
+
+
+
+---
+
+
+
+**implement stage 6**
+
+
+
+
+# Implement Stage 6: Display Unexpected Files Modal
+
+Implements the user interface for reviewing and approving unexpected files detected by the LLM. The modal displays categorized files with options to enable already-authorized files for output or add files via CLI[1][2].
+
+
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to implement Stage 6 of the unexpected files feature. Looking at the unexpected-files-plan.md file, Stage 6 is:
+
+**Stage 6: Update project.html to Display Unexpected Files Modal**
+
+**Status**: ⏳ TODO
+
+**Objective**: Show user-facing UI for file approval.
+
+**Changes Required**[2]:
+- ⏳ TODO: Add WebSocket handler for `message.type === "unexpectedFilesDetected"`
+- ⏳ TODO: Open file modal automatically when notification arrives
+- ⏳ TODO: Create two sections in modal:
+  - "Already Authorized" section with table of files (same format as file list)
+  - "Needs Authorization" section with simple list showing CLI command to add each file
+- ⏳ TODO: Add "Confirm" button to close modal and send approval
+
+The user is asking me to implement this. I need to:
+
+1. Add WebSocket handler for "unexpectedFilesDetected" message type
+2. Modify the existing file modal to display categorized unexpected files
+3. Add sections for "Already Authorized" and "Needs Authorization" files
+4. Add a "Confirm" button to send approval back to the server
+
+Looking at the current project.html, I can see there's already a file modal structure:
+
+```html
+<!-- File Management Modal Dialog -->
+<div id="fileModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>File Management</h2>
+        <button class="modal-close-btn" id="closeFileModal">✕</button>
+      </div>
+      <div id="fileSidebarContent">
+        ...
+      </div>
+    </div>
+  </div>
+```
+
+I need to extend this to support displaying unexpected files. I'll need to:
+1. Add a section for "Already Authorized" unexpected files
+
+
+2. Add a section for "Needs Authorization" unexpected files with CLI commands for each file
+3. Add a "Confirm Approval" button that sends the user's approval back to the server
+4. Add WebSocket handler for the "unexpectedFilesDetected" message type that triggers the modal to open
+5. Implement logic to track which unexpected files the user has approved and manage their state
+
+Now I'll update the project.html file to include these changes.
 
 
 ---
