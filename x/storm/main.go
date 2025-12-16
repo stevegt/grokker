@@ -1003,8 +1003,8 @@ func sendQueryToLLM(project *Project, queryID, query string, llm string, selecti
 			// Extract filenames from UnexpectedFiles (which are FileEntry structs with Name and Content)
 			var unexpectedFileNames []string
 			for k := 0; k < len(result.UnexpectedFiles); k++ {
-				// UnexpectedFiles should contain filenames; convert to strings
-				unexpectedFileNames = append(unexpectedFileNames, result.UnexpectedFiles[k])
+				// Extract the filename from the FileEntry struct
+				unexpectedFileNames = append(unexpectedFileNames, result.UnexpectedFiles[k].Filename)
 			}
 
 			// Categorize unexpected files
@@ -1040,11 +1040,18 @@ func sendQueryToLLM(project *Project, queryID, query string, llm string, selecti
 					log.Printf("User approved %d files, re-running extraction with expanded list", len(approvedFiles))
 
 					// Convert approved filenames to FileLang and add to outFilesConverted
-					expandedOutFiles := append(outFilesConverted, approvedFiles...)
-
-					// Wait for user to close modal or decide, by just continuing with the second extraction below
-					// The logic will naturally use the expanded outFiles on the next iteration
-					outFilesConverted = expandedOutFiles
+					for k := 0; k < len(approvedFiles); k++ {
+						approvedFile := approvedFiles[k]
+						lang, known, err := util.Ext2Lang(approvedFile)
+						if err != nil {
+							log.Printf("Ext2Lang error for approved file %s: %v", approvedFile, err)
+							lang = "text"
+						}
+						if !known {
+							log.Printf("Unknown file extension for approved file %s; assuming language is %s", approvedFile, lang)
+						}
+						outFilesConverted = append(outFilesConverted, core.FileLang{File: approvedFile, Language: lang})
+					}
 				}
 
 				// Clean up pending query

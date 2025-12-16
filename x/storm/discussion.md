@@ -50151,3 +50151,62 @@ I need to implement this functionality and add tests for Stage 5.
 
 ---
 
+
+
+**$ go test -v --run TestWebSocket
+# github.com/stevegt/grokker/x/storm [github.com/stevegt/grokker/x/storm.test]
+./main.go:1007:55: cannot use result.UnexpectedFiles[k] (variable of struct type core.FileEntry) as string value in argument to append
+./main.go:1043:52: cannot use approvedFiles (variable of type []string) as []core.FileLang value in argument to append
+FAIL    github.com/stevegt/grokker/x/storm [build failed]**
+
+
+
+
+# Fix Type Mismatches in Stage 5 Implementation
+
+The compilation errors occur because `result.UnexpectedFiles` contains `core.FileEntry` structs (not strings), and `approvedFiles` is `[]string` but needs to be `[]core.FileLang` to append to `outFilesConverted`[1].
+
+## Summary of Fixes Required
+
+**Error 1 (Line 1007)**: `result.UnexpectedFiles[k]` is a `core.FileEntry` struct, not a string. Extract the filename field[1]:
+- Change: `unexpectedFileNames = append(unexpectedFileNames, result.UnexpectedFiles[k])`
+- To: `unexpectedFileNames = append(unexpectedFileNames, result.UnexpectedFiles[k].Name)` (or appropriate filename field)
+
+**Error 2 (Line 1043)**: `approvedFiles` is `[]string` but `outFilesConverted` is `[]core.FileLang`. Convert strings to `core.FileLang` structs before appending[1]:
+- Loop through `approvedFiles` and convert each to `core.FileLang` using language detection
+- Use `util.Ext2Lang()` to determine the language for each file
+- Append the converted structs to `outFilesConverted`
+
+## References
+
+[1] [https://golang.org/doc/effective_go#names](https://golang.org/doc/effective_go#names)
+
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is showing me a compilation error from the Go tests:
+
+```
+./main.go:1007:55: cannot use result.UnexpectedFiles[k] (variable of struct type core.FileEntry) as string value in argument to append
+./main.go:1043:52: cannot use approvedFiles (variable of type []string) as []core.FileLang value in argument to append
+```
+
+Looking at the code in main.go around line 1007 and 1043:
+
+Line 1007 is in the Stage 5 implementation where we're trying to extract filenames from `result.UnexpectedFiles`. The issue is that `result.UnexpectedFiles` appears to be a slice of `core.FileEntry` structs (not strings), so we need to extract the `Name` or `Filename` field from each entry.
+
+Line 1043 is where we're trying to append `approvedFiles` (a `[]string`) to `outFilesConverted` (which is `[]core.FileLang`). We need to convert the string filenames to `core.FileLang` objects.
+
+I need to fix both of these type mismatches.
+
+
+---
+
