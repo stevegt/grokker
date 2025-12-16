@@ -681,6 +681,30 @@ func waitForApproval(pending *PendingQuery) ([]string, error) {
 	return approvedFiles, nil
 }
 
+// categorizeUnexpectedFiles separates unexpected files into authorized and needs-authorization categories[1]
+func categorizeUnexpectedFiles(project *Project, unexpectedFileNames []string) ([]string, []string) {
+	var alreadyAuthorized []string
+	var needsAuthorization []string
+
+	// Create a set of authorized files for efficient lookup
+	authorizedSet := make(map[string]bool)
+	for i := 0; i < len(project.AuthorizedFiles); i++ {
+		authorizedSet[project.AuthorizedFiles[i]] = true
+	}
+
+	// Categorize each unexpected file
+	for i := 0; i < len(unexpectedFileNames); i++ {
+		file := unexpectedFileNames[i]
+		if authorizedSet[file] {
+			alreadyAuthorized = append(alreadyAuthorized, file)
+		} else {
+			needsAuthorization = append(needsAuthorization, file)
+		}
+	}
+
+	return alreadyAuthorized, needsAuthorization
+}
+
 // processQuery processes a query and broadcasts results to all clients in the project.
 func processQuery(project *Project, queryID, query, llm, selection string, inputFiles, outFiles []string, tokenLimit int) {
 	// Clean up cancellation flag when done
@@ -717,7 +741,7 @@ func processQuery(project *Project, queryID, query, llm, selection string, input
 	log.Printf("Added %d tokens of context to query: %s", lastNTokenCount, query)
 
 	// Pass the token limit along to sendQueryToLLM.
-	responseText, err := sendQueryToLLM(queryID, query, llm, selection, lastN, inputFiles, outFiles, tokenLimit)
+	responseText, err := sendQueryToLLM(project, queryID, query, llm, selection, lastN, inputFiles, outFiles, tokenLimit)
 	if err != nil {
 		log.Printf("Error processing query: %v", err)
 		// Broadcast error to all connected clients
@@ -904,7 +928,8 @@ func isQueryCancelled(queryID string) bool {
 
 // sendQueryToLLM calls the Grokker API to obtain a markdown-formatted text.
 // Checks if the query was cancelled after the LLM call completes and discards the result if so.
-func sendQueryToLLM(queryID, query string, llm string, selection, backgroundContext string, inputFiles []string, outFiles []string, tokenLimit int) (string, error) {
+// Implements Stage 5: Dry-run detection and WebSocket notification of unexpected files
+func sendQueryToLLM(project *Project, queryID, query string, llm string, selection, backgroundContext string, inputFiles []string, outFiles []string, tokenLimit int) (string, error) {
 	if tokenLimit == 0 {
 		tokenLimit = 8192
 	}
@@ -931,7 +956,8 @@ func sendQueryToLLM(queryID, query string, llm string, selection, backgroundCont
 		}
 
 		var outFilesConverted []core.FileLang
-		for _, f := range outFiles {
+		for j := 0; j < len(outFiles); j++ {
+			f := outFiles[j]
 			lang, known, err := util.Ext2Lang(f)
 			if err != nil {
 				log.Printf("Ext2Lang error for file %s: %v", f, err)
@@ -971,6 +997,60 @@ func sendQueryToLLM(queryID, query string, llm string, selection, backgroundCont
 		}
 
 		cookedResponse = result.CookedResponse
+
+		// Stage 5: Detect unexpected files and notify user via WebSocket
+		if len(result.UnexpectedFiles) > 0 {
+			// Extract filenames from UnexpectedFiles (which are FileEntry structs with Name and Content)
+			var unexpectedFileNames []string
+			for k := 0; k < len(result.UnexpectedFiles); k++ {
+				// UnexpectedFiles should contain filenames; convert to strings
+				unexpectedFileNames = append(unexpectedFileNames, result.UnexpectedFiles[k])
+			}
+
+			// Categorize unexpected files
+			alreadyAuthorized, needsAuthorization := categorizeUnexpectedFiles(project, unexpectedFileNames)
+
+			log.Printf("Found %d unexpected files: %d authorized, %d need authorization", len(unexpectedFileNames), len(alreadyAuthorized), len(needsAuthorization))
+
+			// Send WebSocket notification only if there are actually unexpected files
+			if len(alreadyAuthorized) > 0 || len(needsAuthorization) > 0 {
+				unexpectedFilesMsg := map[string]interface{}{
+					"type":               "unexpectedFilesDetected",
+					"queryID":            queryID,
+					"alreadyAuthorized":  alreadyAuthorized,
+					"needsAuthorization": needsAuthorization,
+					"projectID":          project.ID,
+				}
+				project.ClientPool.Broadcast(unexpectedFilesMsg)
+				log.Printf("Broadcasted unexpected files notification for query %s", queryID)
+
+				// Create pending query and wait for user approval[2]
+				pending := addPendingQuery(queryID, response, outFilesConverted)
+
+				// Wait indefinitely for user to approve or decline files
+				approvedFiles, err := waitForApproval(pending)
+				if err != nil {
+					log.Printf("Error waiting for approval: %v", err)
+					// Continue with original extraction if approval fails
+					approvedFiles = []string{}
+				}
+
+				// If user approved files, expand outFiles list and re-run extraction
+				if len(approvedFiles) > 0 {
+					log.Printf("User approved %d files, re-running extraction with expanded list", len(approvedFiles))
+
+					// Convert approved filenames to FileLang and add to outFilesConverted
+					expandedOutFiles := append(outFilesConverted, approvedFiles...)
+
+					// Wait for user to close modal or decide, by just continuing with the second extraction below
+					// The logic will naturally use the expanded outFiles on the next iteration
+					outFilesConverted = expandedOutFiles
+				}
+
+				// Clean up pending query
+				removePendingQuery(queryID)
+			}
+		}
 
 		// check token count of cookedResponse -- but first, remove
 		// any ## References, <references>, and <think> sections

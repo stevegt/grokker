@@ -630,3 +630,89 @@ func TestWebSocketApprovalIndefiniteWait(t *testing.T) {
 	// Clean up
 	removePendingQuery(queryID)
 }
+
+// TestWebSocketUnexpectedFilesDetection tests Stage 5: dry-run detection and WebSocket notification
+func TestWebSocketUnexpectedFilesDetection(t *testing.T) {
+	setup := setupTest(t, "ws-unexpected-project")
+	defer teardownTest(t, setup)
+
+	// Create test files
+	authorizedFile := filepath.Join(setup.ProjectDir, "authorized.go")
+	if err := ioutil.WriteFile(authorizedFile, []byte("package main"), 0644); err != nil {
+		t.Fatalf("Failed to create authorized file: %v", err)
+	}
+
+	// Add file to project as authorized
+	addFilesPayload := map[string]interface{}{
+		"filenames": []string{authorizedFile},
+	}
+	jsonData, _ := json.Marshal(addFilesPayload)
+	fileURL := fmt.Sprintf("%s/api/projects/%s/files/add", setup.DaemonURL, setup.ProjectID)
+	resp, err := http.Post(fileURL, "application/json", strings.NewReader(string(jsonData)))
+	if err != nil {
+		t.Fatalf("Failed to add authorized file: %v", err)
+	}
+	resp.Body.Close()
+
+	// Get project to verify file is authorized
+	project, err := projects.Get(setup.ProjectID)
+	if err != nil {
+		t.Fatalf("Failed to get project: %v", err)
+	}
+
+	// Test categorization function with mixed files
+	alreadyAuth, needsAuth := categorizeUnexpectedFiles(project, []string{authorizedFile, "new-file.go"})
+
+	if len(alreadyAuth) != 1 || alreadyAuth[0] != authorizedFile {
+		t.Errorf("Expected 1 already-authorized file, got %d", len(alreadyAuth))
+	}
+
+	if len(needsAuth) != 1 || needsAuth[0] != "new-file.go" {
+		t.Errorf("Expected 1 file needing authorization, got %d", len(needsAuth))
+	}
+
+	t.Logf("Categorization test passed: %d already authorized, %d need authorization", len(alreadyAuth), len(needsAuth))
+}
+
+// TestWebSocketUnexpectedFilesNotification tests that WebSocket sends notification message (Stage 5)
+func TestWebSocketUnexpectedFilesNotification(t *testing.T) {
+	setup := setupTest(t, "ws-notif-project")
+	defer teardownTest(t, setup)
+
+	// Get project
+	project, err := projects.Get(setup.ProjectID)
+	if err != nil {
+		t.Fatalf("Failed to get project: %v", err)
+	}
+
+	// Connect WebSocket client to receive broadcasts
+	conn := connectWebSocket(t, setup.WsURL)
+	defer conn.Close()
+
+	// Manually create and send an unexpectedFilesDetected message (simulating Stage 5)
+	notificationMsg := map[string]interface{}{
+		"type":               "unexpectedFilesDetected",
+		"queryID":            "test-notif-123",
+		"alreadyAuthorized":  []string{"file1.go"},
+		"needsAuthorization": []string{"file2.py"},
+		"projectID":          setup.ProjectID,
+	}
+	project.ClientPool.Broadcast(notificationMsg)
+
+	// Client should receive the broadcast
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var msg map[string]interface{}
+	if err := conn.ReadJSON(&msg); err != nil {
+		t.Fatalf("Failed to receive broadcast: %v", err)
+	}
+
+	if msgType, ok := msg["type"].(string); !ok || msgType != "unexpectedFilesDetected" {
+		t.Errorf("Expected unexpectedFilesDetected message, got type: %v", msg["type"])
+	}
+
+	if queryID, ok := msg["queryID"].(string); !ok || queryID != "test-notif-123" {
+		t.Errorf("Expected queryID test-notif-123, got %v", msg["queryID"])
+	}
+
+	t.Logf("Unexpected files notification successfully received via WebSocket")
+}

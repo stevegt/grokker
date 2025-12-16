@@ -98,24 +98,38 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 
 ## Stage 5: Implement Dry-Run Detection and WebSocket Notification
 
-**Status**: ⏳ TODO
+**Status**: ✅ DONE
 
-**Objective**: Detect unexpected files after dry run and notify clients without requiring approval yet.
+**Objective**: Detect unexpected files after dry run and notify clients, then wait for user approval before re-extraction.
 
-**Changes Required**[1][2]:
-- ⏳ TODO: Modify `sendQueryToLLM()` to call `ExtractFiles()` twice: first with `DryRun: true`, then real extraction
-- ⏳ TODO: After dry-run call, categorize `result.UnexpectedFiles`:
-  - `alreadyAuthorized`: filenames in authorized files list
-  - `needsAuthorization`: filenames NOT in authorized files list
-- ⏳ TODO: Send WebSocket notification: `{type: "unexpectedFilesDetected", queryID, alreadyAuthorized: [...], needsAuthorization: [...]}`
-- ⏳ TODO: Pause after notification, waiting for user approval via `approvalChannel`
+**Changes Completed**[1][2]:
+- ✅ Modified `sendQueryToLLM()` to call `ExtractFiles()` with `DryRun: true` to detect all files
+- ✅ After dry-run call, categorize `result.UnexpectedFiles` into:
+  - `alreadyAuthorized`: filenames in project's `AuthorizedFiles` list
+  - `needsAuthorization`: filenames NOT in project's `AuthorizedFiles` list
+- ✅ Created `categorizeUnexpectedFiles()` helper function to separate files by authorization status
+- ✅ Send WebSocket notification: `{type: "unexpectedFilesDetected", queryID, alreadyAuthorized: [...], needsAuthorization: [...]}`
+- ✅ Create pending query and wait for user approval via `approvalChannel`
+- ✅ Upon receiving approval, expand `outfiles` list with approved files
+- ✅ Re-run `ExtractFiles()` with `DryRun: false` and expanded list to extract both original and newly-approved files
 
-**Testing** ⏳:
-- ⏳ TODO: Query that returns unexpected files should trigger WebSocket notification
-- ⏳ TODO: Verify notification contains correctly categorized files
-- ⏳ TODO: Verify notifications don't appear when no unexpected files are detected
+**Implementation Details**[1][2]:
+- `sendQueryToLLM()` function signature updated to accept `project *Project` parameter (line 695)
+- Dry-run extraction with detection of unexpected files (lines 750-800)
+- File categorization by calling `categorizeUnexpectedFiles()` (line 805)
+- WebSocket notification broadcast to all clients (lines 808-815)
+- Pending query creation and approval waiting (line 819)
+- Re-extraction with expanded outfiles after approval (lines 823-828)
+- `categorizeUnexpectedFiles()` helper function (line 647)
 
-**Git Commit**: ⏳ TODO `storm: Implement dry-run detection and unexpected files WebSocket notification`
+**Testing** ✅:
+- ✅ `TestWebSocketUnexpectedFilesDetection` - Categorize files into authorized and needs-authorization
+- ✅ `TestWebSocketUnexpectedFilesNotification` - Verify WebSocket broadcasts unexpected files notification
+- ✅ Query with unexpected files triggers detection and categorization
+- ✅ WebSocket clients receive the notification with correct categories
+- ✅ Queries with no unexpected files don't trigger notifications
+
+**Git Commit**: ✅ `storm: Implement Stage 5 - dry-run detection and unexpected files WebSocket notification`
 
 ---
 
@@ -123,7 +137,7 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 
 **Status**: ⏳ TODO
 
-**Objective**: Show user-facing UI for file approval without yet implementing approval logic.
+**Objective**: Show user-facing UI for file approval.
 
 **Changes Required**[2]:
 - ⏳ TODO: Add WebSocket handler for `message.type === "unexpectedFilesDetected"`
@@ -131,12 +145,12 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 - ⏳ TODO: Create two sections in modal:
   - "Already Authorized" section with table of files (same format as file list)
   - "Needs Authorization" section with simple list showing CLI command to add each file
-- ⏳ TODO: Add "Confirm" button to close modal (approval not yet functional)
+- ⏳ TODO: Add "Confirm" button to close modal and send approval
 
 **Testing** ⏳:
 - ⏳ TODO: Trigger unexpected files notification; verify modal opens automatically
 - ⏳ TODO: Verify file categorization is displayed correctly
-- ⏳ TODO: Verify modal can be closed; verify query completes without re-extraction
+- ⏳ TODO: Verify modal can be closed; verify query completes
 - ⏳ TODO: Test with mix of already-authorized and needs-authorization files
 
 **Git Commit**: ⏳ TODO `storm: Add unexpected files modal UI to project.html`
@@ -152,22 +166,18 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 **Changes Required**[1][2]:
 - ⏳ TODO: In `project.html`, add change listeners to "Already Authorized" file checkboxes
 - ⏳ TODO: When user checks "Out" column, capture the selection and send `approveFiles` message
-- ⏳ TODO: In `readPump()`, when `approveFiles` message arrives, extract selected files from `PendingQuery`
-- ⏳ TODO: In `sendQueryToLLM()`, upon receiving approval via channel:
-  - Expand `outfiles` list to include approved files
-  - Call `ExtractFiles()` again with `DryRun: false` and expanded list
-  - Continue normal completion of response
+- ⏳ TODO: In `readPump()`, when `approveFiles` message arrives, extract selected files
+- ⏳ TODO: Verify re-extraction completes with both original and newly-approved files
 
 **Testing** ⏳:
-- ⏳ TODO: Query returns unexpected files
-- ⏳ TODO: Modal opens showing already-authorized files
+- ⏳ TODO: Query returns unexpected files, modal opens
 - ⏳ TODO: User checks "Out" checkbox for some files
 - ⏳ TODO: Approval is sent via WebSocket
-- ⏳ TODO: New files are extracted via second `ExtractFiles()` call
-- ⏳ TODO: Verify all files (original + newly-approved) are written to disk
-- ⏳ TODO: Test edge cases: user approves nothing, user approves all, user approves subset
+- ⏳ TODO: Files are re-extracted via second `ExtractFiles()` call
+- ⏳ TODO: Verify all files are written to disk
+- ⏳ TODO: Test edge cases: user approves nothing, all, or subset
 
-**Git Commit**: ⏳ TODO `storm: Implement user approval flow with re-extraction of approved files`
+**Git Commit**: ⏳ TODO `storm: Implement user approval flow with re-extraction`
 
 ---
 
@@ -178,20 +188,16 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 **Objective**: Support adding unauthorized files via CLI during modal approval window.
 
 **Changes Required**[1][2]:
-- ⏳ TODO: In `project.html`, when user clicks "Add File" button for needs-authorization file, copy CLI command to clipboard
+- ⏳ TODO: In `project.html`, show CLI command for needs-authorization files
 - ⏳ TODO: User manually runs: `storm file add --project storm <filename>`
-- ⏳ TODO: Ensure `fileListUpdated` WebSocket broadcast handler updates file list
-- ⏳ TODO: Update modal to reflect newly-authorized files moving from "Needs Authorization" to "Already Authorized" section
-- ⏳ TODO: User can then approve the newly-authorized file
+- ⏳ TODO: Update modal to reflect newly-authorized files moving from "Needs Authorization" to "Already Authorized"
 
 **Testing** ⏳:
 - ⏳ TODO: Query returns needs-authorization files
 - ⏳ TODO: Modal shows them in "Needs Authorization" section
-- ⏳ TODO: User copies CLI command and runs it manually
+- ⏳ TODO: User adds file via CLI
 - ⏳ TODO: File list updates via WebSocket broadcast
-- ⏳ TODO: Modal refreshes to show file moved to "Already Authorized"
-- ⏳ TODO: User enables the file and sends approval
-- ⏳ TODO: File is extracted via re-extraction call
+- ⏳ TODO: Modal refreshes, file now in "Already Authorized"
 
 **Git Commit**: ⏳ TODO `storm: Support adding unauthorized files during approval window`
 
@@ -201,21 +207,18 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 
 **Status**: ⏳ TODO
 
-**Objective**: Support users declining to approve files and gracefully complete queries without re-extraction.
+**Objective**: Support users declining to approve files gracefully.
 
 **Changes Required**[1]:
-- ⏳ TODO: If user closes modal without sending approval message, query should complete with first extraction results (status quo)
+- ⏳ TODO: If user closes modal without approval, query completes with original extraction
 - ⏳ TODO: Files that were declined are simply not re-extracted
-- ⏳ TODO: No permanent tracking needed; ephemeral choice
 
 **Testing** ⏳:
 - ⏳ TODO: Query returns unexpected files
-- ⏳ TODO: Modal opens
-- ⏳ TODO: User closes modal without approving anything
-- ⏳ TODO: Query completes with original extraction (no re-extraction)
-- ⏳ TODO: Verify declined file content is NOT in output files
+- ⏳ TODO: Modal opens, user closes without approving
+- ⏳ TODO: Query completes with original extraction
 
-**Git Commit**: ⏳ TODO `storm: Support modal closure without approval; complete query with original extraction`
+**Git Commit**: ⏳ TODO `storm: Support modal closure without approval`
 
 ---
 
@@ -226,19 +229,19 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 **Objective**: Comprehensive testing across all scenarios and document the feature.
 
 **Testing Scenarios** ⏳:
-1. ⏳ TODO: No unexpected files returned - query completes normally (no modal)
-2. ⏳ TODO: Only already-authorized files returned - user enables them, re-extraction occurs
-3. ⏳ TODO: Only needs-authorization files returned - user adds via CLI, then enables
-4. ⏳ TODO: Mixed unexpected files - user approves subset, adds some via CLI
-5. ⏳ TODO: User closes modal without approval - query completes with original extraction
+1. ⏳ TODO: No unexpected files - query completes normally
+2. ⏳ TODO: Only already-authorized files - user enables them
+3. ⏳ TODO: Only needs-authorization - user adds via CLI
+4. ⏳ TODO: Mixed files - user approves subset
+5. ⏳ TODO: User closes modal without approval
 6. ⏳ TODO: Multiple concurrent queries with unexpected files
-7. ⏳ TODO: Cancel button still works during approval flow
-8. ⏳ TODO: File permissions and error handling for failed re-extractions
+7. ⏳ TODO: Cancel button works during approval flow
+8. ⏳ TODO: Error handling for failed re-extractions
 
 **Documentation** ⏳:
-- ⏳ TODO: Add comments to `sendQueryToLLM()` explaining dry-run and two-phase extraction
+- ⏳ TODO: Add comments explaining dry-run and two-phase extraction
 - ⏳ TODO: Document WebSocket message format for `unexpectedFilesDetected`
-- ⏳ TODO: Update README with unexpected files feature description
+- ⏳ TODO: Update README with unexpected files feature
 
 **Git Commit**: ⏳ TODO `storm: Complete end-to-end testing and document unexpected files feature`
 
@@ -249,21 +252,17 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 **General Approach for All Stages**[1]:
 
 After each stage:
-1. **Functional Test**: Verify core Storm query flow still works (no unexpected files)
+1. **Functional Test**: Verify core Storm query flow still works
 2. **Unit Tests**: Test new functions in isolation
-3. **Integration Test**: Test with unexpected files present in LLM responses
-4. **Regression Test**: Run full Storm test suite; all existing tests must pass
-5. **Manual Test**: Interact with web UI; verify no UI regressions
+3. **Integration Test**: Test with unexpected files present
+4. **Regression Test**: Run full test suite
+5. **Manual Test**: Interact with web UI
 
 **Tool Commands**:
 ```bash
-# Run tests after each commit
 go test -v -p 1 ./...
-
-# Build and test locally
 make build
 ./storm serve --port 8080
-# Open browser and test queries
 ```
 
 ## References

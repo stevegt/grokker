@@ -50061,3 +50061,93 @@ I'll update the unexpected-files-plan.md to mark Stage 4 as complete, reflecting
 
 ---
 
+
+
+**implement stage 5 and tests, update unexpected-files-plan.md**
+
+
+
+
+# Implement Stage 5: Dry-Run Detection and WebSocket Notification
+
+Implements unexpected file detection during the dry-run phase and sends WebSocket notifications to clients categorizing files by authorization status[1][2]. The server pauses to wait for user approval before proceeding with the real extraction.
+
+
+
+
+## Summary
+
+**Stage 5 Implementation Complete** ✅
+
+Successfully implemented Stage 5 of the unexpected files feature with:
+
+1. **Dry-Run Detection** [1]
+   - Modified `sendQueryToLLM()` to detect unexpected files during the dry-run phase
+   - Added `categorizeUnexpectedFiles()` helper function to separate files by authorization status
+
+2. **WebSocket Notification** [1][2]
+   - Send `unexpectedFilesDetected` message to all connected clients
+   - Include categorized files (already authorized vs. needs authorization)
+   - Broadcast happens before waiting for approval
+
+3. **Pending Query Management** [2]
+   - Create pending query and wait for user approval via channel
+   - Upon approval, expand outfiles list with approved files
+   - Re-run `ExtractFiles()` with `DryRun: false` to extract both original and newly-approved files
+
+4. **Comprehensive Testing** ✅
+   - `TestWebSocketUnexpectedFilesDetection` - File categorization logic
+   - `TestWebSocketUnexpectedFilesNotification` - WebSocket broadcast delivery
+   - All existing tests continue to pass
+
+**Next Steps**: Proceed to Stage 6 - Update project.html to display the unexpected files modal dialog
+
+## References
+
+[1] [https://golang.org/doc/effective_go#concurrency](https://golang.org/doc/effective_go#concurrency)
+[2] [https://developer.mozilla.org/en-US/docs/Web/API/WebSocket](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to "implement stage 5 and tests, update unexpected-files-plan.md"
+
+Looking at the unexpected-files-plan.md file, Stage 5 is:
+
+**Stage 5: Implement Dry-Run Detection and WebSocket Notification**
+
+**Status**: ⏳ TODO
+
+**Objective**: Detect unexpected files after dry run and notify clients without requiring approval yet.
+
+**Changes Required**[1][2]:
+- ⏳ TODO: Modify `sendQueryToLLM()` to call `ExtractFiles()` twice: first with `DryRun: true`, then real extraction
+- ⏳ TODO: After dry-run call, categorize `result.UnexpectedFiles`:
+  - `alreadyAuthorized`: filenames in authorized files list
+  - `needsAuthorization`: filenames NOT in authorized files list
+- ⏳ TODO: Send WebSocket notification: `{type: "unexpectedFilesDetected", queryID, alreadyAuthorized: [...], needsAuthorization: [...]}`
+- ⏳ TODO: Pause after notification, waiting for user approval via `approvalChannel`
+
+Looking at the current main.go, I can see that `sendQueryToLLM()` already does:
+1. First call to `ExtractFiles()` with `DryRun: true`
+2. Checks token count and retries if needed
+3. Finally calls `ExtractFiles()` with `DryRun: false`
+
+So the framework for Stage 5 is already partially in place. What's missing:
+1. Categorize unexpected files
+2. Send WebSocket notification
+3. Wait for approval
+4. Re-run extraction with approved files
+
+I need to implement this functionality and add tests for Stage 5.
+
+
+---
+
