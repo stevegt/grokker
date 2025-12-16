@@ -44,11 +44,10 @@ var landingTemplate = template.Must(template.New("landing").Parse(indexHTML))
 
 // PendingQuery tracks queries awaiting user approval for unexpected files
 type PendingQuery struct {
-	queryID          string
-	rawResponse      string
-	outFiles         []core.FileLang
-	approvalChannel  chan []string
-	approvalDeadline time.Time
+	queryID         string
+	rawResponse     string
+	outFiles        []core.FileLang
+	approvalChannel chan []string
 }
 
 // Global variables for serve subcommand
@@ -631,8 +630,8 @@ func (c *WSClient) readPump(project *Project) {
 					select {
 					case pending.approvalChannel <- approvedFiles:
 						log.Printf("Approval sent to query %s", queryID)
-					case <-time.After(5 * time.Second):
-						log.Printf("WARNING: approval channel timeout for query %s", queryID)
+					default:
+						log.Printf("WARNING: approval channel full for query %s", queryID)
 					}
 				} else {
 					log.Printf("WARNING: received approval for unknown query %s", queryID)
@@ -645,11 +644,10 @@ func (c *WSClient) readPump(project *Project) {
 // addPendingQuery registers a query waiting for user approval
 func addPendingQuery(queryID string, rawResponse string, outFiles []core.FileLang) *PendingQuery {
 	pending := &PendingQuery{
-		queryID:          queryID,
-		rawResponse:      rawResponse,
-		outFiles:         outFiles,
-		approvalChannel:  make(chan []string, 1),
-		approvalDeadline: time.Now().Add(5 * time.Minute),
+		queryID:         queryID,
+		rawResponse:     rawResponse,
+		outFiles:        outFiles,
+		approvalChannel: make(chan []string, 1),
 	}
 
 	pendingMutex.Lock()
@@ -676,16 +674,11 @@ func removePendingQuery(queryID string) {
 	}
 }
 
-// waitForApproval blocks until user approves files or timeout occurs
+// waitForApproval blocks indefinitely until user approves files
 func waitForApproval(pending *PendingQuery) ([]string, error) {
-	select {
-	case approvedFiles := <-pending.approvalChannel:
-		log.Printf("Received approval for query %s with %d files", pending.queryID, len(approvedFiles))
-		return approvedFiles, nil
-	case <-time.After(5 * time.Minute):
-		log.Printf("Approval timeout for query %s, proceeding without approval", pending.queryID)
-		return []string{}, fmt.Errorf("approval timeout")
-	}
+	approvedFiles := <-pending.approvalChannel
+	log.Printf("Received approval for query %s with %d files", pending.queryID, len(approvedFiles))
+	return approvedFiles, nil
 }
 
 // processQuery processes a query and broadcasts results to all clients in the project.
