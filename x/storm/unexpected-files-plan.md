@@ -67,22 +67,32 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 
 ## Stage 4: Extend ReadPump to Handle "approveFiles" Messages
 
-**Status**: ⏳ TODO
+**Status**: ✅ DONE
 
-**Objective**: Add WebSocket message handler infrastructure for future user approval flow.
+**Objective**: Add WebSocket message handler infrastructure for user approval flow.
 
-**Changes Required**[1]:
-- ⏳ TODO: Create pending query tracker: `map[string]PendingQuery` protected by mutex
-- ⏳ TODO: Define `PendingQuery` struct with fields: `queryID`, `rawResponse`, `outFiles`, `approvalChannel`
-- ⏳ TODO: Extend `readPump()` to handle `{type: "approveFiles", queryID, approvedFiles}` messages
-- ⏳ TODO: Send approval signal via channel to waiting `sendQueryToLLM()`
+**Changes Completed**[1]:
+- ✅ Created `PendingQuery` struct with fields: `queryID`, `rawResponse`, `outFiles`, `approvalChannel`
+- ✅ Added pending query tracker: `map[string]PendingQuery` protected by `pendingMutex`
+- ✅ Extended `readPump()` to handle `{type: "approveFiles", queryID, approvedFiles}` messages
+- ✅ Implemented `addPendingQuery()` to register queries awaiting approval
+- ✅ Implemented `removePendingQuery()` to clean up completed queries
+- ✅ Implemented `waitForApproval()` to block indefinitely until user approves files
 
-**Testing** ⏳:
-- ⏳ TODO: Send "approveFiles" message via WebSocket; verify it's received and logged
-- ⏳ TODO: Verify the message doesn't break existing query flow
-- ⏳ TODO: Test with multiple concurrent queries to verify channel synchronization works
+**Implementation Details**[1]:
+- `PendingQuery` struct (main.go, lines 13-18): Encapsulates query state with approval channel for signaling user decisions
+- `pendingApprovals` map (main.go, line 67): Thread-safe registry of queries awaiting user approval via mutex protection
+- `readPump()` "approveFiles" handler (main.go, lines 416-433): Extended WebSocket message handler to recognize and process `approveFiles` messages
+- Helper functions: `addPendingQuery()` (line 595), `removePendingQuery()` (line 610), `waitForApproval()` (line 626)
 
-**Git Commit**: ⏳ TODO `storm: Add pending query tracker and approveFiles message handler`
+**Testing** ✅:
+- ✅ `TestWebSocketApproveFilesMessage` - Send approval message via WebSocket; verify no errors
+- ✅ `TestWebSocketPendingQueryTracking` - Create pending query, verify it's tracked correctly, verify cleanup
+- ✅ `TestWebSocketApprovalChannelReceival` - Verify approval signals flow through channel to receiver
+- ✅ `TestWebSocketMultipleConcurrentApprovals` - Test 5 concurrent pending queries with different approvals simultaneously, verify no interference between queries
+- ✅ `TestWebSocketApprovalIndefiniteWait` - Verify server waits indefinitely for user approval without timeout
+
+**Git Commit**: ✅ `storm: Implement Stage 4 - pending query tracker and approveFiles message handler`
 
 ---
 
@@ -256,3 +266,7 @@ make build
 # Open browser and test queries
 ```
 
+## References
+
+[1] [https://golang.org/doc/effective_go#concurrency](https://golang.org/doc/effective_go#concurrency)
+[2] [https://developer.mozilla.org/en-US/docs/Web/API/WebSocket](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket)
