@@ -563,12 +563,25 @@
         
         var authTable = document.createElement("table");
         authTable.className = "unexpected-files-table";
-        authTable.innerHTML = "<thead><tr><th>Out</th><th>Filename</th></tr></thead><tbody></tbody>";
+        authTable.innerHTML = "<thead><tr><th style=\"text-align: center;\">All/None</th><th>Out</th><th>Filename</th></tr></thead><tbody></tbody>";
         
         var tbody = authTable.querySelector("tbody");
+        
+        // Add All/None checkbox in header
+        var headerRow = authTable.querySelector("thead tr");
+        var allNoneCell = headerRow.cells;
+        var selectAllCheckbox = document.createElement("input");
+        selectAllCheckbox.type = "checkbox";
+        selectAllCheckbox.className = "unexpected-select-all";
+        allNoneCell.innerHTML = "";
+        allNoneCell.appendChild(selectAllCheckbox);
+        
         for (var i = 0; i < alreadyAuthorized.length; i++) {
-          var filename = alreadyAuthorized[i][0];
+          var filename = alreadyAuthorized[i];
           var tr = document.createElement("tr");
+          
+          var tdAllNone = document.createElement("td");
+          tdAllNone.textContent = "";
           
           var tdOut = document.createElement("td");
           var outCheckbox = document.createElement("input");
@@ -580,10 +593,19 @@
           var tdName = document.createElement("td");
           tdName.textContent = filename;
           
+          tr.appendChild(tdAllNone);
           tr.appendChild(tdOut);
           tr.appendChild(tdName);
           tbody.appendChild(tr);
         }
+        
+        // Add change listener to All/None checkbox for this table
+        selectAllCheckbox.addEventListener("change", function() {
+          var checkboxes = tbody.querySelectorAll("input.unexpected-out");
+          for (var k = 0; k < checkboxes.length; k++) {
+            checkboxes[k].checked = selectAllCheckbox.checked;
+          }
+        });
         
         authSection.appendChild(authTable);
         content.appendChild(authSection);
@@ -598,7 +620,7 @@
         
         var filesList = document.createElement("div");
         for (var j = 0; j < needsAuthorization.length; j++) {
-          var file = needsAuthorization[j][0];
+          var file = needsAuthorization[j];
           var fileDiv = document.createElement("div");
           fileDiv.className = "needs-auth-file";
           
@@ -1119,6 +1141,21 @@
         content.appendChild(table);
         
         fileListElem = tbody;
+        
+        // Re-attach the All/None listener for the regular file list
+        selectAllCheckbox.addEventListener("change", function() {
+          var checked = this.checked;
+          var fileInCheckboxes = document.querySelectorAll("#fileList input.fileIn");
+          var fileOutCheckboxes = document.querySelectorAll("#fileList input.fileOut");
+          fileInCheckboxes.forEach(function(cb) {
+            cb.checked = checked;
+            cb.dispatchEvent(new Event("change"));
+          });
+          fileOutCheckboxes.forEach(function(cb) {
+            cb.checked = false;
+            cb.dispatchEvent(new Event("change"));
+          });
+        });
       }
       
       fileListElem.innerHTML = "";
