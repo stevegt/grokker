@@ -44,10 +44,15 @@ var landingTemplate = template.Must(template.New("landing").Parse(indexHTML))
 
 // PendingQuery tracks queries awaiting user approval for unexpected files
 type PendingQuery struct {
-	queryID         string
-	rawResponse     string
-	outFiles        []core.FileLang
-	approvalChannel chan []string
+	queryID                 string
+	rawResponse             string
+	outFiles                []core.FileLang
+	approvalChannel         chan []string
+	alreadyAuthorized       []string
+	needsAuthorization      []string
+	project                 *Project
+	notificationTicker      *time.Ticker
+	stopNotificationChannel chan bool
 }
 
 // Global variables for serve subcommand
@@ -75,8 +80,9 @@ var (
 )
 
 const (
-	pingInterval = 20 * time.Second
-	pongWait     = 60 * time.Second
+	pingInterval                  = 20 * time.Second
+	pongWait                      = 60 * time.Second
+	unexpectedFilesNotifyInterval = 10 * time.Second
 )
 
 // QueryRequest represents a user's query input.
@@ -607,6 +613,20 @@ func (c *WSClient) readPump(project *Project) {
 				cancelledQueries[queryID] = true
 				cancelledMutex.Unlock()
 				log.Printf("Query %s marked for cancellation", queryID)
+
+				// Stop notification ticker for this query if it exists
+				pendingMutex.Lock()
+				if pending, exists := pendingApprovals[queryID]; exists {
+					if pending.notificationTicker != nil {
+						pending.notificationTicker.Stop()
+						pending.notificationTicker = nil
+					}
+					select {
+					case pending.stopNotificationChannel <- true:
+					default:
+					}
+				}
+				pendingMutex.Unlock()
 			} else if msgType == "approveFiles" {
 				// Handle file approval for unexpected files
 				queryID, _ := msg["queryID"].(string)
@@ -627,6 +647,13 @@ func (c *WSClient) readPump(project *Project) {
 
 				if exists && pending != nil {
 					log.Printf("Sending approval for query %s with %d approved files", queryID, len(approvedFiles))
+
+					// Stop the notification ticker
+					if pending.notificationTicker != nil {
+						pending.notificationTicker.Stop()
+						pending.notificationTicker = nil
+					}
+
 					select {
 					case pending.approvalChannel <- approvedFiles:
 						log.Printf("Approval sent to query %s", queryID)
@@ -642,12 +669,16 @@ func (c *WSClient) readPump(project *Project) {
 }
 
 // addPendingQuery registers a query waiting for user approval
-func addPendingQuery(queryID string, rawResponse string, outFiles []core.FileLang) *PendingQuery {
+func addPendingQuery(queryID string, rawResponse string, outFiles []core.FileLang, alreadyAuthorized, needsAuthorization []string, project *Project) *PendingQuery {
 	pending := &PendingQuery{
-		queryID:         queryID,
-		rawResponse:     rawResponse,
-		outFiles:        outFiles,
-		approvalChannel: make(chan []string, 1),
+		queryID:                 queryID,
+		rawResponse:             rawResponse,
+		outFiles:                outFiles,
+		approvalChannel:         make(chan []string, 1),
+		alreadyAuthorized:       alreadyAuthorized,
+		needsAuthorization:      needsAuthorization,
+		project:                 project,
+		stopNotificationChannel: make(chan bool, 1),
 	}
 
 	pendingMutex.Lock()
@@ -664,6 +695,11 @@ func removePendingQuery(queryID string) {
 	pending, exists := pendingApprovals[queryID]
 	if exists {
 		delete(pendingApprovals, queryID)
+		// Stop the notification ticker if it exists
+		if pending.notificationTicker != nil {
+			pending.notificationTicker.Stop()
+			pending.notificationTicker = nil
+		}
 		// Close the channel to signal completion
 		close(pending.approvalChannel)
 	}
@@ -672,6 +708,37 @@ func removePendingQuery(queryID string) {
 	if exists {
 		log.Printf("Removed pending query %s", queryID)
 	}
+}
+
+// startNotificationTicker begins periodically re-sending the unexpected files notification every 10 seconds[1]
+func startNotificationTicker(pending *PendingQuery) {
+	pending.notificationTicker = time.NewTicker(unexpectedFilesNotifyInterval)
+
+	go func() {
+		for {
+			select {
+			case <-pending.notificationTicker.C:
+				// Re-send the unexpected files notification
+				unexpectedFilesMsg := map[string]interface{}{
+					"type":               "unexpectedFilesDetected",
+					"queryID":            pending.queryID,
+					"alreadyAuthorized":  pending.alreadyAuthorized,
+					"needsAuthorization": pending.needsAuthorization,
+					"projectID":          pending.project.ID,
+				}
+				pending.project.ClientPool.Broadcast(unexpectedFilesMsg)
+				log.Printf("Re-broadcasted unexpected files notification for query %s", pending.queryID)
+
+			case <-pending.stopNotificationChannel:
+				// Stop sending notifications when approval is received or query is cancelled
+				if pending.notificationTicker != nil {
+					pending.notificationTicker.Stop()
+				}
+				log.Printf("Stopped notification ticker for query %s", pending.queryID)
+				return
+			}
+		}
+	}()
 }
 
 // waitForApproval blocks indefinitely until user approves files
@@ -1025,7 +1092,10 @@ func sendQueryToLLM(project *Project, queryID, query string, llm string, selecti
 				log.Printf("Broadcasted unexpected files notification for query %s", queryID)
 
 				// Create pending query and wait for user approval[2]
-				pending := addPendingQuery(queryID, response, outFilesConverted)
+				pending := addPendingQuery(queryID, response, outFilesConverted, alreadyAuthorized, needsAuthorization, project)
+
+				// Start periodic re-sending of unexpected files notification[1]
+				startNotificationTicker(pending)
 
 				// Wait indefinitely for user to approve or decline files
 				approvedFiles, err := waitForApproval(pending)
