@@ -1206,7 +1206,7 @@
       for (var i = 0; i < rows.length; i++) {
         var cells = rows[i].getElementsByTagName("td");
         if(cells.length < 3) continue;
-        var inChecked = cells.querySelector("input").checked;
+        var inChecked = cells[0].querySelector("input").checked;
         var outChecked = cells[1].querySelector("input").checked;
         var filename = cells[2].textContent;
         if(inChecked) inputFiles.push(filename);
