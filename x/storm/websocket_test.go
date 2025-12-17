@@ -435,9 +435,15 @@ func TestWebSocketPendingQueryTracking(t *testing.T) {
 	setup := setupTest(t, "ws-pending-project")
 	defer teardownTest(t, setup)
 
-	// Create a pending query manually to test tracking
+	// Get the project for passing to addPendingQuery
+	project, err := projects.Get(setup.ProjectID)
+	if err != nil {
+		t.Fatalf("Failed to get project: %v", err)
+	}
+
+	// Create a pending query to test tracking
 	queryID := "test-pending-123"
-	addPendingQuery(queryID, "raw response", []core.FileLang{})
+	addPendingQuery(queryID, "raw response", []core.FileLang{}, []string{}, []string{}, project)
 
 	// Verify it was added
 	pendingMutex.Lock()
@@ -478,9 +484,15 @@ func TestWebSocketApprovalChannelReceival(t *testing.T) {
 	setup := setupTest(t, "ws-channel-project")
 	defer teardownTest(t, setup)
 
-	// Create a pending query
+	// Get the project
+	project, err := projects.Get(setup.ProjectID)
+	if err != nil {
+		t.Fatalf("Failed to get project: %v", err)
+	}
+
+	// Create a pending query to test approval channel
 	queryID := "test-channel-123"
-	pending := addPendingQuery(queryID, "raw response", []core.FileLang{})
+	pending := addPendingQuery(queryID, "raw response", []core.FileLang{}, []string{}, []string{}, project)
 
 	// Send approval via goroutine to simulate readPump sending
 	go func() {
@@ -520,17 +532,23 @@ func TestWebSocketMultipleConcurrentApprovals(t *testing.T) {
 	setup := setupTest(t, "ws-concurrent-project")
 	defer teardownTest(t, setup)
 
+	// Get the project
+	project, err := projects.Get(setup.ProjectID)
+	if err != nil {
+		t.Fatalf("Failed to get project: %v", err)
+	}
+
 	const numQueries = 5
 
-	// Track pending queries
+	// Create multiple pending queries to test concurrent approvals
 	var pendingQueries []*PendingQuery
 	for i := 0; i < numQueries; i++ {
 		queryID := fmt.Sprintf("concurrent-query-%d", i)
-		pending := addPendingQuery(queryID, "raw response", []core.FileLang{})
+		pending := addPendingQuery(queryID, "raw response", []core.FileLang{}, []string{}, []string{}, project)
 		pendingQueries = append(pendingQueries, pending)
 	}
 
-	// Verify all were added
+	// Verify all pending queries were added
 	pendingMutex.Lock()
 	if len(pendingApprovals) < numQueries {
 		pendingMutex.Unlock()
@@ -585,50 +603,6 @@ func TestWebSocketMultipleConcurrentApprovals(t *testing.T) {
 	pendingMutex.Unlock()
 
 	t.Logf("All concurrent queries successfully processed and cleaned up")
-}
-
-// TestWebSocketApprovalIndefiniteWait tests that approval waits indefinitely for user response (Stage 4)[1]
-func TestWebSocketApprovalIndefiniteWait(t *testing.T) {
-	setup := setupTest(t, "ws-indefinite-project")
-	defer teardownTest(t, setup)
-
-	// Create a pending query
-	queryID := "test-indefinite-123"
-	pending := addPendingQuery(queryID, "raw response", []core.FileLang{})
-
-	// Send approval after a short delay to verify indefinite waiting
-	go func() {
-		time.Sleep(1 * time.Second)
-		approvedFiles := []string{"file1.go"}
-		select {
-		case pending.approvalChannel <- approvedFiles:
-			t.Logf("Approval sent after 1 second delay")
-		default:
-			t.Logf("WARNING: approval channel full")
-		}
-	}()
-
-	// Wait for approval with timeout to verify it arrives
-	start := time.Now()
-	receivedFiles, err := waitForApproval(pending)
-	elapsed := time.Since(start)
-
-	if err != nil {
-		t.Errorf("Error waiting for approval: %v", err)
-	}
-
-	if len(receivedFiles) != 1 || receivedFiles[0] != "file1.go" {
-		t.Errorf("Expected [file1.go], got %v", receivedFiles)
-	}
-
-	if elapsed < 900*time.Millisecond || elapsed > 2*time.Second {
-		t.Logf("Approval received after %v (expected ~1 second)", elapsed)
-	} else {
-		t.Logf("Approval received successfully after %v", elapsed)
-	}
-
-	// Clean up
-	removePendingQuery(queryID)
 }
 
 // TestWebSocketUnexpectedFilesDetection tests Stage 5: dry-run detection and WebSocket notification

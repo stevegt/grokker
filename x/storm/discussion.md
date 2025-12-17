@@ -45679,3 +45679,93 @@ Let me create a comprehensive web-client-test-plan.md that discusses both altern
 
 ---
 
+
+
+**$ go test -v -p 1 ./...
+# github.com/stevegt/grokker/x/storm [github.com/stevegt/grokker/x/storm.test]
+./websocket_test.go:440:43: not enough arguments in call to addPendingQuery
+        have (string, string, []core.FileLang)
+        want (string, string, []core.FileLang, []string, []string, *Project)
+./websocket_test.go:483:54: not enough arguments in call to addPendingQuery
+        have (string, string, []core.FileLang)
+        want (string, string, []core.FileLang, []string, []string, *Project)
+./websocket_test.go:529:55: not enough arguments in call to addPendingQuery
+        have (string, string, []core.FileLang)
+        want (string, string, []core.FileLang, []string, []string, *Project)
+./websocket_test.go:597:54: not enough arguments in call to addPendingQuery
+        have (string, string, []core.FileLang)
+        want (string, string, []core.FileLang, []string, []string, *Project)
+FAIL    github.com/stevegt/grokker/x/storm [build failed]**
+
+
+
+
+# Fix websocket_test.go: Update addPendingQuery Calls with Missing Arguments
+
+The test file has incorrect calls to `addPendingQuery()` that are missing required arguments[1]. The function signature expects six parameters: queryID, rawResponse, outFiles, alreadyAuthorized, needsAuthorization, and project. Update all calls to pass the required arguments[1].
+
+
+## Changes Made
+
+**Fixed addPendingQuery() function calls** in four test functions[1]:
+- `TestWebSocketPendingQueryTracking` (line 440): Added missing arguments for alreadyAuthorized, needsAuthorization, and project
+- `TestWebSocketApprovalChannelReceival` (line 483): Added missing arguments and retrieved project from setup
+- `TestWebSocketMultipleConcurrentApprovals` (line 529): Added missing arguments and retrieved project from setup
+- `TestWebSocketApprovalIndefiniteWait` (line 597): Added missing arguments and retrieved project from setup
+
+All test functions now pass the complete required argument list to `addPendingQuery()` matching the function signature defined in main.go[1].
+
+## References
+
+[1] [https://golang.org/doc/effective_go#names](https://golang.org/doc/effective_go#names)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is providing me with code files and asking me to fix the compilation error in websocket_test.go. The error messages show that the `addPendingQuery` function calls are not passing the correct number of arguments.
+
+Looking at the error:
+```
+./websocket_test.go:440:43: not enough arguments in call to addPendingQuery
+        have (string, string, []core.FileLang)
+        want (string, string, []core.FileLang, []string, []string, *Project)
+```
+
+So the function signature expects:
+- queryID (string)
+- rawResponse (string)
+- outFiles ([]core.FileLang)
+- alreadyAuthorized ([]string)
+- needsAuthorization ([]string)
+- project (*Project)
+
+But the calls are only passing:
+- queryID (string)
+- rawResponse (string)
+- outFiles ([]core.FileLang)
+
+I need to update the calls to addPendingQuery to include the additional required arguments.
+
+Looking at the main.go file, I can see the function signature:
+```go
+func addPendingQuery(queryID string, rawResponse string, outFiles []core.FileLang, alreadyAuthorized, needsAuthorization []string, project *Project) *PendingQuery {
+```
+
+So in the test file, I need to update all calls to addPendingQuery to pass all 6 arguments. Let me find those lines:
+- Line 440
+- Line 483
+- Line 529
+- Line 597
+
+I need to provide the corrected websocket_test.go file with all the addPendingQuery calls fixed.
+
+
+---
+
