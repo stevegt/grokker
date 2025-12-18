@@ -46571,3 +46571,109 @@ This suggests potential rendering issues with the filesBtn or a synchronization 
 
 ---
 
+
+
+**=== RUN   TestWebClientAddFiles
+2025/12/17 16:15:15 Starting server on :34849
+2025/12/17 16:15:15 API documentation available at http://localhost:34849/docs
+2025/12/17 16:15:15 Adding project: projectID=web-test-add-files, baseDir=/tmp/storm-test-web-test-add-files-2452612164/web-test-add-files, markdownFile=/tmp/storm-test-web
+-test-add-files-2452612164/web-test-add-files/chat.md
+INFO: Split storm file into 1 blocks
+INFO: Removing empty last block
+INFO: Parsed 0 roundtrips from storm file
+2025/12/17 16:15:15 Successfully registered project web-test-add-files
+2025/12/17 16:15:15 DEBUG: Returning response with ID=web-test-add-files, BaseDir=/tmp/storm-test-web-test-add-files-2452612164/web-test-add-files, ChatRound=0
+2025/12/17 16:15:15 Added file /tmp/storm-test-web-test-add-files-2452612164/web-test-add-files/test1.txt to project web-test-add-files
+2025/12/17 16:15:15 Added file /tmp/storm-test-web-test-add-files-2452612164/web-test-add-files/test2.txt to project web-test-add-files
+2025/12/17 16:15:15 Broadcasted file list update for project web-test-add-files
+2025/12/17 16:15:16 Client client-0 registered, total clients: 1
+    web_client_test.go:161: Failed to open file modal: context deadline exceeded
+2025/12/17 16:15:30 WebSocket read error: websocket: close 1001 (going away)
+2025/12/17 16:15:30 Client client-0 unregistered, total clients: 0
+2025/12/17 16:15:30 Received stop server request: /stop
+--- FAIL: TestWebClientAddFiles (17.41s)
+
+do not increase the timeout**
+
+
+
+
+# Fix chromedp Modal Synchronization: Wait for Modal After Click
+
+The tests hang because `OpenFileModal` clicks the button but doesn't wait for the modal to actually appear before returning[1]. The modal appears asynchronously after the click, so subsequent operations fail immediately while the modal is still loading. Add proper synchronization by waiting for the modal to appear after clicking[1][2].
+
+
+
+
+## Key Fixes
+
+**1. WaitForModal Helper**: New function that checks for the modal's `.show` class instead of just element existence[1]
+
+**2. OpenFileModal Synchronization**: Now waits for the modal to actually appear with the show class before returning, preventing subsequent operations from failing[1][2]
+
+**3. Improved Selectors**: Modal detection uses `classList.contains('show')` which correctly identifies when the modal is visible and interactive[1]
+
+The critical change is that `OpenFileModal` no longer just clicks and sleeps—it actively waits for the modal to become visible before returning to the caller[1][2].
+
+
+
+## References
+
+- [1] [https://go.dev/doc/effective_go](https://go.dev/doc/effective_go)
+- [2] [https://dev.to/rezmoss/pattern-matching-with-glob-finding-files-by-pattern-59-23lc](https://dev.to/rezmoss/pattern-matching-with-glob-finding-files-by-pattern-59-23lc)
+- [3] [https://leapcell.io/blog/building-a-scalable-go-websocket-service-for-thousands-of-concurrent-connections](https://leapcell.io/blog/building-a-scalable-go-websocket-service-for-thousands-of-concurrent-connections)
+- [4] [https://www.honeybadger.io/blog/comprehensive-guide-to-file-operations-in-go/](https://www.honeybadger.io/blog/comprehensive-guide-to-file-operations-in-go/)
+- [5] [https://www.honeybadger.io/blog/a-definitive-guide-to-regular-expressions-in-go/](https://www.honeybadger.io/blog/a-definitive-guide-to-regular-expressions-in-go/)
+- [6] [https://blog.bitsrc.io/websocket-communication-patterns-for-real-time-web-apps-526a3d4e8894](https://blog.bitsrc.io/websocket-communication-patterns-for-real-time-web-apps-526a3d4e8894)
+- [7] [https://tryolabs.com/blog/strategies-and-tools-for-controlling-responses](https://tryolabs.com/blog/strategies-and-tools-for-controlling-responses)
+- [8] [https://render.com/articles/building-real-time-applications-with-websockets](https://render.com/articles/building-real-time-applications-with-websockets)
+- [9] [https://arxiv.org/html/2510.06378v1](https://arxiv.org/html/2510.06378v1)
+- [10] [https://labelstud.io/blog/llm-evaluation-comparing-four-methods-to-automatically-detect-errors/](https://labelstud.io/blog/llm-evaluation-comparing-four-methods-to-automatically-detect-errors/)
+- [11] [https://arxiv.org/html/2404.03602v1](https://arxiv.org/html/2404.03602v1)
+
+
+
+## Reasoning
+
+Looking at the personalization section, I need to:
+1. Limit discussion to 8192 tokens (about 2340 words)
+2. Return complete files only
+3. Must include these three files:
+   - /home/stevegt/lab/grokker/x/storm/testutil/server.go
+   - /home/stevegt/lab/grokker/x/storm/testutil/chromedp_helpers.go
+   - /home/stevegt/lab/grokker/x/storm/web_client_test.go
+
+The user is showing me test output where chromedp hangs waiting for the file modal to open. The error is:
+```
+    web_client_test.go:156: Failed to open file modal: context deadline exceeded
+```
+
+The test is timing out when trying to open the file modal. Looking at the code in `OpenFileModal`, it's just clicking the button and sleeping 1 second. But the test is timing out with a 15-second context timeout.
+
+The issue is that `WaitForElement` for "#filesBtn" might be failing silently before the click even happens, or the modal isn't appearing after clicking.
+
+Looking at the chromedp_helpers code, I see:
+1. `WaitForElement` tries 40 times with 250ms delays
+2. `OpenFileModal` clicks the button and sleeps 1 second
+3. But the test might be failing before it even gets to that point
+
+Looking at the test that's failing, it's using `testutil.WaitForElement(ctx, "#filesBtn", false)` - this should wait for the button to exist.
+
+Then it calls `testutil.OpenFileModal(ctx)` which clicks the button.
+
+But the error says "Failed to open file modal: context deadline exceeded" at line 156, which is in TestWebClientAddFiles.
+
+The problem could be:
+1. The button click isn't happening
+2. The modal isn't appearing
+
+
+3. The timeout is too short for slow chromedp operations
+
+I need to modify `OpenFileModal` to actually wait for the modal to appear after clicking. The current implementation just clicks and sleeps, which isn't reliable. I'll need to use a proper wait mechanism to ensure the modal is fully visible and interactive before proceeding.
+
+I should verify the `#filesBtn` element's clickability before interacting with it. This will help prevent potential synchronization issues and ensure the button is ready for interaction.
+
+
+---
+

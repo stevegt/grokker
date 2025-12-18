@@ -100,7 +100,7 @@ func WaitForWebSocketConnection(ctx context.Context) error {
 	)
 }
 
-// WaitForElement waits for an element to exist and optionally be visible
+// WaitForElement waits for an element to exist in the DOM
 func WaitForElement(ctx context.Context, selector string, checkVisibility bool) error {
 	return chromedp.Run(ctx,
 		chromedp.ActionFunc(func(ctx context.Context) error {
@@ -111,34 +111,34 @@ func WaitForElement(ctx context.Context, selector string, checkVisibility bool) 
 					return err
 				}
 
-				if exists && !checkVisibility {
+				if exists {
 					return nil
-				}
-
-				if exists && checkVisibility {
-					var visible bool
-					if err := chromedp.Evaluate(fmt.Sprintf(`
-						var elem = document.querySelector('%s');
-						elem && elem.offsetParent !== null && window.getComputedStyle(elem).display !== 'none'
-					`, selector), &visible).Do(ctx); err != nil {
-						return err
-					}
-
-					if visible {
-						return nil
-					}
 				}
 
 				time.Sleep(250 * time.Millisecond)
 			}
-			return fmt.Errorf("element %s not found or not visible after timeout", selector)
+			return fmt.Errorf("element %s not found after timeout", selector)
 		}),
 	)
 }
 
-// WaitForModal waits for a modal dialog to appear and be visible
+// WaitForModal waits for a modal dialog to become visible with a show class
 func WaitForModal(ctx context.Context) error {
-	return WaitForElement(ctx, "#fileModal", true)
+	return chromedp.Run(ctx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			for i := 0; i < 40; i++ {
+				var visible bool
+				if err := chromedp.Evaluate(`document.getElementById('fileModal').classList.contains('show')`, &visible).Do(ctx); err != nil {
+					return err
+				}
+				if visible {
+					return nil
+				}
+				time.Sleep(250 * time.Millisecond)
+			}
+			return errors.New("modal did not appear after timeout")
+		}),
+	)
 }
 
 // CloseModal closes the file management modal by clicking the close button
@@ -149,11 +149,13 @@ func CloseModal(ctx context.Context) error {
 	)
 }
 
-// OpenFileModal opens the file management modal by clicking the Files button
+// OpenFileModal opens the file management modal by clicking the Files button and waiting for it to appear
 func OpenFileModal(ctx context.Context) error {
 	return chromedp.Run(ctx,
 		chromedp.Click("#filesBtn"),
-		chromedp.Sleep(1*time.Second),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return WaitForModal(ctx)
+		}),
 	)
 }
 
