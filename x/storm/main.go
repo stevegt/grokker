@@ -1049,7 +1049,7 @@ func sendQueryToLLM(project *Project, queryID, query string, llm string, selecti
 			return "", fmt.Errorf("failed to send query to LLM: %w", err)
 		}
 
-		if envi.Bool("DEBUG", false) {
+		if true || envi.Bool("DEBUG", false) {
 			// write response to a tmp file for inspection
 			tmpFile, err := ioutil.TempFile("", "storm-llm-response-*.md")
 			if err != nil {
