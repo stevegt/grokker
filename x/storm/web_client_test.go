@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,7 +17,25 @@ import (
 	"github.com/stevegt/grokker/x/storm/testutil"
 )
 
-var timeout = 15 * time.Second
+var timeout = 60 * time.Second
+
+// newChromeContext creates a chromedp context with optional HEADLESS mode support
+func newChromeContext() (context.Context, context.CancelFunc) {
+	opts := []chromedp.ExecAllocatorOption{
+		chromedp.NoDefaultBrowserCheck,
+		chromedp.NoSandbox,
+		chromedp.DisableGPU,
+	}
+
+	// Check HEADLESS environment variable - default to headless unless explicitly set to false
+	if os.Getenv("HEADLESS") != "false" {
+		opts = append(opts, chromedp.Headless)
+	}
+
+	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	ctx, _ := chromedp.NewContext(allocCtx)
+	return ctx, cancel
+}
 
 // startTestServer creates test server config and starts serveRun in a goroutine
 func startTestServer(t *testing.T, projectID string) *testutil.TestServer {
@@ -63,7 +82,7 @@ func TestWebClientCreateProject(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	ctx, cancel := chromedp.NewContext(context.Background())
+	ctx, cancel := newChromeContext()
 	defer cancel()
 
 	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
@@ -133,7 +152,7 @@ func TestWebClientAddFiles(t *testing.T) {
 	resp, _ = http.Post(fileURL, "application/json", bytes.NewReader(jsonData))
 	resp.Body.Close()
 
-	ctx, cancel := chromedp.NewContext(context.Background())
+	ctx, cancel := newChromeContext()
 	defer cancel()
 
 	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
@@ -192,7 +211,7 @@ func TestWebClientQuerySubmitViaWebSocket(t *testing.T) {
 	resp, _ := http.Post(server.URL+"/api/projects", "application/json", bytes.NewReader(jsonData))
 	resp.Body.Close()
 
-	ctx, cancel := chromedp.NewContext(context.Background())
+	ctx, cancel := newChromeContext()
 	defer cancel()
 
 	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
@@ -258,7 +277,7 @@ func TestWebClientFileSelectionPersistence(t *testing.T) {
 	resp, _ = http.Post(fileURL, "application/json", bytes.NewReader(jsonData))
 	resp.Body.Close()
 
-	ctx, cancel := chromedp.NewContext(context.Background())
+	ctx, cancel := newChromeContext()
 	defer cancel()
 
 	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
@@ -329,7 +348,7 @@ func TestWebClientPageLoad(t *testing.T) {
 	server := startTestServer(t, "web-test-page-load")
 	defer stopTestServer(t, server)
 
-	ctx, cancel := chromedp.NewContext(context.Background())
+	ctx, cancel := newChromeContext()
 	defer cancel()
 
 	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)

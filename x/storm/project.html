@@ -532,7 +532,7 @@
       });
     }
 
-    // File modal functions[1]
+    // File modal functions
     function openFileModal() {
       var modal = document.getElementById("fileModal");
       modal.classList.add("show");
@@ -543,7 +543,7 @@
       modal.classList.remove("show");
     }
 
-    // Stage 6: Display unexpected files modal[1][2]
+    // Stage 6: Display unexpected files modal
     function displayUnexpectedFilesModal(queryID, alreadyAuthorized, needsAuthorization) {
       var content = document.getElementById("fileSidebarContent");
       var modal = document.getElementById("fileModal");
@@ -729,14 +729,14 @@
             spinner.style.marginLeft = "10px";
             messageDiv.appendChild(spinner);
             
-            // Add cancel button[1]
+            // Add cancel button
             var cancelBtn = document.createElement("button");
             cancelBtn.textContent = "Cancel";
             cancelBtn.style.marginLeft = "5px";
             cancelBtn.style.fontSize = "10px";
             cancelBtn.style.padding = "5px 10px";
             cancelBtn.addEventListener("click", function() {
-              // Send cancel message via WebSocket[1]
+              // Send cancel message via WebSocket
               ws.send(JSON.stringify({
                 type: "cancel",
                 queryID: message.queryID
@@ -778,11 +778,11 @@
             updateTokenCount();
             updateScrollButtonVisibility();
           } else if (message.type === 'unexpectedFilesDetected') {
-            // Stage 6: Handle unexpected files notification[1][2]
+            // Stage 6: Handle unexpected files notification
             console.log('Unexpected files detected:', message);
             displayUnexpectedFilesModal(message.queryID, message.alreadyAuthorized, message.needsAuthorization);
           } else if (message.type === 'fileListUpdated') {
-            // Refresh file list when files are added/deleted via CLI[1]
+            // Refresh file list when files are added/deleted via CLI
             console.log('File list updated via WebSocket');
             loadFileList();
           }
@@ -818,7 +818,7 @@
         }
       });
 
-      // File modal handlers[1]
+      // File modal handlers
       document.getElementById("filesBtn").addEventListener("click", function() {
         // Show regular file list, not unexpected files
         if (currentUnexpectedFilesQuery) {
@@ -1029,29 +1029,35 @@
     // --- File I/O using IndexedDB ---
     var db;
     function initFileIO() {
+      console.log("Initializing IndexedDB for file I/O");
       var request = indexedDB.open("fileIODB", 1);
       request.onerror = function(event) {
         console.error("IndexedDB error:", event.target.error);
       };
       request.onupgradeneeded = function(event) {
+        console.log("IndexedDB upgrading to version 1");
         db = event.target.result;
         if (!db.objectStoreNames.contains("selections")) {
+          console.log("Creating 'selections' object store");
           var store = db.createObjectStore("selections", { keyPath: "filename" });
           store.createIndex("by_filename", "filename", { unique: true });
         }
       };
       request.onsuccess = function(event) {
+        console.log("IndexedDB opened successfully");
         db = event.target.result;
         loadFileList();
       };
     }
 
     function loadFileList() {
+      console.log("Loading file list from server");
       // Fetch authorized files from server
       fetch("/api/projects/" + projectID + "/files")
         .then(function(response) { return response.json(); })
         .then(function(data) {
           var serverFiles = data.files || [];
+          console.log("Server returned files:", serverFiles);
           
           // Load selections from IndexedDB
           var transaction = db.transaction(["selections"], "readonly");
@@ -1059,7 +1065,9 @@
           var request = store.getAll();
           
           request.onsuccess = function(event) {
+            console.log("IndexedDB getAll succeeded");
             var allIndexedDBEntries = event.target.result;
+            console.log("IndexedDB entries:", allIndexedDBEntries);
             var serverFileSet = new Set(serverFiles);
             
             // Clean up IndexedDB entries for files no longer on server
@@ -1069,6 +1077,7 @@
             for (var i = 0; i < allIndexedDBEntries.length; i++) {
               var entry = allIndexedDBEntries[i];
               if (!serverFileSet.has(entry.filename)) {
+                console.log("Deleting stale IndexedDB entry:", entry.filename);
                 store2.delete(entry.filename);
               }
             }
@@ -1087,7 +1096,12 @@
               }
             });
             
+            console.log("Merged files:", mergedFiles);
             renderFileList(mergedFiles);
+          };
+          
+          request.onerror = function(event) {
+            console.error("IndexedDB getAll error:", event.target.error);
           };
         })
         .catch(function(err) {
@@ -1096,6 +1110,7 @@
     }
 
     function saveFileSelection(filename, isInput, isOutput) {
+      console.log("Saving file selection:", filename, "in:", isInput, "out:", isOutput);
       var transaction = db.transaction(["selections"], "readwrite");
       var store = transaction.objectStore("selections");
       var entry = { filename: filename, in: isInput, out: isOutput };
@@ -1103,6 +1118,7 @@
     }
 
     function renderFileList(files) {
+      console.log("Rendering file list with", files.length, "files");
       var fileListElem = document.getElementById("fileList");
       if (!fileListElem) {
         // Create fileList if it doesn't exist (for regular file management modal)
@@ -1197,6 +1213,8 @@
         tr.appendChild(tdName);
         fileListElem.appendChild(tr);
       });
+      
+      console.log("File list rendered successfully");
     }
 
     function getSelectedFiles() {
