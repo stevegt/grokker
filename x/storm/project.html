@@ -862,15 +862,28 @@
         debugLog("Event listener attached to filesBtn successfully");
       }
 
+      // Close modal button handler
       document.getElementById("closeFileModal").addEventListener("click", function() {
         debugLog("Close modal button clicked");
         closeFileModal();
       });
 
+      // Close modal when clicking the background
       document.getElementById("fileModal").addEventListener("click", function(event) {
         if (event.target === this) {
           debugLog("Modal background clicked, closing modal");
           closeFileModal();
+        }
+      });
+
+      // Close modal when Escape key is pressed
+      document.addEventListener("keydown", function(event) {
+        if (event.key === "Escape" || event.keyCode === 27) {
+          var modal = document.getElementById("fileModal");
+          if (modal && modal.classList.contains("show")) {
+            debugLog("Escape key pressed, closing modal");
+            closeFileModal();
+          }
         }
       });
 
