@@ -122,16 +122,27 @@ func WaitForElement(ctx context.Context, selector string, checkVisibility bool) 
 	)
 }
 
-// WaitForModal waits for a modal dialog to become visible with a show class
+// WaitForModal waits for the file management modal to be visible with display:flex
 func WaitForModal(ctx context.Context) error {
 	return chromedp.Run(ctx,
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			for i := 0; i < 40; i++ {
-				var visible bool
-				if err := chromedp.Evaluate(`document.getElementById('fileModal').classList.contains('show')`, &visible).Do(ctx); err != nil {
-					return err
+				var isVisible bool
+				err := chromedp.Evaluate(`
+					(function() {
+						var modal = document.getElementById('fileModal');
+						if (!modal) return false;
+						var display = window.getComputedStyle(modal).display;
+						var hasShow = modal.classList.contains('show');
+						return display === 'flex' || hasShow;
+					})()
+				`, &isVisible).Do(ctx)
+				if err != nil {
+					time.Sleep(250 * time.Millisecond)
+					continue
 				}
-				if visible {
+				if isVisible {
+					time.Sleep(300 * time.Millisecond)
 					return nil
 				}
 				time.Sleep(250 * time.Millisecond)
@@ -152,7 +163,10 @@ func CloseModal(ctx context.Context) error {
 // OpenFileModal opens the file management modal by clicking the Files button and waiting for it to appear
 func OpenFileModal(ctx context.Context) error {
 	return chromedp.Run(ctx,
-		chromedp.Click("#filesBtn"),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return chromedp.Click("#filesBtn").Do(ctx)
+		}),
+		chromedp.Sleep(500*time.Millisecond),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			return WaitForModal(ctx)
 		}),
@@ -194,19 +208,35 @@ func WaitForWebSocketMessage(ctx context.Context) error {
 func GetSelectedFiles(ctx context.Context) (inputFiles []string, outputFiles []string, err error) {
 	var result map[string]interface{}
 	err = chromedp.Run(ctx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			var fileListExists bool
+			if err := chromedp.Evaluate(`document.getElementById("fileList") !== null`, &fileListExists).Do(ctx); err != nil {
+				return fmt.Errorf("failed to check if fileList exists: %w", err)
+			}
+			if !fileListExists {
+				return errors.New("fileList element not found in DOM")
+			}
+			return nil
+		}),
 		chromedp.Evaluate(`
 			(function() {
 				var inputFiles = [];
 				var outFiles = [];
-				var rows = document.getElementById("fileList").getElementsByTagName("tr");
+				var fileList = document.getElementById("fileList");
+				if (!fileList) {
+					return { input: [], output: [] };
+				}
+				var rows = fileList.getElementsByTagName("tr");
 				for (var i = 0; i < rows.length; i++) {
 					var cells = rows[i].getElementsByTagName("td");
 					if (cells.length < 3) continue;
-					var inChecked = cells[0].querySelector("input").checked;
-					var outChecked = cells[1].querySelector("input").checked;
-					var filename = cells[2].textContent;
-					if (inChecked) inputFiles.push(filename);
-					if (outChecked) outFiles.push(filename);
+					var inInput = cells.querySelector("input");
+					var outInput = cells[1].querySelector("input");
+					var filenameCell = cells[2];
+					if (!inInput || !outInput || !filenameCell) continue;
+					var filename = filenameCell.textContent.trim();
+					if (inInput.checked) inputFiles.push(filename);
+					if (outInput.checked) outFiles.push(filename);
 				}
 				return { input: inputFiles, output: outFiles };
 			})()
