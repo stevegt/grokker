@@ -820,6 +820,7 @@
 
       // File modal handlers
       document.getElementById("filesBtn").addEventListener("click", function() {
+        console.log("Files button clicked");
         // Show regular file list, not unexpected files
         if (currentUnexpectedFilesQuery) {
           // Already showing unexpected files modal

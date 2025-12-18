@@ -47328,3 +47328,61 @@ Now I need to deliver the corrected files with this async timing issue resolved.
 
 ---
 
+
+
+**add a TestWebClientOpenFileModal that simply creates a project, navigates to it in the browser, clicks the Files button, and verifies that the file modal opened.**
+
+
+
+
+# Add TestWebClientOpenFileModal Test Case
+
+Adds a new test function to verify the file modal opens when clicking the Files button on a project page[1]. This test validates the basic modal interaction workflow without requiring file selection or other complex interactions[1].
+
+
+
+
+
+
+
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to add a `TestWebClientOpenFileModal` test case that simply creates a project, navigates to it in the browser, clicks the Files button, and verifies that the file modal opened.
+
+Looking at the system prompt instructions at the very top:
+1. I'm a researcher
+2. Answer ONLY the query at the end
+3. The query is: "add a TestWebClientOpenFileModal that simply creates a project, navigates to it in the browser, clicks the Files button, and verifies that the file modal opened."
+4. Limit discussion to 8192 tokens (about 2340 words)
+5. Return complete files only (marked with FILE-START/FILE-END)
+6. Must include the required files from the regex at the top
+
+The regex at the top requires:
+- `/home/stevegt/lab/grokker/x/storm/project.html`
+- `/home/stevegt/lab/grokker/x/storm/testutil/server.go`
+- `/home/stevegt/lab/grokker/x/storm/testutil/chromedp_helpers.go`
+- `/home/stevegt/lab/grokker/x/storm/web_client_test.go`
+
+I need to add a new test function `TestWebClientOpenFileModal` to `web_client_test.go` that:
+1. Starts a test server
+2. Creates a project
+3. Navigates to the project in chromedp
+4. Clicks the Files button
+5. Verifies the modal opened
+
+Looking at the existing tests in web_client_test.go, I can see the pattern. I'll add this new test.
+
+Since I need to return complete files, I need to include all four files with the new test added to web_client_test.go.
+
+
+---
+

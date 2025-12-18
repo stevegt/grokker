@@ -120,8 +120,65 @@ func TestWebClientCreateProject(t *testing.T) {
 	t.Logf("Project page loaded successfully with sidebar visible")
 }
 
-// TestWebClientOpenFileModal tests opening the file modal in the web client
-// XXX add test here
+// TestWebClientOpenFileModal tests opening the file modal by clicking the Files button
+func TestWebClientOpenFileModal(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping chromedp test in short mode")
+	}
+
+	server := startTestServer(t, "web-test-open-file-modal")
+	defer stopTestServer(t, server)
+
+	projectID := server.ProjectID
+	createProjectPayload := map[string]string{
+		"projectID":    projectID,
+		"baseDir":      server.ProjectDir,
+		"markdownFile": server.MarkdownFile,
+	}
+	jsonData, _ := json.Marshal(createProjectPayload)
+	resp, err := http.Post(server.URL+"/api/projects", "application/json", bytes.NewReader(jsonData))
+	if err != nil {
+		t.Fatalf("Failed to create project: %v", err)
+	}
+	resp.Body.Close()
+
+	ctx, cancel := newChromeContext()
+	defer cancel()
+
+	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
+	defer cancelTimeout()
+
+	projectURL := fmt.Sprintf("%s/project/%s", server.URL, projectID)
+	err = chromedp.Run(ctx,
+		chromedp.Navigate(projectURL),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return testutil.WaitForPageLoad(ctx)
+		}),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return testutil.WaitForWebSocketConnection(ctx)
+		}),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return testutil.WaitForElement(ctx, "#filesBtn", false)
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Failed to navigate to project page: %v", err)
+	}
+
+	err = testutil.OpenFileModal(ctx)
+	if err != nil {
+		t.Fatalf("Failed to open file modal: %v", err)
+	}
+
+	var modalVisible bool
+	chromedp.Evaluate(`document.getElementById('fileModal').classList.contains('show')`, &modalVisible).Do(ctx)
+
+	if !modalVisible {
+		t.Errorf("File modal is not visible after clicking Files button")
+	}
+
+	t.Logf("File modal opened successfully")
+}
 
 // TestWebClientAddFiles tests adding files via HTTP API and verifying they appear in the UI
 func TestWebClientAddFiles(t *testing.T) {

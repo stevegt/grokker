@@ -230,7 +230,7 @@ func GetSelectedFiles(ctx context.Context) (inputFiles []string, outputFiles []s
 				for (var i = 0; i < rows.length; i++) {
 					var cells = rows[i].getElementsByTagName("td");
 					if (cells.length < 3) continue;
-					var inInput = cells.querySelector("input");
+					var inInput = cells[0].querySelector("input");
 					var outInput = cells[1].querySelector("input");
 					var filenameCell = cells[2];
 					if (!inInput || !outInput || !filenameCell) continue;
