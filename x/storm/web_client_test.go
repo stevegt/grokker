@@ -120,6 +120,9 @@ func TestWebClientCreateProject(t *testing.T) {
 	t.Logf("Project page loaded successfully with sidebar visible")
 }
 
+// TestWebClientOpenFileModal tests opening the file modal in the web client
+// XXX add test here
+
 // TestWebClientAddFiles tests adding files via HTTP API and verifying they appear in the UI
 func TestWebClientAddFiles(t *testing.T) {
 	if testing.Short() {
