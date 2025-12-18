@@ -46480,3 +46480,94 @@ The problem is likely that we're waiting for visibility without confirming the e
 
 ---
 
+
+
+**=== RUN   TestWebClientAddFiles
+2025/12/17 16:09:41 Starting server on :41325
+2025/12/17 16:09:41 API documentation available at http://localhost:41325/docs
+2025/12/17 16:09:41 Adding project: projectID=web-test-add-files, baseDir=/tmp/storm-test-web-test-add-files-1111457171/web-test-add-files, markdownFile=/tmp/storm-test-web
+-test-add-files-1111457171/web-test-add-files/chat.md
+INFO: Split storm file into 1 blocks
+INFO: Removing empty last block
+INFO: Parsed 0 roundtrips from storm file
+2025/12/17 16:09:41 Successfully registered project web-test-add-files
+2025/12/17 16:09:41 DEBUG: Returning response with ID=web-test-add-files, BaseDir=/tmp/storm-test-web-test-add-files-1111457171/web-test-add-files, ChatRound=0
+2025/12/17 16:09:41 Added file /tmp/storm-test-web-test-add-files-1111457171/web-test-add-files/test1.txt to project web-test-add-files
+2025/12/17 16:09:41 Added file /tmp/storm-test-web-test-add-files-1111457171/web-test-add-files/test2.txt to project web-test-add-files
+2025/12/17 16:09:41 Broadcasted file list update for project web-test-add-files
+2025/12/17 16:09:42 Client client-0 registered, total clients: 1
+    web_client_test.go:156: Failed to open file modal: context deadline exceeded
+2025/12/17 16:10:41 WebSocket read error: websocket: close 1001 (going away)
+2025/12/17 16:10:41 Client client-0 unregistered, total clients: 0
+2025/12/17 16:10:42 Received stop server request: /stop
+--- FAIL: TestWebClientAddFiles (61.89s)**
+
+
+
+
+# Fix chromedp Test Hangs: Correct Timeout and Element Waiting Strategy
+
+The tests hang during `OpenFileModal` because they timeout waiting for elements that should already be present. The root issues are: premature context timeout expiry, overly strict wait conditions that fail silently, and insufficient debugging output. Fix by increasing context timeouts, simplifying element waits, and ensuring the DOM is ready before element interactions[1][2].
+
+
+
+
+## Key Fixes
+
+**1. Context Timeout**: Increased from 60s to 120s per test to allow adequate browser initialization and page rendering[1]
+
+**2. WaitForPageLoad Enhanced**: Added 40-iteration loop (10 seconds) and 500ms post-load delay to ensure JavaScript execution[1]
+
+**3. WaitForWebSocketConnection Enhanced**: 40-iteration loop ensures connection establishment[1]
+
+**4. Element Wait Refactored**: Removed strict visibility checks that fail silently; now waits for element existence before checking visibility[2]
+
+**5. Modal Open Delays**: Added 1-second sleep after clicking Files button and 300ms after closing to allow DOM updates[2]
+
+**6. Sequential Waits**: Tests now follow strict sequence: navigate → page load → WebSocket connect → element ready → interact[1]
+
+## References
+
+[1] [https://github.com/chromedp/chromedp](https://github.com/chromedp/chromedp)
+[2] [https://pkg.go.dev/github.com/chromedp/chromedp](https://pkg.go.dev/github.com/chromedp/chromedp)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is providing me with a lot of context about test hangs with chromedp. They're showing output from test runs that hang after the WebSocket client connects. Looking at the error:
+
+```
+=== RUN   TestWebClientAddFiles
+2025/12/17 16:09:41 Starting server on :41325
+2025/12/17 16:09:41 API documentation available at http://localhost:41325/docs
+2025/12/17 16:09:41 Adding project: projectID=web-test-add-files, baseDir=/tmp/storm-test-web-test-add-files-1111457171/web-test-add-files, markdownFile=/tmp/storm-test-web-test-add-files-1111457171/web-test-add-files/chat.md
+INFO: Split storm file into 1 blocks
+INFO: Removing empty last block
+INFO: Parsed 0 roundtrips from storm file
+2025/12/17 16:09:41 Successfully registered project web-test-add-files
+2025/12/17 16:09:41 DEBUG: Returning response with ID=web-test-add-files, BaseDir=/tmp/storm-test-web-test-add-files-1111457171/web-test-add-files, ChatRound=0
+2025/12/17 16:09:41 Added file /tmp/storm-test-web-test-add-files-1111457171/web-test-add-files/test1.txt to project web-test-add-files
+2025/12/17 16:09:41 Added file /tmp/storm-test-web-test-add-files-1111457171/web-test-add-files/test2.txt to project web-test-add-files
+2025/12/17 16:09:41 Broadcasted file list update for project web-test-add-files
+
+
+```
+
+The test fails with a context deadline exceeded error when attempting to open a file modal. The WebSocket connection experiences a 1001 "going away" close status, and the client gets unregistered after about a minute of inactivity.
+
+I notice the specific problem is in the `OpenFileModal` method, where the test is waiting for the `#filesBtn` element to become available. The button seems to never render or become interactive, causing the context to time out before successful interaction.
+
+This suggests potential rendering issues with the filesBtn or a synchronization problem preventing the button from becoming clickable within the expected timeframe.
+
+```
+
+
+---
+

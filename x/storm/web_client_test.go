@@ -16,6 +16,8 @@ import (
 	"github.com/stevegt/grokker/x/storm/testutil"
 )
 
+var timeout = 15 * time.Second
+
 // startTestServer creates test server config and starts serveRun in a goroutine
 func startTestServer(t *testing.T, projectID string) *testutil.TestServer {
 	server := testutil.NewTestServer(t, projectID)
@@ -64,7 +66,7 @@ func TestWebClientCreateProject(t *testing.T) {
 	ctx, cancel := chromedp.NewContext(context.Background())
 	defer cancel()
 
-	ctx, cancelTimeout := context.WithTimeout(ctx, 60*time.Second)
+	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
 	defer cancelTimeout()
 
 	projectURL := fmt.Sprintf("%s/project/%s", server.URL, projectID)
@@ -134,7 +136,7 @@ func TestWebClientAddFiles(t *testing.T) {
 	ctx, cancel := chromedp.NewContext(context.Background())
 	defer cancel()
 
-	ctx, cancelTimeout := context.WithTimeout(ctx, 60*time.Second)
+	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
 	defer cancelTimeout()
 
 	projectURL := fmt.Sprintf("%s/project/%s", server.URL, projectID)
@@ -142,6 +144,9 @@ func TestWebClientAddFiles(t *testing.T) {
 		chromedp.Navigate(projectURL),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			return testutil.WaitForPageLoad(ctx)
+		}),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return testutil.WaitForWebSocketConnection(ctx)
 		}),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			return testutil.WaitForElement(ctx, "#filesBtn", false)
@@ -155,8 +160,6 @@ func TestWebClientAddFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open file modal: %v", err)
 	}
-
-	time.Sleep(500 * time.Millisecond)
 
 	numRows, err := testutil.GetFileListRows(ctx)
 	if err != nil {
@@ -192,7 +195,7 @@ func TestWebClientQuerySubmitViaWebSocket(t *testing.T) {
 	ctx, cancel := chromedp.NewContext(context.Background())
 	defer cancel()
 
-	ctx, cancelTimeout := context.WithTimeout(ctx, 60*time.Second)
+	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
 	defer cancelTimeout()
 
 	projectURL := fmt.Sprintf("%s/project/%s", server.URL, projectID)
@@ -258,7 +261,7 @@ func TestWebClientFileSelectionPersistence(t *testing.T) {
 	ctx, cancel := chromedp.NewContext(context.Background())
 	defer cancel()
 
-	ctx, cancelTimeout := context.WithTimeout(ctx, 60*time.Second)
+	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
 	defer cancelTimeout()
 
 	projectURL := fmt.Sprintf("%s/project/%s", server.URL, projectID)
@@ -266,6 +269,9 @@ func TestWebClientFileSelectionPersistence(t *testing.T) {
 		chromedp.Navigate(projectURL),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			return testutil.WaitForPageLoad(ctx)
+		}),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return testutil.WaitForWebSocketConnection(ctx)
 		}),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			return testutil.WaitForElement(ctx, "#filesBtn", false)
@@ -276,11 +282,10 @@ func TestWebClientFileSelectionPersistence(t *testing.T) {
 	}
 
 	testutil.OpenFileModal(ctx)
-	time.Sleep(300 * time.Millisecond)
 
 	testutil.SelectFileCheckbox(ctx, 1, "in")
 	testutil.SelectFileCheckbox(ctx, 2, "out")
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 
 	inputFiles, outputFiles, err := testutil.GetSelectedFiles(ctx)
 	if err != nil {
@@ -296,10 +301,8 @@ func TestWebClientFileSelectionPersistence(t *testing.T) {
 	}
 
 	testutil.CloseModal(ctx)
-	time.Sleep(200 * time.Millisecond)
 
 	testutil.OpenFileModal(ctx)
-	time.Sleep(300 * time.Millisecond)
 
 	inputFiles2, outputFiles2, err := testutil.GetSelectedFiles(ctx)
 	if err != nil {
@@ -329,7 +332,7 @@ func TestWebClientPageLoad(t *testing.T) {
 	ctx, cancel := chromedp.NewContext(context.Background())
 	defer cancel()
 
-	ctx, cancelTimeout := context.WithTimeout(ctx, 60*time.Second)
+	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
 	defer cancelTimeout()
 
 	err := chromedp.Run(ctx,

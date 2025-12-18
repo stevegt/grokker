@@ -67,20 +67,17 @@ func WaitForPageLoad(ctx context.Context) error {
 	return chromedp.Run(ctx,
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			var ready bool
-			for i := 0; i < 30; i++ {
+			for i := 0; i < 40; i++ {
 				if err := chromedp.Evaluate(`document.readyState === 'complete'`, &ready).Do(ctx); err != nil {
 					return err
 				}
 				if ready {
-					break
+					time.Sleep(500 * time.Millisecond)
+					return nil
 				}
 				time.Sleep(250 * time.Millisecond)
 			}
-			if !ready {
-				return errors.New("page did not reach complete state")
-			}
-			time.Sleep(500 * time.Millisecond)
-			return nil
+			return errors.New("page did not reach complete state")
 		}),
 	)
 }
@@ -89,11 +86,11 @@ func WaitForPageLoad(ctx context.Context) error {
 func WaitForWebSocketConnection(ctx context.Context) error {
 	return chromedp.Run(ctx,
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			for i := 0; i < 30; i++ {
+			for i := 0; i < 40; i++ {
 				var wsConnected bool
 				err := chromedp.Evaluate(`typeof ws !== 'undefined' && ws.readyState === WebSocket.OPEN`, &wsConnected).Do(ctx)
 				if err == nil && wsConnected {
-					time.Sleep(250 * time.Millisecond)
+					time.Sleep(500 * time.Millisecond)
 					return nil
 				}
 				time.Sleep(250 * time.Millisecond)
@@ -107,32 +104,29 @@ func WaitForWebSocketConnection(ctx context.Context) error {
 func WaitForElement(ctx context.Context, selector string, checkVisibility bool) error {
 	return chromedp.Run(ctx,
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			for i := 0; i < 30; i++ {
+			for i := 0; i < 40; i++ {
 				var exists bool
-				var visible bool
 
 				if err := chromedp.Evaluate(fmt.Sprintf(`document.querySelector('%s') !== null`, selector), &exists).Do(ctx); err != nil {
 					return err
 				}
 
-				if !exists {
-					time.Sleep(250 * time.Millisecond)
-					continue
-				}
-
-				if !checkVisibility {
+				if exists && !checkVisibility {
 					return nil
 				}
 
-				if err := chromedp.Evaluate(fmt.Sprintf(`
-					var elem = document.querySelector('%s');
-					elem && elem.offsetParent !== null && window.getComputedStyle(elem).display !== 'none'
-				`, selector), &visible).Do(ctx); err != nil {
-					return err
-				}
+				if exists && checkVisibility {
+					var visible bool
+					if err := chromedp.Evaluate(fmt.Sprintf(`
+						var elem = document.querySelector('%s');
+						elem && elem.offsetParent !== null && window.getComputedStyle(elem).display !== 'none'
+					`, selector), &visible).Do(ctx); err != nil {
+						return err
+					}
 
-				if visible {
-					return nil
+					if visible {
+						return nil
+					}
 				}
 
 				time.Sleep(250 * time.Millisecond)
@@ -151,6 +145,7 @@ func WaitForModal(ctx context.Context) error {
 func CloseModal(ctx context.Context) error {
 	return chromedp.Run(ctx,
 		chromedp.Click("#closeFileModal"),
+		chromedp.Sleep(300*time.Millisecond),
 	)
 }
 
@@ -158,7 +153,7 @@ func CloseModal(ctx context.Context) error {
 func OpenFileModal(ctx context.Context) error {
 	return chromedp.Run(ctx,
 		chromedp.Click("#filesBtn"),
-		chromedp.Sleep(500*time.Millisecond),
+		chromedp.Sleep(1*time.Second),
 	)
 }
 
