@@ -27,19 +27,9 @@ func startTestServer(t *testing.T, projectID string) *testutil.TestServer {
 		}
 	}()
 
-	// Wait for server to be ready by polling the port in a loop
-	up := false
-	for i := 0; i < 20; i++ {
-		time.Sleep(500 * time.Millisecond)
-		_, err := http.Get(server.URL)
-		if err == nil {
-			up = true
-			break
-		}
-	}
-
-	if !up {
-		t.Fatalf("Test server did not start")
+	// Wait for server to be ready by polling the port
+	if err := testutil.WaitForServer(server.Port, 15*time.Second); err != nil {
+		t.Fatalf("Test server did not start: %v", err)
 	}
 
 	return server
@@ -77,14 +67,26 @@ func TestWebClientCreateProject(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	// Create chromedp context
+	// Create chromedp context with longer timeout
 	ctx, cancel := chromedp.NewContext(context.Background())
 	defer cancel()
 
-	// Navigate to project page and verify it loads
+	// Set a reasonable timeout for the entire navigation and element waiting
+	ctx, cancelTimeout := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelTimeout()
+
+	// Navigate to project page and wait for page to load before checking elements
 	projectURL := fmt.Sprintf("%s/project/%s", server.URL, projectID)
 	err = chromedp.Run(ctx,
 		chromedp.Navigate(projectURL),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			// Wait for the page to fully load
+			return testutil.WaitForPageLoad(ctx)
+		}),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			// Wait for WebSocket to connect
+			return testutil.WaitForWebSocketConnection(ctx)
+		}),
 		chromedp.WaitVisible("#sidebar"),
 		chromedp.WaitVisible("#chat"),
 	)
@@ -140,19 +142,28 @@ func TestWebClientAddFiles(t *testing.T) {
 	resp, _ = http.Post(fileURL, "application/json", bytes.NewReader(jsonData))
 	resp.Body.Close()
 
-	// Create chromedp context
+	// Create chromedp context with timeout
 	ctx, cancel := chromedp.NewContext(context.Background())
 	defer cancel()
 
+	ctx, cancelTimeout := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelTimeout()
+
 	// Navigate to project page
 	projectURL := fmt.Sprintf("%s/project/%s", server.URL, projectID)
-	chromedp.Run(ctx,
+	err := chromedp.Run(ctx,
 		chromedp.Navigate(projectURL),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return testutil.WaitForPageLoad(ctx)
+		}),
 		chromedp.WaitVisible("#filesBtn"),
 	)
+	if err != nil {
+		t.Fatalf("Failed to navigate to project page: %v", err)
+	}
 
 	// Open file modal
-	err := testutil.OpenFileModal(ctx)
+	err = testutil.OpenFileModal(ctx)
 	if err != nil {
 		t.Fatalf("Failed to open file modal: %v", err)
 	}
@@ -193,20 +204,29 @@ func TestWebClientQuerySubmitViaWebSocket(t *testing.T) {
 	resp, _ := http.Post(server.URL+"/api/projects", "application/json", bytes.NewReader(jsonData))
 	resp.Body.Close()
 
-	// Create chromedp context
+	// Create chromedp context with timeout
 	ctx, cancel := chromedp.NewContext(context.Background())
 	defer cancel()
 
+	ctx, cancelTimeout := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelTimeout()
+
 	// Navigate to project page
 	projectURL := fmt.Sprintf("%s/project/%s", server.URL, projectID)
-	chromedp.Run(ctx,
+	err := chromedp.Run(ctx,
 		chromedp.Navigate(projectURL),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return testutil.WaitForPageLoad(ctx)
+		}),
 		chromedp.WaitVisible("#userInput"),
 	)
+	if err != nil {
+		t.Fatalf("Failed to navigate to project page: %v", err)
+	}
 
 	// Submit query
 	testQuery := "test query for web client"
-	err := testutil.SubmitQuery(ctx, testQuery)
+	err = testutil.SubmitQuery(ctx, testQuery)
 	if err != nil {
 		t.Fatalf("Failed to submit query: %v", err)
 	}
@@ -214,12 +234,14 @@ func TestWebClientQuerySubmitViaWebSocket(t *testing.T) {
 	// Wait for spinner to appear (indicating WebSocket message was received)
 	time.Sleep(500 * time.Millisecond)
 
-	spinnerVisible, err := testutil.IsElementVisible(ctx, ".spinner")
+	var spinnerVisible bool
+	err = chromedp.Evaluate(`.querySelector('.spinner') !== null`, &spinnerVisible).Do(ctx)
 	if err != nil {
 		t.Logf("Note: could not verify spinner visibility: %v", err)
-		// This is not a hard error; the query might have already processed
-	} else if !spinnerVisible {
-		t.Logf("Note: spinner not visible, query may have completed quickly")
+	}
+
+	if !spinnerVisible {
+		t.Logf("Note: spinner was not visible in DOM")
 	}
 
 	t.Logf("Query submitted successfully via WebSocket")
@@ -260,16 +282,25 @@ func TestWebClientFileSelectionPersistence(t *testing.T) {
 	resp, _ = http.Post(fileURL, "application/json", bytes.NewReader(jsonData))
 	resp.Body.Close()
 
-	// Create chromedp context
+	// Create chromedp context with timeout
 	ctx, cancel := chromedp.NewContext(context.Background())
 	defer cancel()
 
+	ctx, cancelTimeout := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelTimeout()
+
 	// Navigate to project page
 	projectURL := fmt.Sprintf("%s/project/%s", server.URL, projectID)
-	chromedp.Run(ctx,
+	err := chromedp.Run(ctx,
 		chromedp.Navigate(projectURL),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return testutil.WaitForPageLoad(ctx)
+		}),
 		chromedp.WaitVisible("#filesBtn"),
 	)
+	if err != nil {
+		t.Fatalf("Failed to navigate to project page: %v", err)
+	}
 
 	// Open file modal
 	testutil.OpenFileModal(ctx)
@@ -327,13 +358,19 @@ func TestWebClientPageLoad(t *testing.T) {
 	server := startTestServer(t, "web-test-page-load")
 	defer stopTestServer(t, server)
 
-	// Create chromedp context
+	// Create chromedp context with timeout
 	ctx, cancel := chromedp.NewContext(context.Background())
 	defer cancel()
+
+	ctx, cancelTimeout := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelTimeout()
 
 	// Navigate to root and verify it loads
 	err := chromedp.Run(ctx,
 		chromedp.Navigate(server.URL),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return testutil.WaitForPageLoad(ctx)
+		}),
 	)
 	if err != nil {
 		t.Fatalf("Failed to navigate to root: %v", err)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/chromedp/chromedp"
 )
@@ -59,6 +60,47 @@ func IsElementVisible(ctx context.Context, selector string) (bool, error) {
 		),
 	)
 	return visible, err
+}
+
+// WaitForPageLoad waits for the DOM to be ready and basic elements to exist
+func WaitForPageLoad(ctx context.Context) error {
+	return chromedp.Run(ctx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			var ready bool
+			// Wait for document to be ready
+			for i := 0; i < 20; i++ {
+				if err := chromedp.Evaluate(`document.readyState === 'complete'`, &ready).Do(ctx); err != nil {
+					return err
+				}
+				if ready {
+					break
+				}
+				time.Sleep(250 * time.Millisecond)
+			}
+			if !ready {
+				return errors.New("page did not reach complete state")
+			}
+			return nil
+		}),
+	)
+}
+
+// WaitForWebSocketConnection waits for the WebSocket to connect by checking if ws is defined
+func WaitForWebSocketConnection(ctx context.Context) error {
+	return chromedp.Run(ctx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			// Poll for WebSocket connection to establish
+			for i := 0; i < 20; i++ {
+				var wsConnected bool
+				err := chromedp.Evaluate(`typeof ws !== 'undefined' && ws.readyState === WebSocket.OPEN`, &wsConnected).Do(ctx)
+				if err == nil && wsConnected {
+					return nil
+				}
+				time.Sleep(250 * time.Millisecond)
+			}
+			return errors.New("WebSocket did not connect in time")
+		}),
+	)
 }
 
 // WaitForModal waits for a modal dialog to appear and be visible
