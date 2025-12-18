@@ -122,19 +122,23 @@ func WaitForElement(ctx context.Context, selector string, checkVisibility bool) 
 	)
 }
 
-// WaitForModal waits for the file management modal to be visible with display:flex
+// WaitForModal waits for the file management modal to be visible
 func WaitForModal(ctx context.Context) error {
 	return chromedp.Run(ctx,
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			for i := 0; i < 40; i++ {
+			for i := 0; i < 60; i++ {
 				var isVisible bool
 				err := chromedp.Evaluate(`
 					(function() {
 						var modal = document.getElementById('fileModal');
-						if (!modal) return false;
-						var display = window.getComputedStyle(modal).display;
+						if (!modal) {
+							console.log('Modal element not found');
+							return false;
+						}
 						var hasShow = modal.classList.contains('show');
-						return display === 'flex' || hasShow;
+						var display = window.getComputedStyle(modal).display;
+						console.log('Modal show class: ' + hasShow + ', display: ' + display);
+						return hasShow;
 					})()
 				`, &isVisible).Do(ctx)
 				if err != nil {
@@ -162,12 +166,15 @@ func CloseModal(ctx context.Context) error {
 
 // OpenFileModal opens the file management modal by clicking the Files button and waiting for it to appear
 func OpenFileModal(ctx context.Context) error {
+	fmt.Println("Opening file modal...")
 	return chromedp.Run(ctx,
 		chromedp.ActionFunc(func(ctx context.Context) error {
+			fmt.Println("Clicking Files button...")
 			return chromedp.Click("#filesBtn").Do(ctx)
 		}),
 		chromedp.Sleep(500*time.Millisecond),
 		chromedp.ActionFunc(func(ctx context.Context) error {
+			fmt.Println("Waiting for modal to appear...")
 			return WaitForModal(ctx)
 		}),
 	)

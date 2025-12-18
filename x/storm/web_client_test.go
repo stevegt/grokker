@@ -148,18 +148,23 @@ func TestWebClientOpenFileModal(t *testing.T) {
 	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
 	defer cancelTimeout()
 
+	t.Logf("Waiting for server to fully initialize...")
 	time.Sleep(3 * time.Second)
 
 	projectURL := fmt.Sprintf("%s/project/%s", server.URL, projectID)
+	t.Logf("Navigating to: %s", projectURL)
 	err = chromedp.Run(ctx,
 		chromedp.Navigate(projectURL),
 		chromedp.ActionFunc(func(ctx context.Context) error {
+			t.Logf("Waiting for page load...")
 			return testutil.WaitForPageLoad(ctx)
 		}),
 		chromedp.ActionFunc(func(ctx context.Context) error {
+			t.Logf("Waiting for WebSocket connection...")
 			return testutil.WaitForWebSocketConnection(ctx)
 		}),
 		chromedp.ActionFunc(func(ctx context.Context) error {
+			t.Logf("Waiting for filesBtn element...")
 			return testutil.WaitForElement(ctx, "#filesBtn", false)
 		}),
 	)
@@ -167,6 +172,7 @@ func TestWebClientOpenFileModal(t *testing.T) {
 		t.Fatalf("Failed to navigate to project page: %v", err)
 	}
 
+	t.Logf("About to call OpenFileModal...")
 	err = testutil.OpenFileModal(ctx)
 	if err != nil {
 		t.Fatalf("Failed to open file modal: %v", err)
@@ -177,9 +183,9 @@ func TestWebClientOpenFileModal(t *testing.T) {
 
 	if !modalVisible {
 		t.Errorf("File modal is not visible after clicking Files button")
+	} else {
+		t.Logf("File modal opened successfully")
 	}
-
-	t.Logf("File modal opened successfully")
 }
 
 // TestWebClientAddFiles tests adding files via HTTP API and verifying they appear in the UI

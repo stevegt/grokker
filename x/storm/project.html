@@ -555,6 +555,7 @@
         debugLog("ERROR: fileModal element not found in DOM");
         return;
       }
+      debugLog("fileModal found, adding show class");
       modal.classList.add("show");
       debugLog("Added 'show' class to fileModal");
     }
@@ -799,11 +800,9 @@
             updateTokenCount();
             updateScrollButtonVisibility();
           } else if (message.type === 'unexpectedFilesDetected') {
-            // Stage 6: Handle unexpected files notification
             debugLog('Unexpected files detected: ' + JSON.stringify(message));
             displayUnexpectedFilesModal(message.queryID, message.alreadyAuthorized, message.needsAuthorization);
           } else if (message.type === 'fileListUpdated') {
-            // Refresh file list when files are added/deleted via CLI
             debugLog('File list updated via WebSocket');
             loadFileList();
           }
@@ -842,28 +841,35 @@
 
       // File modal handlers - attach listener to filesBtn
       var filesBtn = document.getElementById("filesBtn");
-      debugLog("Attaching event listener to filesBtn");
+      debugLog("About to attach event listener to filesBtn");
       if (!filesBtn) {
         debugLog("ERROR: filesBtn not found in DOM!");
+      } else {
+        debugLog("filesBtn found in DOM, element: " + filesBtn.outerHTML.substring(0, 100));
+        filesBtn.addEventListener("click", function(e) {
+          debugLog("FILES BUTTON CLICK EVENT FIRED!");
+          debugLog("Event type: " + e.type + ", target: " + e.target.id);
+          
+          // Show regular file list, not unexpected files
+          if (currentUnexpectedFilesQuery) {
+            debugLog("Unexpected files modal already open, ignoring click");
+            return;
+          }
+          document.getElementById("modalTitle").textContent = "File Management";
+          debugLog("Calling loadFileList()");
+          loadFileList();
+        });
+        debugLog("Event listener attached to filesBtn successfully");
       }
-      filesBtn.addEventListener("click", function() {
-        debugLog("FILES BUTTON CLICKED!");
-        // Show regular file list, not unexpected files
-        if (currentUnexpectedFilesQuery) {
-          debugLog("Unexpected files modal already open, ignoring click");
-          return;
-        }
-        document.getElementById("modalTitle").textContent = "File Management";
-        debugLog("Calling loadFileList()");
-        loadFileList();
-      });
 
       document.getElementById("closeFileModal").addEventListener("click", function() {
+        debugLog("Close modal button clicked");
         closeFileModal();
       });
 
       document.getElementById("fileModal").addEventListener("click", function(event) {
         if (event.target === this) {
+          debugLog("Modal background clicked, closing modal");
           closeFileModal();
         }
       });
@@ -1132,8 +1138,6 @@
             
             debugLog("Merged files: " + JSON.stringify(mergedFiles));
             renderFileList(mergedFiles);
-            debugLog("About to call openFileModal()");
-            openFileModal();
           };
           
           request.onerror = function(event) {
@@ -1250,9 +1254,8 @@
         fileListElem.appendChild(tr);
       });
       
-      debugLog("File list rendered successfully");
-      // XXX LEAVE THIS HERE until we know for sure we don't want to auto-open the modal
-      // openFileModal();
+      debugLog("File list rendered successfully, about to call openFileModal()");
+      openFileModal();
     }
 
     function getSelectedFiles() {
