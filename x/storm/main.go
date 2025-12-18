@@ -663,6 +663,11 @@ func (c *WSClient) readPump(project *Project) {
 				} else {
 					log.Printf("WARNING: received approval for unknown query %s", queryID)
 				}
+			} else if msgType == "debug" {
+				// Handle debug message from browser client
+				debugMessage, _ := msg["message"].(string)
+				clientID, _ := msg["clientID"].(string)
+				log.Printf("[DEBUG %s] %s", clientID, debugMessage)
 			}
 		}
 	}
@@ -710,7 +715,7 @@ func removePendingQuery(queryID string) {
 	}
 }
 
-// startNotificationTicker begins periodically re-sending the unexpected files notification every 10 seconds[1]
+// startNotificationTicker begins periodically re-sending the unexpected files notification every 10 seconds
 func startNotificationTicker(pending *PendingQuery) {
 	pending.notificationTicker = time.NewTicker(unexpectedFilesNotifyInterval)
 
@@ -748,7 +753,7 @@ func waitForApproval(pending *PendingQuery) ([]string, error) {
 	return approvedFiles, nil
 }
 
-// categorizeUnexpectedFiles separates unexpected files into authorized and needs-authorization categories[1]
+// categorizeUnexpectedFiles separates unexpected files into authorized and needs-authorization categories
 func categorizeUnexpectedFiles(project *Project, unexpectedFileNames []string) ([]string, []string) {
 	var alreadyAuthorized []string
 	var needsAuthorization []string
@@ -1091,10 +1096,10 @@ func sendQueryToLLM(project *Project, queryID, query string, llm string, selecti
 				project.ClientPool.Broadcast(unexpectedFilesMsg)
 				log.Printf("Broadcasted unexpected files notification for query %s", queryID)
 
-				// Create pending query and wait for user approval[2]
+				// Create pending query and wait for user approval
 				pending := addPendingQuery(queryID, response, outFilesConverted, alreadyAuthorized, needsAuthorization, project)
 
-				// Start periodic re-sending of unexpected files notification[1]
+				// Start periodic re-sending of unexpected files notification
 				startNotificationTicker(pending)
 
 				// Wait indefinitely for user to approve or decline files
