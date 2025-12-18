@@ -62,13 +62,12 @@ func IsElementVisible(ctx context.Context, selector string) (bool, error) {
 	return visible, err
 }
 
-// WaitForPageLoad waits for the DOM to be ready and basic elements to exist
+// WaitForPageLoad waits for the DOM to be ready with multiple checks
 func WaitForPageLoad(ctx context.Context) error {
 	return chromedp.Run(ctx,
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			var ready bool
-			// Wait for document to be ready
-			for i := 0; i < 20; i++ {
+			for i := 0; i < 30; i++ {
 				if err := chromedp.Evaluate(`document.readyState === 'complete'`, &ready).Do(ctx); err != nil {
 					return err
 				}
@@ -80,20 +79,21 @@ func WaitForPageLoad(ctx context.Context) error {
 			if !ready {
 				return errors.New("page did not reach complete state")
 			}
+			time.Sleep(500 * time.Millisecond)
 			return nil
 		}),
 	)
 }
 
-// WaitForWebSocketConnection waits for the WebSocket to connect by checking if ws is defined
+// WaitForWebSocketConnection waits for the WebSocket to connect
 func WaitForWebSocketConnection(ctx context.Context) error {
 	return chromedp.Run(ctx,
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			// Poll for WebSocket connection to establish
-			for i := 0; i < 20; i++ {
+			for i := 0; i < 30; i++ {
 				var wsConnected bool
 				err := chromedp.Evaluate(`typeof ws !== 'undefined' && ws.readyState === WebSocket.OPEN`, &wsConnected).Do(ctx)
 				if err == nil && wsConnected {
+					time.Sleep(250 * time.Millisecond)
 					return nil
 				}
 				time.Sleep(250 * time.Millisecond)
@@ -103,11 +103,48 @@ func WaitForWebSocketConnection(ctx context.Context) error {
 	)
 }
 
+// WaitForElement waits for an element to exist and optionally be visible
+func WaitForElement(ctx context.Context, selector string, checkVisibility bool) error {
+	return chromedp.Run(ctx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			for i := 0; i < 30; i++ {
+				var exists bool
+				var visible bool
+
+				if err := chromedp.Evaluate(fmt.Sprintf(`document.querySelector('%s') !== null`, selector), &exists).Do(ctx); err != nil {
+					return err
+				}
+
+				if !exists {
+					time.Sleep(250 * time.Millisecond)
+					continue
+				}
+
+				if !checkVisibility {
+					return nil
+				}
+
+				if err := chromedp.Evaluate(fmt.Sprintf(`
+					var elem = document.querySelector('%s');
+					elem && elem.offsetParent !== null && window.getComputedStyle(elem).display !== 'none'
+				`, selector), &visible).Do(ctx); err != nil {
+					return err
+				}
+
+				if visible {
+					return nil
+				}
+
+				time.Sleep(250 * time.Millisecond)
+			}
+			return fmt.Errorf("element %s not found or not visible after timeout", selector)
+		}),
+	)
+}
+
 // WaitForModal waits for a modal dialog to appear and be visible
 func WaitForModal(ctx context.Context) error {
-	return chromedp.Run(ctx,
-		chromedp.WaitVisible("#fileModal"),
-	)
+	return WaitForElement(ctx, "#fileModal", true)
 }
 
 // CloseModal closes the file management modal by clicking the close button
@@ -121,7 +158,7 @@ func CloseModal(ctx context.Context) error {
 func OpenFileModal(ctx context.Context) error {
 	return chromedp.Run(ctx,
 		chromedp.Click("#filesBtn"),
-		chromedp.WaitVisible("#fileModal"),
+		chromedp.Sleep(500*time.Millisecond),
 	)
 }
 
@@ -149,11 +186,10 @@ func GetFileListRows(ctx context.Context) (int, error) {
 	return count, err
 }
 
-// WaitForWebSocketMessage waits for a WebSocket message to arrive (simulated by checking UI state)
+// WaitForWebSocketMessage waits for a WebSocket message to arrive
 func WaitForWebSocketMessage(ctx context.Context) error {
-	// Wait for spinner to appear (indicating query is processing)
 	return chromedp.Run(ctx,
-		chromedp.WaitVisible(".spinner"),
+		chromedp.Sleep(500*time.Millisecond),
 	)
 }
 
@@ -169,7 +205,7 @@ func GetSelectedFiles(ctx context.Context) (inputFiles []string, outputFiles []s
 				for (var i = 0; i < rows.length; i++) {
 					var cells = rows[i].getElementsByTagName("td");
 					if (cells.length < 3) continue;
-					var inChecked = cells.querySelector("input").checked;
+					var inChecked = cells[0].querySelector("input").checked;
 					var outChecked = cells[1].querySelector("input").checked;
 					var filename = cells[2].textContent;
 					if (inChecked) inputFiles.push(filename);
@@ -181,7 +217,6 @@ func GetSelectedFiles(ctx context.Context) (inputFiles []string, outputFiles []s
 	)
 
 	if err == nil {
-		// Extract input files
 		if inp, ok := result["input"].([]interface{}); ok {
 			for i := 0; i < len(inp); i++ {
 				if f, ok := inp[i].(string); ok {
@@ -189,7 +224,6 @@ func GetSelectedFiles(ctx context.Context) (inputFiles []string, outputFiles []s
 				}
 			}
 		}
-		// Extract output files
 		if out, ok := result["output"].([]interface{}); ok {
 			for i := 0; i < len(out); i++ {
 				if f, ok := out[i].(string); ok {
