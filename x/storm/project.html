@@ -428,6 +428,21 @@
   </div>
 
   <script>
+    // Debug logging function that sends messages to server via WebSocket
+    function debugLog(message) {
+      // Always log to browser console
+      console.log(message);
+      
+      // Also send to server via WebSocket if connected
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: "debug",
+          message: message,
+          clientID: "browser"
+        }));
+      }
+    }
+
     // WebSocket connection
     var ws;
     var pendingQueryDivs = {}; // Track divs for pending queries by queryID
@@ -674,7 +689,7 @@
             queryID: queryID,
             approvedFiles: approvedFiles
           }));
-          console.log("Approval sent for queryID " + queryID + " with " + approvedFiles.length + " files");
+          debugLog("Approval sent for queryID " + queryID + " with " + approvedFiles.length + " files");
         }
         
         // Close modal
@@ -703,19 +718,19 @@
     function initWebSocket() {
       var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       var wsUrl = protocol + '//' + window.location.host + '/project/' + projectID + '/ws';
-      console.log('Connecting to WebSocket:', wsUrl);
+      debugLog('Connecting to WebSocket: ' + wsUrl);
       
       ws = new WebSocket(wsUrl);
       
       ws.onopen = function() {
-        console.log('WebSocket connected for project:', projectID);
+        debugLog('WebSocket connected for project: ' + projectID);
       };
       
       // Handle incoming broadcast messages
       ws.onmessage = function(event) {
         try {
           var message = JSON.parse(event.data);
-          console.log('Received WebSocket message:', message);
+          debugLog('Received WebSocket message: ' + JSON.stringify(message));
           
           if (message.type === 'query') {
             // Display query with spinner and cancel button on all clients
@@ -779,25 +794,25 @@
             updateScrollButtonVisibility();
           } else if (message.type === 'unexpectedFilesDetected') {
             // Stage 6: Handle unexpected files notification
-            console.log('Unexpected files detected:', message);
+            debugLog('Unexpected files detected: ' + JSON.stringify(message));
             displayUnexpectedFilesModal(message.queryID, message.alreadyAuthorized, message.needsAuthorization);
           } else if (message.type === 'fileListUpdated') {
             // Refresh file list when files are added/deleted via CLI
-            console.log('File list updated via WebSocket');
+            debugLog('File list updated via WebSocket');
             loadFileList();
           }
         } catch (err) {
-          console.error('Error processing WebSocket message:', err);
+          debugLog('Error processing WebSocket message: ' + err);
         }
       };
       
       ws.onerror = function(error) {
-        console.error('WebSocket error:', error);
+        debugLog('WebSocket error: ' + error);
         showErrorSign();
       };
       
       ws.onclose = function() {
-        console.log('WebSocket disconnected, attempting to reconnect...');
+        debugLog('WebSocket disconnected, attempting to reconnect...');
         // Attempt to reconnect after 3 seconds
         setTimeout(initWebSocket, 3000);
       };
@@ -820,7 +835,7 @@
 
       // File modal handlers
       document.getElementById("filesBtn").addEventListener("click", function() {
-        console.log("Files button clicked");
+        debugLog("Files button clicked");
         // Show regular file list, not unexpected files
         if (currentUnexpectedFilesQuery) {
           // Already showing unexpected files modal
@@ -871,7 +886,7 @@
         var chat = document.getElementById("chat");
         var hrTags = chat.getElementsByTagName("hr");
         if (round > 0 && round <= hrTags.length) {
-          console.log("Scrolling to round:", round);
+          debugLog("Scrolling to round: " + round);
           chat.scrollTop = hrTags[round - 1].offsetTop;
         }
       }
@@ -910,7 +925,7 @@
     // Send query via WebSocket
     function sendQuery(query, llm, selection, tokenLimit) {
       if (!ws || ws.readyState !== WebSocket.OPEN) {
-        console.error("WebSocket not connected");
+        debugLog("WebSocket not connected");
         showErrorSign();
         return;
       }
@@ -950,7 +965,7 @@
           tokenCountText.textContent = "Token Count: " + data.tokens;
         })
         .catch(function(err) {
-          console.error("Error fetching token count:", err);
+          debugLog("Error fetching token count: " + err);
         });
     }
 
@@ -987,7 +1002,7 @@
           }
         })
         .catch(function(err) {
-          console.error("Error fetching rounds count:", err);
+          debugLog("Error fetching rounds count: " + err);
         });
     }
 
@@ -1018,11 +1033,11 @@
         fetch("/stop", { method: "POST" })
           .then(function(response) {
             if(response.ok) {
-              console.log("Server is stopping...");
+              debugLog("Server is stopping...");
             }
           })
           .catch(function(err) {
-            console.error("Error stopping server:", err);
+            debugLog("Error stopping server: " + err);
           });
       }
     });
@@ -1030,35 +1045,35 @@
     // --- File I/O using IndexedDB ---
     var db;
     function initFileIO() {
-      console.log("Initializing IndexedDB for file I/O");
+      debugLog("Initializing IndexedDB for file I/O");
       var request = indexedDB.open("fileIODB", 1);
       request.onerror = function(event) {
-        console.error("IndexedDB error:", event.target.error);
+        debugLog("IndexedDB error: " + event.target.error);
       };
       request.onupgradeneeded = function(event) {
-        console.log("IndexedDB upgrading to version 1");
+        debugLog("IndexedDB upgrading to version 1");
         db = event.target.result;
         if (!db.objectStoreNames.contains("selections")) {
-          console.log("Creating 'selections' object store");
+          debugLog("Creating 'selections' object store");
           var store = db.createObjectStore("selections", { keyPath: "filename" });
           store.createIndex("by_filename", "filename", { unique: true });
         }
       };
       request.onsuccess = function(event) {
-        console.log("IndexedDB opened successfully");
+        debugLog("IndexedDB opened successfully");
         db = event.target.result;
         loadFileList();
       };
     }
 
     function loadFileList() {
-      console.log("Loading file list from server");
+      debugLog("Loading file list from server");
       // Fetch authorized files from server
       fetch("/api/projects/" + projectID + "/files")
         .then(function(response) { return response.json(); })
         .then(function(data) {
           var serverFiles = data.files || [];
-          console.log("Server returned files:", serverFiles);
+          debugLog("Server returned files: " + JSON.stringify(serverFiles));
           
           // Load selections from IndexedDB
           var transaction = db.transaction(["selections"], "readonly");
@@ -1066,9 +1081,9 @@
           var request = store.getAll();
           
           request.onsuccess = function(event) {
-            console.log("IndexedDB getAll succeeded");
+            debugLog("IndexedDB getAll succeeded");
             var allIndexedDBEntries = event.target.result;
-            console.log("IndexedDB entries:", allIndexedDBEntries);
+            debugLog("IndexedDB entries: " + JSON.stringify(allIndexedDBEntries));
             var serverFileSet = new Set(serverFiles);
             
             // Clean up IndexedDB entries for files no longer on server
@@ -1078,7 +1093,7 @@
             for (var i = 0; i < allIndexedDBEntries.length; i++) {
               var entry = allIndexedDBEntries[i];
               if (!serverFileSet.has(entry.filename)) {
-                console.log("Deleting stale IndexedDB entry:", entry.filename);
+                debugLog("Deleting stale IndexedDB entry: " + entry.filename);
                 store2.delete(entry.filename);
               }
             }
@@ -1097,21 +1112,21 @@
               }
             });
             
-            console.log("Merged files:", mergedFiles);
+            debugLog("Merged files: " + JSON.stringify(mergedFiles));
             renderFileList(mergedFiles);
           };
           
           request.onerror = function(event) {
-            console.error("IndexedDB getAll error:", event.target.error);
+            debugLog("IndexedDB getAll error: " + event.target.error);
           };
         })
         .catch(function(err) {
-          console.error("Error loading file list from server:", err);
+          debugLog("Error loading file list from server: " + err);
         });
     }
 
     function saveFileSelection(filename, isInput, isOutput) {
-      console.log("Saving file selection:", filename, "in:", isInput, "out:", isOutput);
+      debugLog("Saving file selection: " + filename + " in:" + isInput + " out:" + isOutput);
       var transaction = db.transaction(["selections"], "readwrite");
       var store = transaction.objectStore("selections");
       var entry = { filename: filename, in: isInput, out: isOutput };
@@ -1119,7 +1134,7 @@
     }
 
     function renderFileList(files) {
-      console.log("Rendering file list with", files.length, "files");
+      debugLog("Rendering file list with " + files.length + " files");
       var fileListElem = document.getElementById("fileList");
       if (!fileListElem) {
         // Create fileList if it doesn't exist (for regular file management modal)
@@ -1215,7 +1230,7 @@
         fileListElem.appendChild(tr);
       });
       
-      console.log("File list rendered successfully");
+      debugLog("File list rendered successfully");
       // openFileModal();
     }
 
