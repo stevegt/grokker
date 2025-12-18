@@ -148,6 +148,8 @@ func TestWebClientOpenFileModal(t *testing.T) {
 	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
 	defer cancelTimeout()
 
+	time.Sleep(3 * time.Second)
+
 	projectURL := fmt.Sprintf("%s/project/%s", server.URL, projectID)
 	err = chromedp.Run(ctx,
 		chromedp.Navigate(projectURL),

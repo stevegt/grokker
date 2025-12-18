@@ -549,8 +549,14 @@
 
     // File modal functions
     function openFileModal() {
+      debugLog("openFileModal() called");
       var modal = document.getElementById("fileModal");
+      if (!modal) {
+        debugLog("ERROR: fileModal element not found in DOM");
+        return;
+      }
       modal.classList.add("show");
+      debugLog("Added 'show' class to fileModal");
     }
 
     function closeFileModal() {
@@ -820,6 +826,7 @@
     
     // Call generateTOC and other initializations when the DOM content is loaded.
     document.addEventListener("DOMContentLoaded", function() {
+      debugLog("DOMContentLoaded fired");
       generateTOC();
       initWebSocket();
       
@@ -833,17 +840,22 @@
         }
       });
 
-      // File modal handlers
-      document.getElementById("filesBtn").addEventListener("click", function() {
-        debugLog("Files button clicked");
+      // File modal handlers - attach listener to filesBtn
+      var filesBtn = document.getElementById("filesBtn");
+      debugLog("Attaching event listener to filesBtn");
+      if (!filesBtn) {
+        debugLog("ERROR: filesBtn not found in DOM!");
+      }
+      filesBtn.addEventListener("click", function() {
+        debugLog("FILES BUTTON CLICKED!");
         // Show regular file list, not unexpected files
         if (currentUnexpectedFilesQuery) {
-          // Already showing unexpected files modal
+          debugLog("Unexpected files modal already open, ignoring click");
           return;
         }
         document.getElementById("modalTitle").textContent = "File Management";
+        debugLog("Calling loadFileList()");
         loadFileList();
-        openFileModal();
       });
 
       document.getElementById("closeFileModal").addEventListener("click", function() {
@@ -1062,11 +1074,11 @@
       request.onsuccess = function(event) {
         debugLog("IndexedDB opened successfully");
         db = event.target.result;
-        loadFileList();
       };
     }
 
     function loadFileList() {
+      debugLog("loadFileList() called");
       debugLog("Loading file list from server");
       // Fetch authorized files from server
       fetch("/api/projects/" + projectID + "/files")
@@ -1076,6 +1088,12 @@
           debugLog("Server returned files: " + JSON.stringify(serverFiles));
           
           // Load selections from IndexedDB
+          if (!db) {
+            debugLog("WARNING: IndexedDB not initialized yet, retrying in 500ms");
+            setTimeout(loadFileList, 500);
+            return;
+          }
+          
           var transaction = db.transaction(["selections"], "readonly");
           var store = transaction.objectStore("selections");
           var request = store.getAll();
@@ -1114,6 +1132,8 @@
             
             debugLog("Merged files: " + JSON.stringify(mergedFiles));
             renderFileList(mergedFiles);
+            debugLog("About to call openFileModal()");
+            openFileModal();
           };
           
           request.onerror = function(event) {
@@ -1231,19 +1251,29 @@
       });
       
       debugLog("File list rendered successfully");
+      // XXX LEAVE THIS HERE until we know for sure we don't want to auto-open the modal
       // openFileModal();
     }
 
     function getSelectedFiles() {
       var inputFiles = [];
       var outFiles = [];
-      var rows = document.getElementById("fileList").getElementsByTagName("tr");
+      var fileList = document.getElementById("fileList");
+      if (!fileList) {
+        debugLog("WARNING: fileList element not found");
+        return { inputFiles: inputFiles, outFiles: outFiles };
+      }
+      var rows = fileList.getElementsByTagName("tr");
       for (var i = 0; i < rows.length; i++) {
         var cells = rows[i].getElementsByTagName("td");
         if(cells.length < 3) continue;
-        var inChecked = cells[0].querySelector("input").checked;
-        var outChecked = cells[1].querySelector("input").checked;
-        var filename = cells[2].textContent;
+        var inInput = cells[0].querySelector("input");
+        var outInput = cells[1].querySelector("input");
+        var filenameCell = cells[2];
+        if (!inInput || !outInput || !filenameCell) continue;
+        var inChecked = inInput.checked;
+        var outChecked = outInput.checked;
+        var filename = filenameCell.textContent.trim();
         if(inChecked) inputFiles.push(filename);
         if(outChecked) outFiles.push(filename);
       }
