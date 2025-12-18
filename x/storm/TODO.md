@@ -3,6 +3,8 @@
 - need spinner in status box visible to all users when processing
 - new unexpected files -- need to repopulate approval list so user can
   click 'out' box
+- cli_test.go needs random instead of hardcoded port numbers 
+  - use getAvailablePort() from websocket_test.go (move it to testutils)
 
 # features
 
