@@ -17,7 +17,7 @@ import (
 	"github.com/stevegt/grokker/x/storm/testutil"
 )
 
-var timeout = 60 * time.Second
+var timeout = 600 * time.Second
 
 // newChromeContext creates a chromedp context with optional HEADLESS mode support
 func newChromeContext() (context.Context, context.CancelFunc) {

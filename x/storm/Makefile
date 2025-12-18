@@ -36,8 +36,10 @@ serve: install
 	storm serve 
 
 # Run the serve command with development database
-dev-serve: build
-	./storm serve --port 9080 --db-path /tmp/storm-dev.db
+dev-serve: 
+	@echo remember to set STORM_DAEMON_URL=http://localhost:9090
+	test -n "$(STORM_DAEMON_URL)"
+	go run . serve -d /tmp/storm-test.db -p 9090
 
 commit-ck:
 	git diff --quiet --exit-code || (echo "Uncommitted changes found.")

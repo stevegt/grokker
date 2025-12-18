@@ -23,6 +23,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/gofrs/flock"
 	"github.com/gorilla/websocket"
+	"github.com/stevegt/envi"
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker/v3/client"
 	"github.com/stevegt/grokker/v3/core"
@@ -1048,6 +1049,21 @@ func sendQueryToLLM(project *Project, queryID, query string, llm string, selecti
 			return "", fmt.Errorf("failed to send query to LLM: %w", err)
 		}
 
+		if envi.Bool("DEBUG", false) {
+			// write response to a tmp file for inspection
+			tmpFile, err := ioutil.TempFile("", "storm-llm-response-*.md")
+			if err != nil {
+				log.Printf("Failed to create temp file for LLM response: %v", err)
+			} else {
+				defer tmpFile.Close()
+				if _, err := tmpFile.WriteString(response); err != nil {
+					log.Printf("Failed to write LLM response to temp file: %v", err)
+				} else {
+					log.Printf("Wrote LLM response to temp file: %s", tmpFile.Name())
+				}
+			}
+		}
+
 		// Check if query was cancelled after LLM call completes
 		if isQueryCancelled(queryID) {
 			log.Printf("Query %s was cancelled, discarding LLM result", queryID)
@@ -1126,6 +1142,7 @@ func sendQueryToLLM(project *Project, queryID, query string, llm string, selecti
 							log.Printf("Unknown file extension for approved file %s; assuming language is %s", approvedFile, lang)
 						}
 						outFilesConverted = append(outFilesConverted, core.FileLang{File: approvedFile, Language: lang})
+						log.Printf("Added approved file %s with language %s to output list", approvedFile, lang)
 					}
 				}
 
