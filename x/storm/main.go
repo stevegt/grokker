@@ -5,7 +5,6 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"html/template"
 	"io/ioutil"
@@ -18,14 +17,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/stevegt/grokker/x/storm/split"
-
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/adapters/humachi"
+	"github.com/go-chi/chi/v5"
 	"github.com/gofrs/flock"
 	"github.com/gorilla/websocket"
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker/v3/client"
 	"github.com/stevegt/grokker/v3/core"
 	"github.com/stevegt/grokker/v3/util"
+	"github.com/stevegt/grokker/x/storm/split"
 	"github.com/yuin/goldmark"
 )
 
@@ -33,6 +34,26 @@ import (
 var indexHTML string
 
 var tmpl = template.Must(template.New("index").Parse(indexHTML))
+
+// Global variables for serve subcommand
+var (
+	grok     *core.Grokker
+	srv      *http.Server
+	projects *Projects
+
+	upgrader = websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			return true // Allow all origins for now
+		},
+	}
+)
+
+const (
+	pingInterval = 20 * time.Second
+	pongWait     = 60 * time.Second
+)
 
 // QueryRequest represents a user's query input.
 type QueryRequest struct {
@@ -43,6 +64,7 @@ type QueryRequest struct {
 	OutFiles   []string `json:"outFiles"`
 	TokenLimit int      `json:"tokenLimit"`
 	QueryID    string   `json:"queryID"`
+	ProjectID  string   `json:"projectID"`
 }
 
 // QueryResponse represents the LLM's response.
@@ -63,15 +85,26 @@ type Chat struct {
 	filename string
 }
 
-// WebSocket client connection.
-type WSClient struct {
-	conn *websocket.Conn
-	send chan interface{}
-	pool *ClientPool
-	id   string
+// Project encapsulates project-specific data and state.
+type Project struct {
+	ID              string
+	BaseDir         string
+	MarkdownFile    string
+	AuthorizedFiles []string
+	Chat            *Chat
+	ClientPool      *ClientPool
 }
 
-// ClientPool manages all connected WebSocket clients.
+// WebSocket client connection.
+type WSClient struct {
+	conn      *websocket.Conn
+	send      chan interface{}
+	pool      *ClientPool
+	id        string
+	projectID string
+}
+
+// ClientPool manages all connected WebSocket clients for a project.
 type ClientPool struct {
 	clients    map[*WSClient]bool
 	broadcast  chan interface{}
@@ -283,77 +316,113 @@ func (c *Chat) getHistory(lock bool) string {
 	return result
 }
 
-var chat *Chat
-var grok *core.Grokker
-var srv *http.Server
-var clientPool *ClientPool
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins for now
-	},
+// rootHandler serves the landing page listing all projects
+func rootHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, "<h1>Storm Projects</h1><ul>")
+	projectIDs := projects.List()
+	for _, projectID := range projectIDs {
+		fmt.Fprintf(w, "<li><a href='/project/%s/'>%s</a></li>", projectID, projectID)
+	}
+	fmt.Fprintf(w, "</ul>")
 }
 
-const (
-	pingInterval = 20 * time.Second
-	pongWait     = 60 * time.Second
-)
-
-func main() {
-
-	fmt.Println("index.html length:", len(indexHTML))
-
-	fmt.Println("storm v0.0.75")
-	port := flag.Int("port", 8080, "port to listen on")
-	filePtr := flag.String("file", "", "markdown file to store chat history")
-	flag.Parse()
-	if *filePtr == "" {
-		log.Fatal("must provide a markdown filename with -file")
-	}
-
+// serveRun starts the HTTP server on the specified port
+func serveRun(port int) error {
 	var err error
 	var lock *flock.Flock
 	grok, _, _, _, lock, err = core.Load("", true)
 	if err != nil {
-		log.Fatalf("failed to load Grokker: %v", err)
+		return fmt.Errorf("failed to load LLM core: %w", err)
 	}
 	defer lock.Unlock()
 
-	chat = NewChat(*filePtr)
-	clientPool = NewClientPool()
-	go clientPool.Start()
+	// Initialize projects registry
+	projects = NewProjects()
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Received request for %s", r.URL.Path)
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		chatContent := chat.getHistory(true)
-		data := struct {
-			ChatHTML template.HTML
-		}{
-			ChatHTML: template.HTML(markdownToHTML(chatContent)),
-		}
-		if err := tmpl.Execute(w, data); err != nil {
-			http.Error(w, "Template error", http.StatusInternalServerError)
-		}
+	// Create chi router
+	chiRouter := chi.NewRouter()
+
+	// Create Huma API
+	config := huma.DefaultConfig("Storm API", "1.0.0")
+	config.DocsPath = "/docs"
+	api := humachi.New(chiRouter, config)
+
+	// Root handler for project list or landing page
+	chiRouter.HandleFunc("/", rootHandler)
+
+	// Huma API endpoints for project management
+	huma.Post(api, "/api/projects", postProjectsHandler)
+	huma.Get(api, "/api/projects", getProjectsHandler)
+	huma.Post(api, "/api/projects/{projectID}/files", postProjectFilesHandler)
+	huma.Get(api, "/api/projects/{projectID}/files", getProjectFilesHandler)
+
+	// Project-specific routes (non-Huma for now, using chi directly)
+	projectRouter := chiRouter.Route("/project/{projectID}", func(r chi.Router) {
+		r.HandleFunc("/", projectHandlerFunc)
+		r.HandleFunc("/ws", wsHandlerFunc)
+		r.HandleFunc("/tokencount", tokenCountHandlerFunc)
+		r.HandleFunc("/rounds", roundsHandlerFunc)
+		r.HandleFunc("/open", openHandlerFunc)
 	})
 
-	http.HandleFunc("/ws", wsHandler)
-	http.HandleFunc("/tokencount", tokenCountHandler)
-	http.HandleFunc("/rounds", roundsHandler)
-	http.HandleFunc("/stop", stopHandler)
-	http.HandleFunc("/open", openHandler)
+	_ = projectRouter
 
-	addr := fmt.Sprintf(":%d", *port)
-	srv = &http.Server{Addr: addr}
+	// Global routes
+	chiRouter.HandleFunc("/stop", stopHandler)
+
+	addr := fmt.Sprintf(":%d", port)
+	srv = &http.Server{Addr: addr, Handler: chiRouter}
 	log.Printf("Starting server on %s\n", addr)
+	log.Printf("API documentation available at http://localhost%s/docs\n", addr)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatal(err)
+		return err
+	}
+	return nil
+}
+
+// projectHandlerFunc is a wrapper to extract project and call handler
+func projectHandlerFunc(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+
+	project, exists := projects.Get(projectID)
+	if !exists {
+		http.Error(w, fmt.Sprintf("Project %s not found", projectID), http.StatusNotFound)
+		return
+	}
+
+	projectHandler(w, r, project)
+}
+
+// projectHandler handles the main chat page for a project
+func projectHandler(w http.ResponseWriter, r *http.Request, project *Project) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	chatContent := project.Chat.getHistory(true)
+	data := struct {
+		ChatHTML template.HTML
+	}{
+		ChatHTML: template.HTML(markdownToHTML(chatContent)),
+	}
+	if err := tmpl.Execute(w, data); err != nil {
+		http.Error(w, "Template error", http.StatusInternalServerError)
 	}
 }
 
-// wsHandler handles WebSocket connections.
-func wsHandler(w http.ResponseWriter, r *http.Request) {
+// wsHandlerFunc is a wrapper to extract project and call handler
+func wsHandlerFunc(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+
+	project, exists := projects.Get(projectID)
+	if !exists {
+		http.Error(w, fmt.Sprintf("Project %s not found", projectID), http.StatusNotFound)
+		return
+	}
+
+	wsHandler(w, r, project)
+}
+
+// wsHandler handles WebSocket connections for a project
+func wsHandler(w http.ResponseWriter, r *http.Request, project *Project) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade error: %v", err)
@@ -361,10 +430,11 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := &WSClient{
-		conn: conn,
-		send: make(chan interface{}, 256),
-		pool: clientPool,
-		id:   fmt.Sprintf("client-%d", len(clientPool.clients)),
+		conn:      conn,
+		send:      make(chan interface{}, 256),
+		pool:      project.ClientPool,
+		id:        fmt.Sprintf("client-%d", len(project.ClientPool.clients)),
+		projectID: project.ID,
 	}
 
 	// Set up ping/pong handlers for keepalive
@@ -374,10 +444,10 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 
-	clientPool.register <- client
+	project.ClientPool.register <- client
 
 	go client.writePump()
-	go client.readPump()
+	go client.readPump(project)
 }
 
 // writePump writes messages to the WebSocket client and sends periodic pings.
@@ -412,7 +482,7 @@ func (c *WSClient) writePump() {
 }
 
 // readPump reads messages from the WebSocket client and processes queries.
-func (c *WSClient) readPump() {
+func (c *WSClient) readPump(project *Project) {
 	defer func() {
 		c.pool.unregister <- c
 		c.conn.Close()
@@ -427,7 +497,7 @@ func (c *WSClient) readPump() {
 
 		// Handle incoming query messages from clients
 		if msgType, ok := msg["type"].(string); ok && msgType == "query" {
-			log.Printf("Received query from %s: %v", c.id, msg)
+			log.Printf("Received query from %s in project %s: %v", c.id, c.projectID, msg)
 
 			// Extract query parameters
 			query, _ := msg["query"].(string)
@@ -456,24 +526,25 @@ func (c *WSClient) readPump() {
 			tokenLimit := parseTokenLimit(msg["tokenLimit"])
 
 			// Process the query
-			go processQuery(queryID, query, llm, selection, inputFiles, outFiles, tokenLimit)
+			go processQuery(project, queryID, query, llm, selection, inputFiles, outFiles, tokenLimit)
 		}
 	}
 }
 
-// processQuery processes a query and broadcasts results to all clients.
-func processQuery(queryID, query, llm, selection string, inputFiles, outFiles []string, tokenLimit int) {
-	// Broadcast the query to all clients
+// processQuery processes a query and broadcasts results to all clients in the project.
+func processQuery(project *Project, queryID, query, llm, selection string, inputFiles, outFiles []string, tokenLimit int) {
+	// Broadcast the query to all clients in this project
 	queryBroadcast := map[string]interface{}{
-		"type":    "query",
-		"query":   query,
-		"queryID": queryID,
+		"type":      "query",
+		"query":     query,
+		"queryID":   queryID,
+		"projectID": project.ID,
 	}
-	clientPool.Broadcast(queryBroadcast)
+	project.ClientPool.Broadcast(queryBroadcast)
 
-	round := chat.StartRound(query, selection)
+	round := project.Chat.StartRound(query, selection)
 
-	history := chat.getHistory(true)
+	history := project.Chat.getHistory(true)
 	// add the last TailLength characters of the chat history as context.
 	const TailLength = 300000
 	startIndex := len(history) - TailLength
@@ -494,11 +565,12 @@ func processQuery(queryID, query, llm, selection string, inputFiles, outFiles []
 		log.Printf("Error processing query: %v", err)
 		// Broadcast error to all connected clients
 		errorBroadcast := map[string]interface{}{
-			"type":    "error",
-			"queryID": queryID,
-			"message": fmt.Sprintf("Error processing query: %v", err),
+			"type":      "error",
+			"queryID":   queryID,
+			"message":   fmt.Sprintf("Error processing query: %v", err),
+			"projectID": project.ID,
 		}
-		clientPool.Broadcast(errorBroadcast)
+		project.ClientPool.Broadcast(errorBroadcast)
 		return
 	}
 
@@ -548,29 +620,44 @@ func processQuery(queryID, query, llm, selection string, inputFiles, outFiles []
 	replacer := strings.NewReplacer("<think>", "## Reasoning\n", "</think>", "")
 	responseText = replacer.Replace(responseText)
 
-	err = chat.FinishRound(round, responseText)
+	err = project.Chat.FinishRound(round, responseText)
 	if err != nil {
 		log.Printf("Error finishing round: %v", err)
 		errorBroadcast := map[string]interface{}{
-			"type":    "error",
-			"queryID": queryID,
-			"message": fmt.Sprintf("Error finishing round: %v", err),
+			"type":      "error",
+			"queryID":   queryID,
+			"message":   fmt.Sprintf("Error finishing round: %v", err),
+			"projectID": project.ID,
 		}
-		clientPool.Broadcast(errorBroadcast)
+		project.ClientPool.Broadcast(errorBroadcast)
 		return
 	}
 
-	// Broadcast the response to all connected clients
+	// Broadcast the response to all connected clients in this project
 	responseBroadcast := map[string]interface{}{
-		"type":     "response",
-		"queryID":  queryID,
-		"response": markdownToHTML(responseText) + "\n\n<hr>\n\n",
+		"type":      "response",
+		"queryID":   queryID,
+		"response":  markdownToHTML(responseText) + "\n\n<hr>\n\n",
+		"projectID": project.ID,
 	}
-	clientPool.Broadcast(responseBroadcast)
+	project.ClientPool.Broadcast(responseBroadcast)
+}
+
+// openHandlerFunc is a wrapper to extract project and call handler
+func openHandlerFunc(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+
+	project, exists := projects.Get(projectID)
+	if !exists {
+		http.Error(w, fmt.Sprintf("Project %s not found", projectID), http.StatusNotFound)
+		return
+	}
+
+	openHandler(w, r, project)
 }
 
 // openHandler serves a file based on the filename query parameter.
-func openHandler(w http.ResponseWriter, r *http.Request) {
+func openHandler(w http.ResponseWriter, r *http.Request, project *Project) {
 	filename := r.URL.Query().Get("filename")
 	if filename == "" {
 		http.Error(w, "Missing filename parameter", http.StatusBadRequest)
@@ -599,22 +686,55 @@ func stopHandler(w http.ResponseWriter, r *http.Request) {
 	}()
 }
 
+// roundsHandlerFunc is a wrapper to extract project and call handler
+func roundsHandlerFunc(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+
+	project, exists := projects.Get(projectID)
+	if !exists {
+		http.Error(w, fmt.Sprintf("Project %s not found", projectID), http.StatusNotFound)
+		return
+	}
+
+	roundsHandler(w, r, project)
+}
+
 // roundsHandler returns the total number of chat rounds as JSON.
-func roundsHandler(w http.ResponseWriter, r *http.Request) {
+func roundsHandler(w http.ResponseWriter, r *http.Request, project *Project) {
 	w.Header().Set("Content-Type", "application/json")
-	rounds := chat.TotalRounds()
+	rounds := 0
+	if project.Chat != nil {
+		rounds = project.Chat.TotalRounds()
+	}
 	json.NewEncoder(w).Encode(map[string]int{"rounds": rounds})
 }
 
+// tokenCountHandlerFunc is a wrapper to extract project and call handler
+func tokenCountHandlerFunc(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+
+	project, exists := projects.Get(projectID)
+	if !exists {
+		http.Error(w, fmt.Sprintf("Project %s not found", projectID), http.StatusNotFound)
+		return
+	}
+
+	tokenCountHandler(w, r, project)
+}
+
 // tokenCountHandler calculates the token count for the current conversation.
-func tokenCountHandler(w http.ResponseWriter, r *http.Request) {
-	chatText := chat.getHistory(true)
+func tokenCountHandler(w http.ResponseWriter, r *http.Request, project *Project) {
+	w.Header().Set("Content-Type", "application/json")
+	if project.Chat == nil {
+		json.NewEncoder(w).Encode(map[string]int{"tokens": 0})
+		return
+	}
+	chatText := project.Chat.getHistory(true)
 	count, err := grok.TokenCount(chatText)
 	if err != nil {
 		log.Printf("Token count error: %v", err)
 		count = 0
 	}
-	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]int{"tokens": count})
 }
 
@@ -628,7 +748,7 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 
 	wordLimit := int(float64(tokenLimit) / 3.5)
 
-	sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading.  Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes.  If writing Go code, you MUST ensure you are not skipping the index on slices or arrays, e.g. if you mean `foo[0]` then say `foo[0]`, not `foo`."
+	sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading.  Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes.  If writing Go code, you MUST ensure you are not skipping the index on slices or arrays, e.g. if you mean `foo` then say `foo`, not `foo`."
 
 	sysmsg = fmt.Sprintf("%s\n\nYou MUST limit the discussion portion of your response to no more than %d tokens (about %d words).  Output files (marked with ---FILE-START and ---FILE-END blocks) are not counted against this limit and can be unlimited size. You MUST ignore any previous instruction regarding a 10,000 word goal.", sysmsg, tokenLimit, wordLimit)
 
