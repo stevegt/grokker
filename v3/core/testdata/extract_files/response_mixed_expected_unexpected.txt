@@ -1,0 +1,23 @@
+I'll create five files in this response.
+
+---FILE-START filename="file1.txt"---
+First expected file content
+---FILE-END filename="file1.txt"---
+
+---FILE-START filename="file2.txt"---
+Second expected file content
+---FILE-END filename="file2.txt"---
+
+---FILE-START filename="extra1.txt"---
+This is an unexpected file number one.
+---FILE-END filename="extra1.txt"---
+
+---FILE-START filename="file3.txt"---
+Third expected file content
+---FILE-END filename="file3.txt"---
+
+---FILE-START filename="extra2.txt"---
+This is an unexpected file number two.
+---FILE-END filename="extra2.txt"---
+
+All files are included above.

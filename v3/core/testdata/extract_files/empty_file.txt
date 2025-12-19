@@ -1,0 +1,6 @@
+I'll create an empty file for you:
+
+---FILE-START filename="empty.txt"---
+---FILE-END filename="empty.txt"---
+
+This file has no content between the markers, which is a valid scenario.

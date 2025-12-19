@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -22,24 +23,45 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/gofrs/flock"
 	"github.com/gorilla/websocket"
+	"github.com/stevegt/envi"
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker/v3/client"
 	"github.com/stevegt/grokker/v3/core"
 	"github.com/stevegt/grokker/v3/util"
+	"github.com/stevegt/grokker/x/storm/db"
 	"github.com/stevegt/grokker/x/storm/split"
+	"github.com/stevegt/grokker/x/storm/version"
 	"github.com/yuin/goldmark"
 )
+
+//go:embed project.html
+var projectHTML string
 
 //go:embed index.html
 var indexHTML string
 
-var tmpl = template.Must(template.New("index").Parse(indexHTML))
+var projectTemplate = template.Must(template.New("project").Parse(projectHTML))
+var landingTemplate = template.Must(template.New("landing").Parse(indexHTML))
+
+// PendingQuery tracks queries awaiting user approval for unexpected files
+type PendingQuery struct {
+	queryID                 string
+	rawResponse             string
+	outFiles                []core.FileLang
+	approvalChannel         chan []string
+	alreadyAuthorized       []string
+	needsAuthorization      []string
+	project                 *Project
+	notificationTicker      *time.Ticker
+	stopNotificationChannel chan bool
+}
 
 // Global variables for serve subcommand
 var (
 	grok     *core.Grokker
 	srv      *http.Server
 	projects *Projects
+	dbMgr    *db.Manager
 
 	upgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -48,11 +70,20 @@ var (
 			return true // Allow all origins for now
 		},
 	}
+
+	// Track cancelled queries by queryID
+	cancelledQueries = make(map[string]bool)
+	cancelledMutex   sync.Mutex
+
+	// Track pending queries by queryID
+	pendingApprovals = make(map[string]*PendingQuery)
+	pendingMutex     sync.Mutex
 )
 
 const (
-	pingInterval = 20 * time.Second
-	pongWait     = 60 * time.Second
+	pingInterval                  = 20 * time.Second
+	pongWait                      = 60 * time.Second
+	unexpectedFilesNotifyInterval = 10 * time.Second
 )
 
 // QueryRequest represents a user's query input.
@@ -188,7 +219,7 @@ func parseTokenLimit(val interface{}) int {
 			return num
 		}
 	}
-	return 500 // default
+	return 8192 // default
 }
 
 // NewChat creates a new Chat instance using the given markdown filename.
@@ -319,16 +350,35 @@ func (c *Chat) getHistory(lock bool) string {
 // rootHandler serves the landing page listing all projects
 func rootHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, "<h1>Storm Projects</h1><ul>")
+
 	projectIDs := projects.List()
-	for _, projectID := range projectIDs {
-		fmt.Fprintf(w, "<li><a href='/project/%s/'>%s</a></li>", projectID, projectID)
+	var projectInfos []struct {
+		ID      string
+		BaseDir string
 	}
-	fmt.Fprintf(w, "</ul>")
+
+	for _, projectID := range projectIDs {
+		project, err := projects.Get(projectID)
+		if err != nil {
+			log.Printf("Error loading project %s: %v", projectID, err)
+			continue
+		}
+		projectInfos = append(projectInfos, struct {
+			ID      string
+			BaseDir string
+		}{
+			ID:      project.ID,
+			BaseDir: project.BaseDir,
+		})
+	}
+
+	if err := landingTemplate.Execute(w, projectInfos); err != nil {
+		http.Error(w, "Template error", http.StatusInternalServerError)
+	}
 }
 
-// serveRun starts the HTTP server on the specified port
-func serveRun(port int) error {
+// serveRun starts the HTTP server on the specified port with the given database path
+func serveRun(port int, dbPath string) error {
 	var err error
 	var lock *flock.Flock
 	grok, _, _, _, lock, err = core.Load("", true)
@@ -337,14 +387,29 @@ func serveRun(port int) error {
 	}
 	defer lock.Unlock()
 
-	// Initialize projects registry
-	projects = NewProjects()
+	// Use provided dbPath or default
+	if dbPath == "" {
+		dbPath = filepath.Join(os.ExpandEnv("$HOME"), ".storm", "data.db")
+	}
+	dbDir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dbDir, 0700); err != nil {
+		return fmt.Errorf("failed to create database directory: %w", err)
+	}
+
+	dbMgr, err = db.NewManager(dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to initialize database: %w", err)
+	}
+	defer dbMgr.Close()
+
+	// Initialize projects registry with database backend (no eager loading)
+	projects = NewProjectsWithDB(dbMgr)
 
 	// Create chi router
 	chiRouter := chi.NewRouter()
 
-	// Create Huma API
-	config := huma.DefaultConfig("Storm API", "1.0.0")
+	// Create Huma API with version from build-time injection
+	config := huma.DefaultConfig("Storm API", version.Version)
 	config.DocsPath = "/docs"
 	api := humachi.New(chiRouter, config)
 
@@ -354,7 +419,9 @@ func serveRun(port int) error {
 	// Huma API endpoints for project management
 	huma.Post(api, "/api/projects", postProjectsHandler)
 	huma.Get(api, "/api/projects", getProjectsHandler)
-	huma.Post(api, "/api/projects/{projectID}/files", postProjectFilesHandler)
+	huma.Delete(api, "/api/projects/{projectID}", deleteProjectHandler)
+	huma.Post(api, "/api/projects/{projectID}/files/add", postProjectFilesAddHandler)
+	huma.Post(api, "/api/projects/{projectID}/files/forget", postProjectFilesForgetHandler)
 	huma.Get(api, "/api/projects/{projectID}/files", getProjectFilesHandler)
 
 	// Project-specific routes (non-Huma for now, using chi directly)
@@ -385,9 +452,9 @@ func serveRun(port int) error {
 func projectHandlerFunc(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 
-	project, exists := projects.Get(projectID)
-	if !exists {
-		http.Error(w, fmt.Sprintf("Project %s not found", projectID), http.StatusNotFound)
+	project, err := projects.Get(projectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
 		return
 	}
 
@@ -403,7 +470,7 @@ func projectHandler(w http.ResponseWriter, r *http.Request, project *Project) {
 	}{
 		ChatHTML: template.HTML(markdownToHTML(chatContent)),
 	}
-	if err := tmpl.Execute(w, data); err != nil {
+	if err := projectTemplate.Execute(w, data); err != nil {
 		http.Error(w, "Template error", http.StatusInternalServerError)
 	}
 }
@@ -412,9 +479,9 @@ func projectHandler(w http.ResponseWriter, r *http.Request, project *Project) {
 func wsHandlerFunc(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 
-	project, exists := projects.Get(projectID)
-	if !exists {
-		http.Error(w, fmt.Sprintf("Project %s not found", projectID), http.StatusNotFound)
+	project, err := projects.Get(projectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
 		return
 	}
 
@@ -481,6 +548,16 @@ func (c *WSClient) writePump() {
 	}
 }
 
+// resolveFilePath converts a relative path to absolute using the project's BaseDir
+func resolveFilePath(project *Project, filePath string) string {
+	if filepath.IsAbs(filePath) {
+		// Already absolute, return as-is
+		return filePath
+	}
+	// Relative path: resolve against project BaseDir
+	return filepath.Join(project.BaseDir, filePath)
+}
+
 // readPump reads messages from the WebSocket client and processes queries.
 func (c *WSClient) readPump(project *Project) {
 	defer func() {
@@ -495,44 +572,221 @@ func (c *WSClient) readPump(project *Project) {
 			break
 		}
 
-		// Handle incoming query messages from clients
-		if msgType, ok := msg["type"].(string); ok && msgType == "query" {
-			log.Printf("Received query from %s in project %s: %v", c.id, c.projectID, msg)
+		// Handle incoming messages from clients
+		if msgType, ok := msg["type"].(string); ok {
+			if msgType == "query" {
+				log.Printf("Received query from %s in project %s: %v", c.id, c.projectID, msg)
 
-			// Extract query parameters
-			query, _ := msg["query"].(string)
-			llm, _ := msg["llm"].(string)
-			selection, _ := msg["selection"].(string)
-			queryID, _ := msg["queryID"].(string)
+				// Extract query parameters
+				query, _ := msg["query"].(string)
+				llm, _ := msg["llm"].(string)
+				selection, _ := msg["selection"].(string)
+				queryID, _ := msg["queryID"].(string)
 
-			// Extract arrays
-			var inputFiles, outFiles []string
-			if inputFilesRaw, ok := msg["inputFiles"].([]interface{}); ok {
-				for _, f := range inputFilesRaw {
-					if s, ok := f.(string); ok {
-						inputFiles = append(inputFiles, s)
+				// Extract arrays and resolve relative paths to absolute
+				var inputFiles, outFiles []string
+				if inputFilesRaw, ok := msg["inputFiles"].([]interface{}); ok {
+					for i := 0; i < len(inputFilesRaw); i++ {
+						if s, ok := inputFilesRaw[i].(string); ok {
+							absPath := resolveFilePath(project, s)
+							inputFiles = append(inputFiles, absPath)
+						}
 					}
 				}
-			}
-			if outFilesRaw, ok := msg["outFiles"].([]interface{}); ok {
-				for _, f := range outFilesRaw {
-					if s, ok := f.(string); ok {
-						outFiles = append(outFiles, s)
+				if outFilesRaw, ok := msg["outFiles"].([]interface{}); ok {
+					for i := 0; i < len(outFilesRaw); i++ {
+						if s, ok := outFilesRaw[i].(string); ok {
+							absPath := resolveFilePath(project, s)
+							outFiles = append(outFiles, absPath)
+						}
 					}
 				}
+
+				// Extract and parse tokenLimit with shorthand support (1K, 2M, etc.)
+				tokenLimit := parseTokenLimit(msg["tokenLimit"])
+
+				// Process the query
+				go processQuery(project, queryID, query, llm, selection, inputFiles, outFiles, tokenLimit)
+			} else if msgType == "cancel" {
+				// Handle query cancellation
+				queryID, _ := msg["queryID"].(string)
+				cancelledMutex.Lock()
+				cancelledQueries[queryID] = true
+				cancelledMutex.Unlock()
+				log.Printf("Query %s marked for cancellation", queryID)
+
+				// Stop notification ticker for this query if it exists
+				pendingMutex.Lock()
+				if pending, exists := pendingApprovals[queryID]; exists {
+					if pending.notificationTicker != nil {
+						pending.notificationTicker.Stop()
+						pending.notificationTicker = nil
+					}
+					select {
+					case pending.stopNotificationChannel <- true:
+					default:
+					}
+				}
+				pendingMutex.Unlock()
+			} else if msgType == "approveFiles" {
+				// Handle file approval for unexpected files
+				queryID, _ := msg["queryID"].(string)
+				approvedFilesRaw, _ := msg["approvedFiles"].([]interface{})
+
+				// Convert approved files to string slice
+				var approvedFiles []string
+				for i := 0; i < len(approvedFilesRaw); i++ {
+					if f, ok := approvedFilesRaw[i].(string); ok {
+						approvedFiles = append(approvedFiles, f)
+					}
+				}
+
+				// Send approval to pending query over channel to unblock processing
+				pendingMutex.Lock()
+				pending, exists := pendingApprovals[queryID]
+				pendingMutex.Unlock()
+
+				if exists && pending != nil {
+					log.Printf("Sending approval for query %s with %d approved files", queryID, len(approvedFiles))
+
+					// Stop the notification ticker
+					if pending.notificationTicker != nil {
+						pending.notificationTicker.Stop()
+						pending.notificationTicker = nil
+					}
+
+					select {
+					case pending.approvalChannel <- approvedFiles:
+						log.Printf("Approval sent to query %s", queryID)
+					default:
+						log.Printf("WARNING: approval channel full for query %s", queryID)
+					}
+				} else {
+					log.Printf("WARNING: received approval for unknown query %s", queryID)
+				}
+			} else if msgType == "debug" {
+				// Handle debug message from browser client
+				debugMessage, _ := msg["message"].(string)
+				clientID, _ := msg["clientID"].(string)
+				log.Printf("[DEBUG %s] %s", clientID, debugMessage)
 			}
-
-			// Extract and parse tokenLimit with shorthand support (1K, 2M, etc.)
-			tokenLimit := parseTokenLimit(msg["tokenLimit"])
-
-			// Process the query
-			go processQuery(project, queryID, query, llm, selection, inputFiles, outFiles, tokenLimit)
 		}
 	}
 }
 
+// addPendingQuery registers a query waiting for user approval
+func addPendingQuery(queryID string, rawResponse string, outFiles []core.FileLang, alreadyAuthorized, needsAuthorization []string, project *Project) *PendingQuery {
+	pending := &PendingQuery{
+		queryID:                 queryID,
+		rawResponse:             rawResponse,
+		outFiles:                outFiles,
+		approvalChannel:         make(chan []string, 1),
+		alreadyAuthorized:       alreadyAuthorized,
+		needsAuthorization:      needsAuthorization,
+		project:                 project,
+		stopNotificationChannel: make(chan bool, 1),
+	}
+
+	pendingMutex.Lock()
+	pendingApprovals[queryID] = pending
+	pendingMutex.Unlock()
+
+	log.Printf("Added pending query %s, waiting for approval", queryID)
+	return pending
+}
+
+// removePendingQuery cleans up a query that no longer needs approval
+func removePendingQuery(queryID string) {
+	pendingMutex.Lock()
+	pending, exists := pendingApprovals[queryID]
+	if exists {
+		delete(pendingApprovals, queryID)
+		// Stop the notification ticker if it exists
+		if pending.notificationTicker != nil {
+			pending.notificationTicker.Stop()
+			pending.notificationTicker = nil
+		}
+		// Close the channel to signal completion
+		close(pending.approvalChannel)
+	}
+	pendingMutex.Unlock()
+
+	if exists {
+		log.Printf("Removed pending query %s", queryID)
+	}
+}
+
+// startNotificationTicker begins periodically re-sending the unexpected files notification every 10 seconds
+func startNotificationTicker(pending *PendingQuery) {
+	pending.notificationTicker = time.NewTicker(unexpectedFilesNotifyInterval)
+
+	go func() {
+		for {
+			select {
+			case <-pending.notificationTicker.C:
+				// Re-send the unexpected files notification
+				unexpectedFilesMsg := map[string]interface{}{
+					"type":               "unexpectedFilesDetected",
+					"queryID":            pending.queryID,
+					"alreadyAuthorized":  pending.alreadyAuthorized,
+					"needsAuthorization": pending.needsAuthorization,
+					"projectID":          pending.project.ID,
+				}
+				pending.project.ClientPool.Broadcast(unexpectedFilesMsg)
+				log.Printf("Re-broadcasted unexpected files notification for query %s", pending.queryID)
+
+			case <-pending.stopNotificationChannel:
+				// Stop sending notifications when approval is received or query is cancelled
+				if pending.notificationTicker != nil {
+					pending.notificationTicker.Stop()
+				}
+				log.Printf("Stopped notification ticker for query %s", pending.queryID)
+				return
+			}
+		}
+	}()
+}
+
+// waitForApproval blocks indefinitely until user approves files
+func waitForApproval(pending *PendingQuery) ([]string, error) {
+	approvedFiles := <-pending.approvalChannel
+	log.Printf("Received approval for query %s with %d files", pending.queryID, len(approvedFiles))
+	return approvedFiles, nil
+}
+
+// categorizeUnexpectedFiles separates unexpected files into authorized and needs-authorization categories
+func categorizeUnexpectedFiles(project *Project, unexpectedFileNames []string) ([]string, []string) {
+	var alreadyAuthorized []string
+	var needsAuthorization []string
+
+	// Create a set of authorized files for efficient lookup
+	authorizedSet := make(map[string]bool)
+	for i := 0; i < len(project.AuthorizedFiles); i++ {
+		authorizedSet[project.AuthorizedFiles[i]] = true
+	}
+
+	// Categorize each unexpected file
+	for i := 0; i < len(unexpectedFileNames); i++ {
+		file := unexpectedFileNames[i]
+		if authorizedSet[file] {
+			alreadyAuthorized = append(alreadyAuthorized, file)
+		} else {
+			needsAuthorization = append(needsAuthorization, file)
+		}
+	}
+
+	return alreadyAuthorized, needsAuthorization
+}
+
 // processQuery processes a query and broadcasts results to all clients in the project.
 func processQuery(project *Project, queryID, query, llm, selection string, inputFiles, outFiles []string, tokenLimit int) {
+	// Clean up cancellation flag when done
+	defer func() {
+		cancelledMutex.Lock()
+		delete(cancelledQueries, queryID)
+		cancelledMutex.Unlock()
+	}()
+
 	// Broadcast the query to all clients in this project
 	queryBroadcast := map[string]interface{}{
 		"type":      "query",
@@ -560,7 +814,7 @@ func processQuery(project *Project, queryID, query, llm, selection string, input
 	log.Printf("Added %d tokens of context to query: %s", lastNTokenCount, query)
 
 	// Pass the token limit along to sendQueryToLLM.
-	responseText, err := sendQueryToLLM(query, llm, selection, lastN, inputFiles, outFiles, tokenLimit)
+	responseText, err := sendQueryToLLM(project, queryID, query, llm, selection, lastN, inputFiles, outFiles, tokenLimit)
 	if err != nil {
 		log.Printf("Error processing query: %v", err)
 		// Broadcast error to all connected clients
@@ -647,9 +901,9 @@ func processQuery(project *Project, queryID, query, llm, selection string, input
 func openHandlerFunc(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 
-	project, exists := projects.Get(projectID)
-	if !exists {
-		http.Error(w, fmt.Sprintf("Project %s not found", projectID), http.StatusNotFound)
+	project, err := projects.Get(projectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
 		return
 	}
 
@@ -690,9 +944,9 @@ func stopHandler(w http.ResponseWriter, r *http.Request) {
 func roundsHandlerFunc(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 
-	project, exists := projects.Get(projectID)
-	if !exists {
-		http.Error(w, fmt.Sprintf("Project %s not found", projectID), http.StatusNotFound)
+	project, err := projects.Get(projectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
 		return
 	}
 
@@ -713,9 +967,9 @@ func roundsHandler(w http.ResponseWriter, r *http.Request, project *Project) {
 func tokenCountHandlerFunc(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 
-	project, exists := projects.Get(projectID)
-	if !exists {
-		http.Error(w, fmt.Sprintf("Project %s not found", projectID), http.StatusNotFound)
+	project, err := projects.Get(projectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Project %s not found: %v", projectID, err), http.StatusNotFound)
 		return
 	}
 
@@ -738,17 +992,26 @@ func tokenCountHandler(w http.ResponseWriter, r *http.Request, project *Project)
 	json.NewEncoder(w).Encode(map[string]int{"tokens": count})
 }
 
+// isQueryCancelled checks if a query has been marked for cancellation
+func isQueryCancelled(queryID string) bool {
+	cancelledMutex.Lock()
+	defer cancelledMutex.Unlock()
+	return cancelledQueries[queryID]
+}
+
 // sendQueryToLLM calls the Grokker API to obtain a markdown-formatted text.
-func sendQueryToLLM(query string, llm string, selection, backgroundContext string, inputFiles []string, outFiles []string, tokenLimit int) (string, error) {
+// Checks if the query was cancelled after the LLM call completes and discards the result if so.
+// Implements Stage 5: Dry-run detection and WebSocket notification of unexpected files
+func sendQueryToLLM(project *Project, queryID, query string, llm string, selection, backgroundContext string, inputFiles []string, outFiles []string, tokenLimit int) (string, error) {
 	if tokenLimit == 0 {
-		tokenLimit = 500
+		tokenLimit = 8192
 	}
 
 	var err error // TODO need to return err
 
 	wordLimit := int(float64(tokenLimit) / 3.5)
 
-	sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading.  Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes.  If writing Go code, you MUST ensure you are not skipping the index on slices or arrays, e.g. if you mean `foo` then say `foo`, not `foo`."
+	sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading.  Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes.  If writing Go code, you MUST ensure you are not skipping the index on slices or arrays, e.g. if you mean `foo[0]` then say `foo[0]`, not `foo`."
 
 	sysmsg = fmt.Sprintf("%s\n\nYou MUST limit the discussion portion of your response to no more than %d tokens (about %d words).  Output files (marked with ---FILE-START and ---FILE-END blocks) are not counted against this limit and can be unlimited size. You MUST ignore any previous instruction regarding a 10,000 word goal.", sysmsg, tokenLimit, wordLimit)
 
@@ -768,19 +1031,15 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 		}
 
 		var outFilesConverted []core.FileLang
-		for _, f := range outFiles {
-			// TODO temporarily work around bug in util.Ext2Lang by
-			// recognizing Makefile explicitly.
-			var lang string
-			if f == "Makefile" {
-				lang = "makefile"
-			} else {
-				var known bool
-				lang, known, err = util.Ext2Lang(f)
-				Ck(err)
-				if !known {
-					log.Printf("Unknown file extension for output file %s; assuming language is %s", f, lang)
-				}
+		for j := 0; j < len(outFiles); j++ {
+			f := outFiles[j]
+			lang, known, err := util.Ext2Lang(f)
+			if err != nil {
+				log.Printf("Ext2Lang error for file %s: %v", f, err)
+				lang = "text"
+			}
+			if !known {
+				log.Printf("Unknown file extension for output file %s; assuming language is %s", f, lang)
 			}
 			outFilesConverted = append(outFilesConverted, core.FileLang{File: f, Language: lang})
 		}
@@ -791,14 +1050,35 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 			log.Printf("SendWithFiles error: %v", err)
 			return "", fmt.Errorf("failed to send query to LLM: %w", err)
 		}
+
+		if true || envi.Bool("DEBUG", false) {
+			// write response to a tmp file for inspection
+			tmpFile, err := ioutil.TempFile("", "storm-llm-response-*.md")
+			if err != nil {
+				log.Printf("Failed to create temp file for LLM response: %v", err)
+			} else {
+				defer tmpFile.Close()
+				if _, err := tmpFile.WriteString(response); err != nil {
+					log.Printf("Failed to write LLM response to temp file: %v", err)
+				} else {
+					log.Printf("Wrote LLM response to temp file: %s", tmpFile.Name())
+				}
+			}
+		}
+
+		// Check if query was cancelled after LLM call completes
+		if isQueryCancelled(queryID) {
+			log.Printf("Query %s was cancelled, discarding LLM result", queryID)
+			return "", fmt.Errorf("query cancelled")
+		}
+
 		fmt.Printf("Received response from LLM '%s'\n", llm)
 		fmt.Printf("Response: %s\n", response)
 
 		// run ExtractFiles first as a dry run to see if we fit in token limit
-		cookedResponse, err = core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
-			DryRun:             true,
-			ExtractToStdout:    false,
-			RemoveFromResponse: true,
+		result, err := core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
+			DryRun:          true,
+			ExtractToStdout: false,
 		})
 
 		if err != nil {
@@ -806,10 +1086,80 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 			return "", fmt.Errorf("failed to extract files from response: %w", err)
 		}
 
+		cookedResponse = result.CookedResponse
+
+		// Stage 5: Detect unexpected files and notify user via WebSocket
+		if len(result.UnexpectedFiles) > 0 {
+			// Extract filenames from UnexpectedFiles (which are FileEntry structs with Name and Content)
+			var unexpectedFileNames []string
+			for k := 0; k < len(result.UnexpectedFiles); k++ {
+				// Extract the filename from the FileEntry struct
+				unexpectedFileNames = append(unexpectedFileNames, result.UnexpectedFiles[k].Filename)
+			}
+
+			// Categorize unexpected files
+			alreadyAuthorized, needsAuthorization := categorizeUnexpectedFiles(project, unexpectedFileNames)
+
+			log.Printf("Found %d unexpected files: %d authorized, %d need authorization", len(unexpectedFileNames), len(alreadyAuthorized), len(needsAuthorization))
+
+			// Send WebSocket notification only if there are actually unexpected files
+			if len(alreadyAuthorized) > 0 || len(needsAuthorization) > 0 {
+				unexpectedFilesMsg := map[string]interface{}{
+					"type":               "unexpectedFilesDetected",
+					"queryID":            queryID,
+					"alreadyAuthorized":  alreadyAuthorized,
+					"needsAuthorization": needsAuthorization,
+					"projectID":          project.ID,
+				}
+				project.ClientPool.Broadcast(unexpectedFilesMsg)
+				log.Printf("Broadcasted unexpected files notification for query %s", queryID)
+
+				// Create pending query and wait for user approval
+				pending := addPendingQuery(queryID, response, outFilesConverted, alreadyAuthorized, needsAuthorization, project)
+
+				// Start periodic re-sending of unexpected files notification
+				startNotificationTicker(pending)
+
+				// Wait indefinitely for user to approve or decline files
+				approvedFiles, err := waitForApproval(pending)
+				if err != nil {
+					log.Printf("Error waiting for approval: %v", err)
+					// Continue with original extraction if approval fails
+					approvedFiles = []string{}
+				}
+
+				// If user approved files, expand outFiles list and re-run extraction
+				if len(approvedFiles) > 0 {
+					log.Printf("User approved %d files, re-running extraction with expanded list", len(approvedFiles))
+
+					// Convert approved filenames to FileLang and add to outFilesConverted
+					for k := 0; k < len(approvedFiles); k++ {
+						approvedFile := approvedFiles[k]
+						lang, known, err := util.Ext2Lang(approvedFile)
+						if err != nil {
+							log.Printf("Ext2Lang error for approved file %s: %v", approvedFile, err)
+							lang = "text"
+						}
+						if !known {
+							log.Printf("Unknown file extension for approved file %s; assuming language is %s", approvedFile, lang)
+						}
+						outFilesConverted = append(outFilesConverted, core.FileLang{File: approvedFile, Language: lang})
+						log.Printf("Added approved file %s with language %s to output list", approvedFile, lang)
+					}
+				}
+
+				// Clean up pending query
+				removePendingQuery(queryID)
+			}
+		}
+
 		// check token count of cookedResponse -- but first, remove
-		// any ## References and <think> sections
-		referencesRe := regexp.MustCompile(`(?s)## References.*?`)
-		discussionOnly := referencesRe.ReplaceAllString(cookedResponse, "")
+		// any ## References, <references>, and <think> sections
+		discussionOnly := cookedResponse
+		refHeadRe := regexp.MustCompile(`(?s)## References.*?`)
+		discussionOnly = refHeadRe.ReplaceAllString(discussionOnly, "")
+		reftagsRe := regexp.MustCompile(`(?s)<references>.*?</references>`)
+		discussionOnly = reftagsRe.ReplaceAllString(discussionOnly, "")
 		reasoningRe := regexp.MustCompile(`(?s)<think>.*?</think>`)
 		discussionOnly = reasoningRe.ReplaceAllString(discussionOnly, "")
 		count, err := grok.TokenCount(discussionOnly)
@@ -827,11 +1177,12 @@ func sendQueryToLLM(query string, llm string, selection, backgroundContext strin
 		}
 
 		// successful response within token limit, so now run ExtractFiles for real
-		cookedResponse, err = core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
-			DryRun:             false,
-			ExtractToStdout:    false,
-			RemoveFromResponse: true,
+		result, err = core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
+			DryRun:          false,
+			ExtractToStdout: false,
 		})
+
+		cookedResponse = result.CookedResponse
 
 		break
 	}

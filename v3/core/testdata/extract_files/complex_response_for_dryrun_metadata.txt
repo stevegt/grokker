@@ -1,0 +1,19 @@
+I'll create a complex response with multiple file scenarios:
+
+---FILE-START filename="expected1.txt"---
+First expected file content.
+This file should be marked as extracted.
+---FILE-END filename="expected1.txt"---
+
+Some discussion text here.
+
+---FILE-START filename="unexpected1.txt"---
+This file was not requested but is included in the response.
+It should be tracked as an unexpected file.
+---FILE-END filename="unexpected1.txt"---
+
+More discussion content.
+
+---FILE-START filename="broken.txt"---
+This file starts but never ends properly.
+The response ends while still inside this file block.

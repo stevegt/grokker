@@ -1,0 +1,15 @@
+I'll create two files for dry-run testing:
+
+---FILE-START filename="file1.txt"---
+First file content for dry-run test.
+This should be detected without being written to disk.
+The extraction process should verify the structure.
+---FILE-END filename="file1.txt"---
+
+---FILE-START filename="file2.txt"---
+Second file content for dry-run test.
+Both files should be processed and reported.
+No actual files should be created when DryRun is true.
+---FILE-END filename="file2.txt"---
+
+This completes the dry-run test scenario.

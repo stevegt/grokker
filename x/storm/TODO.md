@@ -1,12 +1,22 @@
 # bugs
 
-- DONE inconsistent display of prompts and responses (not all users see both)
-  - was due to read timeout setting -- replaced with ping/pong keepalive
 - need spinner in status box visible to all users when processing
-- DONE need to stop removing '[\d+]' indexes from array variables
+- new unexpected files -- need to repopulate approval list so user can
+  click 'out' box
+- cli_test.go needs random instead of hardcoded port numbers 
+  - use getAvailablePort() from websocket_test.go (move it to testutils)
 
 # features
 
+- file list:
+  - left justify
+  - sort options (alphabetical, time created, folders first) 
+- ESC exits file modal
+- add home button or project name dropdown to project.html
+- wrap queries in code block in markdown file 
+  - reformat on read, so result will be written to disk
+- status subcommand to show current status of daemon including queries
+  in progress
 - really need https://playwright.dev/ to test
 - refactor to be able to use one daemon on one port number for multiple projects
   - see discussion.md
@@ -16,9 +26,22 @@
   - or even manually issue JWT or CWT tokens to users -- see
     discussion.md
 - jump to end button:
-  - DONE add "jump to end" button
   - make "jump to end" button auto-scroll to the left as well
   - make "jump to end" button be referenced to bottom of chat area
     instead of bottom of main window
-- monitor using inotify and auto relaod and re-render markdown when markdown file changes?
+- monitor using inotify and auto reload and re-render markdown when markdown file changes?
 
+# prompts
+
+---
+
+add a "queue" button below the "send" button.  when the user hits
+"queue", the message is added to a local queue in IndexedDB instead of
+being sent immediately.  
+
+if the user hits "queue" with an empty message, show a popup dialog
+listing the currently queued messages with options to delete individual
+messages or move a message from the queue to the send box for editing and
+sending.
+
+---

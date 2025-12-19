@@ -1,0 +1,16 @@
+<think>
+This is the thinking process where I work through the problem step by step.
+I'll analyze what files need to be created.
+The user wants an output file.
+I should create a complete, well-formed file.
+</think>
+
+Now I'll create the output file:
+
+---FILE-START filename="output.txt"---
+This is the output after thinking.
+The thinking section should have been removed.
+Only this content remains in the cooked response.
+---FILE-END filename="output.txt"---
+
+The thinking process is complete.

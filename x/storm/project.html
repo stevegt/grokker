@@ -1,0 +1,1327 @@
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Storm</title>
+  <style>
+    body { 
+      font-family: Arial, sans-serif; 
+      margin: 0; 
+      padding: 0; 
+      background-color: #121212; 
+      color: #e0e0e0;
+    }
+    /* Container for sidebars and main content */
+    #container { display: flex; height: 100vh; }
+    /* Left sidebar for Table of Contents */
+    #sidebar {
+      width: 250px;
+      background-color: #1e1e1e;
+      border-right: 1px solid #333;
+      overflow-y: auto;
+      transition: width 0.3s;
+      padding: 10px;
+    }
+    /* Collapsed sidebar style */
+    #sidebar.collapsed {
+      width: 10px;
+      padding: 0;
+      border: none;
+      overflow: hidden;
+    }
+    /* Shrink the heading in the sidebar */
+    #sidebar h3 { font-size: 0.9em; }
+    /* Main content area */
+    #main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+    /* Chat area styles */
+    #chat { 
+      padding: 20px; 
+      flex: 1; 
+      overflow-y: auto; 
+      border-bottom: 1px solid #333; 
+    }
+    .message { 
+      margin-bottom: 10px; 
+      padding: 5px; 
+      border: 1px solid #444; 
+      border-radius: 4px; 
+      background-color: #252525; 
+    }
+    /* Floating scroll-to-bottom button - fixed to viewport frame */
+    #scrollToBottomBtn {
+      position: fixed;
+      bottom: 150px;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: #3498db;
+      color: #e0e0e0;
+      border: 1px solid #555;
+      padding: 10px 15px;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      display: none;
+      cursor: pointer;
+      font-size: 20px;
+      z-index: 10;
+      align-items: center;
+      justify-content: center;
+    }
+    #scrollToBottomBtn:hover {
+      background-color: #2980b9;
+    }
+    #spinner-area { padding: 10px; text-align: center; }
+    .spinner {
+      border: 4px solid #555;
+      border-top: 4px solid #3498db;
+      border-radius: 50%;
+      width: 10px;
+      height: 10px;
+      animation: spin 1s linear infinite;
+      display: inline-block;
+      margin-right: 5px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    /* Updated input area using CSS Grid */
+    #input-area { 
+      background: #1e1e1e; 
+      padding: 10px; 
+      box-shadow: 0 -2px 5px rgba(0,0,0,0.1);
+      display: grid;
+      grid-template-areas: 
+        "llmSelect userInput sendBtn filesBtn statusBox stopBtn"
+        "tokenLimit userInput .       .        statusBox .";
+      grid-template-columns: auto 1fr auto auto auto auto;
+      grid-template-rows: auto auto;
+      gap: 5px;
+    }
+    textarea { 
+      width: 100%; 
+      height: 100%; 
+      background-color: #333;
+      color: #e0e0e0;
+      border: 1px solid #555;
+    }
+    select { 
+      background-color: #333;
+      color: #e0e0e0;
+      border: 1px solid #555;
+    }
+    input[type="number"] { 
+      width: 80px; 
+      height: 20px; 
+      font-size: 12px; 
+      padding: 5px; 
+      background-color: #333;
+      color: #e0e0e0;
+      border: 1px solid #555;
+    }
+    button {
+      background-color: #333;
+      color: #e0e0e0;
+      border: 1px solid #555;
+      padding: 10px 15px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #444;
+    }
+    /* Custom style for the stop button to shrink its size and font */
+    #stopBtn {
+      font-size: 10px;
+      padding: 5px 10px;
+    }
+    /* Custom style for the files button */
+    #filesBtn {
+      font-size: 12px;
+      padding: 8px 12px;
+    }
+    #statusBox { 
+      display: inline-block; 
+      font-size: 11px; 
+    }
+    /* Red stop sign for error indication in status box */
+    #errorSign {
+      display: none;
+      color: red;
+      font-size: 16px;
+      margin-left: 5px;
+    }
+    /* Toggle button for sidebar */
+    #toggle-sidebar {
+      background-color: #3498db;
+      color: #e0e0e0;
+      border: 1px solid #555;
+      padding: 5px 10px;
+      cursor: pointer;
+      margin-bottom: 10px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    /* Home button in sidebar */
+    #homeBtn {
+      background-color: #27ae60;
+      color: #e0e0e0;
+      border: 1px solid #555;
+      padding: 8px 12px;
+      cursor: pointer;
+      margin-bottom: 10px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      display: block;
+      width: 100%;
+      text-align: center;
+      font-weight: bold;
+    }
+    #homeBtn:hover {
+      background-color: #229954;
+    }
+    /* Global link styling - lighter shade of blue */
+    a {
+      color: #90D5FF;
+      text-decoration: none;
+    }
+    a:visited {
+      color: #87CEEB;
+    }
+    a:hover {
+      color: #ADD8E6;
+      text-decoration: underline;
+    }
+    a:active {
+      color: #6BB6FF;
+    }
+    /* Table of Contents links */
+    #toc a {
+      text-decoration: none;
+      color: #ddd;
+      padding: 4px;
+      display: block;
+    }
+    #toc a:hover {
+      background-color: #444;
+    }
+    /* Dark scrollbar styles */
+    ::-webkit-scrollbar {
+      width: 12px;
+      height: 12px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #1e1e1e;
+    }
+    ::-webkit-scrollbar-thumb {
+      background-color: #444;
+      border: 2px solid #1e1e1e;
+      border-radius: 6px;
+    }
+    /* Modal dialog styles */
+    #fileModal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.5);
+    }
+    #fileModal.show {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-content {
+      background-color: #1e1e1e;
+      padding: 20px;
+      border: 1px solid #555;
+      border-radius: 8px;
+      width: 90%;
+      max-width: 600px;
+      max-height: 80vh;
+      overflow-y: auto;
+      color: #e0e0e0;
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+      border-bottom: 1px solid #555;
+      padding-bottom: 10px;
+    }
+    .modal-header h2 {
+      margin: 0;
+      font-size: 1.3em;
+    }
+    .modal-close-btn {
+      background-color: #555;
+      color: #e0e0e0;
+      border: 1px solid #777;
+      padding: 5px 10px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    .modal-close-btn:hover {
+      background-color: #666;
+    }
+    #fileSidebarContent {
+      width: 100%;
+    }
+    #fileSidebarContent h3 {
+      margin-top: 0;
+      font-size: 1.1em;
+    }
+    #fileSidebarContent table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    #fileSidebarContent th, #fileSidebarContent td {
+      border: 1px solid #555;
+      padding: 6px;
+      text-align: center;
+    }
+    #fileSidebarContent th {
+      background-color: #2a2a2a;
+      font-weight: bold;
+    }
+    #fileSidebarContent td a {
+      word-break: break-all;
+    }
+    /* Unexpected files modal sections */
+    .unexpected-section {
+      margin-bottom: 20px;
+      padding: 15px;
+      background-color: #252525;
+      border: 1px solid #555;
+      border-radius: 4px;
+    }
+    .unexpected-section h3 {
+      margin-top: 0;
+      margin-bottom: 10px;
+      color: #fff;
+    }
+    .unexpected-section p {
+      margin: 5px 0 10px 0;
+      font-size: 0.9em;
+      color: #ccc;
+    }
+    .unexpected-files-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .unexpected-files-table th, .unexpected-files-table td {
+      border: 1px solid #444;
+      padding: 6px;
+      text-align: left;
+    }
+    .unexpected-files-table th {
+      background-color: #2a2a2a;
+      font-weight: bold;
+    }
+    .needs-auth-file {
+      margin-bottom: 8px;
+      padding: 8px;
+      background-color: #1e1e1e;
+      border: 1px solid #444;
+      border-radius: 3px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .needs-auth-file .filename {
+      flex: 1;
+      word-break: break-all;
+    }
+    .needs-auth-file .copy-btn {
+      background-color: #3498db;
+      color: #e0e0e0;
+      border: 1px solid #2980b9;
+      padding: 4px 8px;
+      margin-left: 8px;
+      cursor: pointer;
+      font-size: 0.85em;
+      white-space: nowrap;
+    }
+    .needs-auth-file .copy-btn:hover {
+      background-color: #2980b9;
+    }
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+      justify-content: flex-end;
+      border-top: 1px solid #555;
+      padding-top: 15px;
+    }
+    .modal-actions button {
+      padding: 10px 15px;
+      font-size: 0.95em;
+    }
+    #confirmApprovalBtn {
+      background-color: #27ae60;
+      border-color: #229954;
+    }
+    #confirmApprovalBtn:hover {
+      background-color: #229954;
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <div id="sidebar">
+      <button id="homeBtn">🏠 Home</button>
+      <button id="toggle-sidebar">TOC</button>
+      <h3>Table of Contents</h3>
+      <div id="toc">
+        <!-- TOC will be generated here -->
+      </div>
+    </div>
+    <div id="main">
+      <!-- Floating scroll-to-bottom button - fixed to viewport frame -->
+      <button id="scrollToBottomBtn">↓</button>
+      <div id="chat">
+        <!-- Chat messages will appear here -->
+        {{.ChatHTML}}
+      </div>
+      <div id="spinner-area">
+        <!-- Progress spinners will appear here -->
+      </div>
+      <div id="input-area">
+        <select id="llmSelect" style="grid-area: llmSelect;">
+          <option value="sonar-deep-research">sonar-deep-research</option>
+          <option value="sonar-reasoning">sonar-reasoning</option>
+          <option value="o3-mini">o3-mini</option>
+        </select>
+        <textarea id="userInput" placeholder="Enter query" style="grid-area: userInput;"></textarea>
+        <button id="sendBtn" style="grid-area: sendBtn;">Send</button>
+        <button id="filesBtn" style="grid-area: filesBtn;">Files</button>
+        <span id="statusBox" style="grid-area: statusBox;">
+          <span id="tokenCountText">Token Count: 0</span>
+          <br>
+          <span id="roundsStats">Rounds:</span>
+          <br>
+          <span id="progressStats">Progress:</span>
+          <br>
+          <span id="statusSpinner" style="display:none;" class="spinner"></span>
+          <span id="errorSign">⛔</span>
+        </span>
+        <button id="stopBtn" style="grid-area: stopBtn;">Stop<br>Server</button>
+        <div id="tokenLimitContainer" style="grid-area: tokenLimit;">
+          <label for="tokenLimit">Token Limit</label>
+          <input type="number" id="tokenLimit" placeholder="8k">
+          <div id="presetButtons">
+            <button type="button" class="preset-tokencount"
+              data-token="1024" style="font-size:10px; padding:2px 5px; margin:2px;">1K</button>
+            <button type="button" class="preset-tokencount"
+              data-token="2048" style="font-size:10px; padding:2px 5px; margin:2px;">2K</button>
+            <button type="button" class="preset-tokencount"
+              data-token="4096" style="font-size:10px; padding:2px 5px; margin:2px;">4K</button>
+            <button type="button" class="preset-tokencount"
+              data-token="8192" style="font-size:10px; padding:2px 5px; margin:2px;">8K</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- File Management Modal Dialog -->
+  <div id="fileModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="modalTitle">File Management</h2>
+        <button class="modal-close-btn" id="closeFileModal">✕</button>
+      </div>
+      <div id="fileSidebarContent">
+        <!-- Regular file list or unexpected files content will be rendered here -->
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Debug logging function that sends messages to server via WebSocket
+    function debugLog(message) {
+      // Always log to browser console
+      console.log(message);
+      
+      // Also send to server via WebSocket if connected
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: "debug",
+          message: message,
+          clientID: "browser"
+        }));
+      }
+    }
+
+    // WebSocket connection
+    var ws;
+    var pendingQueryDivs = {}; // Track divs for pending queries by queryID
+    var currentUnexpectedFilesQuery = null; // Track which query has unexpected files modal open
+    
+    // Extract projectID from URL path
+    var projectID = window.location.pathname.split('/')[2] || 'default';
+    
+    // Set document title to include project ID
+    document.title = projectID;
+    
+    // UUID v4 generator without NPM
+    function generateUUID() {
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0,
+            v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
+    }
+    
+    // Helper functions for managing cookies.
+    function setCookie(name, value, days) {
+      var expires = "";
+      if (days) {
+        var date = new Date();
+        date.setTime(date.getTime() + (days*24*60*60*1000));
+        expires = "; expires=" + date.toUTCString();
+      }
+      document.cookie = name + "=" + (value || "")  + expires + "; path=/";
+    }
+    function getCookie(name) {
+      var nameEQ = name + "=";
+      var ca = document.cookie.split(';');
+      for(var i=0; i < ca.length; i++) {
+        var c = ca[i].trim();
+        if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length, c.length);
+      }
+      return null;
+    }
+
+    // Global counter for outstanding queries.
+    var outstandingQueries = 0;
+    // Updates the spinner in the status box based on the current outstanding query count.
+    function updateStatusSpinner() {
+      var spinner = document.getElementById("statusSpinner");
+      if (outstandingQueries > 0) {
+        spinner.style.display = "inline-block";
+      } else {
+        spinner.style.display = "none";
+      }
+    }
+
+    // Show the error stop sign. Once shown, it remains visible until the page is reloaded.
+    function showErrorSign() {
+      var errorSign = document.getElementById("errorSign");
+      if (errorSign) {
+        errorSign.style.display = "inline-block";
+      }
+    }
+
+    // Check if chat is scrolled to bottom
+    function isScrolledToBottom() {
+      var chat = document.getElementById("chat");
+      return chat.scrollTop >= (chat.scrollHeight - chat.clientHeight - 10);
+    }
+
+    // Update scroll-to-bottom button visibility
+    function updateScrollButtonVisibility() {
+      var btn = document.getElementById("scrollToBottomBtn");
+      if (isScrolledToBottom()) {
+        btn.style.display = "none";
+      } else {
+        btn.style.display = "flex";
+      }
+    }
+
+    // Generate a Table of Contents from headings in the chat
+    function generateTOC() {
+      var chat = document.getElementById("chat");
+      var headings = chat.querySelectorAll("h1, h2, h3, h4, h5, h6");
+      var toc = document.getElementById("toc");
+      toc.innerHTML = "";
+      headings.forEach(function(heading, index) {
+        if (!heading.id) {
+          heading.id = "heading-" + index;
+        }
+        // Determine heading level and create link with indentation and font size
+        var level = parseInt(heading.tagName.substring(1));
+        var link = document.createElement("a");
+        link.href = "#" + heading.id;
+        link.textContent = heading.textContent;
+        // Bold top-level links (h1)
+        if(level === 1) {
+          link.style.fontWeight = "bold";
+        }
+        // Indent based on level, e.g. 20px per sub-level
+        link.style.marginLeft = ((level - 1) * 20) + "px";
+        // Adjust font size based on heading level (shrunk from original values)
+        var fontSize = Math.max(1.0 - 0.1 * (level - 1), 0.7);
+        link.style.fontSize = fontSize + "em";
+        toc.appendChild(link);
+      });
+    }
+
+    // File modal functions
+    function openFileModal() {
+      debugLog("openFileModal() called");
+      var modal = document.getElementById("fileModal");
+      if (!modal) {
+        debugLog("ERROR: fileModal element not found in DOM");
+        return;
+      }
+      debugLog("fileModal found, adding show class");
+      modal.classList.add("show");
+      debugLog("Added 'show' class to fileModal");
+    }
+
+    function closeFileModal() {
+      var modal = document.getElementById("fileModal");
+      modal.classList.remove("show");
+    }
+
+    // Stage 6: Display unexpected files modal
+    function displayUnexpectedFilesModal(queryID, alreadyAuthorized, needsAuthorization) {
+      var content = document.getElementById("fileSidebarContent");
+      var modal = document.getElementById("fileModal");
+      var modalTitle = document.getElementById("modalTitle");
+      
+      // Set title to indicate unexpected files
+      modalTitle.textContent = "Unexpected Files Detected";
+      
+      content.innerHTML = "";
+      
+      // Already Authorized section
+      if (alreadyAuthorized && alreadyAuthorized.length > 0) {
+        var authSection = document.createElement("div");
+        authSection.className = "unexpected-section";
+        authSection.innerHTML = "<h3>Already Authorized - Enable for Output</h3>";
+        authSection.innerHTML += "<p>These files are authorized but not currently selected for output. Check the Out column to include them in this query's file extraction:</p>";
+        
+        var authTable = document.createElement("table");
+        authTable.className = "unexpected-files-table";
+        authTable.innerHTML = "<thead><tr><th style=\"text-align: center;\">All/None</th><th>Out</th><th>Filename</th></tr></thead><tbody></tbody>";
+        
+        var tbody = authTable.querySelector("tbody");
+        
+        // Add All/None checkbox in header
+        var headerRow = authTable.querySelector("thead tr");
+        var allNoneCell = headerRow.cells[0];
+        var selectAllCheckbox = document.createElement("input");
+        selectAllCheckbox.type = "checkbox";
+        selectAllCheckbox.className = "unexpected-select-all";
+        allNoneCell.innerHTML = "";
+        allNoneCell.appendChild(selectAllCheckbox);
+        
+        for (var i = 0; i < alreadyAuthorized.length; i++) {
+          var filename = alreadyAuthorized[i];
+          var tr = document.createElement("tr");
+          
+          var tdAllNone = document.createElement("td");
+          tdAllNone.textContent = "";
+          
+          var tdOut = document.createElement("td");
+          var outCheckbox = document.createElement("input");
+          outCheckbox.type = "checkbox";
+          outCheckbox.className = "unexpected-out";
+          outCheckbox.value = filename;
+          tdOut.appendChild(outCheckbox);
+          
+          var tdName = document.createElement("td");
+          tdName.textContent = filename;
+          
+          tr.appendChild(tdAllNone);
+          tr.appendChild(tdOut);
+          tr.appendChild(tdName);
+          tbody.appendChild(tr);
+        }
+        
+        // Add change listener to All/None checkbox for this table
+        selectAllCheckbox.addEventListener("change", function() {
+          var checkboxes = tbody.querySelectorAll("input.unexpected-out");
+          for (var k = 0; k < checkboxes.length; k++) {
+            checkboxes[k].checked = selectAllCheckbox.checked;
+          }
+        });
+        
+        authSection.appendChild(authTable);
+        content.appendChild(authSection);
+      }
+      
+      // Needs Authorization section
+      if (needsAuthorization && needsAuthorization.length > 0) {
+        var needsSection = document.createElement("div");
+        needsSection.className = "unexpected-section";
+        needsSection.innerHTML = "<h3>Needs Authorization - Add via CLI First</h3>";
+        needsSection.innerHTML += "<p>These files are not yet authorized. Add them using the CLI command shown below, then enable them for output:</p>";
+        
+        var filesList = document.createElement("div");
+        for (var j = 0; j < needsAuthorization.length; j++) {
+          var file = needsAuthorization[j];
+          var fileDiv = document.createElement("div");
+          fileDiv.className = "needs-auth-file";
+          
+          var filenameSpan = document.createElement("span");
+          filenameSpan.className = "filename";
+          filenameSpan.textContent = file;
+          
+          var copyBtn = document.createElement("button");
+          copyBtn.className = "copy-btn";
+          copyBtn.textContent = "Copy Command";
+          copyBtn.onclick = (function(filename) {
+            return function() {
+              var command = "storm file add --project " + projectID + " " + filename;
+              navigator.clipboard.writeText(command).then(function() {
+                copyBtn.textContent = "Copied!";
+                setTimeout(function() {
+                  copyBtn.textContent = "Copy Command";
+                }, 2000);
+              });
+            };
+          })(file);
+          
+          fileDiv.appendChild(filenameSpan);
+          fileDiv.appendChild(copyBtn);
+          filesList.appendChild(fileDiv);
+        }
+        
+        needsSection.appendChild(filesList);
+        content.appendChild(needsSection);
+      }
+      
+      // Action buttons
+      var actionsDiv = document.createElement("div");
+      actionsDiv.className = "modal-actions";
+      
+      var confirmBtn = document.createElement("button");
+      confirmBtn.id = "confirmApprovalBtn";
+      confirmBtn.textContent = "Confirm Approval";
+      confirmBtn.onclick = function() {
+        // Gather approved files (checkboxes that are checked)
+        var approvedFiles = [];
+        var checkboxes = content.querySelectorAll("input.unexpected-out:checked");
+        for (var k = 0; k < checkboxes.length; k++) {
+          approvedFiles.push(checkboxes[k].value);
+        }
+        
+        // Send approval via WebSocket
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: "approveFiles",
+            queryID: queryID,
+            approvedFiles: approvedFiles
+          }));
+          debugLog("Approval sent for queryID " + queryID + " with " + approvedFiles.length + " files");
+        }
+        
+        // Close modal
+        closeFileModal();
+        currentUnexpectedFilesQuery = null;
+      };
+      
+      var cancelBtn = document.createElement("button");
+      cancelBtn.textContent = "Cancel";
+      cancelBtn.onclick = function() {
+        // Close modal without sending approval
+        closeFileModal();
+        currentUnexpectedFilesQuery = null;
+      };
+      
+      actionsDiv.appendChild(cancelBtn);
+      actionsDiv.appendChild(confirmBtn);
+      content.appendChild(actionsDiv);
+      
+      // Open modal
+      openFileModal();
+      currentUnexpectedFilesQuery = queryID;
+    }
+    
+    // Initialize WebSocket connection and handlers
+    function initWebSocket() {
+      var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      var wsUrl = protocol + '//' + window.location.host + '/project/' + projectID + '/ws';
+      debugLog('Connecting to WebSocket: ' + wsUrl);
+      
+      ws = new WebSocket(wsUrl);
+      
+      ws.onopen = function() {
+        debugLog('WebSocket connected for project: ' + projectID);
+      };
+      
+      // Handle incoming broadcast messages
+      ws.onmessage = function(event) {
+        try {
+          var message = JSON.parse(event.data);
+          debugLog('Received WebSocket message: ' + JSON.stringify(message));
+          
+          if (message.type === 'query') {
+            // Display query with spinner and cancel button on all clients
+            var chat = document.getElementById("chat");
+            var messageDiv = document.createElement("div");
+            messageDiv.className = "message";
+            messageDiv.innerHTML = "<strong>" + message.query + "</strong><br>";
+            
+            var spinner = document.createElement("span");
+            spinner.className = "spinner";
+            spinner.style.marginLeft = "10px";
+            messageDiv.appendChild(spinner);
+            
+            // Add cancel button
+            var cancelBtn = document.createElement("button");
+            cancelBtn.textContent = "Cancel";
+            cancelBtn.style.marginLeft = "5px";
+            cancelBtn.style.fontSize = "10px";
+            cancelBtn.style.padding = "5px 10px";
+            cancelBtn.addEventListener("click", function() {
+              // Send cancel message via WebSocket
+              ws.send(JSON.stringify({
+                type: "cancel",
+                queryID: message.queryID
+              }));
+              messageDiv.remove();
+              generateTOC();
+              delete pendingQueryDivs[message.queryID];
+              outstandingQueries--;
+              updateStatusSpinner();
+            });
+            messageDiv.appendChild(cancelBtn);
+            
+            chat.appendChild(messageDiv);
+            // Store by queryID to match responses
+            pendingQueryDivs[message.queryID] = { div: messageDiv, spinner: spinner, cancelBtn: cancelBtn };
+            generateTOC();
+            updateScrollButtonVisibility();
+            
+          } else if (message.type === 'response') {
+            // Find the corresponding query div and update it
+            var pendingQuery = pendingQueryDivs[message.queryID];
+            if (pendingQuery) {
+              // Remove spinner and cancel button
+              pendingQuery.spinner.remove();
+              pendingQuery.cancelBtn.remove();
+              
+              // Append response to the query div
+              var responseDiv = document.createElement("div");
+              responseDiv.innerHTML = message.response;
+              pendingQuery.div.appendChild(responseDiv);
+              
+              delete pendingQueryDivs[message.queryID];
+            }
+            // Decrement outstanding queries when response arrives via WebSocket
+            outstandingQueries--;
+            updateStatusSpinner();
+            generateTOC();
+            updateProgressStats();
+            updateTokenCount();
+            updateScrollButtonVisibility();
+          } else if (message.type === 'unexpectedFilesDetected') {
+            debugLog('Unexpected files detected: ' + JSON.stringify(message));
+            displayUnexpectedFilesModal(message.queryID, message.alreadyAuthorized, message.needsAuthorization);
+          } else if (message.type === 'fileListUpdated') {
+            debugLog('File list updated via WebSocket');
+            loadFileList();
+          }
+        } catch (err) {
+          debugLog('Error processing WebSocket message: ' + err);
+        }
+      };
+      
+      ws.onerror = function(error) {
+        debugLog('WebSocket error: ' + error);
+        showErrorSign();
+      };
+      
+      ws.onclose = function() {
+        debugLog('WebSocket disconnected, attempting to reconnect...');
+        // Attempt to reconnect after 3 seconds
+        setTimeout(initWebSocket, 3000);
+      };
+    }
+    
+    // Call generateTOC and other initializations when the DOM content is loaded.
+    document.addEventListener("DOMContentLoaded", function() {
+      debugLog("DOMContentLoaded fired");
+      generateTOC();
+      initWebSocket();
+      
+      // Home button handler - navigate to project list
+      document.getElementById("homeBtn").addEventListener("click", function() {
+        debugLog("Home button clicked, navigating to /");
+        window.location.href = "/";
+      });
+      
+      // Toggle sidebar visibility
+      var sidebar = document.getElementById("sidebar");
+      document.getElementById("toggle-sidebar").addEventListener("click", function() {
+        if (sidebar.classList.contains("collapsed")) {
+          sidebar.classList.remove("collapsed");
+        } else {
+          sidebar.classList.add("collapsed");
+        }
+      });
+
+      // File modal handlers - attach listener to filesBtn
+      var filesBtn = document.getElementById("filesBtn");
+      debugLog("About to attach event listener to filesBtn");
+      if (!filesBtn) {
+        debugLog("ERROR: filesBtn not found in DOM!");
+      } else {
+        debugLog("filesBtn found in DOM, element: " + filesBtn.outerHTML.substring(0, 100));
+        filesBtn.addEventListener("click", function(e) {
+          debugLog("FILES BUTTON CLICK EVENT FIRED!");
+          debugLog("Event type: " + e.type + ", target: " + e.target.id);
+          
+          // Show regular file list, not unexpected files
+          if (currentUnexpectedFilesQuery) {
+            debugLog("Unexpected files modal already open, ignoring click");
+            return;
+          }
+          document.getElementById("modalTitle").textContent = "File Management";
+          debugLog("Calling loadFileList()");
+          loadFileList();
+        });
+        debugLog("Event listener attached to filesBtn successfully");
+      }
+
+      // Close modal button handler
+      document.getElementById("closeFileModal").addEventListener("click", function() {
+        debugLog("Close modal button clicked");
+        closeFileModal();
+      });
+
+      // Close modal when clicking the background
+      document.getElementById("fileModal").addEventListener("click", function(event) {
+        if (event.target === this) {
+          debugLog("Modal background clicked, closing modal");
+          closeFileModal();
+        }
+      });
+
+      // Close modal when Escape key is pressed
+      document.addEventListener("keydown", function(event) {
+        if (event.key === "Escape" || event.keyCode === 27) {
+          var modal = document.getElementById("fileModal");
+          if (modal && modal.classList.contains("show")) {
+            debugLog("Escape key pressed, closing modal");
+            closeFileModal();
+          }
+        }
+      });
+
+      // Add preset token limit buttons functionality.
+      document.querySelectorAll('.preset-tokencount').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          document.getElementById('tokenLimit').value = this.getAttribute('data-token');
+        });
+      });
+      // Initialize All/None checkbox for file list.
+      var selectAll = document.getElementById("selectAllFiles");
+      if (selectAll) {
+        selectAll.addEventListener("change", function() {
+          var checked = this.checked;
+          var fileInCheckboxes = document.querySelectorAll("#fileList input.fileIn");
+          var fileOutCheckboxes = document.querySelectorAll("#fileList input.fileOut");
+          fileInCheckboxes.forEach(function(cb) {
+            cb.checked = checked;
+            cb.dispatchEvent(new Event("change"));
+          });
+          fileOutCheckboxes.forEach(function(cb) {
+            cb.checked = false;
+            cb.dispatchEvent(new Event("change"));
+          });
+        });
+      }
+      // scroll to the bookmarked round 
+      var bookmark = getCookie("bookmark_round");
+      if (bookmark) {
+        var round = parseInt(bookmark);
+        var chat = document.getElementById("chat");
+        var hrTags = chat.getElementsByTagName("hr");
+        if (round > 0 && round <= hrTags.length) {
+          debugLog("Scrolling to round: " + round);
+          chat.scrollTop = hrTags[round - 1].offsetTop;
+        }
+      }
+      updateProgressStats();
+      initFileIO();
+      
+      // Set up scroll-to-bottom button
+      var scrollBtn = document.getElementById("scrollToBottomBtn");
+      scrollBtn.addEventListener("click", function() {
+        var chat = document.getElementById("chat");
+        chat.scrollTop = chat.scrollHeight;
+        updateScrollButtonVisibility();
+      });
+      
+      // Update button visibility on scroll
+      document.getElementById("chat").addEventListener("scroll", function() {
+        updateScrollButtonVisibility();
+        updateProgressStats();
+      });
+      
+      // Initial button visibility check
+      updateScrollButtonVisibility();
+    });
+
+    // Append a new message to the chat view without scrolling the page.
+    function appendMessage(content) {
+      var chat = document.getElementById("chat");
+      var messageDiv = document.createElement("div");
+      messageDiv.className = "message";
+      messageDiv.innerHTML = content;
+      chat.appendChild(messageDiv);
+      generateTOC();
+      updateScrollButtonVisibility();
+    }
+
+    // Send query via WebSocket
+    function sendQuery(query, llm, selection, tokenLimit) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        debugLog("WebSocket not connected");
+        showErrorSign();
+        return;
+      }
+
+      // Increment global outstanding query count and update status spinner.
+      outstandingQueries++;
+      updateStatusSpinner();
+
+      // Gather file I/O selections from the file sidebar.
+      var fileSelection = getSelectedFiles();
+      
+      // Generate a unique UUID for this query
+      var queryID = generateUUID();
+
+      // Send the query via WebSocket
+      var queryMessage = {
+        type: "query",
+        query: query,
+        llm: llm,
+        selection: selection,
+        inputFiles: fileSelection.inputFiles,
+        outFiles: fileSelection.outFiles,
+        tokenLimit: tokenLimit,
+        queryID: queryID,
+        projectID: projectID
+      };
+
+      ws.send(JSON.stringify(queryMessage));
+    }
+
+    // Poll the /project/{projectID}/tokencount endpoint to update the token count.
+    function updateTokenCount() {
+      fetch("/project/" + projectID + "/tokencount")
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+          var tokenCountText = document.getElementById("tokenCountText");
+          tokenCountText.textContent = "Token Count: " + data.tokens;
+        })
+        .catch(function(err) {
+          debugLog("Error fetching token count: " + err);
+        });
+    }
+
+    // Updates progress stats by counting the number of <hr> tags above the current scroll position
+    // and fetching the total round count from the server.
+    function updateProgressStats() {
+      var chatElem = document.getElementById("chat");
+      var hrTags = chatElem.getElementsByTagName("hr");
+      var currentRound = 0;
+      // Count the number of <hr> tags that are above the current scroll top
+      for (var i = 0; i < hrTags.length; i++) {
+        var hrPos = hrTags[i].offsetTop;
+        if (hrPos < chatElem.scrollTop) {
+          currentRound++;
+        }
+      }
+      // Bookmark the current round in a cookie (for one year)
+      setCookie("bookmark_round", currentRound, 365);
+      fetch("/project/" + projectID + "/rounds")
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+          var total = data.rounds;
+          var remaining = total - currentRound;
+          var percentage = total > 0 ? Math.round((currentRound / total) * 100) : 0;
+          var roundsElem = document.getElementById("roundsStats");
+          var progressElem = document.getElementById("progressStats");
+          if(roundsElem) {
+            // Rounds: total - current = remaining 
+            roundsElem.textContent = "Rounds: " + total + " - " + currentRound + " = " + remaining;
+          }
+          if(progressElem) {
+            // Progress: N%
+            progressElem.textContent = "Progress: " + percentage + "%";
+          }
+        })
+        .catch(function(err) {
+          debugLog("Error fetching rounds count: " + err);
+        });
+    }
+
+    // Add scroll event listener on the chat element to update progress stats and update bookmark.
+    document.getElementById("chat").addEventListener("scroll", updateProgressStats);
+    updateTokenCount(); // Initial token count fetch
+
+    // Handle click on the Send button.
+    document.getElementById("sendBtn").addEventListener("click", function() {
+      var input = document.getElementById("userInput");
+      var query = input.value;
+      if(query.trim() === "") return;
+      var llm = document.getElementById("llmSelect").value;
+      var tokenLimitElem = document.getElementById("tokenLimit");
+      // default to 0 if empty or invalid
+      var tokenLimit = 0;
+      if(tokenLimitElem) {
+         tokenLimit = parseInt(tokenLimitElem.value, 10) || 0;
+      }
+      sendQuery(query, llm, "", tokenLimit);
+      input.value = "";
+      // Do not clear the token limit input so the value persists.
+    });
+
+    // Handle click on the Stop Server button.
+    document.getElementById("stopBtn").addEventListener("click", function() {
+      if(confirm("Are you sure you want to stop the server?")) {
+        fetch("/stop", { method: "POST" })
+          .then(function(response) {
+            if(response.ok) {
+              debugLog("Server is stopping...");
+            }
+          })
+          .catch(function(err) {
+            debugLog("Error stopping server: " + err);
+          });
+      }
+    });
+
+    // --- File I/O using IndexedDB ---
+    var db;
+    function initFileIO() {
+      debugLog("Initializing IndexedDB for file I/O");
+      var request = indexedDB.open("fileIODB", 1);
+      request.onerror = function(event) {
+        debugLog("IndexedDB error: " + event.target.error);
+      };
+      request.onupgradeneeded = function(event) {
+        debugLog("IndexedDB upgrading to version 1");
+        db = event.target.result;
+        if (!db.objectStoreNames.contains("selections")) {
+          debugLog("Creating 'selections' object store");
+          var store = db.createObjectStore("selections", { keyPath: "filename" });
+          store.createIndex("by_filename", "filename", { unique: true });
+        }
+      };
+      request.onsuccess = function(event) {
+        debugLog("IndexedDB opened successfully");
+        db = event.target.result;
+      };
+    }
+
+    function loadFileList() {
+      debugLog("loadFileList() called");
+      debugLog("Loading file list from server");
+      // Fetch authorized files from server
+      fetch("/api/projects/" + projectID + "/files")
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+          var serverFiles = data.files || [];
+          debugLog("Server returned files: " + JSON.stringify(serverFiles));
+          
+          // Load selections from IndexedDB
+          if (!db) {
+            debugLog("WARNING: IndexedDB not initialized yet, retrying in 500ms");
+            setTimeout(loadFileList, 500);
+            return;
+          }
+          
+          var transaction = db.transaction(["selections"], "readonly");
+          var store = transaction.objectStore("selections");
+          var request = store.getAll();
+          
+          request.onsuccess = function(event) {
+            debugLog("IndexedDB getAll succeeded");
+            var allIndexedDBEntries = event.target.result;
+            debugLog("IndexedDB entries: " + JSON.stringify(allIndexedDBEntries));
+            var serverFileSet = new Set(serverFiles);
+            
+            // Clean up IndexedDB entries for files no longer on server
+            var transaction2 = db.transaction(["selections"], "readwrite");
+            var store2 = transaction2.objectStore("selections");
+            
+            for (var i = 0; i < allIndexedDBEntries.length; i++) {
+              var entry = allIndexedDBEntries[i];
+              if (!serverFileSet.has(entry.filename)) {
+                debugLog("Deleting stale IndexedDB entry: " + entry.filename);
+                store2.delete(entry.filename);
+              }
+            }
+            
+            // Merge server files with IndexedDB selections
+            var filesByName = {};
+            allIndexedDBEntries.forEach(function(entry) {
+              filesByName[entry.filename] = entry;
+            });
+            
+            var mergedFiles = serverFiles.map(function(filename) {
+              if (filesByName[filename]) {
+                return filesByName[filename];
+              } else {
+                return { filename: filename, in: false, out: false };
+              }
+            });
+            
+            debugLog("Merged files: " + JSON.stringify(mergedFiles));
+            renderFileList(mergedFiles);
+          };
+          
+          request.onerror = function(event) {
+            debugLog("IndexedDB getAll error: " + event.target.error);
+          };
+        })
+        .catch(function(err) {
+          debugLog("Error loading file list from server: " + err);
+        });
+    }
+
+    function saveFileSelection(filename, isInput, isOutput) {
+      debugLog("Saving file selection: " + filename + " in:" + isInput + " out:" + isOutput);
+      var transaction = db.transaction(["selections"], "readwrite");
+      var store = transaction.objectStore("selections");
+      var entry = { filename: filename, in: isInput, out: isOutput };
+      store.put(entry);
+    }
+
+    function renderFileList(files) {
+      debugLog("Rendering file list with " + files.length + " files");
+      var fileListElem = document.getElementById("fileList");
+      if (!fileListElem) {
+        // Create fileList if it doesn't exist (for regular file management modal)
+        var content = document.getElementById("fileSidebarContent");
+        var selectAllLabel = document.createElement("label");
+        selectAllLabel.style.display = "block";
+        selectAllLabel.style.marginBottom = "5px";
+        var selectAllCheckbox = document.createElement("input");
+        selectAllCheckbox.type = "checkbox";
+        selectAllCheckbox.id = "selectAllFiles";
+        selectAllLabel.appendChild(selectAllCheckbox);
+        selectAllLabel.appendChild(document.createTextNode(" All/None"));
+        
+        var table = document.createElement("table");
+        var thead = document.createElement("thead");
+        var headerRow = document.createElement("tr");
+        var th1 = document.createElement("th");
+        th1.textContent = "In";
+        var th2 = document.createElement("th");
+        th2.textContent = "Out";
+        var th3 = document.createElement("th");
+        th3.textContent = "Filename";
+        headerRow.appendChild(th1);
+        headerRow.appendChild(th2);
+        headerRow.appendChild(th3);
+        thead.appendChild(headerRow);
+        
+        var tbody = document.createElement("tbody");
+        tbody.id = "fileList";
+        
+        table.appendChild(thead);
+        table.appendChild(tbody);
+        
+        content.innerHTML = "";
+        content.appendChild(selectAllLabel);
+        content.appendChild(table);
+        
+        fileListElem = tbody;
+        
+        // Re-attach the All/None listener for the regular file list
+        selectAllCheckbox.addEventListener("change", function() {
+          var checked = this.checked;
+          var fileInCheckboxes = document.querySelectorAll("#fileList input.fileIn");
+          var fileOutCheckboxes = document.querySelectorAll("#fileList input.fileOut");
+          fileInCheckboxes.forEach(function(cb) {
+            cb.checked = checked;
+            cb.dispatchEvent(new Event("change"));
+          });
+          fileOutCheckboxes.forEach(function(cb) {
+            cb.checked = false;
+            cb.dispatchEvent(new Event("change"));
+          });
+        });
+      }
+      
+      fileListElem.innerHTML = "";
+      
+      files.forEach(function(file) {
+        var tr = document.createElement("tr");
+        
+        var tdIn = document.createElement("td");
+        var inCheckbox = document.createElement("input");
+        inCheckbox.type = "checkbox";
+        inCheckbox.checked = file.in || false;
+        inCheckbox.className = "fileIn";
+        inCheckbox.addEventListener("change", function() {
+          file.in = inCheckbox.checked;
+          saveFileSelection(file.filename, inCheckbox.checked, file.out);
+        });
+        tdIn.appendChild(inCheckbox);
+        
+        var tdOut = document.createElement("td");
+        var outCheckbox = document.createElement("input");
+        outCheckbox.type = "checkbox";
+        outCheckbox.checked = file.out || false;
+        outCheckbox.className = "fileOut";
+        outCheckbox.addEventListener("change", function() {
+          file.out = outCheckbox.checked;
+          saveFileSelection(file.filename, file.in, outCheckbox.checked);
+        });
+        tdOut.appendChild(outCheckbox);
+        
+        var tdName = document.createElement("td");
+        var link = document.createElement("a");
+        link.href = "/project/" + projectID + "/open?filename=" + encodeURIComponent(file.filename);
+        link.target = "_blank";
+        link.textContent = file.filename;
+        tdName.appendChild(link);
+        
+        tr.appendChild(tdIn);
+        tr.appendChild(tdOut);
+        tr.appendChild(tdName);
+        fileListElem.appendChild(tr);
+      });
+      
+      debugLog("File list rendered successfully, about to call openFileModal()");
+      openFileModal();
+    }
+
+    function getSelectedFiles() {
+      var inputFiles = [];
+      var outFiles = [];
+      var fileList = document.getElementById("fileList");
+      if (!fileList) {
+        debugLog("WARNING: fileList element not found");
+        return { inputFiles: inputFiles, outFiles: outFiles };
+      }
+      var rows = fileList.getElementsByTagName("tr");
+      for (var i = 0; i < rows.length; i++) {
+        var cells = rows[i].getElementsByTagName("td");
+        if(cells.length < 3) continue;
+        var inInput = cells[0].querySelector("input");
+        var outInput = cells[1].querySelector("input");
+        var filenameCell = cells[2];
+        if (!inInput || !outInput || !filenameCell) continue;
+        var inChecked = inInput.checked;
+        var outChecked = outInput.checked;
+        var filename = filenameCell.textContent.trim();
+        if(inChecked) inputFiles.push(filename);
+        if(outChecked) outFiles.push(filename);
+      }
+      return { inputFiles: inputFiles, outFiles: outFiles };
+    }
+    // --- End File I/O code ---
+  </script>
+</body>
+</html>

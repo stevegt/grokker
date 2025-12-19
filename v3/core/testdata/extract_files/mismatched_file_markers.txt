@@ -1,0 +1,8 @@
+I'll create a file with mismatched markers:
+
+---FILE-START filename="file1.txt"---
+This file starts as file1.txt
+but the end marker references a different name
+---FILE-END filename="file2.txt"---
+
+This demonstrates the mismatch issue.

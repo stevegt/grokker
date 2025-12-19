@@ -1,0 +1,7 @@
+I'll create an incomplete file for you:
+
+---FILE-START filename="incomplete.txt"---
+This file starts properly but does not have an end marker.
+The content continues without being properly closed.
+This is another line of content.
+And another line.

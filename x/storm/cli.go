@@ -9,16 +9,15 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
-	// . "github.com/stevegt/goadapt"
+	"github.com/stevegt/grokker/x/storm/version"
 )
 
 // CLI Helper Functions
 
 // getDaemonURL retrieves the daemon URL from environment or returns default
-// TODO use a config file, PID file, or flag -- maybe use viper
-// TODO allow for multiple storm daemons on different ports, add an 'ls' command to show running daemons and their pids/ports.  registry should support multiple daemons.
 func getDaemonURL() string {
 	daemonURL := os.Getenv("STORM_DAEMON_URL")
 	if daemonURL == "" {
@@ -75,7 +74,8 @@ func validateRequiredFlag(flagValue, flagName string) error {
 
 // checkStatusCode validates HTTP response status code
 func checkStatusCode(resp *http.Response, acceptedCodes ...int) error {
-	for _, code := range acceptedCodes {
+	for i := 0; i < len(acceptedCodes); i++ {
+		code := acceptedCodes[i]
 		if resp.StatusCode == code {
 			return nil
 		}
@@ -84,7 +84,27 @@ func checkStatusCode(resp *http.Response, acceptedCodes ...int) error {
 	return fmt.Errorf("daemon returned status %d: %s", resp.StatusCode, string(body))
 }
 
+// resolvePath converts relative paths to absolute paths; returns absolute paths unchanged[1]
+func resolvePath(path string) (string, error) {
+	if filepath.IsAbs(path) {
+		// Already absolute, return as-is
+		return path, nil
+	}
+	// Relative path: resolve against current working directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current working directory: %w", err)
+	}
+	return filepath.Join(cwd, path), nil
+}
+
 // CLI Command Handlers
+
+// runVersion implements the version command
+func runVersion(cmd *cobra.Command, args []string) error {
+	// don't need to print anything, because main() already does
+	return nil
+}
 
 // runServe implements the serve command
 func runServe(cmd *cobra.Command, args []string) error {
@@ -92,24 +112,49 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	return serveRun(port)
+	dbPath, err := cmd.Flags().GetString("db-path")
+	if err != nil {
+		return err
+	}
+	return serveRun(port, dbPath)
+}
+
+// runStop implements the stop command
+func runStop(cmd *cobra.Command, args []string) error {
+	resp, err := makeRequest("POST", "/stop", nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK); err != nil {
+		return err
+	}
+
+	fmt.Println("Daemon stopped successfully")
+	return nil
 }
 
 // runProjectAdd implements the project add command
 func runProjectAdd(cmd *cobra.Command, args []string) error {
-	projectID := args[0] // note to LLM: do NOT replace args[0] with args
+	projectID := args[0]
 	baseDir := args[1]
 	markdownFile := args[2]
 
-	// TODO default projectID to current repo -- would need .storm file or directory in repo top
-	// TODO ensure baseDir exists
-	// TODO cannonicalize baseDir and markdownFile to absolute paths
-	// TODO add a `mv` subcommand?
+	// Resolve paths to absolute (relative paths resolved against cwd at add-time)
+	resolvedBaseDir, err := resolvePath(baseDir)
+	if err != nil {
+		return err
+	}
+	resolvedMarkdownFile, err := resolvePath(markdownFile)
+	if err != nil {
+		return err
+	}
 
 	payload := map[string]string{
 		"projectID":    projectID,
-		"baseDir":      baseDir,
-		"markdownFile": markdownFile,
+		"baseDir":      resolvedBaseDir,
+		"markdownFile": resolvedMarkdownFile,
 	}
 
 	resp, err := makeRequest("POST", "/api/projects", payload)
@@ -128,8 +173,8 @@ func runProjectAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Project %s added successfully\n", projectID)
-	fmt.Printf("  Base directory: %s\n", baseDir)
-	fmt.Printf("  Markdown file: %s\n", markdownFile)
+	fmt.Printf("  BaseDir: %s\n", resolvedBaseDir)
+	fmt.Printf("  MarkdownFile: %s\n", resolvedMarkdownFile)
 	if rounds, ok := result["chatRounds"].(float64); ok {
 		fmt.Printf("  Chat rounds loaded: %d\n", int(rounds))
 	}
@@ -170,6 +215,33 @@ func runProjectList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// runProjectForget implements the project forget command
+func runProjectForget(cmd *cobra.Command, args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("project ID is required")
+	}
+	projectID := args[0]
+
+	endpoint := fmt.Sprintf("/api/projects/%s", projectID)
+	resp, err := makeRequest("DELETE", endpoint, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK); err != nil {
+		return err
+	}
+
+	var result map[string]interface{}
+	if err := decodeJSON(resp, &result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	fmt.Printf("Project %s forgotten and removed from database\n", projectID)
+	return nil
+}
+
 // runFileAdd implements the file add command
 func runFileAdd(cmd *cobra.Command, args []string) error {
 	projectID, err := cmd.Flags().GetString("project")
@@ -180,11 +252,21 @@ func runFileAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	payload := map[string]interface{}{
-		"filenames": args,
+	// Resolve relative paths to absolute
+	var resolvedFilenames []string
+	for i := 0; i < len(args); i++ {
+		resolved, err := resolvePath(args[i])
+		if err != nil {
+			return err
+		}
+		resolvedFilenames = append(resolvedFilenames, resolved)
 	}
 
-	endpoint := fmt.Sprintf("/api/projects/%s/files", projectID)
+	payload := map[string]interface{}{
+		"filenames": resolvedFilenames,
+	}
+
+	endpoint := fmt.Sprintf("/api/projects/%s/files/add", projectID)
 	resp, err := makeRequest("POST", endpoint, payload)
 	if err != nil {
 		return err
@@ -202,14 +284,16 @@ func runFileAdd(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Files added to project %s:\n", projectID)
 	if added, ok := result["added"].([]interface{}); ok {
-		for _, f := range added {
+		for i := 0; i < len(added); i++ {
+			f := added[i]
 			fmt.Printf("  + %s\n", f)
 		}
 	}
 	if failed, ok := result["failed"].([]interface{}); ok {
 		if len(failed) > 0 {
 			fmt.Printf("Failed to add:\n")
-			for _, f := range failed {
+			for i := 0; i < len(failed); i++ {
+				f := failed[i]
 				fmt.Printf("  - %s\n", f)
 			}
 		}
@@ -253,7 +337,71 @@ func runFileList(cmd *cobra.Command, args []string) error {
 		if len(files) == 0 {
 			fmt.Println("  (no files)")
 		} else {
-			for _, f := range files {
+			for i := 0; i < len(files); i++ {
+				f := files[i]
+				fmt.Printf("  - %s\n", f)
+			}
+		}
+	}
+	return nil
+}
+
+// runFileForget implements the file forget command - accepts multiple files
+func runFileForget(cmd *cobra.Command, args []string) error {
+	projectID, err := cmd.Flags().GetString("project")
+	if err != nil {
+		return err
+	}
+	if err := validateRequiredFlag(projectID, "project"); err != nil {
+		return err
+	}
+
+	if len(args) < 1 {
+		return fmt.Errorf("filename(s) required")
+	}
+
+	// Resolve relative paths to absolute
+	var resolvedFilenames []string
+	for i := 0; i < len(args); i++ {
+		resolved, err := resolvePath(args[i])
+		if err != nil {
+			return err
+		}
+		resolvedFilenames = append(resolvedFilenames, resolved)
+	}
+
+	payload := map[string]interface{}{
+		"filenames": resolvedFilenames,
+	}
+
+	endpoint := fmt.Sprintf("/api/projects/%s/files/forget", projectID)
+	resp, err := makeRequest("POST", endpoint, payload)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK); err != nil {
+		return err
+	}
+
+	var result map[string]interface{}
+	if err := decodeJSON(resp, &result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	fmt.Printf("Files forgotten from project %s:\n", projectID)
+	if removed, ok := result["removed"].([]interface{}); ok {
+		for i := 0; i < len(removed); i++ {
+			f := removed[i]
+			fmt.Printf("  - %s\n", f)
+		}
+	}
+	if failed, ok := result["failed"].([]interface{}); ok {
+		if len(failed) > 0 {
+			fmt.Printf("Failed to remove:\n")
+			for i := 0; i < len(failed); i++ {
+				f := failed[i]
 				fmt.Printf("  - %s\n", f)
 			}
 		}
@@ -268,13 +416,22 @@ func runIssueToken(cmd *cobra.Command, args []string) error {
 }
 
 func main() {
-	fmt.Println("storm v0.0.76")
+	fmt.Printf("storm %s\n", version.Version)
 
 	rootCmd := &cobra.Command{
 		Use:   "storm",
 		Short: "Storm - Multi-project LLM chat application",
 		Long:  `Storm is a single-daemon, single-port multi-project chat application for interacting with LLMs and local files.`,
 	}
+
+	// Version command
+	versionCmd := &cobra.Command{
+		Use:   "version",
+		Short: "Display version information",
+		Long:  `Display the current version of Storm.`,
+		RunE:  runVersion,
+	}
+	rootCmd.AddCommand(versionCmd)
 
 	// Serve command
 	serveCmd := &cobra.Command{
@@ -284,7 +441,17 @@ func main() {
 		RunE:  runServe,
 	}
 	serveCmd.Flags().IntP("port", "p", 8080, "port to listen on")
+	serveCmd.Flags().StringP("db-path", "d", "", "path to database file (default: ~/.storm/data.db)")
 	rootCmd.AddCommand(serveCmd)
+
+	// Stop command
+	stopCmd := &cobra.Command{
+		Use:   "stop",
+		Short: "Stop the Storm daemon",
+		Long:  `Stop the running Storm daemon gracefully.`,
+		RunE:  runStop,
+	}
+	rootCmd.AddCommand(stopCmd)
 
 	// Project command
 	projectCmd := &cobra.Command{
@@ -296,7 +463,7 @@ func main() {
 	projectAddCmd := &cobra.Command{
 		Use:   "add [projectID] [baseDir] [markdownFile]",
 		Short: "Add a new project",
-		Long:  `Add a new project to the registry via HTTP API.`,
+		Long:  `Add a new project to the registry. Paths can be absolute or relative (resolved to absolute against current working directory).`,
 		Args:  cobra.ExactArgs(3),
 		RunE:  runProjectAdd,
 	}
@@ -308,7 +475,15 @@ func main() {
 		RunE:  runProjectList,
 	}
 
-	projectCmd.AddCommand(projectAddCmd, projectListCmd)
+	projectForgetCmd := &cobra.Command{
+		Use:   "forget [projectID]",
+		Short: "Delete a project",
+		Long:  `Delete a project and all its data from the database via HTTP API.`,
+		Args:  cobra.ExactArgs(1),
+		RunE:  runProjectForget,
+	}
+
+	projectCmd.AddCommand(projectAddCmd, projectListCmd, projectForgetCmd)
 	rootCmd.AddCommand(projectCmd)
 
 	// File command
@@ -335,7 +510,16 @@ func main() {
 	}
 	fileListCmd.Flags().StringP("project", "p", "", "Project ID (required)")
 
-	fileCmd.AddCommand(fileAddCmd, fileListCmd)
+	fileForgetCmd := &cobra.Command{
+		Use:   "forget [files...]",
+		Short: "Remove files from a project",
+		Long:  `Remove one or more authorized files from a project.`,
+		Args:  cobra.MinimumNArgs(1),
+		RunE:  runFileForget,
+	}
+	fileForgetCmd.Flags().StringP("project", "p", "", "Project ID (required)")
+
+	fileCmd.AddCommand(fileAddCmd, fileListCmd, fileForgetCmd)
 	rootCmd.AddCommand(fileCmd)
 
 	// Token command

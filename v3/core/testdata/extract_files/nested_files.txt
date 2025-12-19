@@ -1,0 +1,16 @@
+I'll demonstrate nested file blocks:
+
+---FILE-START filename="outer.txt"---
+This is the outer file content.
+
+---FILE-START filename="inner.txt"---
+This is the inner file content.
+It's nested inside the outer file block.
+Multiple lines of inner content.
+---FILE-END filename="inner.txt"---
+
+Back to outer file content after inner file.
+More outer file content here.
+---FILE-END filename="outer.txt"---
+
+Both files should be properly extracted despite nesting.
