@@ -8,6 +8,9 @@
 
 # features
 
+- file list:
+  - left justify
+  - sort options (alphabetical, time created, folders first) 
 - ESC exits file modal
 - add home button or project name dropdown to project.html
 - wrap queries in code block in markdown file 
