@@ -9,6 +9,7 @@
 # features
 
 - ESC exits file modal
+- add home button or project name dropdown to project.html
 - wrap queries in code block in markdown file 
   - reformat on read, so result will be written to disk
 - status subcommand to show current status of daemon including queries
@@ -27,7 +28,7 @@
     instead of bottom of main window
 - monitor using inotify and auto reload and re-render markdown when markdown file changes?
 
-# prompts 
+# prompts
 
 ---
 
