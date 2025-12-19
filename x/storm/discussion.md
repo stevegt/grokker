@@ -12185,6 +12185,8 @@ Scroll positioning and WebSocket connectivity are now stable, with a streamlined
 
 ## Reasoning
 
+## Reasoning
+
 
 
 
@@ -47448,8 +47450,6 @@ Let me make these changes while keeping all comments intact.
 
 ## References
 
-
-
 ## Reasoning
 
 The user is asking me to have the browser send debug messages to the server via WebSocket rather than using console.log(). The server should display them on stdout. This keeps them from needing to open the inspect tools in the browser.
@@ -47481,6 +47481,10 @@ Changes needed:
 2. In main.go: Handle a new "debug" message type in readPump and print to log/stdout
 
 Let me make these changes while keeping all comments intact.
+
+## Reasoning
+
+
 
 
 
@@ -47938,8 +47942,6 @@ Debugging strategies will involve carefully checking the DOM state, using more p
 **how do I activate testing.short if statement?**
 
 
-
-
 # Activate testing.Short() in Go Tests
 
 Use the `-short` flag when running `go test` to activate short mode, which will skip all tests that check `if testing.Short()`[1].
@@ -47977,8 +47979,6 @@ go test -v ./...
 - [3] [https://github.com/chromedp/chromedp/issues/1593](https://github.com/chromedp/chromedp/issues/1593)
 - [4] [https://pkg.go.dev/github.com/chromedp/chromedp](https://pkg.go.dev/github.com/chromedp/chromedp)
 - [5] [https://www.scrapingbee.com/blog/getting-started-with-chromedp/](https://www.scrapingbee.com/blog/getting-started-with-chromedp/)
-
-
 
 ## Reasoning
 
@@ -48023,13 +48023,12 @@ The answer is to use the `-short` flag with `go test`.
 Let me provide a clear, concise answer per the personalization instructions - limit to 8192 tokens discussion, start with markdown heading, no empty square brackets, etc.
 
 
+
 ---
 
 
 
 **Hitting escape should close the files modal dialogue**
-
-
 
 
 # Add Escape Key Handler to Close File Modal
@@ -48048,10 +48047,6 @@ Added keyboard event listener that detects when the Escape key is pressed and cl
 
 
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -48078,6 +48073,79 @@ According to the system prompt:
 12. "ALWAYS RETURN THE COMPLETE FILE!  NO FRAGMENTS!  ALWAYS FOLLOW YOUR SYSTEM MESSAGE AND PROMPT INSTRUCTIONS!"
 
 I need to add a keyboard event listener that checks for the Escape key (keyCode 27 or key === "Escape") and calls closeFileModal() when pressed.
+
+
+
+---
+
+
+
+**Add a home button above the table of contents to take the user back to the project list URL "/"**
+
+
+
+
+# Add Home Button to Navigation
+
+Adds a home button above the table of contents that navigates the user back to the project list at "/" [1]. The button is styled consistently with the rest of the interface and includes both visual and keyboard navigation options[1].
+
+
+## Summary
+
+Added a green home button (🏠 Home) positioned at the top of the sidebar above the table of contents toggle button[1]. The button navigates to "/" which returns the user to the project list view. The styling matches the interface theme with green background color (#27ae60) to distinguish it from the blue TOC button, and includes a hover effect for visual feedback[1].
+
+## References
+
+[1] [https://developer.mozilla.org/en-US/docs/Web/API/Location/href](https://developer.mozilla.org/en-US/docs/Web/API/Location/href)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to add a home button above the table of contents to take the user back to the project list URL "/".
+
+Looking at the system prompt at the very top, I need to:
+1. Start with a markdown heading
+2. Limit discussion to 8192 tokens (about 2340 words)
+3. Return complete files only (marked with FILE-START/FILE-END)
+4. Must include `/home/stevegt/lab/grokker/x/storm/project.html` based on the regex at the top
+5. Enclose reference numbers in square brackets
+6. Don't include empty square brackets
+7. Don't skip array indices in Go code
+8. "DO NOT EVER REMOVE COMMENTS! STOP REMOVING COMMENTS! READ YOUR SYSTEM MESSAGE!"
+9. "ALWAYS RETURN THE COMPLETE FILE!  NO FRAGMENTS!  ALWAYS FOLLOW YOUR SYSTEM MESSAGE AND PROMPT INSTRUCTIONS!"
+
+The user wants to add a home button above the table of contents. Looking at the HTML structure:
+
+```html
+<div id="sidebar">
+  <button id="toggle-sidebar">TOC</button>
+  <h3>Table of Contents</h3>
+  <div id="toc">
+    <!-- TOC will be generated here -->
+  </div>
+</div>
+```
+
+I need to add a home button above the toggle-sidebar button. I'll add it with appropriate styling.
+
+The button should:
+1. Navigate to "/" (the project list)
+2. Be placed above the table of contents
+3. Be styled consistently with the rest of the interface
+
+I should add:
+1. A button element with id="homeBtn" in the sidebar
+2. Click handler to navigate to "/"
+3. Appropriate styling in the CSS
+
+Let me create the complete project.html file with these changes.
 
 
 ---

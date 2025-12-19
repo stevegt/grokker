@@ -28,7 +28,7 @@
       border: none;
       overflow: hidden;
     }
-    /* Shrik the heading in the sidebar */
+    /* Shrink the heading in the sidebar */
     #sidebar h3 { font-size: 0.9em; }
     /* Main content area */
     #main {
@@ -166,6 +166,25 @@
       position: sticky;
       top: 0;
       z-index: 100;
+    }
+    /* Home button in sidebar */
+    #homeBtn {
+      background-color: #27ae60;
+      color: #e0e0e0;
+      border: 1px solid #555;
+      padding: 8px 12px;
+      cursor: pointer;
+      margin-bottom: 10px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      display: block;
+      width: 100%;
+      text-align: center;
+      font-weight: bold;
+    }
+    #homeBtn:hover {
+      background-color: #229954;
     }
     /* Global link styling - lighter shade of blue */
     a {
@@ -360,6 +379,7 @@
 <body>
   <div id="container">
     <div id="sidebar">
+      <button id="homeBtn">🏠 Home</button>
       <button id="toggle-sidebar">TOC</button>
       <h3>Table of Contents</h3>
       <div id="toc">
@@ -828,6 +848,12 @@
       debugLog("DOMContentLoaded fired");
       generateTOC();
       initWebSocket();
+      
+      // Home button handler - navigate to project list
+      document.getElementById("homeBtn").addEventListener("click", function() {
+        debugLog("Home button clicked, navigating to /");
+        window.location.href = "/";
+      });
       
       // Toggle sidebar visibility
       var sidebar = document.getElementById("sidebar");
