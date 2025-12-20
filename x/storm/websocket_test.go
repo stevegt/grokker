@@ -26,7 +26,7 @@ func getAvailablePort() (int, error) {
 	return listener.Addr().(*net.TCPAddr).Port, nil
 }
 
-// TestSetup encapsulates all setup data for a WebSocket test[1]
+// TestSetup encapsulates all setup data for a WebSocket test
 type TestSetup struct {
 	Port         int
 	TmpDir       string
@@ -38,7 +38,7 @@ type TestSetup struct {
 	WsURL        string
 }
 
-// setupTest creates temporary directories, starts server, creates project, and returns test setup[1]
+// setupTest creates temporary directories, starts server, creates project, and returns test setup
 func setupTest(t *testing.T, projectID string) *TestSetup {
 	// Get available port
 	port, err := getAvailablePort()
@@ -112,7 +112,7 @@ func setupTest(t *testing.T, projectID string) *TestSetup {
 	}
 }
 
-// teardownTest cleans up temporary directories and stops server[1]
+// teardownTest cleans up temporary directories and stops server
 func teardownTest(t *testing.T, setup *TestSetup) {
 	// Stop server gracefully
 	resp, err := http.Post(setup.DaemonURL+"/stop", "application/json", nil)
@@ -131,7 +131,7 @@ func teardownTest(t *testing.T, setup *TestSetup) {
 	}
 }
 
-// connectWebSocket establishes a WebSocket connection and returns it[1]
+// connectWebSocket establishes a WebSocket connection and returns it
 func connectWebSocket(t *testing.T, wsURL string) *websocket.Conn {
 	dialer := websocket.Dialer{}
 	conn, _, err := dialer.Dial(wsURL, nil)
@@ -232,10 +232,10 @@ func TestWebSocketCancelMessage(t *testing.T) {
 		t.Fatalf("Failed to send cancel message: %v", err)
 	}
 
-	// Wait for readPump to process the message via channel (allow time for async processing)[1]
+	// Wait for readPump to process the message via channel (allow time for async processing)
 	time.Sleep(500 * time.Millisecond)
 
-	// Verify cancel flag is set[1]
+	// Verify cancel flag is set
 	cancelledMutex.Lock()
 	isCancelled := cancelledQueries["test-cancel-123"]
 	cancelledMutex.Unlock()
@@ -282,7 +282,7 @@ func TestWebSocketMultipleClients(t *testing.T) {
 		"queryID":    "broadcast-123",
 		"projectID":  setup.ProjectID,
 	}
-	if err := conns[0].WriteJSON(queryMsg); err != nil {
+	if err := conns.WriteJSON(queryMsg); err != nil {
 		t.Fatalf("Failed to send query message: %v", err)
 	}
 
@@ -404,7 +404,7 @@ func TestWebSocketConnectionCleanup(t *testing.T) {
 	t.Logf("Connection cleanup test completed successfully")
 }
 
-// TestWebSocketApproveFilesMessage tests sending an approveFiles message via WebSocket (Stage 4)[1]
+// TestWebSocketApproveFilesMessage tests sending an approveFiles message via WebSocket (Stage 4)
 func TestWebSocketApproveFilesMessage(t *testing.T) {
 	setup := setupTest(t, "ws-approve-project")
 	defer teardownTest(t, setup)
@@ -430,7 +430,7 @@ func TestWebSocketApproveFilesMessage(t *testing.T) {
 	t.Logf("ApproveFiles message sent successfully with queryID test-approval-123")
 }
 
-// TestWebSocketPendingQueryTracking tests that pending queries are correctly tracked (Stage 4)[1][2]
+// TestWebSocketPendingQueryTracking tests that pending queries are correctly tracked (Stage 4)
 func TestWebSocketPendingQueryTracking(t *testing.T) {
 	setup := setupTest(t, "ws-pending-project")
 	defer teardownTest(t, setup)
@@ -479,7 +479,7 @@ func TestWebSocketPendingQueryTracking(t *testing.T) {
 	t.Logf("Pending query successfully removed")
 }
 
-// TestWebSocketApprovalChannelReceival tests that approval signals are received via channel (Stage 4)[1]
+// TestWebSocketApprovalChannelReceival tests that approval signals are received via channel (Stage 4)
 func TestWebSocketApprovalChannelReceival(t *testing.T) {
 	setup := setupTest(t, "ws-channel-project")
 	defer teardownTest(t, setup)
@@ -517,7 +517,7 @@ func TestWebSocketApprovalChannelReceival(t *testing.T) {
 		t.Errorf("Expected 2 approved files, got %d", len(receivedFiles))
 	}
 
-	if receivedFiles[0] != "file1.go" || receivedFiles[1] != "file2.md" {
+	if receivedFiles != "file1.go" || receivedFiles[1] != "file2.md" {
 		t.Errorf("Approved files mismatch: expected [file1.go file2.md], got %v", receivedFiles)
 	}
 
@@ -527,7 +527,7 @@ func TestWebSocketApprovalChannelReceival(t *testing.T) {
 	removePendingQuery(queryID)
 }
 
-// TestWebSocketMultipleConcurrentApprovals tests multiple concurrent pending queries with different approvals (Stage 4)[1][2]
+// TestWebSocketMultipleConcurrentApprovals tests multiple concurrent pending queries with different approvals (Stage 4)
 func TestWebSocketMultipleConcurrentApprovals(t *testing.T) {
 	setup := setupTest(t, "ws-concurrent-project")
 	defer teardownTest(t, setup)
@@ -581,7 +581,7 @@ func TestWebSocketMultipleConcurrentApprovals(t *testing.T) {
 		}
 
 		expected := fmt.Sprintf("file%d_1.go", i)
-		if len(receivedFiles) > 0 && receivedFiles[0] == expected {
+		if len(receivedFiles) > 0 && receivedFiles == expected {
 			t.Logf("Query %d received correct approval: %v", i, receivedFiles)
 		} else {
 			t.Errorf("Query %d received unexpected approval: %v", i, receivedFiles)
@@ -637,11 +637,11 @@ func TestWebSocketUnexpectedFilesDetection(t *testing.T) {
 	// Test categorization function with mixed files
 	alreadyAuth, needsAuth := categorizeUnexpectedFiles(project, []string{authorizedFile, "new-file.go"})
 
-	if len(alreadyAuth) != 1 || alreadyAuth[0] != authorizedFile {
+	if len(alreadyAuth) != 1 || alreadyAuth != authorizedFile {
 		t.Errorf("Expected 1 already-authorized file, got %d", len(alreadyAuth))
 	}
 
-	if len(needsAuth) != 1 || needsAuth[0] != "new-file.go" {
+	if len(needsAuth) != 1 || needsAuth != "new-file.go" {
 		t.Errorf("Expected 1 file needing authorization, got %d", len(needsAuth))
 	}
 
@@ -662,6 +662,9 @@ func TestWebSocketUnexpectedFilesNotification(t *testing.T) {
 	// Connect WebSocket client to receive broadcasts
 	conn := connectWebSocket(t, setup.WsURL)
 	defer conn.Close()
+
+	// Wait for goroutines to fully initialize before sending broadcast
+	time.Sleep(500 * time.Millisecond)
 
 	// Manually create and send an unexpectedFilesDetected message (simulating Stage 5)
 	notificationMsg := map[string]interface{}{

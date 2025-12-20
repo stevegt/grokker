@@ -290,6 +290,10 @@
       padding: 6px;
       text-align: center;
     }
+    /* Left-align filename column (3rd column) in regular file list */
+    #fileSidebarContent tbody td:nth-child(3) {
+      text-align: left;
+    }
     #fileSidebarContent th {
       background-color: #2a2a2a;
       font-weight: bold;
@@ -322,6 +326,10 @@
     .unexpected-files-table th, .unexpected-files-table td {
       border: 1px solid #444;
       padding: 6px;
+      text-align: center;
+    }
+    /* Left-align filename column in unexpected files table */
+    .unexpected-files-table tbody td:nth-child(3) {
       text-align: left;
     }
     .unexpected-files-table th {
@@ -341,6 +349,7 @@
     .needs-auth-file .filename {
       flex: 1;
       word-break: break-all;
+      text-align: left;
     }
     .needs-auth-file .copy-btn {
       background-color: #3498db;
@@ -611,7 +620,7 @@
         
         // Add All/None checkbox in header
         var headerRow = authTable.querySelector("thead tr");
-        var allNoneCell = headerRow.cells[0];
+        var allNoneCell = headerRow.cells;
         var selectAllCheckbox = document.createElement("input");
         selectAllCheckbox.type = "checkbox";
         selectAllCheckbox.className = "unexpected-select-all";
@@ -1309,7 +1318,7 @@
       for (var i = 0; i < rows.length; i++) {
         var cells = rows[i].getElementsByTagName("td");
         if(cells.length < 3) continue;
-        var inInput = cells[0].querySelector("input");
+        var inInput = cells.querySelector("input");
         var outInput = cells[1].querySelector("input");
         var filenameCell = cells[2];
         if (!inInput || !outInput || !filenameCell) continue;

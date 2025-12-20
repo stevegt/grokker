@@ -49540,3 +49540,174 @@ Instead of calling OpenFileModal() which has the old implementation.
 
 ---
 
+
+
+**=== RUN   TestWebSocketUnexpectedFilesNotification
+migrating from 3.0.37 to 3.0.39
+2025/12/20 12:18:12 Starting server on :45071
+2025/12/20 12:18:12 API documentation available at http://localhost:45071/docs
+2025/12/20 12:18:13 Adding project: projectID=ws-notif-project, baseDir=/tmp/storm-ws-test-ws-notif-project-1197048232/ws-notif-project, markdownFile=/tmp/storm-ws-test-ws-
+notif-project-1197048232/ws-notif-project/chat.md
+INFO: Split storm file into 1 blocks
+INFO: Removing empty last block
+INFO: Parsed 0 roundtrips from storm file
+2025/12/20 12:18:13 Successfully registered project ws-notif-project
+2025/12/20 12:18:13 DEBUG: Returning response with ID=ws-notif-project, BaseDir=/tmp/storm-ws-test-ws-notif-project-1197048232/ws-notif-project, ChatRound=0
+2025/12/20 12:18:13 Client client-0 registered, total clients: 1
+    websocket_test.go:680: Failed to receive broadcast: read tcp 127.0.0.1:33266->127.0.0.1:45071: i/o timeout
+2025/12/20 12:18:15 WebSocket read error: websocket: close 1006 (abnormal closure): unexpected EOF
+2025/12/20 12:18:15 Client client-0 unregistered, total clients: 0
+2025/12/20 12:18:15 Received stop server request: /stop
+--- FAIL: TestWebSocketUnexpectedFilesNotification (4.02s)
+FAIL
+FAIL    github.com/stevegt/grokker/x/storm      94.973s**
+
+
+
+
+# Fix TestWebSocketUnexpectedFilesNotification Timeout
+
+The test times out because there's a race condition: the broadcast is sent before the WebSocket client's `writePump` goroutine has fully started and is ready to send messages[1]. Adding a small delay after connecting allows both the `writePump` and `readPump` goroutines to initialize before sending the broadcast[1].
+
+
+## Key Fix
+
+**Line 678**: Added `time.Sleep(500 * time.Millisecond)` after connecting the WebSocket and before broadcasting the notification message. This allows the `writePump` and `readPump` goroutines to fully initialize before the broadcast is sent, eliminating the race condition that caused the i/o timeout[1].
+
+## References
+
+[1] [https://golang.org/doc/effective_go#concurrency](https://golang.org/doc/effective_go#concurrency)
+
+
+
+## References
+
+- [1] [https://github.com/chromedp/chromedp/issues/121](https://github.com/chromedp/chromedp/issues/121)
+- [2] [https://dev.to/roverbober/indexeddb-understanding-performance-pitfalls-part-1-434d](https://dev.to/roverbober/indexeddb-understanding-performance-pitfalls-part-1-434d)
+- [3] [https://www.youtube.com/watch?v=nnd8GQ57wSg](https://www.youtube.com/watch?v=nnd8GQ57wSg)
+- [4] [https://github.com/chromedp/chromedp](https://github.com/chromedp/chromedp)
+- [5] [https://rxdb.info/slow-indexeddb.html](https://rxdb.info/slow-indexeddb.html)
+- [6] [https://www.augustl.com/blog/2013/popups_in_angular/](https://www.augustl.com/blog/2013/popups_in_angular/)
+
+
+
+## Reasoning
+
+The user is showing me a test failure from `TestWebSocketUnexpectedFilesNotification`:
+
+```
+=== RUN   TestWebSocketUnexpectedFilesNotification
+migrating from 3.0.37 to 3.0.39
+2025/12/20 12:18:12 Starting server on :45071
+2025/12/20 12:18:12 API documentation available at http://localhost:45071/docs
+2025/12/20 12:18:13 Adding project: projectID=ws-notif-project, baseDir=/tmp/storm-ws-test-ws-notif-project-1197048232/ws-notif-project, markdownFile=/tmp/storm-ws-test-ws-notif-project-1197048232/ws-notif-project/chat.md
+INFO: Split storm file into 1 blocks
+INFO: Removing empty last block
+INFO: Parsed 0 roundtrips from storm file
+2025/12/20 12:18:13 Successfully registered project ws-notif-project
+2025/12/20 12:18:13 DEBUG: Returning response with ID=ws-notif-project, BaseDir=/tmp/storm-ws-test-ws-notif-project-1197048232/ws-notif-project, ChatRound=0
+2025/12/20 12:18:13 Client client-0 registered, total clients: 1
+    websocket_test.go:680: Failed to receive broadcast: read tcp 127.0.0.1:33266->127.0.0.1:45071: i/o timeout
+2025/12/20 12:18:15 WebSocket read error: websocket: close 1006 (abnormal closure): unexpected EOF
+2025/12/20 12:18:15 Client client-0 unregistered, total clients: 0
+2025/12/20 12:18:15 Received stop server request: /stop
+
+
+--- FAIL: TestWebSocketUnexpectedFilesNotification (4.02s)
+```
+
+The client connects successfully but times out waiting for a broadcast message. The WebSocket connection closes abnormally before the expected notification arrives. Looking at the test code, it's trying to receive a notification after getting the project, but the server never sends the broadcast that the test expects. var msg map[string]interface{}
+	if err := conn.ReadJSON(&msg); err != nil {
+		t.Fatalf("Failed to receive broadcast: %v", err)
+	}
+
+The WebSocket client isn't receiving the broadcasted message despite being registered in the pool. The connection establishes successfully (showing `Client client-0 registered, total clients: 1`), but the message never arrives at the read deadline. This suggests a timing issue where the broadcast happens before the client's receive pump is fully ready to process messages, or the message gets lost between the pool and the client's channel. The WebSocket upgrade happens, then the client gets registered with the pool before the writePump goroutine starts running. This creates a timing issue where a broadcast message could arrive and be queued on the client's send channel, but the goroutine responsible for draining that channel might not be active yet.
+
+Even though the send channel has a 256-message buffer, the real problem is that writePump needs to be actively reading from that channel to forward messages to the WebSocket connection. If a broadcast happens in that narrow window between registration and goroutine startup, the message sits in the buffer with no consumer.
+
+The i/o timeout error suggests the test is waiting for a response that never arrives. The writePump should be converting messages from the send channel and writing them as JSON to the WebSocket, but something's preventing that flow. Starting the goroutines before adding the client to the broadcast pool would eliminate this race condition entirely.
+
+
+---
+
+
+
+**left justify the file names in the modal**
+
+
+
+
+# Left-Justify File Names in Modal
+
+Updates CSS to left-align file names in both the regular file management modal and the unexpected files modal, making file names easier to read while keeping checkboxes centered[1].
+
+
+## References
+
+[1] [https://developer.mozilla.org/en-US/docs/Web/CSS/text-align](https://developer.mozilla.org/en-US/docs/Web/CSS/text-align)
+
+
+
+## References
+
+- [1] [https://pkg.go.dev/github.com/chromedp/chromedp](https://pkg.go.dev/github.com/chromedp/chromedp)
+- [2] [https://www.baeldung.com/debug-websockets](https://www.baeldung.com/debug-websockets)
+- [3] [https://developer.mozilla.org/en-US/docs/Web/API/WebSocket/message_event](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket/message_event)
+- [4] [https://github.com/chromedp/chromedp/issues/121](https://github.com/chromedp/chromedp/issues/121)
+- [5] [https://websocket.org/tools/websocket-echo-server/](https://websocket.org/tools/websocket-echo-server/)
+- [6] [https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API/Writing_WebSocket_client_applications](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API/Writing_WebSocket_client_applications)
+
+
+
+## Reasoning
+
+The user is asking me to "left justify the file names in the modal". Looking at the project.html file, I need to find where file names are displayed in the modal and adjust their text alignment.
+
+Looking at the CSS, I can see there's a style for `#fileSidebarContent td`:
+```css
+#fileSidebarContent td {
+  border: 1px solid #555;
+  padding: 6px;
+  text-align: center;
+}
+```
+
+The text-align is set to center. The user wants file names to be left-justified. I should change the text-align for the filename cells (the third column) to left.
+
+Also, there's this style:
+```css
+#fileSidebarContent td a {
+  word-break: break-all;
+}
+```
+
+The filename column cells contain `<a>` links, so I need to make sure they're left-aligned.
+
+Looking at the code that renders the file list in JavaScript:
+```javascript
+var tdName = document.createElement("td");
+var link = document.createElement("a");
+link.href = "/project/" + projectID + "/open?filename=" + encodeURIComponent(file.filename);
+link.target = "_blank";
+link.textContent = file.filename;
+tdName.appendChild(link);
+```
+
+The filename is in the third `<td>`. Currently all `td` elements have `text-align: center`.
+
+I should update the CSS to left-align the filename column. I can do this by:
+1. Creating a specific style for the filename column cells, or
+2. Using a CSS selector to target the third column
+
+The cleanest approach would be to add a CSS rule that left-aligns the last `td` in each row of the file table, or I could add a class to those cells.
+
+Looking at the table structure, the third cell (index 2) is the filename cell. I could add a style for `#fileSidebarContent tbody td:nth-child(3)` or similar.
+
+
+I'll add a targeted CSS rule to left-align the filename column. The most straightforward solution is to create a specific selector for the third column, ensuring only the filename cells are left-aligned while keeping other columns centered. This approach maintains the existing table structure and provides a clean, precise styling solution.
+
+I'll extend the CSS to cover both the main file sidebar and the unexpected files modal, ensuring consistent text alignment across different table contexts.
+
+
+---
+
