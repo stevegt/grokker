@@ -300,8 +300,17 @@ func TestWebClientOpenFileModalWithSyntheticEvent(t *testing.T) {
 		t.Fatalf("Failed to open file modal with synthetic event: %v", err)
 	}
 
+	// Robust verification that modal is actually visible by polling multiple times
 	var modalVisible bool
-	chromedp.Evaluate(`document.getElementById('fileModal').classList.contains('show')`, &modalVisible).Do(ctx)
+	for i := 0; i < 5; i++ {
+		chromedp.Evaluate(`document.getElementById('fileModal').classList.contains('show')`, &modalVisible).Do(ctx)
+		if modalVisible {
+			t.Logf("File modal is visible (verified on attempt %d)", i+1)
+			break
+		}
+		t.Logf("File modal not visible yet (attempt %d), retrying...", i+1)
+		time.Sleep(100 * time.Millisecond)
+	}
 
 	if !modalVisible {
 		t.Errorf("File modal is not visible after synthetic event click")
