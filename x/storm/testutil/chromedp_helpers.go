@@ -106,15 +106,12 @@ func WaitForElement(ctx context.Context, selector string, checkVisibility bool) 
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			for i := 0; i < 40; i++ {
 				var exists bool
-
 				if err := chromedp.Evaluate(fmt.Sprintf(`document.querySelector('%s') !== null`, selector), &exists).Do(ctx); err != nil {
 					return err
 				}
-
 				if exists {
 					return nil
 				}
-
 				time.Sleep(250 * time.Millisecond)
 			}
 			return fmt.Errorf("element %s not found after timeout", selector)
@@ -203,7 +200,7 @@ func ClickElementWithSyntheticEvent(ctx context.Context, selector string) error 
 					elem.dispatchEvent(event);
 					return true;
 				})()
-			`, escapedSelector, selector, selector).Do(ctx)
+			`, escapedSelector, selector, selector), &result).Do(ctx)
 			if err != nil {
 				return fmt.Errorf("failed to dispatch synthetic event: %w", err)
 			}

@@ -49359,3 +49359,101 @@ The pattern here is checking if an element exists, dispatching a synthetic click
 
 ---
 
+
+
+**$ go test -v --run TestWebClientOpenFileModalWithSyntheticEvent
+# github.com/stevegt/grokker/x/storm/testutil
+testutil/chromedp_helpers.go:206:51: syntax error: unexpected newline in argument list; possibly missing comma or )
+testutil/chromedp_helpers.go:207:4: syntax error: unexpected keyword if at end of statement
+FAIL    github.com/stevegt/grokker/x/storm [build failed]**
+
+
+
+
+# Fix Syntax Error in chromedp_helpers.go
+
+The syntax error is in `ClickElementWithSyntheticEvent()` at line 206. The `chromedp.Evaluate()` call is missing the result variable parameter `&result)` before `.Do(ctx)`[1].
+
+The problematic line:
+```go
+err := chromedp.Evaluate(fmt.Sprintf(`...`, escapedSelector, selector, selector).Do(ctx)
+```
+
+Should be:
+```go
+err := chromedp.Evaluate(fmt.Sprintf(`...`, escapedSelector, selector, selector), &result).Do(ctx)
+```
+
+
+## References
+
+[1] [https://golang.org/doc/effective_go#concurrency](https://golang.org/doc/effective_go#concurrency)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is reporting a syntax error in the chromedp_helpers.go file:
+
+```
+testutil/chromedp_helpers.go:206:51: syntax error: unexpected newline in argument list; possibly missing comma or )
+testutil/chromedp_helpers.go:207:4: syntax error: unexpected keyword if at end of statement
+```
+
+Looking at the code around line 206-207 in chromedp_helpers.go:
+
+```go
+// WaitForElement waits for an element to exist in the DOM
+func WaitForElement(ctx context.Context, selector string, checkVisibility bool) error {
+	return chromedp.Run(ctx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			for i := 0; i < 40; i++ {
+				var exists bool
+
+				if err := chromedp.Evaluate(fmt.Sprintf(`document.querySelector('%s') !== null`, selector), &exists).Do(ctx); err != nil {
+					return err
+				}
+
+				if exists {
+					return nil
+				}
+
+				time.Sleep(250 * time.Millisecond)
+			}
+			return fmt.Errorf("element %s not found after timeout", selector)
+		}),
+	)
+}
+```
+
+Actually, looking at line 206 in the provided code... it's hard to count exactly because of the line numbers. Let me look at the ClickElementWithSyntheticEvent function:
+
+```go
+// ClickElementWithSyntheticEvent clicks any element by dispatching a synthetic mouse event via JavaScript
+// This directly simulates a mouse click event at the JavaScript level
+// Accepts a CSS selector for any element that needs to be clicked
+func ClickElementWithSyntheticEvent(ctx context.Context, selector string) error {
+	fmt.Printf("ClickElementWithSyntheticEvent: attempting to click %s using synthetic mouse event...\n", selector)
+	return chromedp.Run(ctx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			// Verify element exists first
+			var exists bool
+			escapedSelector := strings.ReplaceAll(strings.ReplaceAll(selector, "'", "\\'"), "\"", "\\\"")
+			if err := chromedp.Evaluate(fmt.Sprintf(`document.querySelector('%s') !== null`, escapedSelector), &exists).Do(ctx); err != nil {
+				return fmt.Errorf("failed to check if element exists: %w", err)
+			}
+			if !exists {
+				return fmt.Errorf("element %s does not exist", selector)
+			}
+
+The function is checking if the element exists before attempting to click it, escaping special characters in the selector to avoid JavaScript syntax issues. If the element isn't found, it returns an error immediately rather than proceeding with the click operation. I see the issue now. The `fmt.Sprintf` call is missing its closing parenthesis before being passed to `chromedp.Evaluate`. The template string with the JavaScript function and its format arguments (`escapedSelector`, `selector`, `selector`) needs to be properly closed, then passed to `Evaluate` along with the `&result` variable and `.Do(ctx)` to complete the action.
+
+
+---
+
