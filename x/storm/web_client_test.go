@@ -296,7 +296,13 @@ func TestWebClientAddFiles(t *testing.T) {
 		t.Fatalf("Failed to navigate to project page: %v", err)
 	}
 
-	err = testutil.OpenFileModal(ctx)
+	// Use new generic helper and separate modal wait
+	err = testutil.ClickElementWithSyntheticEvent(ctx, "#filesBtn")
+	if err != nil {
+		t.Fatalf("Failed to click filesBtn: %v", err)
+	}
+
+	err = testutil.WaitForModal(ctx)
 	if err != nil {
 		t.Fatalf("Failed to open file modal: %v", err)
 	}
@@ -421,7 +427,16 @@ func TestWebClientFileSelectionPersistence(t *testing.T) {
 		t.Fatalf("Failed to navigate to project page: %v", err)
 	}
 
-	testutil.OpenFileModal(ctx)
+	// Use new generic helper and separate modal wait for first open
+	err = testutil.ClickElementWithSyntheticEvent(ctx, "#filesBtn")
+	if err != nil {
+		t.Fatalf("Failed to click filesBtn: %v", err)
+	}
+
+	err = testutil.WaitForModal(ctx)
+	if err != nil {
+		t.Fatalf("Failed to open file modal: %v", err)
+	}
 
 	testutil.SelectFileCheckbox(ctx, 1, "in")
 	testutil.SelectFileCheckbox(ctx, 2, "out")
@@ -442,7 +457,16 @@ func TestWebClientFileSelectionPersistence(t *testing.T) {
 
 	testutil.CloseModal(ctx)
 
-	testutil.OpenFileModal(ctx)
+	// Use new generic helper and separate modal wait for second open
+	err = testutil.ClickElementWithSyntheticEvent(ctx, "#filesBtn")
+	if err != nil {
+		t.Fatalf("Failed to click filesBtn on second attempt: %v", err)
+	}
+
+	err = testutil.WaitForModal(ctx)
+	if err != nil {
+		t.Fatalf("Failed to open file modal on second attempt: %v", err)
+	}
 
 	inputFiles2, outputFiles2, err := testutil.GetSelectedFiles(ctx)
 	if err != nil {

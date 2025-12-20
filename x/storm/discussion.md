@@ -49457,3 +49457,86 @@ The function is checking if the element exists before attempting to click it, es
 
 ---
 
+
+
+**find and fix the other hangs on clicking files button by calling the new helper function.  here's one example:
+
+=== RUN   TestWebClientAddFiles
+migrating from 3.0.37 to 3.0.39
+2025/12/20 11:48:34 Starting server on :34519
+2025/12/20 11:48:34 API documentation available at http://localhost:34519/docs
+2025/12/20 11:48:34 Adding project: projectID=web-test-add-files, baseDir=/tmp/storm-test-web-test-add-files-641560923/web-test-add-files, markdownFile=/tmp/storm-test-web-test-add-files-641560923/web-test-add-files/chat.md
+INFO: Split storm file into 1 blocks
+INFO: Removing empty last block
+INFO: Parsed 0 roundtrips from storm file
+2025/12/20 11:48:34 Successfully registered project web-test-add-files
+2025/12/20 11:48:34 DEBUG: Returning response with ID=web-test-add-files, BaseDir=/tmp/storm-test-web-test-add-files-641560923/web-test-add-files, ChatRound=0
+2025/12/20 11:48:34 Added file /tmp/storm-test-web-test-add-files-641560923/web-test-add-files/test1.txt to project web-test-add-files
+2025/12/20 11:48:34 Added file /tmp/storm-test-web-test-add-files-641560923/web-test-add-files/test2.txt to project web-test-add-files
+2025/12/20 11:48:34 Broadcasted file list update for project web-test-add-files
+2025/12/20 11:48:35 Client client-0 registered, total clients: 1
+2025/12/20 11:48:35 [DEBUG browser] WebSocket connected for project: web-test-add-files
+2025/12/20 11:48:35 [DEBUG browser] IndexedDB upgrading to version 1
+2025/12/20 11:48:35 [DEBUG browser] Creating 'selections' object store
+2025/12/20 11:48:35 [DEBUG browser] IndexedDB opened successfully
+Opening file modal...
+Clicking Files button...**
+
+
+
+
+# Fix File Modal Hangs: Replace Old OpenFileModal with New Generic Helper
+
+Updates `TestWebClientAddFiles` and `TestWebClientFileSelectionPersistence` to use the new `ClickElementWithSyntheticEvent()` helper and separate `WaitForModal()` call instead of the older `OpenFileModal()` function that hangs[1].
+
+
+## Summary of Changes
+
+**TestWebClientAddFiles**: Replaced `testutil.OpenFileModal(ctx)` with separate calls to `testutil.ClickElementWithSyntheticEvent(ctx, "#filesBtn")` followed by `testutil.WaitForModal(ctx)` to use the new generic helper[1].
+
+**TestWebClientFileSelectionPersistence**: Updated both modal open operations (first and second) to use the new generic helper instead of the legacy `OpenFileModal()` function[1].
+
+Both tests now use the working synthetic mouse event approach directly, avoiding the hang that occurs with the older `OpenFileModal()` implementation[1].
+
+## References
+
+[1] [https://github.com/chromedp/chromedp](https://github.com/chromedp/chromedp)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to find and fix other hangs on clicking the files button by calling the new helper function. They've provided an example showing TestWebClientAddFiles hanging.
+
+Looking at the test files:
+1. TestWebClientAddFiles - uses OpenFileModal() which hangs
+2. TestWebClientAddFiles appears to be hanging when trying to open the file modal
+
+The issue is that TestWebClientAddFiles (and potentially other tests) are still using the old OpenFileModal() function which uses chromedp.WaitVisible and chromedp.Click directly, instead of using the new ClickElementWithSyntheticEvent() helper.
+
+I need to:
+1. Update TestWebClientAddFiles to use the new generic ClickElementWithSyntheticEvent() function
+2. Update TestWebClientFileSelectionPersistence to use the new approach
+3. Potentially update OpenFileModal() itself or have tests call the helpers directly
+
+Looking at the system prompt, I must return complete files only. The tests that need updating are in web_client_test.go.
+
+Let me identify which tests use OpenFileModal():
+- TestWebClientAddFiles - line ~376: calls testutil.OpenFileModal(ctx)
+- TestWebClientFileSelectionPersistence - line ~463: calls testutil.OpenFileModal(ctx) twice
+
+These need to be updated to use:
+1. testutil.ClickElementWithSyntheticEvent(ctx, "#filesBtn")
+2. testutil.WaitForModal(ctx)
+
+Instead of calling OpenFileModal() which has the old implementation.
+
+
+---
+
