@@ -726,7 +726,6 @@ func ExtractFiles(outfiles []FileLang, rawResp string, opts ExtractOptions) (res
 	result.RawResponse = rawResp
 	dryrun := opts.DryRun
 	extractToStdout := opts.ExtractToStdout
-	var foundFiles []string
 
 	// remove the first <think>.*</think> section found
 	thinkStartPat := `(?i)^<think>$`
@@ -864,7 +863,6 @@ func ExtractFiles(outfiles []FileLang, rawResp string, opts ExtractOptions) (res
 
 	// Identify missing files: expected files that were not detected
 	for _, fileLang := range outfiles {
-		fn := fileLang.File
 		found := false
 		for detectedFile := range detectedFilesMap {
 			if detectedFile == fileLang.File {

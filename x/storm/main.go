@@ -1007,7 +1007,7 @@ func sendQueryToLLM(project *Project, queryID, query string, llm string, selecti
 		tokenLimit = 8192
 	}
 
-	var err error // TODO need to return err
+	// TODO need to return err
 
 	wordLimit := int(float64(tokenLimit) / 3.5)
 

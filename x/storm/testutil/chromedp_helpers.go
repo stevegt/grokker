@@ -170,7 +170,10 @@ func OpenFileModal(ctx context.Context) error {
 	return chromedp.Run(ctx,
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			fmt.Println("Clicking Files button...")
-			res := chromedp.Click("#filesBtn").Do(ctx)
+			// first, look for the button
+			res := chromedp.WaitVisible("#filesBtn").Do(ctx)
+			fmt.Printf("Files button visible, result: %v\n", res)
+			res = chromedp.Click("#filesBtn").Do(ctx)
 			fmt.Printf("Clicked Files button, result: %v\n", res)
 			return res
 		}),
