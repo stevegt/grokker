@@ -185,6 +185,91 @@ func OpenFileModal(ctx context.Context) error {
 	)
 }
 
+// ClickFilesBtnWithSendKeys clicks the files button using keyboard input (Focus + SendKeys Enter)
+// This simulates keyboard interaction rather than mouse click
+func ClickFilesBtnWithSendKeys(ctx context.Context) error {
+	fmt.Println("ClickFilesBtnWithSendKeys: attempting to click filesBtn using keyboard input...")
+	return chromedp.Run(ctx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			// Verify button exists first
+			var exists bool
+			if err := chromedp.Evaluate(`document.getElementById('filesBtn') !== null`, &exists).Do(ctx); err != nil {
+				return fmt.Errorf("failed to check if filesBtn exists: %w", err)
+			}
+			if !exists {
+				return errors.New("filesBtn element not found in DOM")
+			}
+			fmt.Println("ClickFilesBtnWithSendKeys: filesBtn exists, focusing on it...")
+			return nil
+		}),
+		chromedp.Focus("#filesBtn"),
+		chromedp.Sleep(100*time.Millisecond),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			fmt.Println("ClickFilesBtnWithSendKeys: sending Enter key...")
+			return chromedp.SendKeys("#filesBtn", "\r").Do(ctx)
+		}),
+		chromedp.Sleep(500*time.Millisecond),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			fmt.Println("ClickFilesBtnWithSendKeys: waiting for modal...")
+			return WaitForModal(ctx)
+		}),
+	)
+}
+
+// ClickFilesBtnWithSyntheticEvent clicks the files button by dispatching a synthetic mouse event via JavaScript
+// This directly simulates a mouse click event at the JavaScript level
+func ClickFilesBtnWithSyntheticEvent(ctx context.Context) error {
+	fmt.Println("ClickFilesBtnWithSyntheticEvent: attempting to click filesBtn using synthetic mouse event...")
+	return chromedp.Run(ctx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			// Verify button exists first
+			var exists bool
+			if err := chromedp.Evaluate(`document.getElementById('filesBtn') !== null`, &exists).Do(ctx); err != nil {
+				return fmt.Errorf("failed to check if filesBtn exists: %w", err)
+			}
+			if !exists {
+				return errors.New("filesBtn element not found in DOM")
+			}
+			fmt.Println("ClickFilesBtnWithSyntheticEvent: filesBtn exists, creating synthetic mouse event...")
+			return nil
+		}),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			// Dispatch a synthetic MouseEvent to the button
+			var result bool
+			err := chromedp.Evaluate(`
+				(function() {
+					var btn = document.getElementById('filesBtn');
+					if (!btn) {
+						console.log('filesBtn not found for synthetic event');
+						return false;
+					}
+					var event = new MouseEvent('click', {
+						bubbles: true,
+						cancelable: true,
+						view: window
+					});
+					console.log('Dispatching synthetic mouse event to filesBtn');
+					btn.dispatchEvent(event);
+					return true;
+				})()
+			`, &result).Do(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to dispatch synthetic event: %w", err)
+			}
+			if !result {
+				return errors.New("synthetic event dispatch returned false")
+			}
+			fmt.Println("ClickFilesBtnWithSyntheticEvent: synthetic event dispatched successfully")
+			return nil
+		}),
+		chromedp.Sleep(500*time.Millisecond),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			fmt.Println("ClickFilesBtnWithSyntheticEvent: waiting for modal...")
+			return WaitForModal(ctx)
+		}),
+	)
+}
+
 // SelectFileCheckbox selects or deselects a file checkbox by row index and type (in/out)
 func SelectFileCheckbox(ctx context.Context, rowIndex int, checkboxType string) error {
 	if checkboxType != "in" && checkboxType != "out" {
