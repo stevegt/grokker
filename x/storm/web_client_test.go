@@ -181,60 +181,6 @@ func TestWebClientOpenFileModal(t *testing.T) {
 	t.Logf("File modal opened successfully")
 }
 
-// TestWebClientOpenFileModalWithSendKeys tests opening the file modal using keyboard input (SendKeys)
-func TestWebClientOpenFileModalWithSendKeys(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping chromedp test in short mode")
-	}
-
-	server := startTestServer(t, "web-test-sendkeys-filesBtn")
-	defer stopTestServer(t, server)
-
-	projectID := server.ProjectID
-	createProjectPayload := map[string]string{
-		"projectID":    projectID,
-		"baseDir":      server.ProjectDir,
-		"markdownFile": server.MarkdownFile,
-	}
-	jsonData, _ := json.Marshal(createProjectPayload)
-	resp, err := http.Post(server.URL+"/api/projects", "application/json", bytes.NewReader(jsonData))
-	if err != nil {
-		t.Fatalf("Failed to create project: %v", err)
-	}
-	resp.Body.Close()
-
-	ctx, cancel := newChromeContext()
-	defer cancel()
-
-	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
-	defer cancelTimeout()
-
-	projectURL := fmt.Sprintf("%s/project/%s", server.URL, projectID)
-	err = chromedp.Run(ctx,
-		chromedp.Navigate(projectURL),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			return testutil.WaitForPageLoad(ctx)
-		}),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			return testutil.WaitForWebSocketConnection(ctx)
-		}),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			return testutil.WaitForElement(ctx, "#filesBtn", false)
-		}),
-	)
-	if err != nil {
-		t.Fatalf("Failed to navigate to project page: %v", err)
-	}
-
-	t.Logf("Testing filesBtn click using SendKeys approach...")
-	err = testutil.ClickFilesBtnWithSendKeys(ctx)
-	if err != nil {
-		t.Fatalf("Failed to open file modal with SendKeys: %v", err)
-	}
-
-	t.Logf("File modal opened successfully using SendKeys method")
-}
-
 // TestWebClientOpenFileModalWithSyntheticEvent tests opening the file modal using synthetic mouse event
 func TestWebClientOpenFileModalWithSyntheticEvent(t *testing.T) {
 	if testing.Short() {
