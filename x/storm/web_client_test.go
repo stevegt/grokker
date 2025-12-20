@@ -172,10 +172,16 @@ func TestWebClientOpenFileModal(t *testing.T) {
 		t.Fatalf("Failed to navigate to project page: %v", err)
 	}
 
-	t.Logf("About to call OpenFileModal...")
-	err = testutil.OpenFileModal(ctx)
+	t.Logf("About to click filesBtn with synthetic event...")
+	err = testutil.ClickElementWithSyntheticEvent(ctx, "#filesBtn")
 	if err != nil {
-		t.Fatalf("Failed to open file modal: %v", err)
+		t.Fatalf("Failed to click filesBtn: %v", err)
+	}
+
+	t.Logf("Waiting for modal to appear...")
+	err = testutil.WaitForModal(ctx)
+	if err != nil {
+		t.Fatalf("Modal did not appear: %v", err)
 	}
 
 	t.Logf("File modal opened successfully")

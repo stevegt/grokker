@@ -164,6 +164,59 @@ func CloseModal(ctx context.Context) error {
 	)
 }
 
+// ClickElementWithSyntheticEvent clicks any element by dispatching a synthetic mouse event via JavaScript
+// This directly simulates a mouse click event at the JavaScript level
+// Accepts a CSS selector for any element that needs to be clicked
+func ClickElementWithSyntheticEvent(ctx context.Context, selector string) error {
+	fmt.Printf("ClickElementWithSyntheticEvent: attempting to click %s using synthetic mouse event...\n", selector)
+	return chromedp.Run(ctx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			// Verify element exists first
+			var exists bool
+			escapedSelector := strings.ReplaceAll(strings.ReplaceAll(selector, "'", "\\'"), "\"", "\\\"")
+			if err := chromedp.Evaluate(fmt.Sprintf(`document.querySelector('%s') !== null`, escapedSelector), &exists).Do(ctx); err != nil {
+				return fmt.Errorf("failed to check if element exists: %w", err)
+			}
+			if !exists {
+				return fmt.Errorf("element %s not found in DOM", selector)
+			}
+			fmt.Printf("ClickElementWithSyntheticEvent: element %s exists, creating synthetic mouse event...\n", selector)
+			return nil
+		}),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			// Dispatch a synthetic MouseEvent to the element
+			var result bool
+			escapedSelector := strings.ReplaceAll(strings.ReplaceAll(selector, "'", "\\'"), "\"", "\\\"")
+			err := chromedp.Evaluate(fmt.Sprintf(`
+				(function() {
+					var elem = document.querySelector('%s');
+					if (!elem) {
+						console.log('Element not found for synthetic event: %s');
+						return false;
+					}
+					var event = new MouseEvent('click', {
+						bubbles: true,
+						cancelable: true,
+						view: window
+					});
+					console.log('Dispatching synthetic mouse event to element: %s');
+					elem.dispatchEvent(event);
+					return true;
+				})()
+			`, escapedSelector, selector, selector).Do(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to dispatch synthetic event: %w", err)
+			}
+			if !result {
+				return fmt.Errorf("synthetic event dispatch returned false for %s", selector)
+			}
+			fmt.Printf("ClickElementWithSyntheticEvent: synthetic event dispatched successfully to %s\n", selector)
+			return nil
+		}),
+		chromedp.Sleep(500*time.Millisecond),
+	)
+}
+
 // OpenFileModal opens the file management modal by clicking the Files button and waiting for it to appear
 func OpenFileModal(ctx context.Context) error {
 	fmt.Println("Opening file modal...")
@@ -219,54 +272,12 @@ func ClickFilesBtnWithSendKeys(ctx context.Context) error {
 // This directly simulates a mouse click event at the JavaScript level
 func ClickFilesBtnWithSyntheticEvent(ctx context.Context) error {
 	fmt.Println("ClickFilesBtnWithSyntheticEvent: attempting to click filesBtn using synthetic mouse event...")
-	return chromedp.Run(ctx,
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			// Verify button exists first
-			var exists bool
-			if err := chromedp.Evaluate(`document.getElementById('filesBtn') !== null`, &exists).Do(ctx); err != nil {
-				return fmt.Errorf("failed to check if filesBtn exists: %w", err)
-			}
-			if !exists {
-				return errors.New("filesBtn element not found in DOM")
-			}
-			fmt.Println("ClickFilesBtnWithSyntheticEvent: filesBtn exists, creating synthetic mouse event...")
-			return nil
-		}),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			// Dispatch a synthetic MouseEvent to the button
-			var result bool
-			err := chromedp.Evaluate(`
-				(function() {
-					var btn = document.getElementById('filesBtn');
-					if (!btn) {
-						console.log('filesBtn not found for synthetic event');
-						return false;
-					}
-					var event = new MouseEvent('click', {
-						bubbles: true,
-						cancelable: true,
-						view: window
-					});
-					console.log('Dispatching synthetic mouse event to filesBtn');
-					btn.dispatchEvent(event);
-					return true;
-				})()
-			`, &result).Do(ctx)
-			if err != nil {
-				return fmt.Errorf("failed to dispatch synthetic event: %w", err)
-			}
-			if !result {
-				return errors.New("synthetic event dispatch returned false")
-			}
-			fmt.Println("ClickFilesBtnWithSyntheticEvent: synthetic event dispatched successfully")
-			return nil
-		}),
-		chromedp.Sleep(500*time.Millisecond),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			fmt.Println("ClickFilesBtnWithSyntheticEvent: waiting for modal...")
-			return WaitForModal(ctx)
-		}),
-	)
+	err := ClickElementWithSyntheticEvent(ctx, "#filesBtn")
+	if err != nil {
+		return err
+	}
+	fmt.Println("ClickFilesBtnWithSyntheticEvent: waiting for modal...")
+	return WaitForModal(ctx)
 }
 
 // SelectFileCheckbox selects or deselects a file checkbox by row index and type (in/out)
