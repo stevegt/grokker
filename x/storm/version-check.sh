@@ -30,3 +30,12 @@ if [ "$int_grokker" -le "$int_latest" ]; then
 	echo "Error: grokker.go:Version $grokker_version is not greater than latest tag $latest_tag"
 	exit 1
 fi
+
+if ! git diff --quiet --exit-code 
+then
+  echo "Working directory is dirty. Please commit changes before installing."
+  exit 1
+fi
+
+git tag "v$grokker_version" 
+echo "Tagged new version: v$grokker_version"
