@@ -367,12 +367,16 @@ func GetSelectedFiles(ctx context.Context) (inputFiles []string, outputFiles []s
 	return
 }
 
-// SubmitQuery submits a query by typing in the input field and pressing Enter
+// SubmitQuery submits a query by typing in the input field and clicking the Send button using synthetic event
 func SubmitQuery(ctx context.Context, query string) error {
 	return chromedp.Run(ctx,
 		chromedp.Focus("#userInput"),
 		chromedp.SendKeys("#userInput", query),
-		chromedp.SendKeys("#userInput", "\r"),
+		chromedp.Sleep(250*time.Millisecond),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			// Use synthetic click to click the Send button instead of pressing Enter
+			return ClickElementWithSyntheticEvent(ctx, "#sendBtn")
+		}),
 	)
 }
 
