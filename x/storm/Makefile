@@ -14,7 +14,7 @@ ldflags := -X github.com/stevegt/grokker/x/storm/version.Version=$(VERSION)
 
 # Build the storm binary with version injection via ldflags and save
 # it in ./bin/storm-$(VERSION)
-build: commit-ck
+build: 
 	@echo "Building storm version: $(VERSION)"
 	mkdir -p bin
 	go build -ldflags="$(ldflags)" -o bin/storm-$(VERSION) 
@@ -27,7 +27,7 @@ dev: build
 	./storm serve 
 
 # Install the binary in the Go bin directory
-install: commit-ck
+install: version-updated commit-ck 
 	go install -v -ldflags="$(ldflags)" 
 
 # Run tests
@@ -55,6 +55,10 @@ test-serve:
 	go run . serve -d /tmp/storm-test.db -p 9090
 
 commit-ck:
-	git diff --quiet --exit-code || (echo "Uncommitted changes found.")
+	git diff --quiet --exit-code || (echo "Working directory is dirty. Please commit changes before installing." && exit 1)
+
+# ensure the version number in core/grokker.go is newer than the latest git tag
+version-updated:
+	./version-check.sh
 
 .PHONY: all build install test clean version dev-build test-serve
