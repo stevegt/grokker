@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/stevegt/grokker/x/storm/version"
 )
 
 // ProjectAddInput uses explicit Body field for Huma request body control
@@ -68,7 +69,7 @@ type FileAddResponse struct {
 	} `doc:"Result of file additions"`
 }
 
-// FileForgetInput for removing files from a project[1]
+// FileForgetInput for removing files from a project
 type FileForgetInput struct {
 	ProjectID string `path:"projectID" doc:"Project identifier" required:"true"`
 	Body      struct {
@@ -96,6 +97,13 @@ type FileListResponse struct {
 	} `doc:"Files list"`
 }
 
+// VersionResponse returns the server version
+type VersionResponse struct {
+	Body struct {
+		Version string `json:"version" doc:"Server version"`
+	} `doc:"Version information"`
+}
+
 // Empty input type for endpoints that don't require input
 type EmptyInput struct{}
 
@@ -119,7 +127,8 @@ func postProjectsHandler(ctx context.Context, input *ProjectAddInput) (*ProjectR
 func getProjectsHandler(ctx context.Context, input *EmptyInput) (*ProjectListResponse, error) {
 	projectIDs := projects.List()
 	var projectInfos []ProjectInfo
-	for _, id := range projectIDs {
+	for i := 0; i < len(projectIDs); i++ {
+		id := projectIDs[i]
 		project, err := projects.Get(id)
 		if err != nil {
 			log.Printf("Error loading project %s: %v", id, err)
@@ -160,7 +169,8 @@ func postProjectFilesAddHandler(ctx context.Context, input *FileAddInput) (*File
 	res.Body.Added = []string{}
 	res.Body.Failed = []string{}
 
-	for _, filename := range input.Body.Filenames {
+	for i := 0; i < len(input.Body.Filenames); i++ {
+		filename := input.Body.Filenames[i]
 		if err := projects.AddFile(projectID, filename); err != nil {
 			res.Body.Failed = append(res.Body.Failed, filename)
 		} else {
@@ -168,7 +178,7 @@ func postProjectFilesAddHandler(ctx context.Context, input *FileAddInput) (*File
 		}
 	}
 
-	// Broadcast file list update to all connected WebSocket clients[1]
+	// Broadcast file list update to all connected WebSocket clients
 	project, err := projects.Get(projectID)
 	if err == nil {
 		updatedFiles := project.GetFilesAsRelative()
@@ -184,7 +194,7 @@ func postProjectFilesAddHandler(ctx context.Context, input *FileAddInput) (*File
 	return res, nil
 }
 
-// postProjectFilesForgetHandler handles POST /api/projects/{projectID}/files/forget - remove files from project[1]
+// postProjectFilesForgetHandler handles POST /api/projects/{projectID}/files/forget - remove files from project
 func postProjectFilesForgetHandler(ctx context.Context, input *FileForgetInput) (*FileForgetResponse, error) {
 	projectID := input.ProjectID
 
@@ -193,7 +203,8 @@ func postProjectFilesForgetHandler(ctx context.Context, input *FileForgetInput) 
 	res.Body.Removed = []string{}
 	res.Body.Failed = []string{}
 
-	for _, filename := range input.Body.Filenames {
+	for i := 0; i < len(input.Body.Filenames); i++ {
+		filename := input.Body.Filenames[i]
 		if err := projects.RemoveFile(projectID, filename); err != nil {
 			log.Printf("Error removing file %s from project %s: %v", filename, projectID, err)
 			res.Body.Failed = append(res.Body.Failed, filename)
@@ -202,7 +213,7 @@ func postProjectFilesForgetHandler(ctx context.Context, input *FileForgetInput) 
 		}
 	}
 
-	// Broadcast file list update to all connected WebSocket clients[1]
+	// Broadcast file list update to all connected WebSocket clients
 	project, err := projects.Get(projectID)
 	if err == nil {
 		updatedFiles := project.GetFilesAsRelative()
@@ -231,5 +242,12 @@ func getProjectFilesHandler(ctx context.Context, input *FileListInput) (*FileLis
 	res.Body.ProjectID = projectID
 	res.Body.Files = project.GetFilesAsRelative()
 
+	return res, nil
+}
+
+// getVersionHandler handles GET /api/version - return server version
+func getVersionHandler(ctx context.Context, input *EmptyInput) (*VersionResponse, error) {
+	res := &VersionResponse{}
+	res.Body.Version = version.Version
 	return res, nil
 }

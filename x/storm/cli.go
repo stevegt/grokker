@@ -84,7 +84,7 @@ func checkStatusCode(resp *http.Response, acceptedCodes ...int) error {
 	return fmt.Errorf("daemon returned status %d: %s", resp.StatusCode, string(body))
 }
 
-// resolvePath converts relative paths to absolute paths; returns absolute paths unchanged[1]
+// resolvePath converts relative paths to absolute paths; returns absolute paths unchanged
 func resolvePath(path string) (string, error) {
 	if filepath.IsAbs(path) {
 		// Already absolute, return as-is
@@ -102,12 +102,43 @@ func resolvePath(path string) (string, error) {
 
 // runVersion implements the version command
 func runVersion(cmd *cobra.Command, args []string) error {
-	// don't need to print anything, because main() already does
+	// Show CLI version
+	fmt.Printf("storm %s (CLI)\n", version.Version)
+
+	// Try to contact the server and get its version
+	resp, err := makeRequest("GET", "/api/version", nil)
+	if err != nil {
+		// Server not reachable - this is not an error, just informational
+		fmt.Printf("(server not reachable at %s)\n", getDaemonURL())
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK); err != nil {
+		// Server returned an error - also not critical
+		fmt.Printf("(error querying server version)\n")
+		return nil
+	}
+
+	var result map[string]interface{}
+	if err := decodeJSON(resp, &result); err != nil {
+		fmt.Printf("(error decoding server version)\n")
+		return nil
+	}
+
+	// Extract version from map
+	if serverVersion, ok := result["version"].(string); ok {
+		fmt.Printf("storm %s (server)\n", serverVersion)
+	} else {
+		fmt.Printf("(unexpected server version format %#v)\n", result)
+	}
+
 	return nil
 }
 
 // runServe implements the serve command
 func runServe(cmd *cobra.Command, args []string) error {
+	fmt.Printf("storm %s\n", version.Version)
 	port, err := cmd.Flags().GetInt("port")
 	if err != nil {
 		return err
@@ -209,7 +240,8 @@ func runProjectList(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println("Registered projects:")
-	for _, proj := range projectList.Projects {
+	for i := 0; i < len(projectList.Projects); i++ {
+		proj := projectList.Projects[i]
 		fmt.Printf("  - %s (baseDir: %s)\n", proj.ID, proj.BaseDir)
 	}
 	return nil
@@ -416,7 +448,7 @@ func runIssueToken(cmd *cobra.Command, args []string) error {
 }
 
 func main() {
-	fmt.Printf("storm %s\n", version.Version)
+	// fmt.Printf("storm %s\n", version.Version)
 
 	rootCmd := &cobra.Command{
 		Use:   "storm",
@@ -428,7 +460,7 @@ func main() {
 	versionCmd := &cobra.Command{
 		Use:   "version",
 		Short: "Display version information",
-		Long:  `Display the current version of Storm.`,
+		Long:  `Display the current version of Storm CLI, and server if available.`,
 		RunE:  runVersion,
 	}
 	rootCmd.AddCommand(versionCmd)

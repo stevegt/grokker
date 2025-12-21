@@ -423,6 +423,7 @@ func serveRun(port int, dbPath string) error {
 	huma.Post(api, "/api/projects/{projectID}/files/add", postProjectFilesAddHandler)
 	huma.Post(api, "/api/projects/{projectID}/files/forget", postProjectFilesForgetHandler)
 	huma.Get(api, "/api/projects/{projectID}/files", getProjectFilesHandler)
+	huma.Get(api, "/api/version", getVersionHandler)
 
 	// Project-specific routes (non-Huma for now, using chi directly)
 	projectRouter := chiRouter.Route("/project/{projectID}", func(r chi.Router) {
