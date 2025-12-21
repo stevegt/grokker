@@ -5,22 +5,25 @@ all:
 	@echo "Some available targets:"
 	@echo "  test         - Run tests"
 	@echo "  dev          - Build and run './storm serve' for touch testing with live db"
-	@echo "  serve        - Install storm in the Go bin directory and run 'storm serve'"
+	@echo "  prod         - Install storm in the Go bin directory and run 'storm serve'"
 
 # Get version from git: use tag if current commit is tagged, otherwise use short commit hash
 VERSION := $(shell git describe --tags --exact-match 2>/dev/null || echo "dev-$$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')")
 
 ldflags := -X github.com/stevegt/grokker/x/storm/version.Version=$(VERSION)
 
-# Build the storm binary with version injection via ldflags
+# Build the storm binary with version injection via ldflags and save
+# it in ./bin/storm-$(VERSION)
 build: commit-ck
 	@echo "Building storm version: $(VERSION)"
-	go build -ldflags="$(ldflags)" -o storm
+	mkdir -p bin
+	go build -ldflags="$(ldflags)" -o bin/storm-$(VERSION) 
 
-# build the binary for development use and run the serve command
+# build the binary, symlink to ./storm, and run serve 
 dev: build
 	- storm stop
 	- ./storm stop
+	ln -sf bin/storm-$(VERSION) storm
 	./storm serve 
 
 # Install the binary in the Go bin directory
@@ -41,7 +44,7 @@ version:
 	@echo "Next build version: $(VERSION)"
 
 # install and run serve command 
-serve: install
+prod: install
 	- storm stop
 	storm serve 
 
