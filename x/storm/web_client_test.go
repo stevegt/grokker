@@ -372,6 +372,133 @@ func TestWebClientQuerySubmitViaWebSocket(t *testing.T) {
 	t.Logf("Query submitted successfully via WebSocket (spinner visible: %v)", spinnerVisible)
 }
 
+// TestWebClientQueryWithResponse tests the complete query workflow including waiting for response
+func TestWebClientQueryWithResponse(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping chromedp test in short mode")
+	}
+
+	server := startTestServer(t, "web-test-query-response")
+	defer stopTestServer(t, server)
+
+	projectID := server.ProjectID
+	createProjectPayload := map[string]string{
+		"projectID":    projectID,
+		"baseDir":      server.ProjectDir,
+		"markdownFile": server.MarkdownFile,
+	}
+	jsonData, _ := json.Marshal(createProjectPayload)
+	resp, _ := http.Post(server.URL+"/api/projects", "application/json", bytes.NewReader(jsonData))
+	resp.Body.Close()
+
+	ctx, cancel := newChromeContext()
+	defer cancel()
+
+	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
+	defer cancelTimeout()
+
+	projectURL := fmt.Sprintf("%s/project/%s", server.URL, projectID)
+	t.Logf("Navigating to project: %s", projectURL)
+	err := chromedp.Run(ctx,
+		chromedp.Navigate(projectURL),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return testutil.WaitForPageLoad(ctx)
+		}),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return testutil.WaitForElement(ctx, "#userInput", false)
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Failed to navigate to project page: %v", err)
+	}
+
+	// Enter and submit a query
+	testQuery := "What is 2+2?"
+	t.Logf("Submitting query: %s", testQuery)
+	err = testutil.SubmitQuery(ctx, testQuery)
+	if err != nil {
+		t.Fatalf("Failed to submit query: %v", err)
+	}
+
+	// Verify spinner appears
+	t.Logf("Verifying spinner appears...")
+	err = testutil.WaitForElement(ctx, ".spinner", false)
+	if err != nil {
+		t.Fatalf("Spinner did not appear after query submission: %v", err)
+	}
+	t.Logf("✓ Spinner appeared")
+
+	// Verify cancel button appears
+	t.Logf("Verifying cancel button appears...")
+	var cancelBtnExists bool
+	chromedp.Evaluate(`document.querySelector('.message button') !== null`, &cancelBtnExists).Do(ctx)
+	if !cancelBtnExists {
+		t.Fatalf("Cancel button did not appear after query submission")
+	}
+	t.Logf("✓ Cancel button appeared")
+
+	// Wait for response (with timeout)
+	t.Logf("Waiting for LLM response (up to 5 minutes)...")
+	responseTimeout := 5 * time.Minute
+	startTime := time.Now()
+	var responseReceived bool
+
+	for time.Since(startTime) < responseTimeout {
+		// Check if response appeared in chat by looking for message divs with response content
+		chromedp.Evaluate(`
+			(function() {
+				var messages = document.querySelectorAll('.message');
+				for (var i = 0; i < messages.length; i++) {
+					// Look for messages that have both query text and response content
+					// Skip messages that only contain the spinner
+					if (messages[i].querySelector('.spinner') === null && 
+					    messages[i].innerHTML.length > 50) {
+						return true;
+					}
+				}
+				return false;
+			})()
+		`, &responseReceived).Do(ctx)
+
+		if responseReceived {
+			break
+		}
+
+		time.Sleep(1 * time.Second)
+	}
+
+	if !responseReceived {
+		t.Fatalf("LLM response did not arrive within %v", responseTimeout)
+	}
+	t.Logf("✓ Response received from LLM (%.1f seconds)", time.Since(startTime).Seconds())
+
+	// Verify spinner is gone
+	t.Logf("Verifying spinner disappears...")
+	var spinnerGone bool
+	chromedp.Evaluate(`.querySelector('.spinner') === null`, &spinnerGone).Do(ctx)
+	if !spinnerGone {
+		t.Logf("WARNING: Spinner still visible, but response was received")
+	} else {
+		t.Logf("✓ Spinner disappeared")
+	}
+
+	// Get response text for verification
+	var responseText string
+	chromedp.Evaluate(`
+		(function() {
+			var messages = document.querySelectorAll('.message');
+			var lastMessage = messages[messages.length - 1];
+			if (lastMessage) {
+				return lastMessage.textContent.substring(0, 200);
+			}
+			return '';
+		})()
+	`, &responseText).Do(ctx)
+
+	t.Logf("Response preview: %s", responseText)
+	t.Logf("✓ Query completed successfully with response")
+}
+
 // TestWebClientFileSelectionPersistence tests that file selections persist when opening and closing the modal
 func TestWebClientFileSelectionPersistence(t *testing.T) {
 	if testing.Short() {
