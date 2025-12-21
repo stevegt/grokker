@@ -1045,11 +1045,29 @@ func sendQueryToLLM(project *Project, queryID, query string, llm string, selecti
 		}
 		fmt.Printf("Sending query to LLM '%s'\n", llm)
 		fmt.Printf("Query: %s\n", query)
+
+		// start a goroutine to print dots while we wait for LLM response
+		canxDots := make(chan bool, 1)
+		go func() {
+			for {
+				select {
+				case <-canxDots:
+					return
+				default:
+					fmt.Printf(".")
+					time.Sleep(1 * time.Second)
+				}
+			}
+		}()
+
 		response, _, err := grok.SendWithFiles(llm, sysmsg, msgs, inputFiles, outFilesConverted)
 		if err != nil {
 			log.Printf("SendWithFiles error: %v", err)
 			return "", fmt.Errorf("failed to send query to LLM: %w", err)
 		}
+
+		// stop the dots goroutine
+		canxDots <- true
 
 		if true || envi.Bool("DEBUG", false) {
 			// write response to a tmp file for inspection
