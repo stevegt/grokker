@@ -1,7 +1,11 @@
 .PHONY: build clean test
 
 # Default target
-all: dev
+all: 
+	@echo "Some available targets:"
+	@echo "  test         - Run tests"
+	@echo "  dev          - Build and run './storm serve' for touch testing with live db"
+	@echo "  serve        - Install storm in the Go bin directory and run 'storm serve'"
 
 # Get version from git: use tag if current commit is tagged, otherwise use short commit hash
 VERSION := $(shell git describe --tags --exact-match 2>/dev/null || echo "dev-$$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')")
