@@ -1167,9 +1167,9 @@
           var serverFiles = data.files || [];
           debugLog("Server returned files: " + JSON.stringify(serverFiles));
           
-          // Load selections from IndexedDB
+          // Verify IndexedDB is ready before using it
           if (!db) {
-            debugLog("WARNING: IndexedDB not initialized yet, retrying in 500ms");
+            debugLog("WARNING: IndexedDB not initialized, retrying in 500ms");
             setTimeout(loadFileList, 500);
             return;
           }
