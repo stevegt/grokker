@@ -769,24 +769,37 @@
           debugLog('Received WebSocket message: ' + JSON.stringify(message));
           
           if (message.type === 'query') {
+            debugLog('Processing query message type');
             // Display query with spinner and cancel button on all clients
             var chat = document.getElementById("chat");
+            debugLog('Chat element: ' + (chat ? 'found' : 'NOT FOUND'));
+            if (!chat) {
+              debugLog('ERROR: chat element not found, cannot create message div');
+              return;
+            }
             var messageDiv = document.createElement("div");
             messageDiv.className = "message";
             messageDiv.innerHTML = "<strong>" + message.query + "</strong><br>";
+            debugLog('Created message div with query text');
             
             var spinner = document.createElement("span");
             spinner.className = "spinner";
             spinner.style.marginLeft = "10px";
             messageDiv.appendChild(spinner);
+            debugLog('Appended spinner to message div');
             
             // Add cancel button
+            debugLog('About to create cancel button for queryID: ' + message.queryID);
             var cancelBtn = document.createElement("button");
             cancelBtn.textContent = "Cancel";
             cancelBtn.style.marginLeft = "5px";
             cancelBtn.style.fontSize = "10px";
             cancelBtn.style.padding = "5px 10px";
+            debugLog('Cancel button element created with ID and styling applied');
+            
+            debugLog('About to attach click listener to cancel button');
             cancelBtn.addEventListener("click", function() {
+              debugLog('Cancel button clicked for queryID: ' + message.queryID);
               // Send cancel message via WebSocket
               ws.send(JSON.stringify({
                 type: "cancel",
@@ -798,11 +811,18 @@
               outstandingQueries--;
               updateStatusSpinner();
             });
-            messageDiv.appendChild(cancelBtn);
+            debugLog('Click listener successfully attached to cancel button');
             
+            debugLog('About to append cancel button to message div');
+            messageDiv.appendChild(cancelBtn);
+            debugLog('Cancel button successfully appended to message div');
+            
+            debugLog('About to append message div (with spinner and cancel button) to chat');
             chat.appendChild(messageDiv);
+            debugLog('Message div successfully appended to chat');
             // Store by queryID to match responses
             pendingQueryDivs[message.queryID] = { div: messageDiv, spinner: spinner, cancelBtn: cancelBtn };
+            debugLog('Stored message div references for queryID: ' + message.queryID);
             generateTOC();
             updateScrollButtonVisibility();
             

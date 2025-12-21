@@ -420,32 +420,28 @@ func TestWebClientQueryWithResponse(t *testing.T) {
 		t.Fatalf("Failed to submit query: %v", err)
 	}
 
-	// Wait for spinner to appear (indicates query broadcast received from server)
-	t.Logf("Verifying spinner appears...")
-	err = testutil.WaitForElement(ctx, ".spinner", false)
-	if err != nil {
-		t.Fatalf("Spinner did not appear after query submission: %v", err)
-	}
-	t.Logf("✓ Spinner appeared")
+	// Wait for spinner and cancel button to appear together (both created by WebSocket broadcast)
+	t.Logf("Verifying spinner and cancel button appear...")
+	waitStartTime := time.Now()
+	var hasSpinner, hasCancelBtn bool
 
-	// Wait for cancel button to appear (it's created with the query broadcast message)
-	t.Logf("Verifying cancel button appears...")
-	cancelBtnWaitTimeout := 10 * time.Second
-	cancelBtnStartTime := time.Now()
-	var cancelBtnExists bool
+	for i := 0; i < 120; i++ {
+		chromedp.Evaluate(`document.querySelector('.spinner') !== null`, &hasSpinner).Do(ctx)
+		chromedp.Evaluate(`document.querySelector('.message button') !== null`, &hasCancelBtn).Do(ctx)
 
-	for time.Since(cancelBtnStartTime) < cancelBtnWaitTimeout {
-		chromedp.Evaluate(`document.querySelector('.message button') !== null`, &cancelBtnExists).Do(ctx)
-		if cancelBtnExists {
+		if hasSpinner && hasCancelBtn {
+			t.Logf("✓ Spinner and cancel button appeared (%.2f seconds)", time.Since(waitStartTime).Seconds())
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	if !cancelBtnExists {
-		t.Logf("WARNING: Cancel button did not appear (may be timing issue with WebSocket broadcast)")
-	} else {
-		t.Logf("✓ Cancel button appeared")
+	if !hasSpinner {
+		t.Fatalf("Spinner did not appear after query submission")
+	}
+
+	if !hasCancelBtn {
+		t.Logf("WARNING: Cancel button did not appear (possible timing/DOM synchronization issue)")
 	}
 
 	// Wait for response (with timeout)
