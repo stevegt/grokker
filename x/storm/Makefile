@@ -1,7 +1,7 @@
 .PHONY: build clean test
 
 # Default target
-all: serve
+all: dev
 
 # Get version from git: use tag if current commit is tagged, otherwise use short commit hash
 VERSION := $(shell git describe --tags --exact-match 2>/dev/null || echo "dev-$$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')")
@@ -13,7 +13,13 @@ build: commit-ck
 	@echo "Building storm version: $(VERSION)"
 	go build -ldflags="$(ldflags)" -o storm
 
-# Install the binary 
+# build the binary for development use and run the serve command
+dev: build
+	- storm stop
+	- ./storm stop
+	./storm serve 
+
+# Install the binary in the Go bin directory
 install: commit-ck
 	go install -v -ldflags="$(ldflags)" 
 
@@ -36,7 +42,7 @@ serve: install
 	storm serve 
 
 # Run the serve command with development database
-dev-serve: 
+test-serve: 
 	@echo remember to set STORM_DAEMON_URL=http://localhost:9090
 	test -n "$(STORM_DAEMON_URL)"
 	go run . serve -d /tmp/storm-test.db -p 9090
@@ -44,4 +50,4 @@ dev-serve:
 commit-ck:
 	git diff --quiet --exit-code || (echo "Uncommitted changes found.")
 
-.PHONY: all build install test clean version dev-build dev-serve
+.PHONY: all build install test clean version dev-build test-serve
