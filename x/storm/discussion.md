@@ -49489,3 +49489,125 @@ I need to provide updated test files that make the button verification more resi
 
 ---
 
+
+
+**that still doesn't work.  HEADLESS=false shows that the cancel button and spinner are both showing, but the test isn't detecting them.  See the test output in /tmp/out**
+
+
+
+
+# Fix Spinner Not Appearing: Check Real Browser vs chromedp Evaluation
+
+The browser logs confirm the spinner is created and appended to the chat, but chromedp's JavaScript evaluation cannot find it with the selector `.querySelector('.spinner')`. This indicates either:
+
+1. **The selector is incorrect** - The spinner doesn't have the `spinner` class
+2. **Timing/synchronization issue** - chromedp evaluates before the DOM is updated
+3. **Element is hidden/detached** - The element exists but isn't visible to the query
+
+## Root Cause Analysis
+
+The browser logs show:
+```
+[DEBUG browser] Appended spinner to message div
+[DEBUG browser] Message div successfully appended to chat
+```
+
+But the test immediately times out looking for `.querySelector('.spinner') !== null`.
+
+## Diagnostic Steps
+
+1. **Check the actual spinner element in real browser**
+   - Run with `HEADLESS=false` 
+   - Open DevTools and evaluate: `document.querySelector('.spinner')`
+   - Look for the element and verify its class names
+
+2. **Add diagnostic logging to the spinner creation**
+   - In `project.html`, after appending spinner:
+   ```javascript
+   debugLog("Spinner element: " + (spinner ? spinner.outerHTML.substring(0, 100) : "null"));
+   debugLog("Spinner class: " + (spinner ? spinner.className : "null"));
+   var found = document.querySelector('.spinner');
+   debugLog("querySelector('.spinner') result: " + (found ? "found" : "not found"));
+   ```
+
+3. **Verify chromedp evaluation is working**
+   - Test a simpler selector that should definitely exist:
+   ```javascript
+   chromedp.Evaluate(`document.getElementById('chat') !== null`, &chatExists)
+   ```
+
+## Most Likely Issue
+
+The spinner's `className` property is set to `"spinner"` in the code, but chromedp's querySelector might be evaluating before the browser renders the element. Add a small delay and retry logic:
+
+```go
+// Wait for spinner with retry logic
+var hasSpinner bool
+maxRetries := 120
+for i := 0; i < maxRetries; i++ {
+    err := chromedp.Evaluate(
+        `document.querySelectorAll('.spinner').length > 0`, 
+        &hasSpinner,
+    ).Do(ctx)
+    if err != nil || hasSpinner {
+        break
+    }
+    time.Sleep(100 * time.Millisecond)
+}
+```
+
+Use `.querySelectorAll().length` instead of checking `!== null` to see if any spinners exist at all.
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is showing me test output where the spinner is not appearing after query submission, even though the debug logs show that it was created and appended to the DOM.
+
+Looking at the test output from `/tmp/out`:
+```
+2025/12/21 12:56:01 [DEBUG browser] Message div successfully appended to chat
+2025/12/21 12:56:01 [DEBUG browser] Stored message div references for queryID: 4adcc740-c3a2-46af-a96b-6a9a5df08d8a
+    web_client_test.go:424: Verifying spinner and cancel button appear...
+2025/12/21 12:56:04 Wrote LLM response to temp file: /tmp/storm-llm-response-3100714039.md
+...
+    web_client_test.go:440: Spinner did not appear after query submission
+```
+
+So the browser debug logs show that:
+1. The message div was created and appended to chat
+2. The cancel button was created and appended
+3. But the test says "Spinner did not appear after query submission"
+
+The test is checking:
+```go
+for i := 0; i < 120; i++ {
+    chromedp.Evaluate(`document.querySelector('.spinner') !== null`, &hasSpinner).Do(ctx)
+    chromedp.Evaluate(`document.querySelector('.message button') !== null`, &hasCancelBtn).Do(ctx)
+```
+
+But the spinner IS being created - the browser logs show it was appended. So why isn't the test finding it?
+
+The issue might be that the test is evaluating synchronously in the loop, and there's a race condition. The browser logs say the spinner was appended, but by the time the test evaluates the query selector, the element might have already been removed or hidden.
+
+Wait, looking more carefully at the logs:
+```
+2025/12/21 12:56:01 [DEBUG browser] Appended spinner to message div
+
+
+2025/12/21 12:56:01 [DEBUG browser] About to create cancel button for queryID: 4adcc740-c3a2-46af-a96b-6a9a5df08d8a
+```
+
+The spinner gets appended, then the cancel button is created. All of this happens at 12:56:01. But then the LLM response arrives at 12:56:04, and the test never finds the spinner. The test was checking for it during those 3 seconds, so something must be removing or hiding the spinner before the response arrives.
+
+Looking at the test loop - it waits up to 12 seconds, checking every 100ms for both the spinner and cancel button to appear. But it times out at line 440 without finding the spinner. The browser logs confirm the spinner was created, yet chromedp's DOM queries can't locate it. This suggests the spinner might be getting removed from the DOM between when it's created and when the test queries for it, or there's a mismatch between what the browser is rendering and what chromedp can see. The spinner is present in the browser logs, but chromedp's querySelector isn't locating it. This suggests either a timing issue with chromedp's DOM queries or the element isn't being rendered in a way the selector can find. I should verify whether the spinner actually appears when running with HEADLESS=false, or if there's a mismatch between the selector and how the element is being rendered.
+
+
+---
+
