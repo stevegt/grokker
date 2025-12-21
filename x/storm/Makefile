@@ -46,7 +46,8 @@ version:
 	@echo "Next build version: $(VERSION)"
 
 # install and run serve command 
-prod: version-check build symlink install
+prod: version-check 
+	$(MAKE) build symlink install
 	- storm stop
 	storm serve 
 
