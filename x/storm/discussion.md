@@ -48893,3 +48893,142 @@ Let me scan through the code carefully:
 
 ---
 
+
+
+**still hanging, no cancel button -- find the problem:
+
+=== RUN   TestWebClientQueryWithResponse
+migrating from 3.0.37 to 3.0.39
+2025/12/21 11:40:41 Starting server on :40739
+2025/12/21 11:40:41 API documentation available at http://localhost:40739/docs
+2025/12/21 11:40:41 Adding project: projectID=web-test-query-response, baseDir=/tmp/storm-test-web-test-query-response-289196728/web-test-query-response, markdownFile=/tmp/storm-test-web-test-query-response-289196728/web-test-query-response/chat.md
+INFO: Split storm file into 1 blocks
+INFO: Removing empty last block
+INFO: Parsed 0 roundtrips from storm file
+2025/12/21 11:40:41 Successfully registered project web-test-query-response
+2025/12/21 11:40:41 DEBUG: Returning response with ID=web-test-query-response, BaseDir=/tmp/storm-test-web-test-query-response-289196728/web-test-query-response, ChatRound=0
+    web_client_test.go:401: Navigating to project: http://localhost:40739/project/web-test-query-response
+2025/12/21 11:40:42 Client client-0 registered, total clients: 1
+2025/12/21 11:40:42 [DEBUG browser] WebSocket connected for project: web-test-query-response
+2025/12/21 11:40:42 [DEBUG browser] IndexedDB upgrading to version 1
+2025/12/21 11:40:42 [DEBUG browser] Creating 'selections' object store
+2025/12/21 11:40:42 [DEBUG browser] IndexedDB opened successfully
+    web_client_test.go:417: Submitting query: What is 2+2?
+    web_client_test.go:424: Verifying spinner appears...
+    web_client_test.go:429: ✓ Spinner appeared
+    web_client_test.go:432: Verifying cancel button appears...
+    web_client_test.go:446: WARNING: Cancel button did not appear (may be timing issue with WebSocket broadcast)
+    web_client_test.go:452: Waiting for LLM response (up to 5 minutes)...**
+
+
+
+
+# Fix Query Submission: SubmitQuery Helper Not Clicking Send Button
+
+The root problem is in `testutil/chromedp_helpers.go`: the `SubmitQuery()` function types the query and presses Enter, but **hitting Enter in a textarea doesn't trigger form submission or click the Send button**[1]. The query is typed but never actually sent to the server[1].
+
+## The Bug
+
+**Current broken code:**
+```go
+func SubmitQuery(ctx context.Context, query string) error {
+	return chromedp.Run(ctx,
+		chromedp.Focus("#userInput"),
+		chromedp.SendKeys("#userInput", query),
+		chromedp.SendKeys("#userInput", "\r"),  // Just creates newline, doesn't submit
+	)
+}
+```
+
+**Why it fails:** The textarea's `\r` (Enter key) creates a newline character in the text field, but JavaScript query submission requires clicking the Send button:
+
+```javascript
+document.getElementById("sendBtn").addEventListener("click", function() {
+  var query = input.value;
+  ...
+  sendQuery(query, llm, "", tokenLimit);  // Only called on button click
+});
+```
+
+## Solution
+
+**Fixed code:**
+```go
+func SubmitQuery(ctx context.Context, query string) error {
+	return chromedp.Run(ctx,
+		chromedp.Focus("#userInput"),
+		chromedp.SendKeys("#userInput", query),
+		chromedp.Click("#sendBtn"),  // Actually click the Send button
+	)
+}
+```
+
+This ensures the click event handler fires and calls `sendQuery()` via WebSocket, which broadcasts the query back to the client, creating the spinner and cancel button[1][2].
+
+## References
+
+[1] [https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/click](https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/click)
+[2] [https://developer.mozilla.org/en-US/docs/Web/API/EventTarget/addEventListener](https://developer.mozilla.org/en-US/docs/Web/API/EventTarget/addEventListener)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to find the problem - why the test is still hanging and there's no cancel button. Looking at the test output:
+
+```
+2025/12/21 11:40:42 [DEBUG browser] IndexedDB opened successfully
+    web_client_test.go:417: Submitting query: What is 2+2?
+    web_client_test.go:424: Verifying spinner appears...
+    web_client_test.go:429: ✓ Spinner appeared
+    web_client_test.go:432: Verifying cancel button appears...
+    web_client_test.go:446: WARNING: Cancel button did not appear (may be timing issue with WebSocket broadcast)
+    web_client_test.go:452: Waiting for LLM response (up to 5 minutes)...
+```
+
+The spinner appears but the cancel button doesn't. The query was submitted, the server processed it, broadcast it back... but the cancel button never appeared.
+
+Looking at the project.html code for handling the query message:
+
+```javascript
+if (message.type === 'query') {
+  // Display query with spinner and cancel button on all clients
+  var chat = document.getElementById("chat");
+  var messageDiv = document.createElement("div");
+  messageDiv.className = "message";
+  messageDiv.innerHTML = "<strong>" + message.query + "</strong><br>";
+  
+  var spinner = document.createElement("span");
+  spinner.className = "spinner";
+  spinner.style.marginLeft = "10px";
+  messageDiv.appendChild(spinner);
+  
+  // Add cancel button
+  var cancelBtn = document.createElement("button");
+  cancelBtn.textContent = "Cancel";
+  ...
+  messageDiv.appendChild(cancelBtn);
+  
+  chat.appendChild(messageDiv);
+  // Store by queryID to match responses
+  pendingQueryDivs[message.queryID] = { div: messageDiv, spinner: spinner, cancelBtn: cancelBtn };
+
+
+}
+```
+
+I notice a potential discrepancy between the test helper and the JavaScript event handler. The test uses `chromedp.SendKeys("\r")` to submit the query, which suggests pressing Enter, but the JavaScript code seems to be set up to handle a Send button click event.
+
+The textarea's default behavior when Enter is pressed is to create a new line, not submit the query. This means the current test helper method won't actually trigger the query submission as expected.
+
+The implementation requires explicitly clicking the Send button to process a query, which the current test helper doesn't account for. This could lead to test failures or unexpected behavior in automated testing scenarios.
+
+
+---
+
