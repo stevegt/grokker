@@ -282,7 +282,7 @@ func TestWebSocketMultipleClients(t *testing.T) {
 		"queryID":    "broadcast-123",
 		"projectID":  setup.ProjectID,
 	}
-	if err := conns.WriteJSON(queryMsg); err != nil {
+	if err := conns[0].WriteJSON(queryMsg); err != nil {
 		t.Fatalf("Failed to send query message: %v", err)
 	}
 
@@ -517,7 +517,7 @@ func TestWebSocketApprovalChannelReceival(t *testing.T) {
 		t.Errorf("Expected 2 approved files, got %d", len(receivedFiles))
 	}
 
-	if receivedFiles != "file1.go" || receivedFiles[1] != "file2.md" {
+	if receivedFiles[0] != "file1.go" || receivedFiles[1] != "file2.md" {
 		t.Errorf("Approved files mismatch: expected [file1.go file2.md], got %v", receivedFiles)
 	}
 
@@ -581,7 +581,7 @@ func TestWebSocketMultipleConcurrentApprovals(t *testing.T) {
 		}
 
 		expected := fmt.Sprintf("file%d_1.go", i)
-		if len(receivedFiles) > 0 && receivedFiles == expected {
+		if len(receivedFiles) > 0 && receivedFiles[0] == expected {
 			t.Logf("Query %d received correct approval: %v", i, receivedFiles)
 		} else {
 			t.Errorf("Query %d received unexpected approval: %v", i, receivedFiles)
@@ -637,11 +637,11 @@ func TestWebSocketUnexpectedFilesDetection(t *testing.T) {
 	// Test categorization function with mixed files
 	alreadyAuth, needsAuth := categorizeUnexpectedFiles(project, []string{authorizedFile, "new-file.go"})
 
-	if len(alreadyAuth) != 1 || alreadyAuth != authorizedFile {
+	if len(alreadyAuth) != 1 || alreadyAuth[0] != authorizedFile {
 		t.Errorf("Expected 1 already-authorized file, got %d", len(alreadyAuth))
 	}
 
-	if len(needsAuth) != 1 || needsAuth != "new-file.go" {
+	if len(needsAuth) != 1 || needsAuth[0] != "new-file.go" {
 		t.Errorf("Expected 1 file needing authorization, got %d", len(needsAuth))
 	}
 
