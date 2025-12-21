@@ -787,6 +787,10 @@
             spinner.style.marginLeft = "10px";
             messageDiv.appendChild(spinner);
             debugLog('Appended spinner to message div');
+            debugLog('Spinner element: ' + spinner.outerHTML.substring(0, 150));
+            debugLog('Spinner className: ' + spinner.className);
+            var foundSpinner = document.querySelector('.spinner');
+            debugLog('querySelector(".spinner") after append: ' + (foundSpinner ? 'found' : 'NOT found'));
             
             // Add cancel button
             debugLog('About to create cancel button for queryID: ' + message.queryID);
@@ -823,6 +827,8 @@
             // Store by queryID to match responses
             pendingQueryDivs[message.queryID] = { div: messageDiv, spinner: spinner, cancelBtn: cancelBtn };
             debugLog('Stored message div references for queryID: ' + message.queryID);
+            var foundSpinner2 = document.querySelector('.spinner');
+            debugLog('querySelector(".spinner") after storage: ' + (foundSpinner2 ? 'found' : 'NOT found'));
             generateTOC();
             updateScrollButtonVisibility();
             
