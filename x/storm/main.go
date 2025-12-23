@@ -1065,17 +1065,19 @@ func sendQueryToLLM(project *Project, queryID, query string, llm string, selecti
 
 		// start a goroutine to print dots while we wait for LLM response
 		canxDots := make(chan bool, 1)
-		go func() {
-			for {
-				select {
-				case <-canxDots:
-					return
-				default:
-					fmt.Printf(".")
-					time.Sleep(1 * time.Second)
+		if envi.Bool("STORM_DOTS", false) {
+			go func() {
+				for {
+					select {
+					case <-canxDots:
+						return
+					default:
+						fmt.Printf(".")
+						time.Sleep(1 * time.Second)
+					}
 				}
-			}
-		}()
+			}()
+		}
 
 		response, _, err := grok.SendWithFiles(llm, sysmsg, msgs, inputFiles, outFilesConverted)
 		if err != nil {
