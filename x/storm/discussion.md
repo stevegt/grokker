@@ -50596,21 +50596,7 @@ The root issue is that `filepath.Abs()` uses the current working directory, not 
 
 Updates the web-client-test-plan.md to accurately reflect the current state of the web client testing implementation, including the actual test functions, chromedp helpers, and patterns used in practice[1].
 
-## References
 
-
-
-## Reasoning
-
-
-
-
-
----
-
-
-
-**## References**
 
 
 ## Reasoning
