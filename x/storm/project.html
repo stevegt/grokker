@@ -344,22 +344,24 @@
       border-radius: 3px;
       display: flex;
       justify-content: space-between;
-      align-items: center;
+      align-items: flex-start;
     }
     .needs-auth-file .filename {
       flex: 1;
       word-break: break-all;
       text-align: left;
+      padding-right: 8px;
+      align-self: flex-start;
     }
     .needs-auth-file .copy-btn {
       background-color: #3498db;
       color: #e0e0e0;
       border: 1px solid #2980b9;
       padding: 4px 8px;
-      margin-left: 8px;
       cursor: pointer;
       font-size: 0.85em;
       white-space: nowrap;
+      flex-shrink: 0;
     }
     .needs-auth-file .copy-btn:hover {
       background-color: #2980b9;
@@ -620,7 +622,7 @@
         
         // Add All/None checkbox in header
         var headerRow = authTable.querySelector("thead tr");
-        var allNoneCell = headerRow.cells;
+        var allNoneCell = headerRow.cells[0];
         var selectAllCheckbox = document.createElement("input");
         selectAllCheckbox.type = "checkbox";
         selectAllCheckbox.className = "unexpected-select-all";
@@ -667,37 +669,36 @@
         var needsSection = document.createElement("div");
         needsSection.className = "unexpected-section";
         needsSection.innerHTML = "<h3>Needs Authorization - Add via CLI First</h3>";
-        needsSection.innerHTML += "<p>These files are not yet authorized. Add them using the CLI command shown below, then enable them for output:</p>";
+        needsSection.innerHTML += "<p>These files are not yet authorized. Copy the command below and run it via CLI, then enable them for output:</p>";
         
         var filesList = document.createElement("div");
-        for (var j = 0; j < needsAuthorization.length; j++) {
-          var file = needsAuthorization[j];
+        
+        // Use forEach to naturally create closure for each file
+        needsAuthorization.forEach(function(file) {
           var fileDiv = document.createElement("div");
           fileDiv.className = "needs-auth-file";
           
           var filenameSpan = document.createElement("span");
           filenameSpan.className = "filename";
-          filenameSpan.textContent = file;
+          var command = "storm file add --project " + projectID + " " + file;
+          filenameSpan.textContent = command;
           
           var copyBtn = document.createElement("button");
           copyBtn.className = "copy-btn";
           copyBtn.textContent = "Copy Command";
-          copyBtn.onclick = (function(filename) {
-            return function() {
-              var command = "storm file add --project " + projectID + " " + filename;
-              navigator.clipboard.writeText(command).then(function() {
-                copyBtn.textContent = "Copied!";
-                setTimeout(function() {
-                  copyBtn.textContent = "Copy Command";
-                }, 2000);
-              });
-            };
-          })(file);
+          copyBtn.onclick = function() {
+            navigator.clipboard.writeText(command).then(function() {
+              copyBtn.textContent = "Copied!";
+              setTimeout(function() {
+                copyBtn.textContent = "Copy Command";
+              }, 2000);
+            });
+          };
           
           fileDiv.appendChild(filenameSpan);
           fileDiv.appendChild(copyBtn);
           filesList.appendChild(fileDiv);
-        }
+        });
         
         needsSection.appendChild(filesList);
         content.appendChild(needsSection);
