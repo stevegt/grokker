@@ -153,6 +153,38 @@ func WaitForModal(ctx context.Context) error {
 	)
 }
 
+// WaitForUnexpectedFilesModal waits for the unexpected files modal to appear
+func WaitForUnexpectedFilesModal(ctx context.Context) error {
+	return chromedp.Run(ctx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			for i := 0; i < 60; i++ {
+				var isVisible bool
+				err := chromedp.Evaluate(`
+					(function() {
+						var modal = document.getElementById('fileModal');
+						if (!modal) return false;
+						var title = document.getElementById('modalTitle');
+						if (!title) return false;
+						var hasUnexpectedText = title.textContent.indexOf('Unexpected') >= 0;
+						var hasShow = modal.classList.contains('show');
+						return hasUnexpectedText && hasShow;
+					})()
+				`, &isVisible).Do(ctx)
+				if err != nil {
+					time.Sleep(250 * time.Millisecond)
+					continue
+				}
+				if isVisible {
+					time.Sleep(300 * time.Millisecond)
+					return nil
+				}
+				time.Sleep(250 * time.Millisecond)
+			}
+			return errors.New("unexpected files modal did not appear after timeout")
+		}),
+	)
+}
+
 // CloseModal closes the file management modal by clicking the close button
 func CloseModal(ctx context.Context) error {
 	return chromedp.Run(ctx,
@@ -365,6 +397,53 @@ func GetSelectedFiles(ctx context.Context) (inputFiles []string, outputFiles []s
 	}
 
 	return
+}
+
+// GetUnexpectedFilesApproved returns the list of files checked in the unexpected files modal
+func GetUnexpectedFilesApproved(ctx context.Context) ([]string, error) {
+	var result interface{}
+	err := chromedp.Run(ctx,
+		chromedp.Evaluate(`
+			(function() {
+				var approved = [];
+				var checkboxes = document.querySelectorAll("input.unexpected-out:checked");
+				for (var i = 0; i < checkboxes.length; i++) {
+					approved.push(checkboxes[i].value);
+				}
+				return approved;
+			})()
+		`, &result),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var approved []string
+	if resultArray, ok := result.([]interface{}); ok {
+		for i := 0; i < len(resultArray); i++ {
+			if f, ok := resultArray[i].(string); ok {
+				approved = append(approved, f)
+			}
+		}
+	}
+	return approved, nil
+}
+
+// ApproveUnexpectedFiles clicks the approval checkboxes and confirms in the unexpected files modal
+func ApproveUnexpectedFiles(ctx context.Context, filenames []string) error {
+	for i := 0; i < len(filenames); i++ {
+		filename := filenames[i]
+		selector := fmt.Sprintf(`input[value="%s"].unexpected-out`, filename)
+		if err := chromedp.Run(ctx, chromedp.Click(selector)); err != nil {
+			return fmt.Errorf("failed to click checkbox for %s: %w", filename, err)
+		}
+	}
+
+	// Click confirmation button
+	return chromedp.Run(ctx,
+		chromedp.Click("#confirmApprovalBtn"),
+		chromedp.Sleep(500*time.Millisecond),
+	)
 }
 
 // SubmitQuery submits a query by typing in the input field and clicking the Send button using synthetic event
