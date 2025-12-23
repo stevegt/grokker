@@ -20,7 +20,7 @@ build:
 	go build -ldflags="$(ldflags)" -o bin/storm-$(VERSION) 
 
 # build the binary, symlink to ./storm, and run serve 
-dev: build symlink
+dev: commit-ck build symlink
 	- storm stop
 	- ./storm stop
 	./storm serve 
@@ -58,7 +58,7 @@ test-serve:
 	go run . serve -d /tmp/storm-test.db -p 9090
 
 commit-ck:
-	git diff --quiet --exit-code || (echo "Working directory is dirty. Please commit changes before installing." && exit 1)
+	git diff --quiet --exit-code || (echo "Working directory is dirty. Please commit changes." && exit 1)
 
 # ensure the version number in core/grokker.go is newer than the latest git tag
 version-check:
