@@ -8,18 +8,15 @@
 
 # features
 
-make 8k the default max token size, add larger presets
+- make 8k the default max token size, add larger presets
 - file list:
-  - left justify
   - sort options (alphabetical, time created, folders first) 
-- add home button or project name dropdown to project.html
 - wrap queries in code block in markdown file 
   - reformat on read, so result will be written to disk
+  - add a version number at top of discussion file
 - status subcommand to show current status of daemon including queries
   in progress
-- really need https://playwright.dev/ to test
-- refactor to be able to use one daemon on one port number for multiple projects
-  - see discussion.md
+  - websocket status endpoint to support this
 - logins so we can support co-authored-by headers in git commits
   - let's try github oauth
   - for now perhaps just a simple username/password system
