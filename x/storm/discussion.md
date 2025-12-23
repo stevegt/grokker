@@ -50679,18 +50679,6 @@ Revises the unexpected-files-plan.md to reflect the current implementation progr
 ## Reasoning
 
 
-
-
-
----
-
-
-
-**## References**
-
-
-## Reasoning
-
 The user is asking me to "update unexpected-files-plan.md". Looking at the file that was provided at the end of the context, I can see it's a detailed staged implementation plan for the unexpected files flow.
 
 Looking at the current state of the plan, I need to evaluate what's been completed and what still needs to be done. Let me review the stages:
@@ -50820,18 +50808,6 @@ Consider addressing chromedp timing issues only if:
 - You need fully automated CI/CD validation
 - The investigation reveals a real code bug (not just test synchronization)
 
-## References
-
-
-
-## Reasoning
-
-
-
-
-
----
-
 
 
 **Recommendation**
@@ -50926,7 +50902,6 @@ allNoneCell.appendChild(someElement);
 
 
 
-## References
 
 ## Reasoning
 
