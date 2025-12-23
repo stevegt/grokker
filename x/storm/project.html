@@ -669,7 +669,7 @@
         var needsSection = document.createElement("div");
         needsSection.className = "unexpected-section";
         needsSection.innerHTML = "<h3>Needs Authorization - Add via CLI First</h3>";
-        needsSection.innerHTML += "<p>These files are not yet authorized. Copy the command below and run it via CLI, then enable them for output:</p>";
+        needsSection.innerHTML += "<p>These files are not yet authorized. Copy the command for each file listed below and run it via CLI, then enable them for output:</p>";
         
         var filesList = document.createElement("div");
         
@@ -681,7 +681,7 @@
           var filenameSpan = document.createElement("span");
           filenameSpan.className = "filename";
           var command = "storm file add --project " + projectID + " " + file;
-          filenameSpan.textContent = command;
+          filenameSpan.textContent = file;
           
           var copyBtn = document.createElement("button");
           copyBtn.className = "copy-btn";

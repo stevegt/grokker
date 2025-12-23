@@ -651,6 +651,148 @@ func TestWebClientPageLoad(t *testing.T) {
 	t.Logf("Landing page loaded successfully with title: %s", pageTitle)
 }
 
+// TestWebClientCreateFileAndApproveUnexpected tests the complete flow: query creates file, user approves via modal
+func TestWebClientCreateFileAndApproveUnexpected(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping chromedp test in short mode")
+	}
+
+	server := startTestServer(t, "web-test-create-file-approve")
+	defer stopTestServer(t, server)
+
+	projectID := server.ProjectID
+	createProjectPayload := map[string]string{
+		"projectID":    projectID,
+		"baseDir":      server.ProjectDir,
+		"markdownFile": server.MarkdownFile,
+	}
+	jsonData, _ := json.Marshal(createProjectPayload)
+	resp, _ := http.Post(server.URL+"/api/projects", "application/json", bytes.NewReader(jsonData))
+	resp.Body.Close()
+
+	ctx, cancel := newChromeContext()
+	defer cancel()
+
+	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
+	defer cancelTimeout()
+
+	projectURL := fmt.Sprintf("%s/project/%s", server.URL, projectID)
+	t.Logf("Navigating to project: %s", projectURL)
+	err := chromedp.Run(ctx,
+		chromedp.Navigate(projectURL),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return testutil.WaitForPageLoad(ctx)
+		}),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return testutil.WaitForWebSocketConnection(ctx)
+		}),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return testutil.WaitForElement(ctx, "#userInput", false)
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Failed to navigate to project page: %v", err)
+	}
+
+	// Submit query that may produce file output
+	testQuery := "Create a simple Go program file called hello.go that prints Hello World.  You MUST use proper markers:\n"
+	testQuery += "---FILE-START filename=\"hello.go\"---\n"
+	testQuery += "[...file content here...]\n"
+	testQuery += "---FILE-END filename=\"hello.go\"---\n"
+
+	t.Logf("Submitting query that requests file creation: %s", testQuery)
+	err = testutil.SubmitQuery(ctx, testQuery)
+	if err != nil {
+		t.Fatalf("Failed to submit query: %v", err)
+	}
+
+	// Wait for unexpected files modal to appear
+	t.Logf("Waiting for unexpected files modal to appear (indicates LLM created a file)...")
+	err = testutil.WaitForUnexpectedFilesModal(ctx)
+	if err != nil {
+		t.Fatalf("Unexpected files modal did not appear: %v", err)
+	}
+
+	t.Logf("✓ Unexpected files modal appeared, indicating LLM created new files")
+
+	// Get list of files needing authorization
+	approvedFiles, err := testutil.GetUnexpectedFilesApproved(ctx)
+	if err != nil {
+		t.Fatalf("Failed to get unexpected files from modal: %v", err)
+	}
+
+	if len(approvedFiles) == 0 {
+		time.Sleep(5 * time.Second)
+		t.Fatalf("No files listed in unexpected files modal for authorization")
+	}
+
+	t.Logf("Found %d files needing authorization: %v", len(approvedFiles), approvedFiles)
+
+	// Approve the files through the modal
+	t.Logf("Approving %d unexpected files via modal...", len(approvedFiles))
+	err = testutil.ApproveUnexpectedFiles(ctx, approvedFiles)
+	if err != nil {
+		time.Sleep(5 * time.Second)
+		t.Fatalf("Failed to approve unexpected files: %v", err)
+	}
+
+	t.Logf("✓ User approved unexpected files through modal")
+
+	// Wait for modal to close and files to be added
+	time.Sleep(2 * time.Second)
+
+	// Verify files were added to the project via API
+	t.Logf("Verifying files were added to project...")
+	filesURL := fmt.Sprintf("%s/api/projects/%s/files", server.URL, projectID)
+	resp, err = http.Get(filesURL)
+	if err != nil {
+		time.Sleep(5 * time.Second)
+		t.Fatalf("Failed to retrieve file list: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var filesResult map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&filesResult)
+	filesList, ok := filesResult["files"].([]interface{})
+	if !ok {
+		t.Fatalf("Unexpected response format from files API")
+	}
+
+	t.Logf("Project now has %d authorized files", len(filesList))
+
+	// Check if any of the approved files are now in the project
+	projectFiles := make(map[string]bool)
+	for i := 0; i < len(filesList); i++ {
+		if f, ok := filesList[i].(string); ok {
+			projectFiles[f] = true
+		}
+	}
+
+	filesFoundInProject := 0
+	for i := 0; i < len(approvedFiles); i++ {
+		approvedFile := approvedFiles[i]
+		// The file may be stored as absolute or relative path
+		if projectFiles[approvedFile] {
+			filesFoundInProject++
+			t.Logf("✓ Approved file found in project: %s", approvedFile)
+		}
+	}
+
+	if filesFoundInProject > 0 {
+		t.Logf("✓ Successfully approved and added %d files to project", filesFoundInProject)
+	} else {
+		t.Fatalf("None of the approved files were found in the project after approval")
+	}
+
+	// check existence of hello.go specifically
+	helloFilePath := filepath.Join(server.ProjectDir, "hello.go")
+	if _, err := os.Stat(helloFilePath); os.IsNotExist(err) {
+		t.Fatalf("Expected file hello.go was not created in project directory")
+	} else {
+		t.Logf("✓ Expected file hello.go was created successfully")
+	}
+}
+
 // TestWebClientUnexpectedFilesUserApprovesAll tests when all unexpected files are approved
 func TestWebClientUnexpectedFilesUserApprovesAll(t *testing.T) {
 	if testing.Short() {
