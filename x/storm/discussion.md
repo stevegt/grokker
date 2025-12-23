@@ -51013,8 +51013,6 @@ The project.html fix adds defensive checks before calling `appendChild` on table
 
 
 
-## References
-
 
 
 
@@ -51182,9 +51180,6 @@ The key is that `text-align: left` already exists and works correctly for text w
 [2] [https://developer.mozilla.org/en-US/docs/Web/CSS/align-items](https://developer.mozilla.org/en-US/docs/Web/CSS/align-items)
 
 
-
-
-## References
 
 
 

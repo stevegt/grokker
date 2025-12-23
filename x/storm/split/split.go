@@ -114,6 +114,7 @@ func Parse(r io.Reader) ([]RoundTrip, error) {
 			}
 			fmt.Fprintf(os.Stderr, "INFO: block %d, qEndIdx: %d, idxRef: %d, idxThink: %d, block length: %d\n",
 				blocknum, qEndIdx, idxRef, idxThink, len(block))
+			Assert(idxRef > qEndIdx, "Query end index exceeds references marker index in block %d:\n%s", blocknum, block)
 			rt.Response = strings.TrimSpace(block[qEndIdx:idxRef])
 		} else {
 			fmt.Fprintf(os.Stderr, "WARN: No references marker found, block number %d\n", blocknum)
