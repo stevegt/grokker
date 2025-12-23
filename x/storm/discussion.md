@@ -50636,3 +50636,55 @@ I should update web-client-test-plan.md to be more accurate and current with the
 
 ---
 
+
+
+**update unexpected-files-plan.md**
+
+
+
+
+# Update Unexpected Files Plan: Current Implementation Status
+
+Revises the unexpected-files-plan.md to reflect the current implementation progress, test execution status, and updates remaining work based on observed functionality[1].
+
+---
+
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to "update unexpected-files-plan.md". Looking at the file that was provided at the end of the context, I can see it's a detailed staged implementation plan for the unexpected files flow.
+
+Looking at the current state of the plan, I need to evaluate what's been completed and what still needs to be done. Let me review the stages:
+
+- Stage 1: ✅ DONE - Modify ExtractFiles to return Result Struct
+- Stage 2: ✅ DONE - Update Grokker callers
+- Stage 3: ✅ DONE - Update Storm's sendQueryToLLM
+- Stage 4: ✅ DONE - Extend ReadPump to handle "approveFiles"
+- Stage 5: ✅ DONE - Implement dry-run detection and WebSocket notification
+- Stage 6: ✅ DONE - Update project.html to display unexpected files modal
+- Stage 7: ⏳ TODO - Implement approval flow and re-extraction
+- Stage 8: ⏳ TODO - Handle files needing authorization
+- Stage 9: ⏳ TODO - Handle declined files and modal closure
+- Stage 10: ⏳ TODO - End-to-end testing and documentation
+
+Looking at the current code provided, I can see that the implementation is pretty advanced. The main.go has the infrastructure for pending queries, the project.html has the unexpected files modal UI, etc.
+
+The user wants me to update the plan document. I should probably:
+1. Review what's actually been done
+2. Mark stages as complete or in-progress where appropriate
+3. Update the testing section with what's been tested
+4. Provide updated guidance on next steps
+
+Let me update the plan to reflect the current state of implementation.
+
+
+---
+
