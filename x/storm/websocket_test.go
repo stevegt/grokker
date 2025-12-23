@@ -693,3 +693,64 @@ func TestWebSocketUnexpectedFilesNotification(t *testing.T) {
 
 	t.Logf("Unexpected files notification successfully received via WebSocket")
 }
+
+// TestWebSocketUnexpectedFilesPathNormalizationBug demonstrates the path normalization bug in categorizeUnexpectedFiles
+func TestWebSocketUnexpectedFilesPathNormalizationBug(t *testing.T) {
+	setup := setupTest(t, "ws-path-bug-project")
+	defer teardownTest(t, setup)
+
+	// Create test file
+	authorizedFile := filepath.Join(setup.ProjectDir, "bugtest.go")
+	if err := ioutil.WriteFile(authorizedFile, []byte("package main"), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	// Add file to project as authorized (stored as absolute path)
+	addFilesPayload := map[string]interface{}{
+		"filenames": []string{authorizedFile},
+	}
+	jsonData, _ := json.Marshal(addFilesPayload)
+	fileURL := fmt.Sprintf("%s/api/projects/%s/files/add", setup.DaemonURL, setup.ProjectID)
+	resp, err := http.Post(fileURL, "application/json", strings.NewReader(string(jsonData)))
+	if err != nil {
+		t.Fatalf("Failed to add authorized file: %v", err)
+	}
+	resp.Body.Close()
+
+	// Get project to verify file is stored as absolute path
+	project, err := projects.Get(setup.ProjectID)
+	if err != nil {
+		t.Fatalf("Failed to get project: %v", err)
+	}
+
+	if len(project.AuthorizedFiles) == 0 {
+		t.Fatalf("No files were added to project")
+	}
+
+	storedPath := project.AuthorizedFiles[0]
+	if !filepath.IsAbs(storedPath) {
+		t.Logf("Stored path is relative: %s", storedPath)
+	} else {
+		t.Logf("Stored path is absolute: %s", storedPath)
+	}
+
+	// Now test the bug: call categorizeUnexpectedFiles with the same file but as a relative path
+	relativeFilename := filepath.Base(authorizedFile)
+	alreadyAuth, needsAuth := categorizeUnexpectedFiles(project, []string{relativeFilename})
+
+	// The bug: relative path won't match absolute path in authorizedSet
+	t.Logf("Path mismatch test:")
+	t.Logf("  Stored path: %s (absolute: %v)", storedPath, filepath.IsAbs(storedPath))
+	t.Logf("  Unexpected path: %s (absolute: %v)", relativeFilename, filepath.IsAbs(relativeFilename))
+	t.Logf("  alreadyAuthorized: %d", len(alreadyAuth))
+	t.Logf("  needsAuthorization: %d", len(needsAuth))
+
+	if len(needsAuth) > 0 && needsAuth[0] == relativeFilename {
+		t.Errorf("BUG DETECTED: File %s is stored as %s but categorized as needing authorization", relativeFilename, storedPath)
+		t.Logf("This is the path normalization bug - same file in different path formats (relative vs absolute) are not recognized as matching")
+	}
+
+	if len(alreadyAuth) > 0 {
+		t.Logf("File correctly categorized as already authorized")
+	}
+}

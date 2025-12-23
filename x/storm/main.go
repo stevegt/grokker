@@ -756,20 +756,36 @@ func waitForApproval(pending *PendingQuery) ([]string, error) {
 }
 
 // categorizeUnexpectedFiles separates unexpected files into authorized and needs-authorization categories
+// Normalizes paths to absolute form by resolving relative paths against project BaseDir
 func categorizeUnexpectedFiles(project *Project, unexpectedFileNames []string) ([]string, []string) {
 	var alreadyAuthorized []string
 	var needsAuthorization []string
 
-	// Create a set of authorized files for efficient lookup
+	// Create a set of authorized files for efficient lookup, normalized to absolute paths
 	authorizedSet := make(map[string]bool)
 	for i := 0; i < len(project.AuthorizedFiles); i++ {
-		authorizedSet[project.AuthorizedFiles[i]] = true
+		absPath, err := filepath.Abs(project.AuthorizedFiles[i])
+		if err != nil {
+			log.Printf("Error normalizing authorized file path %s: %v", project.AuthorizedFiles[i], err)
+			absPath = project.AuthorizedFiles[i]
+		}
+		authorizedSet[absPath] = true
 	}
 
-	// Categorize each unexpected file
+	// Categorize each unexpected file using normalized paths
 	for i := 0; i < len(unexpectedFileNames); i++ {
 		file := unexpectedFileNames[i]
-		if authorizedSet[file] {
+
+		// Normalize unexpected file path: if relative, resolve against project BaseDir; if absolute, use as-is
+		var absPath string
+		if filepath.IsAbs(file) {
+			absPath = file
+		} else {
+			// Resolve relative path against project BaseDir
+			absPath = filepath.Join(project.BaseDir, file)
+		}
+
+		if authorizedSet[absPath] {
 			alreadyAuthorized = append(alreadyAuthorized, file)
 		} else {
 			needsAuthorization = append(needsAuthorization, file)
