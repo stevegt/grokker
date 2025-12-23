@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -265,7 +266,7 @@ func (p *Projects) RemoveFile(projectID, filename string) error {
 }
 
 // toRelativePath converts an absolute path to relative if it's within BaseDir,
-// otherwise returns the original path unchanged[1]
+// otherwise returns the original path unchanged
 func (p *Project) toRelativePath(absPath string) string {
 	if !filepath.IsAbs(absPath) {
 		// Already relative, return as-is
@@ -305,11 +306,13 @@ func (p *Project) GetFiles() []string {
 }
 
 // GetFilesAsRelative returns the authorized files list with paths converted to relative
-// when they are inside the project's BaseDir, absolute paths otherwise[1]
+// when they are inside the project's BaseDir, absolute paths otherwise, sorted alphabetically
 func (p *Project) GetFilesAsRelative() []string {
 	var relativeFiles []string
 	for i := 0; i < len(p.AuthorizedFiles); i++ {
 		relativeFiles = append(relativeFiles, p.toRelativePath(p.AuthorizedFiles[i]))
 	}
+	// Sort files alphabetically
+	sort.Strings(relativeFiles)
 	return relativeFiles
 }
