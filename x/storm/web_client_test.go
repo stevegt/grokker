@@ -270,7 +270,10 @@ func TestWebClientAddFiles(t *testing.T) {
 	}
 	jsonData, _ = json.Marshal(addFilesPayload)
 	fileURL := fmt.Sprintf("%s/api/projects/%s/files/add", server.URL, projectID)
-	resp, _ = http.Post(fileURL, "application/json", bytes.NewReader(jsonData))
+	resp, err := http.Post(fileURL, "application/json", bytes.NewReader(jsonData))
+	if err != nil {
+		t.Fatalf("Failed to add files via API: %v", err)
+	}
 	resp.Body.Close()
 
 	ctx, cancel := newChromeContext()
@@ -280,7 +283,7 @@ func TestWebClientAddFiles(t *testing.T) {
 	defer cancelTimeout()
 
 	projectURL := fmt.Sprintf("%s/project/%s", server.URL, projectID)
-	err := chromedp.Run(ctx,
+	err = chromedp.Run(ctx,
 		chromedp.Navigate(projectURL),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			return testutil.WaitForPageLoad(ctx)
@@ -716,37 +719,58 @@ func TestWebClientCreateFileAndApproveUnexpected(t *testing.T) {
 	t.Logf("✓ Unexpected files modal appeared, indicating LLM created new files")
 
 	// Get list of files needing authorization
-	approvedFiles, err := testutil.GetUnexpectedFilesApproved(ctx)
+	needsAuthFiles, err := testutil.GetNeedsAuthorizationFiles(ctx)
 	if err != nil {
-		t.Fatalf("Failed to get unexpected files from modal: %v", err)
+		t.Fatalf("Failed to get files needing authorization from modal: %v", err)
 	}
 
-	if len(approvedFiles) == 0 {
+	if len(needsAuthFiles) == 0 {
 		time.Sleep(5 * time.Second)
 		t.Fatalf("No files listed in unexpected files modal for authorization")
 	}
 
-	t.Logf("Found %d files needing authorization: %v", len(approvedFiles), approvedFiles)
+	t.Logf("Found %d files needing authorization: %v", len(needsAuthFiles), needsAuthFiles)
 
-	// Approve the files through the modal
-	t.Logf("Approving %d unexpected files via modal...", len(approvedFiles))
-	err = testutil.ApproveUnexpectedFiles(ctx, approvedFiles)
-	if err != nil {
-		time.Sleep(5 * time.Second)
-		t.Fatalf("Failed to approve unexpected files: %v", err)
+	// ensure the hello.go file is the only one needing authorization
+	if len(needsAuthFiles) != 1 {
+		t.Fatalf("Expected exactly 1 file needing authorization, got %d", len(needsAuthFiles))
+	}
+	if needsAuthFiles[0] != "hello.go" {
+		t.Fatalf("Expected file needing authorization to be hello.go, got %s", needsAuthFiles[0])
 	}
 
-	t.Logf("✓ User approved unexpected files through modal")
+	// Add hello.go via API
+	helloFn := filepath.Join(server.ProjectDir, "hello.go")
+	addFilesPayload := map[string]interface{}{
+		"filenames": []string{helloFn},
+	}
+	jsonData, err = json.Marshal(addFilesPayload)
+	if err != nil {
+		t.Fatalf("Failed to marshal add files payload: %v", err)
+	}
+	fileURL := fmt.Sprintf("%s/api/projects/%s/files/add", server.URL, projectID)
+	resp, err = http.Post(fileURL, "application/json", bytes.NewReader(jsonData))
+	if err != nil {
+		t.Fatalf("Failed to add files via API: %v", err)
+	}
+	resp.Body.Close()
+
+	time.Sleep(1 * time.Second)
+
+	// Click the confirmApprovalBtn in the modal to approve adding the files
+	err = testutil.ClickElementWithSyntheticEvent(ctx, "#confirmApprovalBtn")
+	if err != nil {
+		time.Sleep(30 * time.Second)
+		t.Fatalf("Failed to click confirmApprovalBtn: %v", err)
+	}
 
 	// Wait for modal to close and files to be added
 	time.Sleep(2 * time.Second)
 
-	// Verify files were added to the project via API
-	t.Logf("Verifying files were added to project...")
+	// Verify hello.go was added to the project via API
 	filesURL := fmt.Sprintf("%s/api/projects/%s/files", server.URL, projectID)
 	resp, err = http.Get(filesURL)
 	if err != nil {
-		time.Sleep(5 * time.Second)
 		t.Fatalf("Failed to retrieve file list: %v", err)
 	}
 	defer resp.Body.Close()
@@ -760,28 +784,12 @@ func TestWebClientCreateFileAndApproveUnexpected(t *testing.T) {
 
 	t.Logf("Project now has %d authorized files", len(filesList))
 
-	// Check if any of the approved files are now in the project
-	projectFiles := make(map[string]bool)
-	for i := 0; i < len(filesList); i++ {
-		if f, ok := filesList[i].(string); ok {
-			projectFiles[f] = true
-		}
+	// Ensure hello.go is the only file
+	if len(filesList) != 1 {
+		t.Fatalf("Expected exactly 1 authorized file in project, got %d", len(filesList))
 	}
-
-	filesFoundInProject := 0
-	for i := 0; i < len(approvedFiles); i++ {
-		approvedFile := approvedFiles[i]
-		// The file may be stored as absolute or relative path
-		if projectFiles[approvedFile] {
-			filesFoundInProject++
-			t.Logf("✓ Approved file found in project: %s", approvedFile)
-		}
-	}
-
-	if filesFoundInProject > 0 {
-		t.Logf("✓ Successfully approved and added %d files to project", filesFoundInProject)
-	} else {
-		t.Fatalf("None of the approved files were found in the project after approval")
+	if filesList[0] != "hello.go" {
+		t.Fatalf("Expected authorized file to be hello.go, got %v", filesList[0])
 	}
 
 	// check existence of hello.go specifically
@@ -793,152 +801,7 @@ func TestWebClientCreateFileAndApproveUnexpected(t *testing.T) {
 	}
 }
 
-// TestWebClientUnexpectedFilesUserApprovesAll tests when all unexpected files are approved
-func TestWebClientUnexpectedFilesUserApprovesAll(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping chromedp test in short mode")
-	}
-
-	server := startTestServer(t, "web-test-unexpected-approve-all")
-	defer stopTestServer(t, server)
-
-	projectID := server.ProjectID
-	createProjectPayload := map[string]string{
-		"projectID":    projectID,
-		"baseDir":      server.ProjectDir,
-		"markdownFile": server.MarkdownFile,
-	}
-	jsonData, _ := json.Marshal(createProjectPayload)
-	resp, _ := http.Post(server.URL+"/api/projects", "application/json", bytes.NewReader(jsonData))
-	resp.Body.Close()
-
-	ctx, cancel := newChromeContext()
-	defer cancel()
-
-	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
-	defer cancelTimeout()
-
-	projectURL := fmt.Sprintf("%s/project/%s", server.URL, projectID)
-	err := chromedp.Run(ctx,
-		chromedp.Navigate(projectURL),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			return testutil.WaitForPageLoad(ctx)
-		}),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			return testutil.WaitForWebSocketConnection(ctx)
-		}),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			return testutil.WaitForElement(ctx, "#userInput", false)
-		}),
-	)
-	if err != nil {
-		t.Fatalf("Failed to navigate to project page: %v", err)
-	}
-
-	err = testutil.SubmitQuery(ctx, "mock query")
-	if err != nil {
-		t.Fatalf("Failed to submit query: %v", err)
-	}
-
-	time.Sleep(1 * time.Second)
-
-	err = testutil.WaitForUnexpectedFilesModal(ctx)
-	if err != nil {
-		t.Logf("No unexpected files modal appeared (expected if query doesn't produce files): %v", err)
-		return
-	}
-
-	approved, err := testutil.GetUnexpectedFilesApproved(ctx)
-	if err != nil {
-		t.Fatalf("Failed to get unexpected files: %v", err)
-	}
-
-	t.Logf("Unexpected files modal appeared with %d files", len(approved))
-
-	if len(approved) > 0 {
-		err = testutil.ApproveUnexpectedFiles(ctx, approved)
-		if err != nil {
-			t.Logf("Failed to approve files (may not be interactive in test): %v", err)
-		} else {
-			t.Logf("✓ User approved all %d unexpected files", len(approved))
-		}
-	}
-}
-
-// TestWebClientUnexpectedFilesUserApprovesPartial tests when user approves only some unexpected files
-func TestWebClientUnexpectedFilesUserApprovesPartial(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping chromedp test in short mode")
-	}
-
-	server := startTestServer(t, "web-test-unexpected-approve-partial")
-	defer stopTestServer(t, server)
-
-	projectID := server.ProjectID
-	createProjectPayload := map[string]string{
-		"projectID":    projectID,
-		"baseDir":      server.ProjectDir,
-		"markdownFile": server.MarkdownFile,
-	}
-	jsonData, _ := json.Marshal(createProjectPayload)
-	resp, _ := http.Post(server.URL+"/api/projects", "application/json", bytes.NewReader(jsonData))
-	resp.Body.Close()
-
-	ctx, cancel := newChromeContext()
-	defer cancel()
-
-	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
-	defer cancelTimeout()
-
-	projectURL := fmt.Sprintf("%s/project/%s", server.URL, projectID)
-	err := chromedp.Run(ctx,
-		chromedp.Navigate(projectURL),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			return testutil.WaitForPageLoad(ctx)
-		}),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			return testutil.WaitForWebSocketConnection(ctx)
-		}),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			return testutil.WaitForElement(ctx, "#userInput", false)
-		}),
-	)
-	if err != nil {
-		t.Fatalf("Failed to navigate to project page: %v", err)
-	}
-
-	err = testutil.SubmitQuery(ctx, "mock query for partial approval")
-	if err != nil {
-		t.Fatalf("Failed to submit query: %v", err)
-	}
-
-	time.Sleep(1 * time.Second)
-
-	err = testutil.WaitForUnexpectedFilesModal(ctx)
-	if err != nil {
-		t.Logf("No unexpected files modal appeared: %v", err)
-		return
-	}
-
-	approved, err := testutil.GetUnexpectedFilesApproved(ctx)
-	if err != nil {
-		t.Fatalf("Failed to get unexpected files: %v", err)
-	}
-
-	if len(approved) > 1 {
-		partialApproval := approved[0:1]
-		err = testutil.ApproveUnexpectedFiles(ctx, partialApproval)
-		if err != nil {
-			t.Logf("Failed to approve subset of files: %v", err)
-		} else {
-			t.Logf("✓ User approved partial set (%d of %d files)", len(partialApproval), len(approved))
-		}
-	} else {
-		t.Logf("Not enough unexpected files to test partial approval (need at least 2, got %d)", len(approved))
-	}
-}
-
-// TestWebClientUnexpectedFilesAlreadyAuthorized tests handling already-authorized unexpected files
+// TestWebClientUnexpectedFilesAlreadyAuthorized tests handling already-authorized files in unexpected modal
 func TestWebClientUnexpectedFilesAlreadyAuthorized(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping chromedp test in short mode")

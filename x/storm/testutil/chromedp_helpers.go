@@ -399,7 +399,7 @@ func GetSelectedFiles(ctx context.Context) (inputFiles []string, outputFiles []s
 	return
 }
 
-// GetUnexpectedFilesApproved returns the list of files checked in the unexpected files modal
+// GetUnexpectedFilesApproved returns the list of files checked in the unexpected files modal (deprecated - use GetNeedsAuthorizationFiles)
 func GetUnexpectedFilesApproved(ctx context.Context) ([]string, error) {
 	var result interface{}
 	err := chromedp.Run(ctx,
@@ -427,6 +427,41 @@ func GetUnexpectedFilesApproved(ctx context.Context) ([]string, error) {
 		}
 	}
 	return approved, nil
+}
+
+// GetNeedsAuthorizationFiles returns the list of files from the "Needs Authorization" section of the unexpected files modal
+// Note: The "Needs Authorization" section displays filenames without checkboxes, just with copy-to-clipboard buttons
+func GetNeedsAuthorizationFiles(ctx context.Context) ([]string, error) {
+	var result interface{}
+	err := chromedp.Run(ctx,
+		chromedp.Evaluate(`
+			(function() {
+				var needsAuth = [];
+				// Query for .needs-auth-file divs which contain the filename spans
+				var fileElements = document.querySelectorAll(".needs-auth-file .filename");
+				for (var i = 0; i < fileElements.length; i++) {
+					var filename = fileElements[i].textContent.trim();
+					if (filename) {
+						needsAuth.push(filename);
+					}
+				}
+				return needsAuth;
+			})()
+		`, &result),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var needsAuth []string
+	if resultArray, ok := result.([]interface{}); ok {
+		for i := 0; i < len(resultArray); i++ {
+			if f, ok := resultArray[i].(string); ok {
+				needsAuth = append(needsAuth, f)
+			}
+		}
+	}
+	return needsAuth, nil
 }
 
 // ApproveUnexpectedFiles clicks the approval checkboxes and confirms in the unexpected files modal
