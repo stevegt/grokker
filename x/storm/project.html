@@ -366,25 +366,6 @@
     .needs-auth-file .copy-btn:hover {
       background-color: #2980b9;
     }
-    .modal-actions {
-      display: flex;
-      gap: 10px;
-      margin-top: 20px;
-      justify-content: flex-end;
-      border-top: 1px solid #555;
-      padding-top: 15px;
-    }
-    .modal-actions button {
-      padding: 10px 15px;
-      font-size: 0.95em;
-    }
-    #confirmApprovalBtn {
-      background-color: #27ae60;
-      border-color: #229954;
-    }
-    #confirmApprovalBtn:hover {
-      background-color: #229954;
-    }
   </style>
 </head>
 <body>
@@ -478,6 +459,7 @@
     var ws;
     var pendingQueryDivs = {}; // Track divs for pending queries by queryID
     var currentUnexpectedFilesQuery = null; // Track which query has unexpected files modal open
+    var currentUnexpectedFilesData = null; // Track the current unexpected files data
     
     // Extract projectID from URL path
     var projectID = window.location.pathname.split('/')[2] || 'default';
@@ -578,6 +560,35 @@
       });
     }
 
+    // Collect approved files from the current modal and send them to the server
+    function sendApprovedFiles() {
+      if (!currentUnexpectedFilesQuery || !currentUnexpectedFilesData) {
+        debugLog("WARNING: No unexpected files modal data to send");
+        return;
+      }
+      
+      var queryID = currentUnexpectedFilesQuery;
+      var content = document.getElementById("fileSidebarContent");
+      
+      // Gather approved files (checkboxes that are checked)
+      var approvedFiles = [];
+      var checkboxes = content.querySelectorAll("input.unexpected-out:checked");
+      for (var k = 0; k < checkboxes.length; k++) {
+        approvedFiles.push(checkboxes[k].value);
+      }
+      
+      debugLog("Sending approval for queryID " + queryID + " with " + approvedFiles.length + " files");
+      
+      // Send approval via WebSocket
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: "approveFiles",
+          queryID: queryID,
+          approvedFiles: approvedFiles
+        }));
+      }
+    }
+
     // File modal functions
     function openFileModal() {
       debugLog("openFileModal() called");
@@ -596,8 +607,52 @@
       modal.classList.remove("show");
     }
 
+    // Reorganize unexpected files modal based on updated file list
+    function reorganizeUnexpectedFilesModal(updatedFiles) {
+      if (!currentUnexpectedFilesQuery || !currentUnexpectedFilesData) {
+        return;
+      }
+      
+      debugLog("Reorganizing unexpected files modal");
+      
+      var updatedFileSet = new Set(updatedFiles);
+      var alreadyAuthorized = [];
+      var needsAuthorization = [];
+      
+      // Recategorize files based on updated list
+      for (var i = 0; i < currentUnexpectedFilesData.allFiles.length; i++) {
+        var file = currentUnexpectedFilesData.allFiles[i];
+        if (updatedFileSet.has(file)) {
+          alreadyAuthorized.push(file);
+        } else {
+          needsAuthorization.push(file);
+        }
+      }
+      
+      // Preserve checkbox states
+      var content = document.getElementById("fileSidebarContent");
+      var checkedFiles = {};
+      var checkboxes = content.querySelectorAll("input.unexpected-out:checked");
+      for (var k = 0; k < checkboxes.length; k++) {
+        checkedFiles[checkboxes[k].value] = true;
+      }
+      
+      // Re-render modal with updated categorization
+      displayUnexpectedFilesModal(currentUnexpectedFilesQuery, alreadyAuthorized, needsAuthorization, true);
+      
+      // Restore checkbox states
+      var newCheckboxes = content.querySelectorAll("input.unexpected-out");
+      for (var j = 0; j < newCheckboxes.length; j++) {
+        if (checkedFiles[newCheckboxes[j].value]) {
+          newCheckboxes[j].checked = true;
+        }
+      }
+      
+      debugLog("Modal reorganized: " + alreadyAuthorized.length + " authorized, " + needsAuthorization.length + " needs auth");
+    }
+
     // Stage 6: Display unexpected files modal
-    function displayUnexpectedFilesModal(queryID, alreadyAuthorized, needsAuthorization) {
+    function displayUnexpectedFilesModal(queryID, alreadyAuthorized, needsAuthorization, isReorganizing) {
       var content = document.getElementById("fileSidebarContent");
       var modal = document.getElementById("fileModal");
       var modalTitle = document.getElementById("modalTitle");
@@ -605,7 +660,30 @@
       // Set title to indicate unexpected files
       modalTitle.textContent = "Unexpected Files Detected";
       
-      content.innerHTML = "";
+      if (!isReorganizing) {
+        content.innerHTML = "";
+      } else {
+        // Clear content but keep modal visible
+        content.innerHTML = "";
+      }
+      
+      // Store all files for reorganization
+      var allFiles = [];
+      if (alreadyAuthorized && alreadyAuthorized.length > 0) {
+        for (var i = 0; i < alreadyAuthorized.length; i++) {
+          allFiles.push(alreadyAuthorized[i]);
+        }
+      }
+      if (needsAuthorization && needsAuthorization.length > 0) {
+        for (var i = 0; i < needsAuthorization.length; i++) {
+          allFiles.push(needsAuthorization[i]);
+        }
+      }
+      
+      currentUnexpectedFilesData = {
+        allFiles: allFiles,
+        queryID: queryID
+      };
       
       // Already Authorized section
       if (alreadyAuthorized && alreadyAuthorized.length > 0) {
@@ -681,7 +759,7 @@
           var filenameSpan = document.createElement("span");
           filenameSpan.className = "filename";
           var command = "storm file add --project " + projectID + " " + file;
-          filenameSpan.textContent = file;
+          filenameSpan.textContent = command;
           
           var copyBtn = document.createElement("button");
           copyBtn.className = "copy-btn";
@@ -703,48 +781,6 @@
         needsSection.appendChild(filesList);
         content.appendChild(needsSection);
       }
-      
-      // Action buttons
-      var actionsDiv = document.createElement("div");
-      actionsDiv.className = "modal-actions";
-      
-      var confirmBtn = document.createElement("button");
-      confirmBtn.id = "confirmApprovalBtn";
-      confirmBtn.textContent = "Confirm Approval";
-      confirmBtn.onclick = function() {
-        // Gather approved files (checkboxes that are checked)
-        var approvedFiles = [];
-        var checkboxes = content.querySelectorAll("input.unexpected-out:checked");
-        for (var k = 0; k < checkboxes.length; k++) {
-          approvedFiles.push(checkboxes[k].value);
-        }
-        
-        // Send approval via WebSocket
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({
-            type: "approveFiles",
-            queryID: queryID,
-            approvedFiles: approvedFiles
-          }));
-          debugLog("Approval sent for queryID " + queryID + " with " + approvedFiles.length + " files");
-        }
-        
-        // Close modal
-        closeFileModal();
-        currentUnexpectedFilesQuery = null;
-      };
-      
-      var cancelBtn = document.createElement("button");
-      cancelBtn.textContent = "Cancel";
-      cancelBtn.onclick = function() {
-        // Close modal without sending approval
-        closeFileModal();
-        currentUnexpectedFilesQuery = null;
-      };
-      
-      actionsDiv.appendChild(cancelBtn);
-      actionsDiv.appendChild(confirmBtn);
-      content.appendChild(actionsDiv);
       
       // Open modal
       openFileModal();
@@ -857,9 +893,14 @@
             updateScrollButtonVisibility();
           } else if (message.type === 'unexpectedFilesDetected') {
             debugLog('Unexpected files detected: ' + JSON.stringify(message));
-            displayUnexpectedFilesModal(message.queryID, message.alreadyAuthorized, message.needsAuthorization);
+            displayUnexpectedFilesModal(message.queryID, message.alreadyAuthorized, message.needsAuthorization, false);
           } else if (message.type === 'fileListUpdated') {
             debugLog('File list updated via WebSocket');
+            // If unexpected files modal is open, reorganize it
+            if (currentUnexpectedFilesQuery && message.files) {
+              debugLog("Reorganizing unexpected files modal with updated file list");
+              reorganizeUnexpectedFilesModal(message.files);
+            }
             loadFileList();
           }
         } catch (err) {
@@ -924,27 +965,42 @@
         debugLog("Event listener attached to filesBtn successfully");
       }
 
-      // Close modal button handler
+      // Close modal button handler - send approved files before closing
       document.getElementById("closeFileModal").addEventListener("click", function() {
         debugLog("Close modal button clicked");
+        if (currentUnexpectedFilesQuery) {
+          sendApprovedFiles();
+        }
         closeFileModal();
+        currentUnexpectedFilesQuery = null;
+        currentUnexpectedFilesData = null;
       });
 
-      // Close modal when clicking the background
+      // Close modal when clicking the background - send approved files before closing
       document.getElementById("fileModal").addEventListener("click", function(event) {
         if (event.target === this) {
           debugLog("Modal background clicked, closing modal");
+          if (currentUnexpectedFilesQuery) {
+            sendApprovedFiles();
+          }
           closeFileModal();
+          currentUnexpectedFilesQuery = null;
+          currentUnexpectedFilesData = null;
         }
       });
 
-      // Close modal when Escape key is pressed
+      // Close modal when Escape key is pressed - send approved files before closing
       document.addEventListener("keydown", function(event) {
         if (event.key === "Escape" || event.keyCode === 27) {
           var modal = document.getElementById("fileModal");
           if (modal && modal.classList.contains("show")) {
             debugLog("Escape key pressed, closing modal");
+            if (currentUnexpectedFilesQuery) {
+              sendApprovedFiles();
+            }
             closeFileModal();
+            currentUnexpectedFilesQuery = null;
+            currentUnexpectedFilesData = null;
           }
         }
       });
