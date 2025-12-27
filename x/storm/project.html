@@ -290,7 +290,7 @@
       padding: 6px;
       text-align: center;
     }
-    /* Left-align filename column (3rd column) in regular file list */
+    /* Left-align filename column (3rd column) in tables */
     #fileSidebarContent tbody td:nth-child(3) {
       text-align: left;
     }
@@ -301,38 +301,38 @@
     #fileSidebarContent td a {
       word-break: break-all;
     }
-    /* Unexpected files modal sections */
-    .unexpected-section {
+    /* File list sections */
+    .file-section {
       margin-bottom: 20px;
       padding: 15px;
       background-color: #252525;
       border: 1px solid #555;
       border-radius: 4px;
     }
-    .unexpected-section h3 {
+    .file-section h3 {
       margin-top: 0;
       margin-bottom: 10px;
       color: #fff;
     }
-    .unexpected-section p {
+    .file-section p {
       margin: 5px 0 10px 0;
       font-size: 0.9em;
       color: #ccc;
     }
-    .unexpected-files-table {
+    .file-table {
       width: 100%;
       border-collapse: collapse;
     }
-    .unexpected-files-table th, .unexpected-files-table td {
+    .file-table th, .file-table td {
       border: 1px solid #444;
       padding: 6px;
       text-align: center;
     }
-    /* Left-align filename column in unexpected files table */
-    .unexpected-files-table tbody td:nth-child(3) {
+    /* Left-align filename column in file tables */
+    .file-table tbody td:nth-child(3) {
       text-align: left;
     }
-    .unexpected-files-table th {
+    .file-table th {
       background-color: #2a2a2a;
       font-weight: bold;
     }
@@ -434,7 +434,7 @@
         <button class="modal-close-btn" id="closeFileModal">✕</button>
       </div>
       <div id="fileSidebarContent">
-        <!-- Regular file list or unexpected files content will be rendered here -->
+        <!-- File list will be rendered here -->
       </div>
     </div>
   </div>
@@ -459,7 +459,7 @@
     var ws;
     var pendingQueryDivs = {}; // Track divs for pending queries by queryID
     var currentUnexpectedFilesQuery = null; // Track which query has unexpected files modal open
-    var currentUnexpectedFilesData = null; // Track the current unexpected files data
+    var currentFileModalMode = null; // Track modal mode: "regular" or "unexpected"
     
     // Extract projectID from URL path
     var projectID = window.location.pathname.split('/')[2] || 'default';
@@ -476,7 +476,7 @@
       });
     }
     
-    // Helper functions for managing cookies.
+    // Helper functions for managing cookies
     function setCookie(name, value, days) {
       var expires = "";
       if (days) {
@@ -496,9 +496,9 @@
       return null;
     }
 
-    // Global counter for outstanding queries.
+    // Global counter for outstanding queries
     var outstandingQueries = 0;
-    // Updates the spinner in the status box based on the current outstanding query count.
+    // Updates the spinner in the status box based on the current outstanding query count
     function updateStatusSpinner() {
       var spinner = document.getElementById("statusSpinner");
       if (outstandingQueries > 0) {
@@ -508,7 +508,7 @@
       }
     }
 
-    // Show the error stop sign. Once shown, it remains visible until the page is reloaded.
+    // Show the error stop sign. Once shown, it remains visible until the page is reloaded
     function showErrorSign() {
       var errorSign = document.getElementById("errorSign");
       if (errorSign) {
@@ -562,8 +562,13 @@
 
     // Collect approved files from the current modal and send them to the server
     function sendApprovedFiles() {
-      if (!currentUnexpectedFilesQuery || !currentUnexpectedFilesData) {
-        debugLog("WARNING: No unexpected files modal data to send");
+      if (currentFileModalMode !== "unexpected") {
+        debugLog("Not in unexpected files mode, skipping approval send");
+        return;
+      }
+      
+      if (!currentUnexpectedFilesQuery) {
+        debugLog("WARNING: No unexpected files query ID to send");
         return;
       }
       
@@ -572,7 +577,7 @@
       
       // Gather approved files (checkboxes that are checked)
       var approvedFiles = [];
-      var checkboxes = content.querySelectorAll("input.unexpected-out:checked");
+      var checkboxes = content.querySelectorAll("input.file-checkbox-out:checked");
       for (var k = 0; k < checkboxes.length; k++) {
         approvedFiles.push(checkboxes[k].value);
       }
@@ -607,187 +612,232 @@
       modal.classList.remove("show");
     }
 
-    // Reorganize unexpected files modal based on updated file list
-    function reorganizeUnexpectedFilesModal(updatedFiles) {
-      if (!currentUnexpectedFilesQuery || !currentUnexpectedFilesData) {
-        return;
-      }
-      
-      debugLog("Reorganizing unexpected files modal");
-      
-      var updatedFileSet = new Set(updatedFiles);
-      var alreadyAuthorized = [];
-      var needsAuthorization = [];
-      
-      // Recategorize files based on updated list
-      for (var i = 0; i < currentUnexpectedFilesData.allFiles.length; i++) {
-        var file = currentUnexpectedFilesData.allFiles[i];
-        if (updatedFileSet.has(file)) {
-          alreadyAuthorized.push(file);
-        } else {
-          needsAuthorization.push(file);
-        }
-      }
-      
-      // Re-render modal with updated categorization
-      // Checkbox states now persist in IndexedDB, so no manual save/restore needed
-      debugLog("Clearing modal content and re-rendering");
-      displayUnexpectedFilesModal(currentUnexpectedFilesQuery, alreadyAuthorized, needsAuthorization, true);
-      
-      debugLog("Modal reorganized: " + alreadyAuthorized.length + " authorized, " + needsAuthorization.length + " needs auth");
-    }
-
-    // Stage 6: Display unexpected files modal
-    function displayUnexpectedFilesModal(queryID, alreadyAuthorized, needsAuthorization, isReorganizing) {
+    // Unified file modal display function for both regular and unexpected files
+    function displayFileModal(mode, files, alreadyAuthorized, needsAuthorization, queryID) {
       var content = document.getElementById("fileSidebarContent");
-      var modal = document.getElementById("fileModal");
       var modalTitle = document.getElementById("modalTitle");
       
-      // Set title to indicate unexpected files
-      modalTitle.textContent = "Unexpected Files Detected";
+      // Clear previous content
+      content.innerHTML = "";
       
-      if (!isReorganizing) {
-        content.innerHTML = "";
+      // Set title and mode based on what we're displaying
+      if (mode === "unexpected") {
+        modalTitle.textContent = "Unexpected Files Detected";
+        currentFileModalMode = "unexpected";
+        currentUnexpectedFilesQuery = queryID;
       } else {
-        // Clear content but keep modal visible
-        content.innerHTML = "";
+        modalTitle.textContent = "File Management";
+        currentFileModalMode = "regular";
+        currentUnexpectedFilesQuery = null;
       }
       
-      // Store all files for reorganization
-      var allFiles = [];
-      if (alreadyAuthorized && alreadyAuthorized.length > 0) {
-        for (var i = 0; i < alreadyAuthorized.length; i++) {
-          allFiles.push(alreadyAuthorized[i]);
+      // Regular file list section
+      if (mode === "regular" && files && files.length > 0) {
+        var section = document.createElement("div");
+        section.className = "file-section";
+        section.innerHTML = "<h3>Project Files</h3>";
+        section.innerHTML += "<p>Select which files to include as input and which to extract as output:</p>";
+        
+        var label = document.createElement("label");
+        label.style.display = "block";
+        label.style.marginBottom = "5px";
+        var selectAllCheckbox = document.createElement("input");
+        selectAllCheckbox.type = "checkbox";
+        selectAllCheckbox.className = "file-select-all";
+        label.appendChild(selectAllCheckbox);
+        label.appendChild(document.createTextNode(" All/None"));
+        section.appendChild(label);
+        
+        var table = document.createElement("table");
+        table.className = "file-table";
+        table.innerHTML = "<thead><tr><th>In</th><th>Out</th><th>Filename</th></tr></thead><tbody></tbody>";
+        
+        var tbody = table.querySelector("tbody");
+        
+        // Render each file with checkboxes
+        for (var i = 0; i < files.length; i++) {
+          renderFileRow(tbody, files[i], "regular");
         }
-      }
-      if (needsAuthorization && needsAuthorization.length > 0) {
-        for (var i = 0; i < needsAuthorization.length; i++) {
-          allFiles.push(needsAuthorization[i]);
-        }
+        
+        // Add All/None listener
+        selectAllCheckbox.addEventListener("change", function() {
+          var checkboxesIn = tbody.querySelectorAll("input.file-checkbox-in");
+          var checkboxesOut = tbody.querySelectorAll("input.file-checkbox-out");
+          for (var k = 0; k < checkboxesIn.length; k++) {
+            checkboxesIn[k].checked = selectAllCheckbox.checked;
+            checkboxesIn[k].dispatchEvent(new Event("change"));
+          }
+          for (var k = 0; k < checkboxesOut.length; k++) {
+            checkboxesOut[k].checked = false;
+            checkboxesOut[k].dispatchEvent(new Event("change"));
+          }
+        });
+        
+        section.appendChild(table);
+        content.appendChild(section);
       }
       
-      currentUnexpectedFilesData = {
-        allFiles: allFiles,
-        queryID: queryID
-      };
-      
-      // Already Authorized section
-      if (alreadyAuthorized && alreadyAuthorized.length > 0) {
-        var authSection = document.createElement("div");
-        authSection.className = "unexpected-section";
-        authSection.innerHTML = "<h3>Already Authorized - Enable for Output</h3>";
-        authSection.innerHTML += "<p>These files are authorized but not currently selected for output. Check the Out column to include them in this query's file extraction:</p>";
+      // Already Authorized section (for unexpected files mode)
+      if (mode === "unexpected" && alreadyAuthorized && alreadyAuthorized.length > 0) {
+        var section = document.createElement("div");
+        section.className = "file-section";
+        section.innerHTML = "<h3>Already Authorized - Enable for Output</h3>";
+        section.innerHTML += "<p>These files are authorized but not currently selected for output. Check the Out column to include them in this query's file extraction:</p>";
         
-        var authTable = document.createElement("table");
-        authTable.className = "unexpected-files-table";
-        authTable.innerHTML = "<thead><tr><th style=\"text-align: center;\">All/None</th><th>Out</th><th>Filename</th></tr></thead><tbody></tbody>";
+        var table = document.createElement("table");
+        table.className = "file-table";
+        table.innerHTML = "<thead><tr><th style=\"text-align: center;\">All/None</th><th>Out</th><th>Filename</th></tr></thead><tbody></tbody>";
         
-        var tbody = authTable.querySelector("tbody");
+        var tbody = table.querySelector("tbody");
         
-        // Add All/None checkbox in header
-        var headerRow = authTable.querySelector("thead tr");
+        // Add All/None checkbox
+        var headerRow = table.querySelector("thead tr");
         var allNoneCell = headerRow.cells[0];
         var selectAllCheckbox = document.createElement("input");
         selectAllCheckbox.type = "checkbox";
-        selectAllCheckbox.className = "unexpected-select-all";
+        selectAllCheckbox.className = "file-select-all";
         allNoneCell.innerHTML = "";
         allNoneCell.appendChild(selectAllCheckbox);
         
+        // Render each authorized file
         for (var i = 0; i < alreadyAuthorized.length; i++) {
-          var filename = alreadyAuthorized[i];
-          var tr = document.createElement("tr");
-          
-          var tdAllNone = document.createElement("td");
-          tdAllNone.textContent = "";
-          
-          var tdOut = document.createElement("td");
-          var outCheckbox = document.createElement("input");
-          outCheckbox.type = "checkbox";
-          outCheckbox.className = "unexpected-out";
-          outCheckbox.value = filename;
-          
-          // Load persisted state from IndexedDB
-          if (db) {
-            loadUnexpectedFileSelection(filename, function(entry) {
-              if (entry && entry.out) {
-                outCheckbox.checked = true;
-              }
-            });
-          }
-          
-          // Save state to IndexedDB when checkbox changes
-          outCheckbox.addEventListener("change", function() {
-            saveUnexpectedFileSelection(filename, outCheckbox.checked);
-          });
-          
-          tdOut.appendChild(outCheckbox);
-          
-          var tdName = document.createElement("td");
-          tdName.textContent = filename;
-          
-          tr.appendChild(tdAllNone);
-          tr.appendChild(tdOut);
-          tr.appendChild(tdName);
-          tbody.appendChild(tr);
+          renderFileRow(tbody, {filename: alreadyAuthorized[i]}, "unexpected-already-auth");
         }
         
-        // Add change listener to All/None checkbox for this table
+        // Add All/None listener
         selectAllCheckbox.addEventListener("change", function() {
-          var checkboxes = tbody.querySelectorAll("input.unexpected-out");
+          var checkboxes = tbody.querySelectorAll("input.file-checkbox-out");
           for (var k = 0; k < checkboxes.length; k++) {
             checkboxes[k].checked = selectAllCheckbox.checked;
-            // Trigger change event to save to IndexedDB
             checkboxes[k].dispatchEvent(new Event("change"));
           }
         });
         
-        authSection.appendChild(authTable);
-        content.appendChild(authSection);
+        section.appendChild(table);
+        content.appendChild(section);
       }
       
-      // Needs Authorization section
-      if (needsAuthorization && needsAuthorization.length > 0) {
-        var needsSection = document.createElement("div");
-        needsSection.className = "unexpected-section";
-        needsSection.innerHTML = "<h3>Needs Authorization - Add via CLI First</h3>";
-        needsSection.innerHTML += "<p>These files are not yet authorized. Copy the command for each file listed below and run it via CLI, then enable them for output:</p>";
+      // Needs Authorization section (optional, for unexpected files mode)
+      if (mode === "unexpected" && needsAuthorization && needsAuthorization.length > 0) {
+        var section = document.createElement("div");
+        section.className = "file-section";
+        section.innerHTML = "<h3>Needs Authorization - Add via CLI First</h3>";
+        section.innerHTML += "<p>These files are not yet authorized. Copy the command for each file listed below and run it via CLI, then enable them for output:</p>";
         
         var filesList = document.createElement("div");
         
-        // Use forEach to naturally create closure for each file
-        needsAuthorization.forEach(function(file) {
+        // Render needs authorization files
+        for (var i = 0; i < needsAuthorization.length; i++) {
+          var filename = needsAuthorization[i];
           var fileDiv = document.createElement("div");
           fileDiv.className = "needs-auth-file";
           
           var filenameSpan = document.createElement("span");
           filenameSpan.className = "filename";
-          var command = "storm file add --project " + projectID + " " + file;
+          var command = "storm file add --project " + projectID + " " + filename;
           filenameSpan.textContent = command;
           
           var copyBtn = document.createElement("button");
           copyBtn.className = "copy-btn";
           copyBtn.textContent = "Copy Command";
-          copyBtn.onclick = function() {
-            navigator.clipboard.writeText(command).then(function() {
-              copyBtn.textContent = "Copied!";
-              setTimeout(function() {
-                copyBtn.textContent = "Copy Command";
-              }, 2000);
-            });
-          };
+          copyBtn.onclick = (function(cmd, btn) {
+            return function() {
+              navigator.clipboard.writeText(cmd).then(function() {
+                btn.textContent = "Copied!";
+                setTimeout(function() {
+                  btn.textContent = "Copy Command";
+                }, 2000);
+              });
+            };
+          })(command, copyBtn);
           
           fileDiv.appendChild(filenameSpan);
           fileDiv.appendChild(copyBtn);
           filesList.appendChild(fileDiv);
-        });
+        }
         
-        needsSection.appendChild(filesList);
-        content.appendChild(needsSection);
+        section.appendChild(filesList);
+        content.appendChild(section);
       }
       
-      // Open modal
+      // Open the modal
       openFileModal();
-      currentUnexpectedFilesQuery = queryID;
+    }
+
+    // Helper function to render a single file row (consolidates both regular and unexpected file rendering)
+    function renderFileRow(tbody, file, rowType) {
+      var tr = document.createElement("tr");
+      
+      // Only render the "All/None" column for unexpected files that are already authorized
+      if (rowType === "unexpected-already-auth") {
+        var tdAllNone = document.createElement("td");
+        tdAllNone.textContent = "";
+        tr.appendChild(tdAllNone);
+      } else if (rowType === "regular") {
+        // For regular files, render the In checkbox
+        var tdIn = document.createElement("td");
+        var inCheckbox = document.createElement("input");
+        inCheckbox.type = "checkbox";
+        inCheckbox.className = "file-checkbox-in";
+        inCheckbox.checked = file.in || false;
+        
+        // Load from IndexedDB
+        loadFileSelection(file.filename, function(entry) {
+          if (entry && entry.in) {
+            inCheckbox.checked = true;
+          }
+        });
+        
+        // Save to IndexedDB on change
+        inCheckbox.addEventListener("change", function() {
+          file.in = inCheckbox.checked;
+          saveFileSelection(file.filename, inCheckbox.checked, file.out);
+        });
+        
+        tdIn.appendChild(inCheckbox);
+        tr.appendChild(tdIn);
+      }
+      
+      // Render the Out checkbox
+      var tdOut = document.createElement("td");
+      var outCheckbox = document.createElement("input");
+      outCheckbox.type = "checkbox";
+      outCheckbox.className = "file-checkbox-out";
+      outCheckbox.value = file.filename;
+      outCheckbox.checked = file.out || false;
+      
+      // Load from IndexedDB
+      loadFileSelection(file.filename, function(entry) {
+        if (entry && entry.out) {
+          outCheckbox.checked = true;
+        }
+      });
+      
+      // Save to IndexedDB on change
+      outCheckbox.addEventListener("change", function() {
+        file.out = outCheckbox.checked;
+        saveFileSelection(file.filename, file.in, outCheckbox.checked);
+      });
+      
+      tdOut.appendChild(outCheckbox);
+      tr.appendChild(tdOut);
+      
+      // Render the filename
+      var tdName = document.createElement("td");
+      
+      // Only add link for regular files (not for unexpected files)
+      if (rowType === "regular") {
+        var link = document.createElement("a");
+        link.href = "/project/" + projectID + "/open?filename=" + encodeURIComponent(file.filename);
+        link.target = "_blank";
+        link.textContent = file.filename;
+        tdName.appendChild(link);
+      } else {
+        tdName.textContent = file.filename;
+      }
+      
+      tr.appendChild(tdName);
+      tbody.appendChild(tr);
     }
     
     // Initialize WebSocket connection and handlers
@@ -896,13 +946,41 @@
             updateScrollButtonVisibility();
           } else if (message.type === 'unexpectedFilesDetected') {
             debugLog('Unexpected files detected: ' + JSON.stringify(message));
-            displayUnexpectedFilesModal(message.queryID, message.alreadyAuthorized, message.needsAuthorization, false);
+            displayFileModal("unexpected", [], message.alreadyAuthorized, message.needsAuthorization, message.queryID);
           } else if (message.type === 'fileListUpdated') {
             debugLog('File list updated via WebSocket');
             // If unexpected files modal is open, reorganize it
-            if (currentUnexpectedFilesQuery && message.files) {
+            if (currentFileModalMode === "unexpected" && currentUnexpectedFilesQuery && message.files) {
               debugLog("Reorganizing unexpected files modal with updated file list");
-              reorganizeUnexpectedFilesModal(message.files);
+              var content = document.getElementById("fileSidebarContent");
+              var checkboxes = content.querySelectorAll("input.file-checkbox-out:checked");
+              var previouslyChecked = [];
+              for (var k = 0; k < checkboxes.length; k++) {
+                previouslyChecked.push(checkboxes[k].value);
+              }
+              
+              var updatedFileSet = new Set(message.files);
+              var alreadyAuthorized = [];
+              var needsAuthorization = [];
+              
+              // Recategorize based on updated file list
+              var allUnexpectedFiles = previouslyChecked;
+              for (var i = 0; i < message.files.length; i++) {
+                if (previouslyChecked.indexOf(message.files[i]) < 0) {
+                  allUnexpectedFiles.push(message.files[i]);
+                }
+              }
+              
+              for (var i = 0; i < allUnexpectedFiles.length; i++) {
+                var file = allUnexpectedFiles[i];
+                if (updatedFileSet.has(file)) {
+                  alreadyAuthorized.push(file);
+                } else {
+                  needsAuthorization.push(file);
+                }
+              }
+              
+              displayFileModal("unexpected", [], alreadyAuthorized, needsAuthorization, currentUnexpectedFilesQuery);
             }
             loadFileList();
           }
@@ -923,7 +1001,7 @@
       };
     }
     
-    // Call generateTOC and other initializations when the DOM content is loaded.
+    // Call generateTOC and other initializations when the DOM content is loaded
     document.addEventListener("DOMContentLoaded", function() {
       debugLog("DOMContentLoaded fired");
       generateTOC();
@@ -957,11 +1035,10 @@
           debugLog("Event type: " + e.type + ", target: " + e.target.id);
           
           // Show regular file list, not unexpected files
-          if (currentUnexpectedFilesQuery) {
+          if (currentFileModalMode === "unexpected") {
             debugLog("Unexpected files modal already open, ignoring click");
             return;
           }
-          document.getElementById("modalTitle").textContent = "File Management";
           debugLog("Calling loadFileList()");
           loadFileList();
         });
@@ -971,24 +1048,20 @@
       // Close modal button handler - send approved files before closing
       document.getElementById("closeFileModal").addEventListener("click", function() {
         debugLog("Close modal button clicked");
-        if (currentUnexpectedFilesQuery) {
-          sendApprovedFiles();
-        }
+        sendApprovedFiles();
         closeFileModal();
+        currentFileModalMode = null;
         currentUnexpectedFilesQuery = null;
-        currentUnexpectedFilesData = null;
       });
 
       // Close modal when clicking the background - send approved files before closing
       document.getElementById("fileModal").addEventListener("click", function(event) {
         if (event.target === this) {
           debugLog("Modal background clicked, closing modal");
-          if (currentUnexpectedFilesQuery) {
-            sendApprovedFiles();
-          }
+          sendApprovedFiles();
           closeFileModal();
+          currentFileModalMode = null;
           currentUnexpectedFilesQuery = null;
-          currentUnexpectedFilesData = null;
         }
       });
 
@@ -998,40 +1071,22 @@
           var modal = document.getElementById("fileModal");
           if (modal && modal.classList.contains("show")) {
             debugLog("Escape key pressed, closing modal");
-            if (currentUnexpectedFilesQuery) {
-              sendApprovedFiles();
-            }
+            sendApprovedFiles();
             closeFileModal();
+            currentFileModalMode = null;
             currentUnexpectedFilesQuery = null;
-            currentUnexpectedFilesData = null;
           }
         }
       });
 
-      // Add preset token limit buttons functionality.
+      // Add preset token limit buttons functionality
       document.querySelectorAll('.preset-tokencount').forEach(function(btn) {
         btn.addEventListener('click', function() {
           document.getElementById('tokenLimit').value = this.getAttribute('data-token');
         });
       });
-      // Initialize All/None checkbox for file list.
-      var selectAll = document.getElementById("selectAllFiles");
-      if (selectAll) {
-        selectAll.addEventListener("change", function() {
-          var checked = this.checked;
-          var fileInCheckboxes = document.querySelectorAll("#fileList input.fileIn");
-          var fileOutCheckboxes = document.querySelectorAll("#fileList input.fileOut");
-          fileInCheckboxes.forEach(function(cb) {
-            cb.checked = checked;
-            cb.dispatchEvent(new Event("change"));
-          });
-          fileOutCheckboxes.forEach(function(cb) {
-            cb.checked = false;
-            cb.dispatchEvent(new Event("change"));
-          });
-        });
-      }
-      // scroll to the bookmarked round 
+      
+      // Scroll to the bookmarked round
       var bookmark = getCookie("bookmark_round");
       if (bookmark) {
         var round = parseInt(bookmark);
@@ -1063,7 +1118,7 @@
       updateScrollButtonVisibility();
     });
 
-    // Append a new message to the chat view without scrolling the page.
+    // Append a new message to the chat view without scrolling the page
     function appendMessage(content) {
       var chat = document.getElementById("chat");
       var messageDiv = document.createElement("div");
@@ -1082,11 +1137,11 @@
         return;
       }
 
-      // Increment global outstanding query count and update status spinner.
+      // Increment global outstanding query count and update status spinner
       outstandingQueries++;
       updateStatusSpinner();
 
-      // Gather file I/O selections from the file sidebar.
+      // Gather file I/O selections from the file sidebar
       var fileSelection = getSelectedFiles();
       
       // Generate a unique UUID for this query
@@ -1108,7 +1163,7 @@
       ws.send(JSON.stringify(queryMessage));
     }
 
-    // Poll the /project/{projectID}/tokencount endpoint to update the token count.
+    // Poll the /project/{projectID}/tokencount endpoint to update the token count
     function updateTokenCount() {
       fetch("/project/" + projectID + "/tokencount")
         .then(function(response) { return response.json(); })
@@ -1122,7 +1177,7 @@
     }
 
     // Updates progress stats by counting the number of <hr> tags above the current scroll position
-    // and fetching the total round count from the server.
+    // and fetching the total round count from the server
     function updateProgressStats() {
       var chatElem = document.getElementById("chat");
       var hrTags = chatElem.getElementsByTagName("hr");
@@ -1145,7 +1200,7 @@
           var roundsElem = document.getElementById("roundsStats");
           var progressElem = document.getElementById("progressStats");
           if(roundsElem) {
-            // Rounds: total - current = remaining 
+            // Rounds: total - current = remaining
             roundsElem.textContent = "Rounds: " + total + " - " + currentRound + " = " + remaining;
           }
           if(progressElem) {
@@ -1158,11 +1213,11 @@
         });
     }
 
-    // Add scroll event listener on the chat element to update progress stats and update bookmark.
+    // Add scroll event listener on the chat element to update progress stats and update bookmark
     document.getElementById("chat").addEventListener("scroll", updateProgressStats);
     updateTokenCount(); // Initial token count fetch
 
-    // Handle click on the Send button.
+    // Handle click on the Send button
     document.getElementById("sendBtn").addEventListener("click", function() {
       var input = document.getElementById("userInput");
       var query = input.value;
@@ -1176,10 +1231,10 @@
       }
       sendQuery(query, llm, "", tokenLimit);
       input.value = "";
-      // Do not clear the token limit input so the value persists.
+      // Do not clear the token limit input so the value persists
     });
 
-    // Handle click on the Stop Server button.
+    // Handle click on the Stop Server button
     document.getElementById("stopBtn").addEventListener("click", function() {
       if(confirm("Are you sure you want to stop the server?")) {
         fetch("/stop", { method: "POST" })
@@ -1271,7 +1326,7 @@
             });
             
             debugLog("Merged files: " + JSON.stringify(mergedFiles));
-            renderFileList(mergedFiles);
+            displayFileModal("regular", mergedFiles, [], []);
           };
           
           request.onerror = function(event) {
@@ -1285,33 +1340,19 @@
 
     function saveFileSelection(filename, isInput, isOutput) {
       debugLog("Saving file selection: " + filename + " in:" + isInput + " out:" + isOutput);
+      if (!db) {
+        debugLog("WARNING: IndexedDB not initialized");
+        return;
+      }
       var transaction = db.transaction(["selections"], "readwrite");
       var store = transaction.objectStore("selections");
       var entry = { filename: filename, in: isInput, out: isOutput };
       store.put(entry);
     }
 
-    // Save unexpected files modal checkbox state to IndexedDB[1]
-    function saveUnexpectedFileSelection(filename, isOutput) {
+    function loadFileSelection(filename, callback) {
       if (!db) {
-        debugLog("WARNING: IndexedDB not available for saving unexpected file selection");
-        return;
-      }
-      debugLog("Saving unexpected file selection: " + filename + " out:" + isOutput);
-      var transaction = db.transaction(["selections"], "readwrite");
-      var store = transaction.objectStore("selections");
-      var request = store.get(filename);
-      request.onsuccess = function(event) {
-        var entry = event.target.result || { filename: filename, in: false, out: false };
-        entry.out = isOutput;
-        store.put(entry);
-      };
-    }
-
-    // Load unexpected files modal checkbox state from IndexedDB[1]
-    function loadUnexpectedFileSelection(filename, callback) {
-      if (!db) {
-        debugLog("WARNING: IndexedDB not available for loading unexpected file selection");
+        debugLog("WARNING: IndexedDB not available for loading file selection");
         callback(null);
         return;
       }
@@ -1322,134 +1363,39 @@
         callback(event.target.result);
       };
       request.onerror = function(event) {
-        debugLog("Error loading unexpected file selection for " + filename + ": " + event.target.error);
+        debugLog("Error loading file selection for " + filename + ": " + event.target.error);
         callback(null);
       };
-    }
-
-    function renderFileList(files) {
-      debugLog("Rendering file list with " + files.length + " files");
-      var fileListElem = document.getElementById("fileList");
-      if (!fileListElem) {
-        // Create fileList if it doesn't exist (for regular file management modal)
-        var content = document.getElementById("fileSidebarContent");
-        var selectAllLabel = document.createElement("label");
-        selectAllLabel.style.display = "block";
-        selectAllLabel.style.marginBottom = "5px";
-        var selectAllCheckbox = document.createElement("input");
-        selectAllCheckbox.type = "checkbox";
-        selectAllCheckbox.id = "selectAllFiles";
-        selectAllLabel.appendChild(selectAllCheckbox);
-        selectAllLabel.appendChild(document.createTextNode(" All/None"));
-        
-        var table = document.createElement("table");
-        var thead = document.createElement("thead");
-        var headerRow = document.createElement("tr");
-        var th1 = document.createElement("th");
-        th1.textContent = "In";
-        var th2 = document.createElement("th");
-        th2.textContent = "Out";
-        var th3 = document.createElement("th");
-        th3.textContent = "Filename";
-        headerRow.appendChild(th1);
-        headerRow.appendChild(th2);
-        headerRow.appendChild(th3);
-        thead.appendChild(headerRow);
-        
-        var tbody = document.createElement("tbody");
-        tbody.id = "fileList";
-        
-        table.appendChild(thead);
-        table.appendChild(tbody);
-        
-        content.innerHTML = "";
-        content.appendChild(selectAllLabel);
-        content.appendChild(table);
-        
-        fileListElem = tbody;
-        
-        // Re-attach the All/None listener for the regular file list
-        selectAllCheckbox.addEventListener("change", function() {
-          var checked = this.checked;
-          var fileInCheckboxes = document.querySelectorAll("#fileList input.fileIn");
-          var fileOutCheckboxes = document.querySelectorAll("#fileList input.fileOut");
-          fileInCheckboxes.forEach(function(cb) {
-            cb.checked = checked;
-            cb.dispatchEvent(new Event("change"));
-          });
-          fileOutCheckboxes.forEach(function(cb) {
-            cb.checked = false;
-            cb.dispatchEvent(new Event("change"));
-          });
-        });
-      }
-      
-      fileListElem.innerHTML = "";
-      
-      files.forEach(function(file) {
-        var tr = document.createElement("tr");
-        
-        var tdIn = document.createElement("td");
-        var inCheckbox = document.createElement("input");
-        inCheckbox.type = "checkbox";
-        inCheckbox.checked = file.in || false;
-        inCheckbox.className = "fileIn";
-        inCheckbox.addEventListener("change", function() {
-          file.in = inCheckbox.checked;
-          saveFileSelection(file.filename, inCheckbox.checked, file.out);
-        });
-        tdIn.appendChild(inCheckbox);
-        
-        var tdOut = document.createElement("td");
-        var outCheckbox = document.createElement("input");
-        outCheckbox.type = "checkbox";
-        outCheckbox.checked = file.out || false;
-        outCheckbox.className = "fileOut";
-        outCheckbox.addEventListener("change", function() {
-          file.out = outCheckbox.checked;
-          saveFileSelection(file.filename, file.in, outCheckbox.checked);
-        });
-        tdOut.appendChild(outCheckbox);
-        
-        var tdName = document.createElement("td");
-        var link = document.createElement("a");
-        link.href = "/project/" + projectID + "/open?filename=" + encodeURIComponent(file.filename);
-        link.target = "_blank";
-        link.textContent = file.filename;
-        tdName.appendChild(link);
-        
-        tr.appendChild(tdIn);
-        tr.appendChild(tdOut);
-        tr.appendChild(tdName);
-        fileListElem.appendChild(tr);
-      });
-      
-      debugLog("File list rendered successfully, about to call openFileModal()");
-      openFileModal();
     }
 
     function getSelectedFiles() {
       var inputFiles = [];
       var outFiles = [];
-      var fileList = document.getElementById("fileList");
-      if (!fileList) {
-        debugLog("WARNING: fileList element not found");
+      var content = document.getElementById("fileSidebarContent");
+      if (!content) {
+        debugLog("WARNING: fileSidebarContent element not found");
         return { inputFiles: inputFiles, outFiles: outFiles };
       }
-      var rows = fileList.getElementsByTagName("tr");
-      for (var i = 0; i < rows.length; i++) {
-        var cells = rows[i].getElementsByTagName("td");
-        if(cells.length < 3) continue;
-        var inInput = cells[0].querySelector("input");
-        var outInput = cells[1].querySelector("input");
-        var filenameCell = cells[2];
-        if (!inInput || !outInput || !filenameCell) continue;
-        var inChecked = inInput.checked;
-        var outChecked = outInput.checked;
-        var filename = filenameCell.textContent.trim();
-        if(inChecked) inputFiles.push(filename);
-        if(outChecked) outFiles.push(filename);
+      var checkboxesIn = content.querySelectorAll("input.file-checkbox-in:checked");
+      var checkboxesOut = content.querySelectorAll("input.file-checkbox-out:checked");
+      
+      for (var i = 0; i < checkboxesIn.length; i++) {
+        var row = checkboxesIn[i].closest("tr");
+        if (row) {
+          var filenameCell = row.cells[2];
+          if (filenameCell) {
+            var filename = filenameCell.textContent.trim();
+            if (filename) {
+              inputFiles.push(filename);
+            }
+          }
+        }
       }
+      
+      for (var i = 0; i < checkboxesOut.length; i++) {
+        outFiles.push(checkboxesOut[i].value);
+      }
+      
       return { inputFiles: inputFiles, outFiles: outFiles };
     }
     // --- End File I/O code ---
