@@ -629,24 +629,10 @@
         }
       }
       
-      // Preserve checkbox states
-      var content = document.getElementById("fileSidebarContent");
-      var checkedFiles = {};
-      var checkboxes = content.querySelectorAll("input.unexpected-out:checked");
-      for (var k = 0; k < checkboxes.length; k++) {
-        checkedFiles[checkboxes[k].value] = true;
-      }
-      
       // Re-render modal with updated categorization
+      // Checkbox states now persist in IndexedDB, so no manual save/restore needed
+      debugLog("Clearing modal content and re-rendering");
       displayUnexpectedFilesModal(currentUnexpectedFilesQuery, alreadyAuthorized, needsAuthorization, true);
-      
-      // Restore checkbox states
-      var newCheckboxes = content.querySelectorAll("input.unexpected-out");
-      for (var j = 0; j < newCheckboxes.length; j++) {
-        if (checkedFiles[newCheckboxes[j].value]) {
-          newCheckboxes[j].checked = true;
-        }
-      }
       
       debugLog("Modal reorganized: " + alreadyAuthorized.length + " authorized, " + needsAuthorization.length + " needs auth");
     }
@@ -719,6 +705,21 @@
           outCheckbox.type = "checkbox";
           outCheckbox.className = "unexpected-out";
           outCheckbox.value = filename;
+          
+          // Load persisted state from IndexedDB
+          if (db) {
+            loadUnexpectedFileSelection(filename, function(entry) {
+              if (entry && entry.out) {
+                outCheckbox.checked = true;
+              }
+            });
+          }
+          
+          // Save state to IndexedDB when checkbox changes
+          outCheckbox.addEventListener("change", function() {
+            saveUnexpectedFileSelection(filename, outCheckbox.checked);
+          });
+          
           tdOut.appendChild(outCheckbox);
           
           var tdName = document.createElement("td");
@@ -735,6 +736,8 @@
           var checkboxes = tbody.querySelectorAll("input.unexpected-out");
           for (var k = 0; k < checkboxes.length; k++) {
             checkboxes[k].checked = selectAllCheckbox.checked;
+            // Trigger change event to save to IndexedDB
+            checkboxes[k].dispatchEvent(new Event("change"));
           }
         });
         
@@ -1286,6 +1289,42 @@
       var store = transaction.objectStore("selections");
       var entry = { filename: filename, in: isInput, out: isOutput };
       store.put(entry);
+    }
+
+    // Save unexpected files modal checkbox state to IndexedDB[1]
+    function saveUnexpectedFileSelection(filename, isOutput) {
+      if (!db) {
+        debugLog("WARNING: IndexedDB not available for saving unexpected file selection");
+        return;
+      }
+      debugLog("Saving unexpected file selection: " + filename + " out:" + isOutput);
+      var transaction = db.transaction(["selections"], "readwrite");
+      var store = transaction.objectStore("selections");
+      var request = store.get(filename);
+      request.onsuccess = function(event) {
+        var entry = event.target.result || { filename: filename, in: false, out: false };
+        entry.out = isOutput;
+        store.put(entry);
+      };
+    }
+
+    // Load unexpected files modal checkbox state from IndexedDB[1]
+    function loadUnexpectedFileSelection(filename, callback) {
+      if (!db) {
+        debugLog("WARNING: IndexedDB not available for loading unexpected file selection");
+        callback(null);
+        return;
+      }
+      var transaction = db.transaction(["selections"], "readonly");
+      var store = transaction.objectStore("selections");
+      var request = store.get(filename);
+      request.onsuccess = function(event) {
+        callback(event.target.result);
+      };
+      request.onerror = function(event) {
+        debugLog("Error loading unexpected file selection for " + filename + ": " + event.target.error);
+        callback(null);
+      };
     }
 
     function renderFileList(files) {
