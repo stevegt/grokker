@@ -949,30 +949,34 @@
             displayFileModal("unexpected", [], message.alreadyAuthorized, message.needsAuthorization, message.queryID);
           } else if (message.type === 'fileListUpdated') {
             debugLog('File list updated via WebSocket');
-            // If unexpected files modal is open, reorganize it
+            // If unexpected files modal is open, reorganize it with new categorization
             if (currentFileModalMode === "unexpected" && currentUnexpectedFilesQuery && message.files) {
               debugLog("Reorganizing unexpected files modal with updated file list");
-              var content = document.getElementById("fileSidebarContent");
-              var checkboxes = content.querySelectorAll("input.file-checkbox-out:checked");
-              var previouslyChecked = [];
-              for (var k = 0; k < checkboxes.length; k++) {
-                previouslyChecked.push(checkboxes[k].value);
-              }
               
               var updatedFileSet = new Set(message.files);
               var alreadyAuthorized = [];
               var needsAuthorization = [];
               
-              // Recategorize based on updated file list
-              var allUnexpectedFiles = previouslyChecked;
-              for (var i = 0; i < message.files.length; i++) {
-                if (previouslyChecked.indexOf(message.files[i]) < 0) {
-                  allUnexpectedFiles.push(message.files[i]);
+              // Categorize all files from the previous modal based on updated file list
+              var content = document.getElementById("fileSidebarContent");
+              var allCurrentFiles = [];
+              
+              // Collect all filenames currently in modal
+              var tableRows = content.querySelectorAll("table tbody tr");
+              for (var i = 0; i < tableRows.length; i++) {
+                var row = tableRows[i];
+                var filenameCell = row.cells[row.cells.length - 1];
+                if (filenameCell) {
+                  var filename = filenameCell.textContent.trim();
+                  if (filename) {
+                    allCurrentFiles.push(filename);
+                  }
                 }
               }
               
-              for (var i = 0; i < allUnexpectedFiles.length; i++) {
-                var file = allUnexpectedFiles[i];
+              // Recategorize based on updated file list
+              for (var i = 0; i < allCurrentFiles.length; i++) {
+                var file = allCurrentFiles[i];
                 if (updatedFileSet.has(file)) {
                   alreadyAuthorized.push(file);
                 } else {
@@ -980,6 +984,7 @@
                 }
               }
               
+              // Redraw modal - checkboxes automatically load state from IndexedDB
               displayFileModal("unexpected", [], alreadyAuthorized, needsAuthorization, currentUnexpectedFilesQuery);
             }
             loadFileList();
