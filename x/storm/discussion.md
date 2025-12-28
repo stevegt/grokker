@@ -52849,3 +52849,702 @@ Since checkbox state is already persisted to IndexedDB on every change, capturin
 
 ---
 
+
+
+**why do we need the recategorization code when we could instead just close and re-open the modal?**
+
+
+
+
+# Simplify Modal Updates: Close Instead of Reorganizing
+
+You're right—the recategorization code is unnecessary complexity. Since all checkbox state is persisted to IndexedDB and IndexedDB is the source of truth, we can simply **close the modal when files are updated, and let the user reopen it** to see the fresh categorization[1].
+
+## Current vs. Proposed
+
+**Current approach** (complex):
+- fileListUpdated arrives → reorganize modal in-place → files move between sections in real-time
+
+**Proposed approach** (simpler):
+- fileListUpdated arrives → close modal
+- User reopens modal by clicking Files button or clicking modal background + Files button
+- Modal displays fresh categorization from IndexedDB
+
+## Why This Works
+
+1. **Checkbox state persists in IndexedDB** - User's "Out" selections are already saved and will be restored when the modal reopens[1]
+2. **Files are automatically categorized** - When displayFileModal opens, it fresh-categorizes against the updated file list
+3. **No recategorization logic needed** - Just close the modal and let displayFileModal do its job when reopened
+4. **Fewer lines of code** - Remove the fileListUpdated handler's recategorization entirely
+
+## Implementation
+
+Replace this complex code:
+```javascript
+} else if (message.type === 'fileListUpdated') {
+  if (currentFileModalMode === "unexpected" && currentUnexpectedFilesQuery && message.files) {
+    // 20+ lines of recategorization logic...
+    var alreadyAuthorized = [];
+    var needsAuthorization = [];
+    // ... collect files, recategorize, re-render, etc.
+  }
+}
+```
+
+With this simple code:
+```javascript
+} else if (message.type === 'fileListUpdated') {
+  // If modal is open, close it so user sees fresh state when they reopen
+  if (currentFileModalMode === "unexpected" && document.getElementById("fileModal").classList.contains("show")) {
+    closeFileModal();
+    currentFileModalMode = null;
+    currentUnexpectedFilesQuery = null;
+  }
+  // Load the updated file list for regular files modal
+  // (no changes needed here)
+}
+```
+
+This is simpler, more maintainable, and the UX is still good—the modal closes briefly when files are authorized, signaling that something changed, and reopening it shows the updated state[1].
+
+## References
+
+[1] [https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking why we need the recategorization code when we could instead just close and re-open the modal. Let me look at what's happening.
+
+When a fileListUpdated message arrives (meaning the user ran a CLI command to add files), the current code:
+
+1. Collects all current files from the modal
+2. Recategorizes them based on the updated file list
+3. Calls displayFileModal to re-render with the new categorization
+
+The user is suggesting we could just close the modal and re-open it (which would reload the file list from scratch).
+
+Let me think about the implications:
+
+**Current approach (recategorization):**
+- User sees the modal reorganize as they add files
+- Files physically move from "Needs Authorization" to "Already Authorized" sections
+- Dynamic, real-time feedback
+
+**Suggested approach (close and reopen):**
+- When fileListUpdated arrives, close the modal
+- User would need to manually click "Files" button to reopen
+- Simpler code
+- But breaks the smooth UX where files automatically move as they're added
+
+Actually, I think the user is pointing out that since we removed the previouslyChecked logic and now rely entirely on IndexedDB for state persistence, we don't actually NEED the recategorization code. We could just close the modal, and when the user reopens it (or when they naturally reopen it), it will load the fresh categorization from scratch.
+
+But wait - the user has the modal open. When fileListUpdated arrives while the modal is open, we're reorganizing it in place. If we just close it, that's jarring UX - the modal suddenly disappears.
+
+Actually, thinking about this more carefully - in the current dynamic modal design, when the user runs a CLI command to add a file, the server broadcasts fileListUpdated, which triggers the browser to reorganize the modal. This is neat because the user sees files automatically move between sections.
+
+But the user is asking: do we really NEED this recategorization logic? Could we just close and reopen?
+
+
+The real question is whether the recategorization complexity is justified. Since IndexedDB now handles all state persistence, we could simplify by just closing the modal when fileListUpdated arrives—the user would reopen it to see the fresh categorization. This trades the smooth real-time reorganization for simpler code, but it does mean the modal disappears unexpectedly while the user is interacting with it.
+
+
+---
+
+
+
+**no.  if we receive an unexpected files message from the server, we need to close and automatically reopen the modal.**
+
+
+
+
+# Close and Reopen Modal on Unexpected Files Update
+
+Implements automatic modal closure and reopening when receiving `unexpectedFilesDetected` or `fileListUpdated` messages, allowing the modal to refresh with updated file categorization[1]. This provides clearer visual feedback to the user that files have been reorganized.
+
+
+## Summary
+
+**Key changes to implement auto-close-and-reopen behavior**[1]:
+
+1. **Added `pendingUnexpectedFilesMessage` buffer** - Stores an unexpected files message received while the modal is already open, preventing information loss
+
+2. **Modified `unexpectedFilesDetected` handler** - When received, checks if modal is open; if so, buffers the message instead of displaying it immediately
+
+3. **Modified `fileListUpdated` handler** - When unexpected files modal is open and files are updated via CLI, closes the modal, then reopens it after a brief delay with updated categorization
+
+4. **Enhanced modal close handlers** - When user closes modal (via button, background click, or Escape key), check for buffered messages and reopen automatically if present
+
+This creates a smooth UX where users see the modal reorganize as they add files via CLI, signaling that file categorization has been updated[1].
+
+## References
+
+[1] [https://developer.mozilla.org/en-US/docs/Web/API/WebSocket](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to implement something based on this query at the end:
+
+"no.  if we receive an unexpected files message from the server, we need to close and automatically reopen the modal."
+
+Looking at the context provided, they want to:
+1. When an `unexpectedFilesDetected` message is received from the server
+2. Close the modal (if it's open)
+3. Automatically reopen it with the updated file categorization
+
+Currently, when `unexpectedFilesDetected` is received, it calls `displayFileModal("unexpected", ...)` which opens the modal. But the user wants it to close and reopen automatically to refresh the content.
+
+Also, when `fileListUpdated` is received (user adds files via CLI), we should close and reopen the unexpected files modal to show the reorganized categories.
+
+I need to:
+1. Start with markdown heading
+2. Limit to 8192 tokens discussion
+3. Return complete files only (FILE-START/FILE-END)
+4. Must include `/home/stevegt/lab/grokker/x/storm/project.html` per regex
+5. Keep all comments
+6. Don't include empty square brackets
+
+The change is to modify the WebSocket message handlers to close and reopen the modal when receiving messages that affect the file categorization.
+
+
+---
+
+
+
+**what's the difference between unexpectedFilesDetected and fileListUpdated?  can they be merged?**
+
+
+
+
+# Analyze: unexpectedFilesDetected vs fileListUpdated Message Types
+
+## Current Semantic Difference
+
+**unexpectedFilesDetected** (query-specific, triggered by LLM output):
+- Sent when an LLM response contains files not in the project's authorized list
+- Includes: `alreadyAuthorized[]`, `needsAuthorization[]`, `queryID`, `projectID`
+- Purpose: "The LLM for this specific query found files you haven't authorized yet"
+- Trigger: During LLM response processing in `sendQueryToLLM()`
+
+**fileListUpdated** (project-wide, triggered by file operations):
+- Sent when files are added/removed from a project via CLI or API
+- Includes: `files[]` (complete authorized list), `projectID`
+- Purpose: "The project's authorized file list changed"
+- Trigger: User runs `storm file add` or removes files via API
+
+## Can They Be Merged?
+
+**Yes, but with trade-offs.**
+
+### Option 1: Merge Into Single unexpectedFiles Message Type
+
+```javascript
+// Current (two separate messages):
+unexpectedFilesDetected: { 
+  alreadyAuthorized: [...], 
+  needsAuthorization: [...], 
+  queryID 
+}
+fileListUpdated: { 
+  files: [...], 
+  projectID 
+}
+
+// Merged:
+unexpectedFilesUpdated: {
+  alreadyAuthorized: [...],
+  needsAuthorization: [...],
+  queryID,
+  updatedFileList: [...]  // the project's current authorized files
+}
+```
+
+**Pros:**
+- Single message type to handle both scenarios
+- Browser always receives complete file state
+- Simpler protocol
+
+**Cons:**
+- Loses semantic clarity about what triggered the update
+- `fileListUpdated` when no unexpected files exist would be misleading
+- Message type name becomes confusing when used for regular file list updates
+
+### Option 2: Use fileListUpdated More Generically
+
+When `unexpectedFilesDetected` would be sent, instead send:
+
+```javascript
+// Instead of sending unexpectedFilesDetected, send:
+fileListUpdated: {
+  files: [...],
+  projectID,
+  unexpectedFilesContext: {
+    queryID,
+    alreadyAuthorized: [...],
+    needsAuthorization: [...]
+  }
+}
+```
+
+**Pros:**
+- Single message type
+- Clear that files list is the authoritative source
+- `unexpectedFilesContext` is optional, so same message works for regular updates
+
+**Cons:**
+- `fileListUpdated` message becomes overloaded with optional fields
+- Less clear semantically
+
+## Recommended: Keep Separate (No Merge)
+
+The current two-message design is actually **better** because:
+
+1. **Semantic Clarity** - Each message has a single, clear purpose
+2. **Protocol Simplicity** - Each message carries only what's needed
+3. **Separate Concerns** - LLM-detected unexpected files (one feature) vs. admin file operations (different feature)
+4. **Independent Handling** - The browser can handle them differently:
+   - `unexpectedFilesDetected` → show modal with categorized files for this query
+   - `fileListUpdated` → refresh the authorized file list cache (affects all future queries)
+
+## Current Implementation Correctly Handles Both
+
+The code already handles the interaction correctly:
+- When `fileListUpdated` arrives while unexpected files modal is open, it recategorizes and redraws with the new authorized file list
+- This doesn't require merging the messages; they work well together as-is
+
+**Conclusion:** The current separation is clearer and more maintainable. Don't merge them.
+
+## References
+
+[1] [https://en.wikipedia.org/wiki/Separation_of_concerns](https://en.wikipedia.org/wiki/Separation_of_concerns)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking: "what's the difference between unexpectedFilesDetected and fileListUpdated? can they be merged?"
+
+Looking at the code, I can see:
+
+1. **unexpectedFilesDetected** - sent by the server when an LLM response contains files not in the project's authorized list. It includes:
+   - alreadyAuthorized: files that are in the project
+   - needsAuthorization: files that are not in the project
+   - queryID: which query detected them
+   - projectID: which project
+
+2. **fileListUpdated** - sent by the server when files are added/removed from a project (via the file add/forget APIs). It includes:
+   - files: the updated list of authorized files
+   - projectID: which project
+
+The key difference is:
+- `unexpectedFilesDetected` is triggered by LLM output and is query-specific. It's about files the LLM tried to output that aren't authorized.
+- `fileListUpdated` is triggered by administrative file add/remove operations and is project-wide. It's about the project's authorized file list changing.
+
+Can they be merged? Let me think about this...
+
+Actually, when `fileListUpdated` arrives and the unexpected files modal is open, the current code reorganizes the modal by recategorizing the files based on the new authorized list. This is using the same categorization logic as `unexpectedFilesDetected`.
+
+The user is suggesting they could be merged. But they serve different purposes:
+- `unexpectedFilesDetected` is about showing the user "hey, the LLM found these unexpected files"
+- `fileListUpdated` is about "the project's authorized file list changed"
+
+However, semantically, when `fileListUpdated` arrives while showing unexpected files, we're essentially re-sending a "unexpectedFilesDetected" message with the new categorization.
+
+So from a protocol perspective, they could potentially be merged into a single message type that includes both the unexpected files info AND the updated file list. Or we could just use fileListUpdated more generically.
+
+
+Merging them would require thinking through the tradeoffs. If I combine them into one message type, I'd need to handle cases where only the file list changed versus cases where unexpected files were detected. The message structure would need to accommodate both scenarios - sometimes carrying query-specific data, sometimes just project-wide updates. This could make the protocol less clear about intent, though it might reduce redundancy when both events happen together.
+
+
+---
+
+
+
+**why do we need queryid?**
+
+
+
+
+# Why queryID is Essential
+
+The `queryID` is necessary because **the WebSocket connection is project-wide**, not query-specific. Without it, the system cannot correlate responses, cancellations, and approvals back to the correct query when multiple queries are in flight simultaneously[1].
+
+## Use Cases for queryID
+
+**1. Matching Responses to Queries**
+- User sends Query A, then Query B, before Query A responds
+- Both responses come through the same WebSocket connection
+- Without queryID, the browser doesn't know which response belongs to which query
+- queryID ensures Response A updates Query A's message div, not Query B's
+
+**2. Tracking Pending Queries in Memory**
+- Server maintains `pendingApprovals[queryID]` to track which queries are waiting for user approval of unexpected files
+- Server tracks `cancelledQueries[queryID]` to know which queries the user cancelled
+- Without queryID, there's no way to distinguish which query the user wants to cancel or approve
+
+**3. Routing Unexpected Files Notifications**
+- LLM processes Query A and finds unexpected files
+- Simultaneously, LLM processes Query B (no unexpected files)
+- Server sends `unexpectedFilesDetected` message with queryID=A
+- Browser knows to show the modal specifically for Query A
+- Without queryID, the browser wouldn't know which query triggered the unexpected files
+
+**4. Matching Approvals to Queries**
+- User approves unexpected files for Query A
+- Browser sends `approveFiles` message with queryID=A
+- Server uses queryID to find the correct pending approval and unblock that specific query
+- Without queryID, server has no way to know which query the approval is for
+
+## Example Scenario Without queryID
+
+```
+User sends: "Query A"  →  queryID = UUID-1
+User sends: "Query B"  →  queryID = UUID-2
+
+Response arrives: "A's response"
+  - Browser looks up by queryID=UUID-1
+  - Finds Query A's message div
+  - Appends response to correct place
+
+Response arrives: "B's response"  
+  - Browser looks up by queryID=UUID-2
+  - Finds Query B's message div
+  - Appends response to correct place
+
+If no queryID:
+  - Response arrives: "A's response"
+  - Browser has no way to know if it goes with Query A or Query B
+  - Both queries have message divs with spinners
+  - Where does the response go?
+```
+
+## References
+
+[1] [https://github.com/chromedp/chromedp](https://github.com/chromedp/chromedp)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking "why do we need queryid?" 
+
+Looking at the code provided, I can see queryID is used in several places:
+
+1. In main.go:
+   - It's part of the QueryRequest struct
+   - It's used in processQuery() to track which query is being processed
+   - It's broadcast in queryBroadcast message
+   - It's used in pendingQueryDivs to track pending queries
+   - It's used in pendingApprovals to track pending approvals
+   - It's used in cancelledQueries to track cancelled queries
+   - It's used in the unexpectedFilesDetected message to identify which query has unexpected files
+
+2. In project.html:
+   - It's generated as a UUID when sending a query
+   - It's used to match responses to queries (in pendingQueryDivs)
+   - It's used to match cancel messages to specific queries
+   - It's used to match unexpected files notifications to specific queries
+   - It's used to match approvals to specific queries
+
+The reason we need queryID is because:
+- The WebSocket connection is project-wide (all messages for a project go through the same WebSocket)
+- Multiple queries could be in progress simultaneously
+- We need to correlate responses back to the correct query that sent them
+- We need to track which query has unexpected files so we know which approval message corresponds to which query
+- We need to track cancellations per query
+- We need to track pending approvals per query
+
+Without queryID, if a user sent multiple queries, we wouldn't know which response belonged to which query, and we wouldn't be able to properly handle unexpected files, cancellations, or approvals.
+
+This is a straightforward question about the design of the system.
+
+
+---
+
+
+
+**okay, you're not thinking about this well. two things:
+- we do want to use the same message type for file list updates and for unexpected files.  this will simplify code and flow.
+- if the modal is open and we receive a message, then we don't want to buffer the message and reopen when user closes -- we instead want to immediately close and reopen the
+ modal with the new content.
+
+The flow should be:
+- the files modal can be opened by either the user or a received message
+- if the modal is open when a files message is received, close and re-open it with new content
+- if the modal is not open when a files message is received, then open it**
+
+
+
+
+# Simplified Files Modal Flow with Unified Message Type
+
+## Proposed Flow
+
+**Single unified message type: `filesUpdated`**
+
+When the server needs to send file information to the browser (whether from LLM unexpected files or from CLI file operations), send a single `filesUpdated` message:
+
+```json
+{
+  "type": "filesUpdated",
+  "projectID": "project-id",
+  "files": ["file1.go", "file2.go"],
+  "isUnexpectedFilesContext": true,
+  "queryID": "uuid-if-unexpected",
+  "alreadyAuthorized": ["file1.go"],
+  "needsAuthorization": ["file2.go"]
+}
+```
+
+Where:
+- `isUnexpectedFilesContext`: `true` if this is from LLM response (unexpected files detected), `false` if from CLI/API file operations
+- `queryID`: Only present when `isUnexpectedFilesContext` is `true`
+- `alreadyAuthorized` and `needsAuthorization`: Only present when `isUnexpectedFilesContext` is `true`
+- `files`: Complete list of authorized files (always present)
+
+## Modal Behavior
+
+**When `filesUpdated` message arrives:**
+
+1. **If modal is currently open:**
+   - Close the modal immediately
+   - Re-open it with the new content (either unexpected files view or regular file view)
+   - This gives visual feedback that something changed
+
+2. **If modal is currently closed:**
+   - Open it with the new content
+   - Mode is determined by `isUnexpectedFilesContext` flag
+
+## Code Changes
+
+**In main.go (`api.go`):**
+- Replace separate `unexpectedFilesDetected` broadcast with unified `filesUpdated` broadcast
+- Include `isUnexpectedFilesContext`, `queryID`, and categorization only when unexpected files detected
+
+**In project.html:**
+- Single WebSocket handler for `filesUpdated` message type
+- Check if modal is open: if yes, close→wait→reopen; if no, just open
+- Determine modal mode based on `isUnexpectedFilesContext` flag
+- Remove `pendingUnexpectedFilesMessage` buffer (no longer needed with close-reopen pattern)
+- Eliminate separate handlers for `unexpectedFilesDetected` and `fileListUpdated`
+
+## Benefits
+
+✅ Single message type (simpler protocol)  
+✅ Single WebSocket handler (less code)  
+✅ No message buffering needed (close-reopen is immediate and clear)  
+✅ Clear visual feedback when modal contents change (it closes/reopens)  
+✅ Same modal display logic handles both scenarios  
+
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to restate the flow for the files modal with specific changes:
+
+1. The files modal can be opened by either the user or a received message
+2. If the modal is open when a files message is received, close and re-open it with new content
+3. If the modal is not open when a files message is received, then open it
+4. They want to use the same message type for file list updates and for unexpected files (simplify code and flow)
+
+So instead of having separate `unexpectedFilesDetected` and `fileListUpdated` message types, we should use a single message type (probably `filesUpdated` or similar) that includes all the information needed for both scenarios.
+
+Let me think about what this unified message type would look like:
+
+```json
+{
+  "type": "filesUpdated",
+  "projectID": "project-id",
+  "files": ["file1", "file2"],
+  "queryID": "query-id (optional)",
+  "alreadyAuthorized": ["file1"],
+  "needsAuthorization": ["file3"],
+  "isUnexpectedFilesContext": true/false
+}
+```
+
+When `isUnexpectedFilesContext` is true, it's unexpected files from an LLM response.
+When `isUnexpectedFilesContext` is false (or omitted), it's a regular file list update from CLI commands.
+
+The flow would be:
+1. Browser receives `filesUpdated` message
+2. If modal is open: close it, then re-open with the new data
+3. If modal is closed: open it with the new data
+
+This is simpler than the current implementation which buffers messages and has separate message types.
+
+
+---
+
+
+
+**update api.go with the new message type**
+
+
+
+
+# Update API Handlers to Use Unified filesUpdated Message Type
+
+Updates the file add and file forget API handlers to broadcast the unified `filesUpdated` message type instead of the separate `fileListUpdated` message, consolidating the WebSocket protocol[1].
+
+
+## Summary
+
+**Updated broadcast messages in both file handlers**[1]:
+- `postProjectFilesAddHandler` now broadcasts `filesUpdated` instead of `fileListUpdated`
+- `postProjectFilesForgetHandler` now broadcasts `filesUpdated` instead of `fileListUpdated`
+- Both messages include `isUnexpectedFilesContext: false` to indicate this is a regular file list update, not from LLM unexpected files detection
+- WebSocket protocol now uses a single unified message type for all file list changes
+
+The browser's `filesUpdated` handler now properly handles both regular file updates and unexpected files updates through the `isUnexpectedFilesContext` flag[1].
+
+## References
+
+[1] [https://developer.mozilla.org/en-US/docs/Web/API/WebSocket/send](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket/send)
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to "update api.go with the new message type". Looking at the context, they've been discussing consolidating the `unexpectedFilesDetected` and `fileListUpdated` messages into a single unified message type called `filesUpdated`.
+
+Looking at the current code in main.go, I can see that in the `postProjectFilesAddHandler` and `postProjectFilesForgetHandler` functions, they currently broadcast a `fileListUpdated` message:
+
+```go
+broadcast := map[string]interface{}{
+    "type":      "fileListUpdated",
+    "projectID": projectID,
+    "files":     updatedFiles,
+}
+```
+
+And in the `sendQueryToLLM` function, they broadcast `unexpectedFilesDetected`:
+
+```go
+filesUpdatedMsg := map[string]interface{}{
+    "type":                     "filesUpdated",
+    "projectID":                project.ID,
+    "isUnexpectedFilesContext": true,
+    "queryID":                  queryID,
+    "alreadyAuthorized":        alreadyAuthorized,
+    "needsAuthorization":       needsAuthorization,
+    "files":                    project.GetFilesAsRelative(),
+}
+```
+
+Wait, I see they already changed main.go to use `filesUpdated`. But they're asking me to update api.go. Looking at api.go, in the `postProjectFilesAddHandler` and `postProjectFilesForgetHandler` functions, they're still broadcasting `fileListUpdated`.
+
+The task is to update api.go to use the unified `filesUpdated` message type instead of `fileListUpdated`.
+
+I need to update the broadcast messages in:
+1. `postProjectFilesAddHandler`
+2. `postProjectFilesForgetHandler`
+
+These should broadcast `filesUpdated` with:
+- `type: "filesUpdated"`
+- `projectID: projectID`
+
+
+- `files: updatedFiles`
+- `isUnexpectedFilesContext: false`
+
+I'll modify the broadcast message to match the new unified format, ensuring consistency across the application's message types.
+
+
+---
+
+
+
+**the 'else if (message.type === 'unexpectedFilesDetected')' in project.html isn't right if we're always using fileListUpdated messages now.**
+
+
+
+
+# Fix WebSocket Handler for Unified filesUpdated Message Type
+
+The `else if (message.type === 'unexpectedFilesDetected')` handler is obsolete since we unified both message types into `filesUpdated`. Update the WebSocket message handler to check the `isUnexpectedFilesContext` flag to determine which mode to display.
+
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to fix the WebSocket message handler in project.html. They're pointing out that the code has an `else if (message.type === 'unexpectedFilesDetected')` handler, but we just unified the message type to be `filesUpdated` for both unexpected files and regular file list updates.
+
+The issue is that we now only have one message type `filesUpdated`, so we need to check the `isUnexpectedFilesContext` flag to determine whether it's unexpected files or a regular file list update.
+
+Looking at the code in project.html around the WebSocket message handler, I can see:
+
+```javascript
+} else if (message.type === 'unexpectedFilesDetected') {
+  debugLog('Unexpected files detected: ' + JSON.stringify(message));
+  
+  // If modal is not currently open, display it
+  var modal = document.getElementById("fileModal");
+  if (!modal || !modal.classList.contains("show")) {
+    displayFileModal("unexpected", [], message.alreadyAuthorized, message.needsAuthorization, message.queryID);
+  } else {
+    // Modal is open, buffer this message and reopen when user closes
+    debugLog("Modal already open, buffering unexpected files message");
+    pendingUnexpectedFilesMessage = message;
+  }
+} else if (message.type === 'fileListUpdated') {
+```
+
+Since we unified the message type, I need to:
+1. Remove the `'unexpectedFilesDetected'` handler
+2. Update the `'filesUpdated'` handler to check the `isUnexpectedFilesContext` flag
+3. If `isUnexpectedFilesContext` is true, show the unexpected files modal
+4. If it's false, update the regular file list
+
+I need to return the complete project.html file with this fix applied.
+
+
+---
+

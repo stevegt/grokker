@@ -725,16 +725,18 @@ func startNotificationTicker(pending *PendingQuery) {
 		for {
 			select {
 			case <-pending.notificationTicker.C:
-				// Re-send the unexpected files notification
-				unexpectedFilesMsg := map[string]interface{}{
-					"type":               "unexpectedFilesDetected",
-					"queryID":            pending.queryID,
-					"alreadyAuthorized":  pending.alreadyAuthorized,
-					"needsAuthorization": pending.needsAuthorization,
-					"projectID":          pending.project.ID,
+				// Re-send the unexpected files notification using unified filesUpdated message
+				filesUpdatedMsg := map[string]interface{}{
+					"type":                     "filesUpdated",
+					"projectID":                pending.project.ID,
+					"isUnexpectedFilesContext": true,
+					"queryID":                  pending.queryID,
+					"alreadyAuthorized":        pending.alreadyAuthorized,
+					"needsAuthorization":       pending.needsAuthorization,
+					"files":                    pending.project.GetFilesAsRelative(),
 				}
-				pending.project.ClientPool.Broadcast(unexpectedFilesMsg)
-				log.Printf("Re-broadcasted unexpected files notification for query %s", pending.queryID)
+				pending.project.ClientPool.Broadcast(filesUpdatedMsg)
+				log.Printf("Re-broadcasted filesUpdated notification for query %s", pending.queryID)
 
 			case <-pending.stopNotificationChannel:
 				// Stop sending notifications when approval is received or query is cancelled
@@ -1141,15 +1143,18 @@ func sendQueryToLLM(project *Project, queryID, query string, llm string, selecti
 
 			// Send WebSocket notification only if there are actually unexpected files
 			if len(alreadyAuthorized) > 0 || len(needsAuthorization) > 0 {
-				unexpectedFilesMsg := map[string]interface{}{
-					"type":               "unexpectedFilesDetected",
-					"queryID":            queryID,
-					"alreadyAuthorized":  alreadyAuthorized,
-					"needsAuthorization": needsAuthorization,
-					"projectID":          project.ID,
+				// Use unified filesUpdated message type
+				filesUpdatedMsg := map[string]interface{}{
+					"type":                     "filesUpdated",
+					"projectID":                project.ID,
+					"isUnexpectedFilesContext": true,
+					"queryID":                  queryID,
+					"alreadyAuthorized":        alreadyAuthorized,
+					"needsAuthorization":       needsAuthorization,
+					"files":                    project.GetFilesAsRelative(),
 				}
-				project.ClientPool.Broadcast(unexpectedFilesMsg)
-				log.Printf("Broadcasted unexpected files notification for query %s", queryID)
+				project.ClientPool.Broadcast(filesUpdatedMsg)
+				log.Printf("Broadcasted filesUpdated notification for query %s", queryID)
 
 				// Create pending query and wait for user approval
 				pending := addPendingQuery(queryID, response, outFilesConverted, alreadyAuthorized, needsAuthorization, project)

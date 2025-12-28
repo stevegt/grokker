@@ -460,6 +460,7 @@
     var pendingQueryDivs = {}; // Track divs for pending queries by queryID
     var currentUnexpectedFilesQuery = null; // Track which query has unexpected files modal open
     var currentFileModalMode = null; // Track modal mode: "regular" or "unexpected"
+    var pendingUnexpectedFilesMessage = null; // Buffer for unexpected files message while modal is open
     
     // Extract projectID from URL path
     var projectID = window.location.pathname.split('/')[2] || 'default';
@@ -944,50 +945,44 @@
             updateProgressStats();
             updateTokenCount();
             updateScrollButtonVisibility();
-          } else if (message.type === 'unexpectedFilesDetected') {
-            debugLog('Unexpected files detected: ' + JSON.stringify(message));
-            displayFileModal("unexpected", [], message.alreadyAuthorized, message.needsAuthorization, message.queryID);
-          } else if (message.type === 'fileListUpdated') {
-            debugLog('File list updated via WebSocket');
-            // If unexpected files modal is open, reorganize it with new categorization
-            if (currentFileModalMode === "unexpected" && currentUnexpectedFilesQuery && message.files) {
-              debugLog("Reorganizing unexpected files modal with updated file list");
+          } else if (message.type === 'filesUpdated') {
+            debugLog('Files updated message received');
+            
+            // Check if this is unexpected files context or regular file list update
+            if (message.isUnexpectedFilesContext) {
+              debugLog('Unexpected files detected: ' + JSON.stringify(message));
               
-              var updatedFileSet = new Set(message.files);
-              var alreadyAuthorized = [];
-              var needsAuthorization = [];
+              // If modal is not currently open, display it
+              var modal = document.getElementById("fileModal");
+              if (!modal || !modal.classList.contains("show")) {
+                displayFileModal("unexpected", [], message.alreadyAuthorized, message.needsAuthorization, message.queryID);
+              } else {
+                // Modal is open, close and reopen with updated content
+                debugLog("Modal already open, closing and reopening with unexpected files");
+                sendApprovedFiles();
+                closeFileModal();
+                
+                setTimeout(function() {
+                  displayFileModal("unexpected", [], message.alreadyAuthorized, message.needsAuthorization, message.queryID);
+                }, 100);
+              }
+            } else {
+              debugLog('Regular file list update');
               
-              // Categorize all files from the previous modal based on updated file list
-              var content = document.getElementById("fileSidebarContent");
-              var allCurrentFiles = [];
-              
-              // Collect all filenames currently in modal
-              var tableRows = content.querySelectorAll("table tbody tr");
-              for (var i = 0; i < tableRows.length; i++) {
-                var row = tableRows[i];
-                var filenameCell = row.cells[row.cells.length - 1];
-                if (filenameCell) {
-                  var filename = filenameCell.textContent.trim();
-                  if (filename) {
-                    allCurrentFiles.push(filename);
-                  }
-                }
+              // If unexpected files modal is open, close it and trigger reopen
+              if (currentFileModalMode === "unexpected" && currentUnexpectedFilesQuery) {
+                debugLog("Unexpected files modal is open, closing and reopening with updated file list");
+                
+                // Send approved files before closing
+                sendApprovedFiles();
+                
+                // Close the modal
+                closeFileModal();
               }
               
-              // Recategorize based on updated file list
-              for (var i = 0; i < allCurrentFiles.length; i++) {
-                var file = allCurrentFiles[i];
-                if (updatedFileSet.has(file)) {
-                  alreadyAuthorized.push(file);
-                } else {
-                  needsAuthorization.push(file);
-                }
-              }
-              
-              // Redraw modal - checkboxes automatically load state from IndexedDB
-              displayFileModal("unexpected", [], alreadyAuthorized, needsAuthorization, currentUnexpectedFilesQuery);
+              // Update regular file list for file modal
+              loadFileList();
             }
-            loadFileList();
           }
         } catch (err) {
           debugLog('Error processing WebSocket message: ' + err);
@@ -1057,6 +1052,14 @@
         closeFileModal();
         currentFileModalMode = null;
         currentUnexpectedFilesQuery = null;
+        
+        // If we have a buffered unexpected files message, reopen with it
+        if (pendingUnexpectedFilesMessage) {
+          var msg = pendingUnexpectedFilesMessage;
+          pendingUnexpectedFilesMessage = null;
+          debugLog("Reopening modal with buffered unexpected files message");
+          displayFileModal("unexpected", [], msg.alreadyAuthorized, msg.needsAuthorization, msg.queryID);
+        }
       });
 
       // Close modal when clicking the background - send approved files before closing
@@ -1067,6 +1070,14 @@
           closeFileModal();
           currentFileModalMode = null;
           currentUnexpectedFilesQuery = null;
+          
+          // If we have a buffered unexpected files message, reopen with it
+          if (pendingUnexpectedFilesMessage) {
+            var msg = pendingUnexpectedFilesMessage;
+            pendingUnexpectedFilesMessage = null;
+            debugLog("Reopening modal with buffered unexpected files message");
+            displayFileModal("unexpected", [], msg.alreadyAuthorized, msg.needsAuthorization, msg.queryID);
+          }
         }
       });
 
@@ -1080,6 +1091,14 @@
             closeFileModal();
             currentFileModalMode = null;
             currentUnexpectedFilesQuery = null;
+            
+            // If we have a buffered unexpected files message, reopen with it
+            if (pendingUnexpectedFilesMessage) {
+              var msg = pendingUnexpectedFilesMessage;
+              pendingUnexpectedFilesMessage = null;
+              debugLog("Reopening modal with buffered unexpected files message");
+              displayFileModal("unexpected", [], msg.alreadyAuthorized, msg.needsAuthorization, msg.queryID);
+            }
           }
         }
       });

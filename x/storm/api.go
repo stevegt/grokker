@@ -178,17 +178,18 @@ func postProjectFilesAddHandler(ctx context.Context, input *FileAddInput) (*File
 		}
 	}
 
-	// Broadcast file list update to all connected WebSocket clients
+	// Broadcast file list update to all connected WebSocket clients using unified message type
 	project, err := projects.Get(projectID)
 	if err == nil {
 		updatedFiles := project.GetFilesAsRelative()
 		broadcast := map[string]interface{}{
-			"type":      "fileListUpdated",
-			"projectID": projectID,
-			"files":     updatedFiles,
+			"type":                     "filesUpdated",
+			"projectID":                projectID,
+			"isUnexpectedFilesContext": false,
+			"files":                    updatedFiles,
 		}
 		project.ClientPool.Broadcast(broadcast)
-		log.Printf("Broadcasted file list update for project %s", projectID)
+		log.Printf("Broadcasted filesUpdated notification for project %s", projectID)
 	}
 
 	return res, nil
@@ -213,17 +214,18 @@ func postProjectFilesForgetHandler(ctx context.Context, input *FileForgetInput) 
 		}
 	}
 
-	// Broadcast file list update to all connected WebSocket clients
+	// Broadcast file list update to all connected WebSocket clients using unified message type
 	project, err := projects.Get(projectID)
 	if err == nil {
 		updatedFiles := project.GetFilesAsRelative()
 		broadcast := map[string]interface{}{
-			"type":      "fileListUpdated",
-			"projectID": projectID,
-			"files":     updatedFiles,
+			"type":                     "filesUpdated",
+			"projectID":                projectID,
+			"isUnexpectedFilesContext": false,
+			"files":                    updatedFiles,
 		}
 		project.ClientPool.Broadcast(broadcast)
-		log.Printf("Broadcasted file list update for project %s", projectID)
+		log.Printf("Broadcasted filesUpdated notification for project %s", projectID)
 	}
 
 	return res, nil
