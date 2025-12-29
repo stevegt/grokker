@@ -178,7 +178,7 @@ func TestWebClientOpenFileModal(t *testing.T) {
 		t.Fatalf("Failed to click filesBtn: %v", err)
 	}
 
-	t.Logf("Waiting for modal to appear...")
+	t.Logf("Waiting for modal content to appear...")
 	err = testutil.WaitForModal(ctx)
 	if err != nil {
 		t.Fatalf("Modal did not appear: %v", err)
@@ -369,7 +369,7 @@ func TestWebClientQuerySubmitViaWebSocket(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	var spinnerVisible bool
-	chromedp.Evaluate(`.querySelector('.spinner') !== null`, &spinnerVisible).Do(ctx)
+	chromedp.Evaluate(`document.querySelector('.spinner') !== null`, &spinnerVisible).Do(ctx)
 
 	t.Logf("Query submitted successfully via WebSocket (spinner visible: %v)", spinnerVisible)
 }
@@ -485,7 +485,7 @@ func TestWebClientQueryWithResponse(t *testing.T) {
 	// Verify spinner is gone
 	t.Logf("Verifying spinner disappears...")
 	var spinnerGone bool
-	chromedp.Evaluate(`.querySelector('.spinner') === null`, &spinnerGone).Do(ctx)
+	chromedp.Evaluate(`document.querySelector('.spinner') === null`, &spinnerGone).Do(ctx)
 	if !spinnerGone {
 		t.Logf("WARNING: Spinner still visible, but response was received")
 	} else {
@@ -767,7 +767,7 @@ func TestWebClientCreateFileAndApproveUnexpected(t *testing.T) {
 
 	// XXX one of these should be a fail
 	if !modalVisible {
-		t.Logf("WARNING: Modal closed after file authorization (expected behavior)")
+		t.Logf("Modal closed after file authorization (expected behavior)")
 	} else {
 		t.Logf("✓ Modal reopened after file authorization with updated categories")
 	}
