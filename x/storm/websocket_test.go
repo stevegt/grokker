@@ -313,7 +313,7 @@ func TestWebSocketMultipleClients(t *testing.T) {
 	}
 }
 
-// TestWebSocketBroadcastOnFileListUpdate tests that file list updates are broadcasted to WebSocket clients
+// TestWebSocketBroadcastOnFileListUpdate tests that file list updates are broadcasted to WebSocket clients using unified filesUpdated message
 func TestWebSocketBroadcastOnFileListUpdate(t *testing.T) {
 	setup := setupTest(t, "ws-broadcast-project")
 	defer teardownTest(t, setup)
@@ -340,7 +340,7 @@ func TestWebSocketBroadcastOnFileListUpdate(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	// Wait for broadcast and check if client receives fileListUpdated message
+	// Wait for broadcast and check if client receives filesUpdated message
 	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	for i := 0; i < 10; i++ {
 		var msg map[string]interface{}
@@ -354,9 +354,11 @@ func TestWebSocketBroadcastOnFileListUpdate(t *testing.T) {
 			break
 		}
 
-		if msgType, ok := msg["type"].(string); ok && msgType == "fileListUpdated" {
-			t.Logf("Successfully received fileListUpdated broadcast message")
-			return
+		if msgType, ok := msg["type"].(string); ok && msgType == "filesUpdated" {
+			if isUnexpected, ok := msg["isUnexpectedFilesContext"].(bool); ok && !isUnexpected {
+				t.Logf("Successfully received filesUpdated broadcast message with isUnexpectedFilesContext=false")
+				return
+			}
 		}
 	}
 
@@ -648,7 +650,7 @@ func TestWebSocketUnexpectedFilesDetection(t *testing.T) {
 	t.Logf("Categorization test passed: %d already authorized, %d need authorization", len(alreadyAuth), len(needsAuth))
 }
 
-// TestWebSocketUnexpectedFilesNotification tests that WebSocket sends notification message (Stage 5)
+// TestWebSocketUnexpectedFilesNotification tests that WebSocket sends notification message using unified filesUpdated message (Stage 5)
 func TestWebSocketUnexpectedFilesNotification(t *testing.T) {
 	setup := setupTest(t, "ws-notif-project")
 	defer teardownTest(t, setup)
@@ -666,13 +668,15 @@ func TestWebSocketUnexpectedFilesNotification(t *testing.T) {
 	// Wait for goroutines to fully initialize before sending broadcast
 	time.Sleep(500 * time.Millisecond)
 
-	// Manually create and send an unexpectedFilesDetected message (simulating Stage 5)
+	// Manually create and send a filesUpdated message with isUnexpectedFilesContext=true (simulating Stage 5)
 	notificationMsg := map[string]interface{}{
-		"type":               "unexpectedFilesDetected",
-		"queryID":            "test-notif-123",
-		"alreadyAuthorized":  []string{"file1.go"},
-		"needsAuthorization": []string{"file2.py"},
-		"projectID":          setup.ProjectID,
+		"type":                     "filesUpdated",
+		"isUnexpectedFilesContext": true,
+		"queryID":                  "test-notif-123",
+		"alreadyAuthorized":        []string{"file1.go"},
+		"needsAuthorization":       []string{"file2.py"},
+		"projectID":                setup.ProjectID,
+		"files":                    []string{"file1.go"},
 	}
 	project.ClientPool.Broadcast(notificationMsg)
 
@@ -683,15 +687,19 @@ func TestWebSocketUnexpectedFilesNotification(t *testing.T) {
 		t.Fatalf("Failed to receive broadcast: %v", err)
 	}
 
-	if msgType, ok := msg["type"].(string); !ok || msgType != "unexpectedFilesDetected" {
-		t.Errorf("Expected unexpectedFilesDetected message, got type: %v", msg["type"])
+	if msgType, ok := msg["type"].(string); !ok || msgType != "filesUpdated" {
+		t.Errorf("Expected filesUpdated message, got type: %v", msg["type"])
+	}
+
+	if isUnexpected, ok := msg["isUnexpectedFilesContext"].(bool); !ok || !isUnexpected {
+		t.Errorf("Expected isUnexpectedFilesContext=true, got %v", msg["isUnexpectedFilesContext"])
 	}
 
 	if queryID, ok := msg["queryID"].(string); !ok || queryID != "test-notif-123" {
 		t.Errorf("Expected queryID test-notif-123, got %v", msg["queryID"])
 	}
 
-	t.Logf("Unexpected files notification successfully received via WebSocket")
+	t.Logf("Unexpected files notification successfully received via unified filesUpdated message")
 }
 
 // TestWebSocketUnexpectedFilesPathNormalizationBug demonstrates the path normalization bug in categorizeUnexpectedFiles
