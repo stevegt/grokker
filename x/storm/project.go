@@ -14,6 +14,16 @@ import (
 
 // TODO move this file to a ./projects package?
 
+// Project encapsulates project-specific data and state.
+type Project struct {
+	ID              string
+	BaseDir         string
+	MarkdownFile    string
+	AuthorizedFiles []string
+	Chat            *Chat
+	ClientPool      *ClientPool
+}
+
 // Projects is a thread-safe registry for managing projects
 // Projects are loaded from the database on-demand and kept in cache while active
 type Projects struct {

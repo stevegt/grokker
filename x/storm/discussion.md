@@ -12143,6 +12143,8 @@ Scroll positioning and WebSocket connectivity are now stable, with a streamlined
 
 ## Reasoning
 
+## Reasoning
+
 
 
 
@@ -47444,6 +47446,8 @@ Let me make these changes while keeping all comments intact.
 
 ## Reasoning
 
+## Reasoning
+
 
 
 
@@ -50597,6 +50601,8 @@ I should update web-client-test-plan.md to be more accurate and current with the
 
 ## Reasoning
 
+## Reasoning
+
 
 
 
@@ -51070,6 +51076,8 @@ Let me address both issues.
 
 ## Reasoning
 
+## Reasoning
+
 
 
 
@@ -51267,6 +51275,8 @@ Key scenarios to test:
 - Multiple unexpected files from same query
 
 I should add helper functions to mock LLM responses and handle the unexpected files flow.
+
+## Reasoning
 
 ## Reasoning
 
@@ -54924,16 +54934,9 @@ I am ready to provide files in the correct format now.
 ALWAYS use correct file markers.  more examples of correct file markers can ALWAYS be found in the input files provided with EVERY prompt.**
 
 
-
-
 # Update Web Client Tests
 
-
-
-
 ## References
-
-
 
 
 
@@ -54971,6 +54974,133 @@ The file I was provided seems to already have these fixes applied (WaitForModal,
 Wait - looking at the end of the context, the user provides complete files. This is the web_client_test.go they provided. 
 
 I'll return the file exactly as it was provided, using the correct file markers to ensure it's clear and complete. The file appears to already incorporate the improvements we discussed, so no further modifications seem necessary.
+
+
+
+---
+
+
+
+**are there parts of main.go that could be moved into a websocket.go?  don't change the code; just list the functions and structs that could be moved.**
+
+
+
+
+# Functions and Structs That Could Be Moved to websocket.go
+
+## Structs
+
+- `PendingQuery` - tracks queries awaiting user approval for unexpected files
+- `WSClient` - WebSocket client connection data
+- `ClientPool` - manages all connected WebSocket clients for a project
+
+## Functions
+
+**WebSocket Connection Management:**
+- `NewClientPool()` - creates a new client pool
+- `(cp *ClientPool) Start()` - begins the client pool's broadcast loop
+- `(cp *ClientPool) Broadcast()` - sends a message to all connected clients
+- `(c *WSClient) writePump()` - writes messages to the WebSocket client and sends periodic pings
+- `(c *WSClient) readPump()` - reads messages from the WebSocket client and processes queries
+
+**Handler Functions:**
+- `wsHandlerFunc()` - wrapper to extract project and call wsHandler
+- `wsHandler()` - handles WebSocket connections for a project
+
+**Pending Query Management:**
+- `addPendingQuery()` - registers a query waiting for user approval
+- `removePendingQuery()` - cleans up a query that no longer needs approval
+- `startNotificationTicker()` - begins periodically re-sending unexpected files notification
+- `waitForApproval()` - blocks indefinitely until user approves files
+
+**Helper Functions:**
+- `isQueryCancelled()` - checks if a query has been marked for cancellation
+
+## Global Variables and Constants
+
+**WebSocket-Related Variables:**
+- `upgrader` - WebSocket upgrader configuration
+- `cancelledQueries` - map tracking cancelled queries by queryID
+- `cancelledMutex` - mutex for synchronizing access to cancelledQueries
+- `pendingApprovals` - map tracking pending queries by queryID
+- `pendingMutex` - mutex for synchronizing access to pendingApprovals
+
+**WebSocket-Related Constants:**
+- `pingInterval` - interval for WebSocket ping messages
+- `pongWait` - timeout for WebSocket pong response
+- `unexpectedFilesNotifyInterval` - interval for re-broadcasting unexpected files notification
+
+## Functions That Could Optionally Be Moved
+
+These functions are called from WebSocket handlers but also have broader responsibilities:
+
+- `resolveFilePath()` - Used in readPump for path resolution (could go either way)
+- `categorizeUnexpectedFiles()` - Used by unexpected files flow (could go either way)
+
+## Functions That Should Remain in main.go
+
+- `processQuery()` - Main query processing orchestration (even though called from WebSocket)
+- `sendQueryToLLM()` - Core LLM interaction logic (even though called from processQuery)
+
+The benefit of moving WebSocket code to a separate file would be better code organization, with main.go focusing on HTTP handlers and server setup, while websocket.go handles all real-time client communication and state management.
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to analyze main.go and identify which functions and structs could be moved into a websocket.go file. They explicitly say "don't change the code; just list the functions and structs that could be moved."
+
+So I need to:
+1. Review the provided main.go
+2. Identify WebSocket-related functions and structs
+3. List them without actually making changes
+4. Keep discussion to 8192 tokens
+5. Start with a markdown heading
+6. No file output needed since they said "don't change the code"
+
+Let me identify the WebSocket-related code in main.go:
+
+Structs:
+- WSClient - WebSocket client connection
+- ClientPool - manages connected WebSocket clients
+- PendingQuery - tracks queries awaiting user approval
+
+Functions/Methods:
+- NewClientPool() - creates a new client pool
+- (cp *ClientPool) Start() - begins the client pool's broadcast loop
+- (cp *ClientPool) Broadcast() - sends messages to all connected clients
+- (c *WSClient) writePump() - writes messages to the WebSocket client
+- (c *WSClient) readPump() - reads messages from the WebSocket client
+- wsHandlerFunc() - wrapper to extract project and call handler
+- wsHandler() - handles WebSocket connections for a project
+- addPendingQuery() - registers a query waiting for user approval
+- removePendingQuery() - cleans up a query that no longer needs approval
+- startNotificationTicker() - begins periodically re-sending unexpected files notification
+- waitForApproval() - blocks until user approves files
+
+Global variables related to WebSocket:
+- upgrader - WebSocket upgrader
+- cancelledQueries - tracks cancelled queries
+- cancelledMutex - mutex for cancelled queries
+- pendingApprovals - tracks pending queries
+- pendingMutex - mutex for pending approvals
+- Constants: pingInterval, pongWait, unexpectedFilesNotifyInterval
+
+Helper functions used by WebSocket:
+
+
+- resolveFilePath() - used in readPump
+- categorizeUnexpectedFiles() - used in sendQueryToLLM and referenced from WebSocket flow
+- processQuery() - called from readPump via goroutine
+- sendQueryToLLM() - called from processQuery
+
+The core WebSocket infrastructure (structs, handlers, pump methods, and approval management) should definitely move. The query processing functions like processQuery and sendQueryToLLM are trickier since they handle broader logic beyond just WebSocket communication, though they're invoked from the WebSocket flow. I'll note which ones are essential versus which could go either way.
 
 
 ---
