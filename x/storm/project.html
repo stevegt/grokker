@@ -643,7 +643,9 @@
         currentUnexpectedFilesQuery = queryID;
       } else {
         modalTitle.textContent = "File Management";
-        currentUnexpectedFilesQuery = null;
+        if (!queryID) {
+          currentUnexpectedFilesQuery = null;
+        }
       }
       
       // Create the file section with all files
@@ -937,14 +939,23 @@
             
             if (wasOpen) {
               debugLog("Modal already open, closing and reopening with updated content");
-              // sendApprovedFiles();
               closeFileModal();
+            }
+            
+            // When reopening the modal, preserve currentUnexpectedFilesQuery if we're still in unexpected files context
+            // OR if isUnexpectedFilesContext is true (new unexpected files detected)
+            var queryIDToUse = null;
+            if (message.isUnexpectedFilesContext) {
+              // This is an unexpected files message with a queryID
+              queryIDToUse = message.queryID;
+            } else if (currentUnexpectedFilesQuery) {
+              // We're still in unexpected files context, preserve the current queryID
+              queryIDToUse = currentUnexpectedFilesQuery;
             }
             
             // Load updated file list and re-render modal if it was open or has unexpected files
             if (wasOpen || message.isUnexpectedFilesContext) {
-              // Reload files from server and display modal with updated content
-              loadFileList(message.isUnexpectedFilesContext ? message.queryID : null, 
+              loadFileList(queryIDToUse, 
                           message.isUnexpectedFilesContext ? message.alreadyAuthorized : [],
                           message.isUnexpectedFilesContext ? message.needsAuthorization : []);
             }

@@ -669,7 +669,8 @@ func TestWebClientCreateFileAndApproveUnexpected(t *testing.T) {
 	}
 
 	server := startTestServer(t, "web-test-create-file-approve")
-	defer stopTestServer(t, server)
+	// defer stopTestServer(t, server)
+	defer http.Post(server.URL+"/stop", "application/json", nil)
 
 	projectID := server.ProjectID
 	createProjectPayload := map[string]string{
@@ -680,6 +681,8 @@ func TestWebClientCreateFileAndApproveUnexpected(t *testing.T) {
 	jsonData, _ := json.Marshal(createProjectPayload)
 	resp, _ := http.Post(server.URL+"/api/projects", "application/json", bytes.NewReader(jsonData))
 	resp.Body.Close()
+
+	helloFn := filepath.Join(server.ProjectDir, "hello.go")
 
 	ctx, cancel := newChromeContext()
 	defer cancel()
@@ -707,9 +710,9 @@ func TestWebClientCreateFileAndApproveUnexpected(t *testing.T) {
 
 	// Submit query that may produce file output
 	testQuery := "Create a simple Go program file called hello.go that prints Hello World.  You MUST use proper markers:\n"
-	testQuery += "---FILE-START filename=\"hello.go\"---\n"
+	testQuery += fmt.Sprintf("---FILE-START filename=\"%s\"---\n", helloFn)
 	testQuery += "[...file content here...]\n"
-	testQuery += "---FILE-END filename=\"hello.go\"---\n"
+	testQuery += fmt.Sprintf("---FILE-END filename=\"%s\"---\n", helloFn)
 
 	t.Logf("Submitting query that requests file creation: %s", testQuery)
 	err = testutil.SubmitQuery(ctx, testQuery)
@@ -743,12 +746,11 @@ func TestWebClientCreateFileAndApproveUnexpected(t *testing.T) {
 	if len(needsAuthFiles) != 1 {
 		t.Fatalf("Expected exactly 1 file needing authorization, got %d", len(needsAuthFiles))
 	}
-	if needsAuthFiles[0] != "hello.go" {
-		t.Fatalf("Expected file needing authorization to be hello.go, got %s", needsAuthFiles[0])
+	if needsAuthFiles[0] != helloFn {
+		t.Fatalf("Expected file needing authorization to be %s, got %s", helloFn, needsAuthFiles[0])
 	}
 
 	// Add hello.go via API (user runs CLI command)
-	helloFn := filepath.Join(server.ProjectDir, "hello.go")
 	addFilesPayload := map[string]interface{}{
 		"filenames": []string{helloFn},
 	}
@@ -809,15 +811,17 @@ func TestWebClientCreateFileAndApproveUnexpected(t *testing.T) {
 	testutil.CloseModal(ctx)
 	t.Logf("✓ Closed modal after marking file for output")
 
+	// wait for a moment to ensure server processes the approval
+	time.Sleep(2 * time.Second)
+
 	// Verify hello.go was created on disk
-	helloFilePath := filepath.Join(server.ProjectDir, "hello.go")
-	if _, err := os.Stat(helloFilePath); os.IsNotExist(err) {
+	if _, err := os.Stat(helloFn); os.IsNotExist(err) {
 		t.Fatalf("Expected file hello.go was not created in project directory: %v", err)
 	}
-	t.Logf("✓ File hello.go exists on disk at %s", helloFilePath)
+	t.Logf("✓ File hello.go exists on disk at %s", helloFn)
 
 	// Verify the file has the expected content
-	content, err := ioutil.ReadFile(helloFilePath)
+	content, err := ioutil.ReadFile(helloFn)
 	if err != nil {
 		t.Fatalf("Failed to read hello.go: %v", err)
 	}

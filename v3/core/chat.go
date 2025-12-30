@@ -586,15 +586,6 @@ type FileEntry struct {
 	Content  []string
 }
 
-type ExtractResult struct {
-	RawResponse     string      // Original response unchanged
-	CookedResponse  string      // Response with all files removed
-	ExtractedFiles  []string    // Files that matched outfiles list
-	MissingFiles    []string    // Files expected but not found in response
-	BrokenFiles     []string    // Files found but missing end marker
-	UnexpectedFiles []FileEntry // Files found but NOT in outfiles list
-}
-
 var fileStartTmpl = `(?:^|\n)---FILE-START filename="%s"---(?:$|\n)`
 var fileEndTmpl = `(?:^|\n)---FILE-END filename="%s"---(?:$|\n)`
 
@@ -711,9 +702,22 @@ func (history *ChatHistory) extractFromChat(outfiles []FileLang, N int, extractT
 }
 
 // ExtractOptions contains options for the ExtractFiles function.
+// Regardless of these options, ExtractFiles always returns
+// the file content in the DetectedFiles map of the ExtractResult,
+// along with metadata about extracted, missing, broken, and unexpected files.
 type ExtractOptions struct {
-	DryRun          bool // if true, do not write files
+	DryRun          bool // if true, do not write files to disk or stdout
 	ExtractToStdout bool // if true, write files to stdout instead of disk
+}
+
+type ExtractResult struct {
+	RawResponse     string            // Original response unchanged
+	CookedResponse  string            // Response with all files removed
+	ExtractedFiles  []string          // Files that matched outfiles list
+	MissingFiles    []string          // Files expected but not found in response
+	BrokenFiles     []string          // Files found but missing end marker
+	UnexpectedFiles []FileEntry       // Files found but NOT in outfiles list
+	DetectedFiles   map[string]string // Map of all detected file contents
 }
 
 // ExtractFiles extracts the output files from the given response using line-by-line
@@ -726,6 +730,10 @@ func ExtractFiles(outfiles []FileLang, rawResp string, opts ExtractOptions) (res
 	result.RawResponse = rawResp
 	dryrun := opts.DryRun
 	extractToStdout := opts.ExtractToStdout
+
+	// DetectedFiles contains all files that were detected with both
+	// start and end markers
+	result.DetectedFiles = make(map[string]string)
 
 	// remove the first <think>.*</think> section found
 	thinkStartPat := `(?i)^<think>$`
@@ -763,10 +771,6 @@ func ExtractFiles(outfiles []FileLang, rawResp string, opts ExtractOptions) (res
 
 	// activeFiles is a stack so files can nest
 	activeFiles := []FileEntry{}
-
-	// detectedFilesMap keeps track of files that were detected with both
-	// start and end markers
-	detectedFilesMap := make(map[string]bool)
 
 	for _, line := range lines {
 		// Check if this line starts a file block
@@ -820,13 +824,13 @@ func ExtractFiles(outfiles []FileLang, rawResp string, opts ExtractOptions) (res
 			}
 
 			// fn == top.Filename; process this file
-			detectedFilesMap[fn] = true
+			fileContent := strings.Join(top.Content, "\n")
+			result.DetectedFiles[fn] = fileContent
 			// pop from stack
 			activeFiles = activeFiles[:len(activeFiles)-1]
 			// Save the file if it's expected
 			if expectedFiles[fn] {
 				result.ExtractedFiles = append(result.ExtractedFiles, fn)
-				fileContent := strings.Join(top.Content, "\n")
 				if !dryrun {
 					if extractToStdout {
 						_, err = Pf("%s", fileContent)
@@ -864,7 +868,7 @@ func ExtractFiles(outfiles []FileLang, rawResp string, opts ExtractOptions) (res
 	// Identify missing files: expected files that were not detected
 	for _, fileLang := range outfiles {
 		found := false
-		for detectedFile := range detectedFilesMap {
+		for detectedFile := range result.DetectedFiles {
 			if detectedFile == fileLang.File {
 				found = true
 				break
