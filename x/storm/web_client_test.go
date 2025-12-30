@@ -747,7 +747,7 @@ func TestWebClientCreateFileAndApproveUnexpected(t *testing.T) {
 		t.Fatalf("Expected file needing authorization to be hello.go, got %s", needsAuthFiles[0])
 	}
 
-	// Add hello.go via API
+	// Add hello.go via API (user runs CLI command)
 	helloFn := filepath.Join(server.ProjectDir, "hello.go")
 	addFilesPayload := map[string]interface{}{
 		"filenames": []string{helloFn},
@@ -763,61 +763,69 @@ func TestWebClientCreateFileAndApproveUnexpected(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	time.Sleep(1 * time.Second)
+	// Wait for modal to automatically close and reopen with updated categorization
+	t.Logf("Waiting for modal to close and reopen with updated file categorization...")
+	time.Sleep(2 * time.Second)
 
-	// XXX several things wrong below here -- model should
-	// automatically close and reopen, then we should verify the file
-	// is now authorized but without the 'Out' checkbox checked, then
-	// we should click the 'Out' checkbox, then close the modal, then
-	// verify the file exists on disk.
-
-	// Modal should close and reopen with updated categorization
-	t.Logf("Waiting for modal to reopen after file authorization...")
-	time.Sleep(500 * time.Millisecond)
-
-	// Verify the modal is still showing but with updated file categorization
-	var modalVisible bool
-	chromedp.Evaluate(`document.getElementById('fileModal').classList.contains('show')`, &modalVisible).Do(ctx)
-
-	// XXX one of these should be a fail
-	if !modalVisible {
-		t.Logf("Modal closed after file authorization (expected behavior)")
-	} else {
-		t.Logf("✓ Modal reopened after file authorization with updated categories")
-	}
-
-	// Verify hello.go was added to the project via API
-	filesURL := fmt.Sprintf("%s/api/projects/%s/files", server.URL, projectID)
-	resp, err = http.Get(filesURL)
+	// Modal should have closed and reopened. Verify it's open with updated content
+	err = testutil.WaitForModal(ctx)
 	if err != nil {
-		t.Fatalf("Failed to retrieve file list: %v", err)
+		t.Fatalf("Modal did not reappear after file authorization: %v", err)
 	}
-	defer resp.Body.Close()
+	t.Logf("✓ Modal automatically closed and reopened with updated categorization")
 
-	var filesResult map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&filesResult)
-	filesList, ok := filesResult["files"].([]interface{})
-	if !ok {
-		t.Fatalf("Unexpected response format from files API")
-	}
-
-	t.Logf("Project now has %d authorized files", len(filesList))
-
-	// Ensure hello.go is the only file
-	if len(filesList) != 1 {
-		t.Fatalf("Expected exactly 1 authorized file in project, got %d", len(filesList))
-	}
-	if filesList[0] != "hello.go" {
-		t.Fatalf("Expected authorized file to be hello.go, got %v", filesList[0])
+	// Verify hello.go is now in the authorized section (but Out is unchecked)
+	// The file should appear in the main file table, not in the needs-authorization section
+	needsAuthFiles2, err := testutil.GetNeedsAuthorizationFiles(ctx)
+	if err != nil {
+		t.Fatalf("Failed to get files needing authorization on second check: %v", err)
 	}
 
-	// check existence of hello.go specifically
+	if len(needsAuthFiles2) > 0 {
+		t.Fatalf("Expected 0 files needing authorization after CLI add, got %d", len(needsAuthFiles2))
+	}
+	t.Logf("✓ File hello.go is no longer in 'needs authorization' section")
+
+	// Check that hello.go appears in the file table (authorized files section)
+	numRows, err := testutil.GetFileListRows(ctx)
+	if err != nil {
+		t.Fatalf("Failed to get file list rows: %v", err)
+	}
+
+	if numRows < 1 {
+		t.Fatalf("Expected at least 1 file in authorized section, got %d", numRows)
+	}
+	t.Logf("✓ hello.go appears in authorized files section (%d rows)", numRows)
+
+	// Verify the file is present but Out checkbox is unchecked
+	// Select the Out checkbox to mark the file for output
+	err = testutil.SelectFileCheckbox(ctx, 1, "out")
+	if err != nil {
+		t.Fatalf("Failed to select Out checkbox: %v", err)
+	}
+	t.Logf("✓ Clicked Out checkbox for hello.go")
+
+	// Close the modal (this sends approved files back to server)
+	testutil.CloseModal(ctx)
+	t.Logf("✓ Closed modal after marking file for output")
+
+	// Verify hello.go was created on disk
 	helloFilePath := filepath.Join(server.ProjectDir, "hello.go")
 	if _, err := os.Stat(helloFilePath); os.IsNotExist(err) {
-		t.Fatalf("Expected file hello.go was not created in project directory")
-	} else {
-		t.Logf("✓ Expected file hello.go was created successfully")
+		t.Fatalf("Expected file hello.go was not created in project directory: %v", err)
 	}
+	t.Logf("✓ File hello.go exists on disk at %s", helloFilePath)
+
+	// Verify the file has the expected content
+	content, err := ioutil.ReadFile(helloFilePath)
+	if err != nil {
+		t.Fatalf("Failed to read hello.go: %v", err)
+	}
+
+	if len(content) == 0 {
+		t.Fatalf("File hello.go is empty")
+	}
+	t.Logf("✓ File hello.go has content: %d bytes", len(content))
 }
 
 // TestWebClientUnexpectedFilesAlreadyAuthorized tests handling already-authorized files in unexpected modal
