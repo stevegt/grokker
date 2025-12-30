@@ -55640,3 +55640,70 @@ The query at the end is the test output showing the failure. I need to fix the `
 
 ---
 
+
+
+**find and fix the test failure shown in /tmp/out**
+
+
+
+
+# Fix GetNeedsAuthorizationFiles: Extract Filename from Command Text
+
+The test failure shows `GetNeedsAuthorizationFiles()` is returning full commands instead of filenames. Looking at the test output:
+
+```
+Found 2 files needing authorization: [storm file add --project web-test-create-file-approve hello.go storm file add --project web-test-create-file-approve hello.go]
+Expected exactly 1 file needing authorization, got 2
+```
+
+The issue is in project.html: the `.filename` span contains the complete CLI command (`"storm file add --project ... hello.go"`), not just the filename. The test helper needs to extract just the filename from this command.
+
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+Let me analyze the test failure from /tmp/out. The test is `TestWebClientCreateFileAndApproveUnexpected`.
+
+Looking at the key error:
+```
+Found 2 files needing authorization: [storm file add --project web-test-create-file-approve hello.go storm file add --project web-test-create-file-approve hello.go]
+    web_client_test.go:744: Expected exactly 1 file needing authorization, got 2
+```
+
+The problem is that `GetNeedsAuthorizationFiles()` is extracting the full command text from `.needs-auth-file .filename` elements instead of just the filename.
+
+Looking at the server logs:
+```
+2025/12/29 16:28:30 Found 2 unexpected files: 0 authorized, 2 need authorization
+```
+
+So the server is finding 2 files needing authorization - the hello.go file appears twice. This suggests the LLM returned the file markers twice or the file extraction is duplicating entries.
+
+But wait, the test helper is getting the command text (`"storm file add --project web-test-create-file-approve hello.go"`) instead of just the filename. That's a problem with how `GetNeedsAuthorizationFiles()` is parsing the modal content.
+
+Looking at the project.html code I was provided, in the `displayFileModal()` function for new files:
+```javascript
+var filenameSpan = document.createElement("span");
+filenameSpan.className = "filename";
+var command = "storm file add --project " + projectID + " " + filename;
+filenameSpan.textContent = command;  // Full command is displayed!
+```
+
+So the `.filename` span contains the full command, not just the filename. That's why the test helper returns the full commands.
+
+The test is using `GetNeedsAuthorizationFiles()` which extracts text from `.needs-auth-file .filename` elements. 
+
+I see three potential approaches to resolve this duplication issue. Parsing the last word of the command would extract the pure filename. Alternatively, modifying the HTML to include a separate filename attribute could provide a cleaner solution. The test helper could also be updated to strip out the command context and retain only the filename itself.
+
+The most straightforward method appears to be tweaking `GetNeedsAuthorizationFiles()` to intelligently parse just the filename from the command text, ensuring accurate file tracking without extensive HTML restructuring.
+
+
+---
+

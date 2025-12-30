@@ -442,19 +442,24 @@ func GetUnexpectedFilesApproved(ctx context.Context) ([]string, error) {
 	return approved, nil
 }
 
-// GetNeedsAuthorizationFiles returns the list of files from the "Needs Authorization" section of the unexpected files modal
-// Note: The "Needs Authorization" section displays filenames without checkboxes, just with copy-to-clipboard buttons
+// GetNeedsAuthorizationFiles returns the list of filenames from the "Needs Authorization" section
+// The modal stores the full CLI command in the .filename span, so we extract just the filename
+// which is the last space-separated token in each command string
 func GetNeedsAuthorizationFiles(ctx context.Context) ([]string, error) {
 	var result interface{}
 	err := chromedp.Run(ctx,
 		chromedp.Evaluate(`
 			(function() {
 				var needsAuth = [];
-				// Query for .needs-auth-file divs which contain the filename spans
 				var fileElements = document.querySelectorAll(".needs-auth-file .filename");
 				for (var i = 0; i < fileElements.length; i++) {
-					var filename = fileElements[i].textContent.trim();
-					if (filename) {
+					var commandText = fileElements[i].textContent.trim();
+					if (commandText) {
+						// Extract the filename from the command text
+						// Command format: "storm file add --project <projectID> <filename>"
+						// The filename is the last space-separated token
+						var parts = commandText.split(' ');
+						var filename = parts[parts.length - 1];
 						needsAuth.push(filename);
 					}
 				}
