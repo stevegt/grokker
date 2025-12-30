@@ -834,11 +834,32 @@ func sendQueryToLLM(project *Project, queryID, query string, llm string, selecti
 			continue
 		}
 
-		// successful response within token limit, so now run ExtractFiles for real
+		// successful response within token limit, so now run
+		// ExtractFiles for real. we keep dryrun set to true, because
+		// we're going to get the extracted file content from the
+		// DetectedFiles field of the result instead of letting ExtractFiles
+		// write the files directly.
 		result, err = core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
-			DryRun:          false,
+			DryRun:          true,
 			ExtractToStdout: false,
 		})
+
+		log.Printf("Final extract result: %d extracted, %d missing, %d broken, %d unexpected files",
+			len(result.ExtractedFiles),
+			len(result.MissingFiles),
+			len(result.BrokenFiles),
+			len(result.UnexpectedFiles),
+		)
+
+		for _, fn := range result.ExtractedFiles {
+			content := result.DetectedFiles[fn]
+			log.Printf("Extracted file %s with %d bytes", fn, len(content))
+			err := os.WriteFile(fn, []byte(content), 0644)
+			if err != nil {
+				// XXX return err
+				log.Printf("Error writing extracted file %s: %v", fn, err)
+			}
+		}
 
 		cookedResponse = result.CookedResponse
 
