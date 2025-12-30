@@ -360,7 +360,7 @@ func TestWebClientQuerySubmitViaWebSocket(t *testing.T) {
 		t.Fatalf("Failed to navigate to project page: %v", err)
 	}
 
-	testQuery := "test query for web client"
+	testQuery := "hi"
 	err = testutil.SubmitQuery(ctx, testQuery)
 	if err != nil {
 		t.Fatalf("Failed to submit query: %v", err)

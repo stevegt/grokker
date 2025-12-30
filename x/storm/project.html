@@ -336,6 +336,10 @@
       background-color: #2a2a2a;
       font-weight: bold;
     }
+    /* File row styling - identifies rows in the file table */
+    .file-row {
+      /* Default styling for regular authorized files */
+    }
     /* Unexpected file styling - already authorized but returned by LLM, rendered in red */
     .file-row-unexpected {
       background-color: #3d1a1a;
@@ -753,9 +757,12 @@
     function renderFileRow(tbody, file, isUnexpected) {
       var tr = document.createElement("tr");
       
-      // If this is an unexpected file (already authorized but returned by LLM), style in red
+      // Add file-row class to all rows
+      tr.className = "file-row";
+      
+      // If this is an unexpected file (already authorized but returned by LLM), add additional class for red styling
       if (isUnexpected) {
-        tr.className = "file-row-unexpected";
+        tr.className = "file-row file-row-unexpected";
       }
       
       // Render the In checkbox
