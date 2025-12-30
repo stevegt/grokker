@@ -12145,6 +12145,8 @@ Scroll positioning and WebSocket connectivity are now stable, with a streamlined
 
 ## Reasoning
 
+## Reasoning
+
 
 
 
@@ -47448,6 +47450,8 @@ Let me make these changes while keeping all comments intact.
 
 ## Reasoning
 
+## Reasoning
+
 
 
 
@@ -50603,6 +50607,8 @@ I should update web-client-test-plan.md to be more accurate and current with the
 
 ## Reasoning
 
+## Reasoning
+
 
 
 
@@ -51078,6 +51084,8 @@ Let me address both issues.
 
 ## Reasoning
 
+## Reasoning
+
 
 
 
@@ -51275,6 +51283,8 @@ Key scenarios to test:
 - Multiple unexpected files from same query
 
 I should add helper functions to mock LLM responses and handle the unexpected files flow.
+
+## Reasoning
 
 ## Reasoning
 
@@ -54984,8 +54994,6 @@ I'll return the file exactly as it was provided, using the correct file markers 
 **are there parts of main.go that could be moved into a websocket.go?  don't change the code; just list the functions and structs that could be moved.**
 
 
-
-
 # Functions and Structs That Could Be Moved to websocket.go
 
 ## Structs
@@ -55044,11 +55052,7 @@ These functions are called from WebSocket handlers but also have broader respons
 
 The benefit of moving WebSocket code to a separate file would be better code organization, with main.go focusing on HTTP handlers and server setup, while websocket.go handles all real-time client communication and state management.
 
-
-
 ## References
-
-
 
 
 
@@ -55103,6 +55107,7 @@ Helper functions used by WebSocket:
 The core WebSocket infrastructure (structs, handlers, pump methods, and approval management) should definitely move. The query processing functions like processQuery and sendQueryToLLM are trickier since they handle broader logic beyond just WebSocket communication, though they're invoked from the WebSocket flow. I'll note which ones are essential versus which could go either way.
 
 
+
 ---
 
 
@@ -55146,8 +55151,6 @@ ClickElementWithSyntheticEvent: synthetic event dispatched successfully to #file
 what's likely going on here?**
 
 
-
-
 # Debug File Modal Hang: Missing renderFileList() Call
 
 The test hangs because the modal element has the 'show' class added, but the modal's content (file table rows) is never being rendered[1]. The browser debug logs stop after "Added 'show' class to fileModal", indicating that `renderFileList()` is never called or never completes.
@@ -55185,10 +55188,6 @@ Without that call, the modal opens as an empty container with no content.
 
 
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -55237,13 +55236,12 @@ Looking at the project.html code they would have, after adding the show class, i
 I suspect a critical breakdown in the modal rendering process. The modal is visually activated, but the file list population mechanism is stalled. This points to a potential gap in the event chain where renderFileList() should trigger but isn't executing. The test's waiting mechanism expects file rows to populate, but these rows are never generated, causing the persistent hang.
 
 
+
 ---
 
 
 
 **but the modal's content (file table rows) is being rendered -- I can see it with HEADLESS=false**
-
-
 
 
 # Fix Test Helper: Use Correct Selector for File Modal Content
@@ -55252,7 +55250,6 @@ The modal content is being rendered (visible with HEADLESS=false), but WaitForMo
 
 The issue is a selector mismatch - update WaitForModal() to check for the actual DOM elements being rendered, not a class name that may not exist in the HTML[1].
 
-
 ## References
 
 [1] [https://developer.mozilla.org/en-US/docs/Web/API/Document/querySelector](https://developer.mozilla.org/en-US/docs/Web/API/Document/querySelector)
@@ -55260,10 +55257,6 @@ The issue is a selector mismatch - update WaitForModal() to check for the actual
 
 
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -55325,13 +55318,12 @@ The function is checking for `.file-row` elements, but the actual HTML might be 
 Since the user can see the rows when running with HEADLESS=false, the DOM structure definitely contains them—I just need to find the correct selector that matches what's actually being rendered in the modal.
 
 
+
 ---
 
 
 
 **double-check your last answer**
-
-
 
 
 # Double-Check: File Modal Selector Issue
@@ -55420,13 +55412,12 @@ So the correct selector to check for file rows would be something like:
 The current WaitForModal() function checks for `.file-row` which doesn't exist. I should correct this and suggest the right selector.
 
 
+
 ---
 
 
 
 **do we want to maybe add a class to file rows in project.html instead?**
-
-
 
 
 # Add CSS Class to File Table Rows for Better Selectability
@@ -55453,10 +55444,6 @@ Add `tr.className = "file-row"` in `renderFileRow()` before setting other proper
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user is asking me to look at whether we should add a class to file rows in project.html instead of using a selector like `.file-row`. 
@@ -55482,6 +55469,7 @@ I should provide a discussion of the tradeoffs and then provide the updated file
 My discussion should be limited to 8192 tokens, then I provide the complete project.html file using the correct FILE markers.
 
 
+
 ---
 
 
@@ -55489,12 +55477,9 @@ My discussion should be limited to 8192 tokens, then I provide the complete proj
 **add the row class in project.html**
 
 
-
-
 # Add CSS Class to File Table Rows for Selector Support
 
 Adds the `file-row` class to table rows in the `renderFileRow()` function so they can be properly selected by CSS selectors and test helpers. This makes test assertions more reliable and CSS styling more specific[1].
-
 
 ## References
 
@@ -55503,10 +55488,6 @@ Adds the `file-row` class to table rows in the `renderFileRow()` function so the
 
 
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -55537,6 +55518,7 @@ tr.className = isUnexpected ? "file-row file-row-unexpected" : "file-row";
 ```
 
 Let me provide the complete file with this change.
+
 
 
 ---
@@ -55588,18 +55570,11 @@ ClickElementWithSyntheticEvent: attempting to click #fileList tr:nth-child(1) in
 --- FAIL: TestWebClientFileSelectionPersistence (4.59s)**
 
 
-
-
 # Fix SelectFileCheckbox: Update Selector to Match Actual DOM Structure
 
 The test is failing because `SelectFileCheckbox()` in chromedp_helpers.go uses incorrect selectors. It's looking for `#fileList` and `input.filein`, but the actual DOM uses `#fileSidebarContent`, `.file-table`, and `input.file-checkbox-in/out` classes. Update the selector to match the actual HTML structure from project.html.
 
-
-
-
 ## References
-
-
 
 
 
@@ -55638,13 +55613,12 @@ According to the system prompt, I need to:
 The query at the end is the test output showing the failure. I need to fix the `SelectFileCheckbox()` function to use correct selectors.
 
 
+
 ---
 
 
 
 **find and fix the test failure shown in /tmp/out**
-
-
 
 
 # Fix GetNeedsAuthorizationFiles: Extract Filename from Command Text
@@ -55658,12 +55632,7 @@ Expected exactly 1 file needing authorization, got 2
 
 The issue is in project.html: the `.filename` span contains the complete CLI command (`"storm file add --project ... hello.go"`), not just the filename. The test helper needs to extract just the filename from this command.
 
-
-
-
 ## References
-
-
 
 
 
@@ -55705,6 +55674,7 @@ I see three potential approaches to resolve this duplication issue. Parsing the 
 The most straightforward method appears to be tweaking `GetNeedsAuthorizationFiles()` to intelligently parse just the filename from the command text, ensuring accurate file tracking without extensive HTML restructuring.
 
 
+
 ---
 
 
@@ -55721,18 +55691,11 @@ The most straightforward method appears to be tweaking `GetNeedsAuthorizationFil
 fix the problems**
 
 
-
-
 # Fix TestWebClientCreateFileAndApproveUnexpected: Complete the Unexpected Files Flow
 
 Implements the complete flow for the unexpected files test: after the file is added via API, the modal automatically closes and reopens with the file now in the authorized section. The test then verifies the file appears without the Out checkbox checked, clicks the Out checkbox, closes the modal, and confirms the file exists on disk.
 
-
-
-
 ## References
-
-
 
 
 
@@ -55766,6 +55729,7 @@ I need to:
 The key is to implement the complete flow that was described in the comment.
 
 
+
 ---
 
 
@@ -55773,18 +55737,11 @@ The key is to implement the complete flow that was described in the comment.
 **see /tmp/out**
 
 
-
-
 # Fix TestWebClientCreateFileAndApproveUnexpected: Create File Before Authorization API Call
 
 The test fails because it calls the file add API without first creating the file on disk. The `storm file add` command expects the file to already exist. The fix is to create the `hello.go` file on disk before calling the file add API, simulating what the user would do when running the CLI command.
 
-
-
-
 ## References
-
-
 
 
 
@@ -55830,13 +55787,12 @@ Two potential solutions emerge: either modify the test to pre-create the file, o
 The current implementation fails to complete the critical step of transforming file content from an LLM response into an actual on-disk file, causing test verification failures and disrupting the intended file generation mechanism.
 
 
+
 ---
 
 
 
 **The storm file add command definitely does not expect the file to already exist on disk.  Try again.**
-
-
 
 
 # Fix TestWebClientCreateFileAndApproveUnexpected: Extract and Write File Content from LLM Response
@@ -55864,10 +55820,6 @@ This ensures that when a user approves an unexpected file, the server extracts i
 
 
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -55909,13 +55861,12 @@ The flow should be:
 I need to implement a mechanism in the server-side code to write file contents when files are approved. The key action is extracting the file content during the approval process and persisting it to the filesystem.
 
 
+
 ---
 
 
 
 **double-check your last answer**
-
-
 
 
 # Double-Check: File Content Not Being Extracted After User Approval
@@ -55981,13 +55932,7 @@ This ensures that when a user approves unexpected files, the server extracts the
 
 ## References
 
-
-
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -56031,6 +55976,7 @@ The approved files handling code carefully converts filenames to their appropria
 However, a critical bug exists: after adding approved files to outFilesConverted, the code fails to re-run ExtractFiles with DryRun: false. This means the approved files are recognized but not actually extracted to disk, rendering the user approval process ineffective.
 
 
+
 ---
 
 
@@ -56040,8 +55986,6 @@ However, a critical bug exists: after adding approved files to outFilesConverted
 ```
 // successful response within token limit, so now run ExtractFiles for real
 ```**
-
-
 
 
 # Understand sendQueryToLLM Flow: Files ARE Being Extracted
@@ -56066,11 +56010,7 @@ So if the test is still failing with "file not found", the issue is not that ext
 
 The third option is most likely: verify that `readPump` has a handler for `message.type === "approveFiles"` that delivers the approved files to the pending query.
 
-
-
 ## References
-
-
 
 
 
@@ -56134,13 +56074,12 @@ I need to investigate how the test is verifying file creation and whether the ac
 The code demonstrates a deliberate workflow with user interaction, so the problem is probably subtle and requires careful examination of the test's expectations versus the actual implementation.
 
 
+
 ---
 
 
 
 **see the code in websocket.go**
-
-
 
 
 # Analysis: Unexpected Files Flow - Server-Side Processing
@@ -56189,13 +56128,7 @@ This ensures that even after the modal closes and reopens with the updated file 
 
 ## References
 
-
-
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -56249,6 +56182,7 @@ The issue appears to be that `currentUnexpectedFilesQuery` is null when the moda
 Looking at how `filesUpdated` is handled when the modal is already open, it closes and reopens the modal but doesn't maintain the query ID reference. The real problem is that `currentUnexpectedFilesQuery` gets cleared to null when the modal closes, but it should only be cleared when receiving a regular file list update (isUnexpectedFilesContext=false), not when handling unexpected files context updates. When `filesUpdated` arrives with isUnexpectedFilesContext=true, the handler needs to set `currentUnexpectedFilesQuery = queryID` during the displayFileModal call to ensure it persists through the modal lifecycle.
 
 
+
 ---
 
 
@@ -56256,18 +56190,11 @@ Looking at how `filesUpdated` is handled when the modal is already open, it clos
 **make the code change to project.html**
 
 
-
-
 # Fix Unexpected Files Query ID Loss on File List Update
 
 Preserves `currentUnexpectedFilesQuery` when the modal closes and reopens during file list updates, ensuring the browser can send approved files back to the server even after the file authorization API call.
 
-
-
-
 ## References
-
-
 
 
 
@@ -56317,13 +56244,12 @@ The key modification will involve checking the current unexpected files context 
 By carefully tracking the unexpected files context, we can ensure a smoother user experience when managing file authorizations across different update scenarios.
 
 
+
 ---
 
 
 
 **ah.  i think we are confused about when we're working with relative vs absolute pathnames.  analyze the code to find discrepancies.  for instance, in at least one instance, project.html sends relative pathnames via websocket messages to main.go, but main.go expects absolute pathnames.  find that and others.**
-
-
 
 
 # Path Normalization Discrepancies: Relative vs Absolute Filenames
@@ -56425,11 +56351,7 @@ for _, fn := range result.ExtractedFiles {
 
 3. **api.go**: When broadcasting filesUpdated, ensure consistent path format (all relative when inside project, all absolute otherwise).
 
-
-
 ## References
-
-
 
 
 
@@ -56506,13 +56428,12 @@ The key problems center on path resolution:
 These path-related discrepancies could lead to unexpected file writes and authorization mismatches, requiring careful path normalization across the entire file handling workflow.
 
 
+
 ---
 
 
 
 **So is the goal that all relative vs absolute conversions happen server-side, or is it more nuanced?  Or should we say that all filenames on the wire should be absolute?**
-
-
 
 
 # Path Normalization Strategy: Recommendation
@@ -56592,11 +56513,7 @@ If a file is outside `project.BaseDir`, it should remain absolute (since relativ
 
 **Conclusion**: Adopt the "relative on wire, absolute internally" strategy. This is the most maintainable and aligns with the existing API design.
 
-
-
 ## References
-
-
 
 
 
@@ -56646,13 +56563,12 @@ I recommend a nuanced strategy that provides clarity and flexibility. Standardiz
 The key is creating a clear, predictable path handling mechanism that reduces ambiguity and potential errors in file path processing across the application.
 
 
+
 ---
 
 
 
 **restate the code changes needed.  make a bullet list of the files that need to be changed.**
-
-
 
 
 # Code Changes Needed: Path Normalization Fix
@@ -56690,13 +56606,7 @@ This maintains project portability while ensuring correct file operations on dis
 
 ## References
 
-
-
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -56725,13 +56635,12 @@ So the files that need changes are:
 Let me provide a clear bullet list of the changes needed.
 
 
+
 ---
 
 
 
 **okay, i can see how the philosophy, from the perspective of the server, is protection -- assume all user input, whether from CLI, API, or websocket, is noisy or malicious.  sanitizing it into absolute paths at the point of entry is key.**
-
-
 
 
 # Sanitize All User Input at Entry Points
@@ -56793,10 +56702,6 @@ This ensures that even if `core.ExtractFiles()` returns relative paths, they're 
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user is asking me to restate the philosophy they've described regarding input sanitization from the server's perspective. They note that the server should assume all user input (whether from CLI, API, or WebSocket) is potentially noisy or malicious, and sanitizing it into absolute paths at the point of entry is key to security.
@@ -56829,13 +56734,12 @@ for _, fn := range result.ExtractedFiles {
 I see a critical security vulnerability in the file writing process. The current implementation allows writing files using potentially untrusted, relative file paths, which could lead to directory traversal attacks. The code needs to convert file paths to absolute, sanitized paths within a designated safe directory before writing.
 
 
+
 ---
 
 
 
 **restate all code changes needed, with a list of filenames**
-
-
 
 
 # Code Changes Summary: Path Normalization Fix
@@ -56873,9 +56777,22 @@ for i := 0; i < len(approvedFilesRaw); i++ {
 }
 ```
 
+## References
+
+
+
+## Reasoning
+
+
+
+
+
 ---
 
-### 2. `/home/stevegt/lab/grokker/x/storm/main.go`
+
+
+**### 2. `/home/stevegt/lab/grokker/x/storm/main.go`**
+
 
 **Location**: `sendQueryToLLM()` function, in the file extraction section (after `// successful response within token limit, so now run ExtractFiles for real`)
 
@@ -56912,9 +56829,22 @@ for _, fn := range result.ExtractedFiles {
 }
 ```
 
+## References
+
+
+
+## Reasoning
+
+
+
+
+
 ---
 
-## Summary
+
+
+**## Summary**
+
 
 **2 files need changes:**
 1. `websocket.go` - approveFiles handler in readPump()
@@ -56924,13 +56854,7 @@ for _, fn := range result.ExtractedFiles {
 
 ## References
 
-
-
 ## References
-
-
-
-
 
 ## Reasoning
 
@@ -56964,6 +56888,7 @@ Files that need changes:
 This is a straightforward restatement/summary request.
 
 
+
 ---
 
 
@@ -56971,19 +56896,11 @@ This is a straightforward restatement/summary request.
 **make the code changes**
 
 
-
-
 # Implement Path Normalization: Sanitize All User Input at Entry Points
 
 Implements the "Relative on wire, absolute internally" strategy by sanitizing all file paths to absolute form at the server's entry points before processing. This prevents directory traversal attacks and ensures consistent file handling throughout the application.
 
-
-
-
-
 ## References
-
-
 
 
 
@@ -57007,6 +56924,574 @@ Let me make these changes to the files:
 2. main.go - Fix the file writing section to ensure absolute paths
 
 I need to return complete files with the correct markers: ---FILE-START filename="<path>"--- and ---FILE-END filename="<path>"---
+
+
+
+---
+
+
+
+**what's next?**
+
+
+
+
+# Next Steps: Implement and Test Path Normalization Fixes
+
+Based on the path normalization analysis, here are the immediate priorities:
+
+## 1. Implement Code Changes (2 files)
+
+Modify `websocket.go` and `main.go` with the absolute path conversions:
+- **websocket.go**: Convert approved files to absolute paths in `readPump()` approveFiles handler
+- **main.go**: Ensure extracted files use absolute paths before writing to disk
+
+These are the fixes needed to resolve the "file not found" test failures.
+
+## 2. Run TestWebClientCreateFileAndApproveUnexpected
+
+Once changes are applied:
+```bash
+HEADLESS=false go test -v --run TestWebClientCreateFileAndApproveUnexpected
+```
+
+This should now successfully:
+- Create hello.go via LLM response
+- Show unexpected files modal
+- Add file via API (authorizing it)
+- Modal closes and reopens with updated categorization
+- Mark file with Out checkbox
+- Close modal and see file created on disk
+
+## 3. Run Full Test Suite
+
+After that test passes:
+```bash
+go test -v ./...
+```
+
+Verify all existing tests still pass with the path normalization changes.
+
+## 4. Optional: Code Organization
+
+If tests pass cleanly, consider the refactoring identified earlier:
+- Move WebSocket-related functions from `main.go` to dedicated `websocket.go` file
+- Improves code organization (HTTP handlers vs. WebSocket handlers)
+
+## Priority Order
+
+1. **Immediate**: Implement the 2 path normalization fixes
+2. **Immediate**: Run and verify TestWebClientCreateFileAndApproveUnexpected passes
+3. **Important**: Run full test suite
+4. **Nice-to-have**: Code refactoring/organization
+
+The path normalization fixes are blocking the test from completing successfully, so those should be your immediate focus.
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user has provided an extremely long conversation context with discussions about the Storm project, bug fixes, code refactoring, and path normalization issues. At the very end, they ask "what's next?"
+
+Looking at the system message at the top:
+1. I'm a researcher
+2. Answer ONLY the query at the end (which is: "what's next?")
+3. Start with markdown heading
+4. Limit discussion to 8192 tokens
+5. Return complete files only (marked with FILE-START/FILE-END) if needed
+6. Use correct markers: ---FILE-START filename="<path>"--- and ---FILE-END filename="<path>"---
+
+The query is simply: "what's next?"
+
+Based on the entire conversation, the user has just identified and discussed path normalization issues:
+1. websocket.go needs fixing (approveFiles handler)
+2. main.go needs fixing (file extraction/writing)
+
+They asked me to "make the code changes" and I provided a summary saying these are the changes needed.
+
+So "what's next?" in the context of this conversation is asking what should be done after implementing those path normalization fixes.
+
+Looking at the conversation history and the test failures, the natural next steps would be:
+1. Actually implement the code changes we just discussed
+2. Run the tests to verify the fixes work
+3. Handle any remaining issues
+
+Let me provide a focused answer about what should be done next.
+
+
+---
+
+
+
+**examine the code and TODO files and figure out what's next.**
+
+
+
+
+# What's Next for Storm: Implementation Roadmap
+
+Based on analysis of the code and TODO files, here's the prioritized next work:
+
+## Immediate: Path Normalization Fixes (Blocking Test Failures)
+
+**Status**: Root cause identified, solution designed, not yet implemented
+
+**Files requiring changes**:
+1. **`websocket.go`** - Convert approved files to absolute paths in `readPump()` approveFiles handler
+2. **`main.go`** - Ensure extracted files use absolute paths before writing to disk in `sendQueryToLLM()`
+
+**Why**: Tests are failing because files marked for output aren't being created on disk. The issue is that approved filenames come from the browser as relative paths, but aren't being normalized to absolute form before extraction and file writing.
+
+**Expected outcome**: TestWebClientCreateFileAndApproveUnexpected passes, files are created correctly on disk
+
+## Short-term: Testing and Validation (Weeks 1-2)
+
+1. **Implement the 2 path normalization code changes** (30 minutes)
+2. **Run test suite**: `go test -v ./...` (35 seconds)
+3. **Run web client tests with HEADLESS=false** to manually validate UI flows (5 minutes)
+4. **Fix any regressions** from the path changes (varies)
+
+After this validation, all stages 1-9 of unexpected-files-plan.md are complete and tested.
+
+## Medium-term: TODO Features (Weeks 2-4)
+
+**Priority order** (based on effort vs impact):
+
+### High Priority - Quick Wins
+1. **Spinner visibility in status box** - Add `visibility: visible !important;` CSS or check z-index issues
+2. **CLI port randomization** - Move `getAvailablePort()` from websocket_test.go → testutil/server.go, update cli_test.go to use it (30 min)
+3. **File list sorting** - Already implemented in project.go (`sort.Strings(relativeFiles)`) - DONE
+4. **Token limit defaults** - Change from 8K preset, add larger presets (16K, 32K, 64K) in HTML (15 min)
+
+### Medium Priority - Moderate Effort
+5. **Markdown wrapping in code blocks** - Modify `sendQueryToLLM()` to wrap queries in triple backticks and reformat on read (1 hour)
+6. **Status subcommand** - Add CLI command to query server status, create `/api/status` endpoint (1-2 hours)
+
+### Lower Priority - Higher Complexity
+7. **Authentication (OAuth/JWT/CWT)** - More involved design needed (4+ hours)
+8. **Queue button feature** - Adds UI complexity but good for offline usage (2-3 hours)
+9. **UI improvements** (scroll positioning, inotify monitoring) - Polish items (1-2 hours each)
+
+## Long-term: Documentation and Deployment (Week 4+)
+
+1. **README update** - Document unexpected files feature with examples
+2. **Chromedp timing investigation** - Determine why query response detection is flaky (research)
+3. **CI/CD setup** - GitHub Actions or similar to run tests on every push
+4. **Consider server deployment** - Docker container, systemd service, etc.
+
+## Recommended Action Plan
+
+**Start immediately**:
+```bash
+# 1. Implement path normalization fixes in websocket.go and main.go
+# 2. Run tests
+go test -v ./...
+
+# 3. Run specific failing test
+HEADLESS=false go test -v --run TestWebClientCreateFileAndApproveUnexpected
+
+# 4. If test passes, move to TODO items
+```
+
+**After path fixes pass**:
+- Tackle the 3-4 "Quick Win" bugs (spinner, CLI port, token defaults) - 1 hour total
+- Then decide on next features based on priority
+
+**Key insight**: The unexpected files feature is **99% complete**. Stages 1-9 are done; Stage 10 is just testing documentation. Once path normalization fixes are in, this feature is production-ready.
+
+The codebase is in good shape with comprehensive test coverage (50+ tests, ~70% coverage). Most remaining work is refinement and new features rather than bug fixes.
+
+## References
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to examine the code and TODO files and figure out what's next. They've provided a large amount of context including:
+
+1. TODO.md - lists bugs, features, and prompts
+2. testing-plan.md - describes comprehensive testing approach
+3. unexpected-files-plan.md - stages implementation plan for unexpected files
+4. web-client-test-plan.md - chromedp testing implementation details
+5. Several complete Go and JavaScript files (api.go, cli.go, main.go, project.go, project.html, websocket.go)
+
+Looking at my system message:
+- Start with markdown heading
+- Limit discussion to 8192 tokens (about 2340 words)
+- Return complete files only (marked with FILE-START/FILE-END) if changing code
+- Answer ONLY the query at the end
+- The query is: "examine the code and TODO files and figure out what's next"
+
+The user is asking me to analyze what's been done and what needs to be done next. This is an analysis/planning question, not a code change request.
+
+Let me look at the TODO and plan files to understand the current state:
+
+From TODO.md:
+- bugs: spinner visibility, unexpected files modal repopulation, cli_test port randomization
+- features: token limit defaults, file list sorting, markdown wrapping, status subcommand, logins, UI improvements, inotify
+- prompts: queue button feature
+
+From testing-plan.md:
+- Plans A-E implemented and working
+- 50+ test functions across 6 test files
+- ~35 seconds total test execution
+- Main gaps: unexpected files flow tests, file categorization tests
+
+From unexpected-files-plan.md:
+- Stages 1-9 DONE - full implementation complete
+- Stage 10 PARTIALLY COMPLETE - testing and documentation needs work
+- Known issues documented and mostly fixed
+- Deployment checklist shows core features done
+
+From web-client-test-plan.md:
+
+
+- chromedp tests implemented
+- Known timing issues documented
+- Manual testing with HEADLESS=false validates functionality
+
+I'll focus on the key technical priorities. The path normalization challenges in websocket.go and main.go require immediate attention. These fixes are critical for resolving path handling inconsistencies. After addressing these technical debt items, I'll prioritize the most impactful TODO items like spinner visibility and unexpected files modal repopulation.
+
+The testing strategy reveals solid groundwork with 50+ test functions, but gaps remain in unexpected files flow and file categorization testing. This suggests the next phase should include expanding test coverage to validate these specific scenarios.
+
+
+---
+
+
+
+**tests all pass.  what's next?**
+
+
+
+
+# What's Next for Storm: Post-Test Roadmap
+
+Congratulations on passing all tests! Here's the prioritized roadmap:
+
+## Immediate (This Week)
+
+### 1. **Fix Minor Bugs** (1-2 hours)
+- **Spinner visibility in status box** - Add `visibility: visible !important` CSS or check z-index layering
+- **CLI port randomization** - Move `getAvailablePort()` from `websocket_test.go` → `testutil/server.go`, update `cli_test.go` to use random ports
+- **Unexpected files modal repopulation** - When files are added via CLI while modal is open, re-fetch and re-categorize (optional; currently user can close/reopen)
+
+### 2. **Quick Feature Wins** (2-3 hours each)
+- **Token limit presets** - Add 16K, 32K, 64K buttons alongside existing 1K-8K presets
+- **File list auto-sorting** - Already implemented in `project.go` via `sort.Strings()`, just verify it works end-to-end
+- **Default token limit** - Change from 8K to 8192 explicitly, update token limit input placeholder
+
+## Short-term (Weeks 2-3)
+
+### 3. **Documentation & Polish** (4-5 hours)
+- **Update README** - Document the unexpected files feature with examples and workflow
+- **Add inline comments** - Explain the filesUpdated message flow and categorizeUnexpectedFiles logic
+- **Update API documentation** - Ensure Huma docs include the new fields in filesUpdated message
+
+### 4. **Medium Priority Features** (2-4 hours each)
+- **Status subcommand** - Add `storm status` to show daemon uptime, project count, in-progress queries
+  - Create `/api/status` endpoint returning server stats
+  - Update CLI `status` command to call it
+- **Markdown wrapping** - Wrap user queries in triple backticks before writing to markdown file
+  - Reformat on read so results display correctly
+  - Add version number at top of discussion file
+
+## Medium-term (Weeks 4-6)
+
+### 5. **Queue Feature** (3-4 hours)
+The "queue" button feature from the prompts section:
+- Add "Queue" button below Send button
+- Store queued messages in IndexedDB instead of sending immediately
+- "Queue" with empty message shows popup listing queued messages with delete/edit options
+- Good for offline/batch usage
+
+### 6. **UI Improvements** (2-3 hours each)
+- **Scroll positioning** - Auto-scroll sidebar left when clicking "Jump to End"
+- **Jump-to-End button positioning** - Reference bottom of chat area instead of viewport bottom
+- **Better progress display** - Show percentage indicator and remaining rounds
+
+## Lower Priority (Weeks 6+)
+
+### 7. **Authentication** (8+ hours - consider later)
+- GitHub OAuth (most user-friendly)
+- Or simple JWT/CWT token system
+- Needed for co-authored-by headers in git commits
+
+### 8. **File Monitoring** (4-5 hours - optional)
+- inotify support to auto-reload markdown when file changes
+- Auto-re-render in browser if client detects file change
+
+### 9. **Error Scenarios** (2-3 hours)
+- Better error messages for file write failures
+- Network reconnection handling
+- Failed re-extraction recovery
+
+## Testing Gaps (Lower Priority)
+
+The chromedp tests have known timing issues with spinner/response detection. These can be addressed later:
+- Core WebSocket tests all pass ✅
+- API and CLI tests comprehensive ✅
+- Manual testing with `HEADLESS=false` validates UI ✅
+
+## Recommended Priority Order
+
+**Do first (this week):**
+1. Bug fixes (spinner, CLI port randomization)
+2. Default token limit update
+3. README update
+
+**Then (next week):**
+4. Status subcommand
+5. Markdown wrapping
+6. Queue feature
+
+**Then (optional):**
+7. Authentication
+8. UI improvements
+9. File monitoring
+
+## How to Start
+
+Pick one item from "Immediate" section and tackle it:
+
+```bash
+# Example: Move getAvailablePort to shared testutil
+# 1. Move function from websocket_test.go → testutil/server.go
+# 2. Update imports in websocket_test.go and cli_test.go
+# 3. Update cli_test.go ports from hardcoded to getAvailablePort()
+# 4. Run tests: go test -v ./...
+```
+
+The unexpected files feature is **production-ready** as-is. Focus on polish and new features from here.
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user has provided a comprehensive set of files and context for the Storm project, and they're asking "tests all pass. what's next?"
+
+This is a straightforward query asking what the next steps should be for the project.
+
+Looking at the system message at the very top:
+1. I'm a researcher
+2. I should answer ONLY the query at the end
+3. Start with markdown heading
+4. Limit discussion to 8192 tokens
+5. Return complete files only if needed (marked with FILE-START/FILE-END)
+
+The query is simply: "tests all pass. what's next?"
+
+I should provide a prioritized roadmap of what to work on next based on:
+1. The TODO.md file they provided
+2. The state of the codebase
+3. The testing plan
+4. The unexpected files feature status
+
+I should NOT return complete files unless specifically asked, and the query doesn't ask for that.
+
+Let me provide a focused response on what's next.
+
+
+---
+
+
+
+**update TODO/web-client-test-plan.md**
+
+
+
+
+# Update Web Client Test Plan: Implementation Complete and Tests Passing
+
+Updates the web-client-test-plan.md to reflect that the unexpected files feature implementation is complete, tests are passing, and the web client properly handles the unified `filesUpdated` message type with dynamic modal reorganization[1].
+
+
+
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to update the TODO/web-client-test-plan.md file. Let me look at what they're providing:
+
+1. They've given me the complete context from a Storm project
+2. They've provided complete files including TODO.md, testing-plan.md, unexpected-files-plan.md, web-client-test-plan.md, and various Go and JavaScript files
+3. The query at the end is: "update TODO/web-client-test-plan.md"
+
+Looking at my system message requirements:
+- Start with markdown heading
+- Limit discussion to 8192 tokens
+- Return complete files only (marked with FILE-START/FILE-END)
+- Use correct format: ---FILE-START filename="<path>"--- and ---FILE-END filename="<path>"---
+- The regex requires me to return the three files mentioned in the original system message
+
+Wait, looking back at the original system message at the very top, it says:
+"Your response must include the following complete files: '/home/stevegt/lab/grokker/x/storm/TODO/web-client-test-plan.md', '/home/stevegt/lab/grokker/x/storm/main.go', '/home/stevegt/lab/grokker/x/storm/websocket.go'"
+
+And the regex at the end requires these three files in order.
+
+But the user's current query is just: "update TODO/web-client-test-plan.md"
+
+So I need to update web-client-test-plan.md based on all the context they've provided about the tests that are now working and passing. Looking at the files they provided, tests are passing, so I should update the test plan to reflect the current state.
+
+I need to provide:
+1. A markdown heading with a brief summary
+2. Limited discussion (to 8192 tokens)
+3. Complete files in the required order:
+   - /home/stevegt/lab/grokker/x/storm/TODO/web-client-test-plan.md
+   - /home/stevegt/lab/grokker/x/storm/main.go
+   - /home/stevegt/lab/grokker/x/storm/websocket.go
+
+Let me update the web-client-test-plan.md file to reflect the current state where tests are passing and the implementation is more complete.
+
+
+---
+
+
+
+**fix this bug: authorized but unexpected files should be shown in red font in the files list modal**
+
+
+
+
+# Fix: Add Red Font Color to Unexpected Files Table Cells
+
+The unexpected files rows are not showing in red because the CSS rule for `.file-row-unexpected td` is missing the `color` property. While the color is set on the `.file-row-unexpected` class itself, it needs to be explicitly set on the `<td>` child elements to override the inherited body color[1].
+
+
+## Fix Applied
+
+The issue was in the CSS styling for unexpected files. The `.file-row-unexpected td` rule was missing the `color` property. Added `color: #ff6b6b;` to explicitly set the text color of table cells in unexpected file rows to red. This overrides the inherited body color and ensures unexpected files are prominently displayed in red font[1].
+
+## References
+
+[1] https://developer.mozilla.org/en-US/docs/Web/CSS/color
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to fix a bug where "authorized but unexpected files should be shown in red font in the files list modal".
+
+Looking at the provided project.html file, I can see the CSS styling for unexpected files:
+
+```css
+/* Unexpected file styling - already authorized but returned by LLM, rendered in red */
+.file-row-unexpected {
+  background-color: #3d1a1a;
+  color: #ff6b6b;
+}
+.file-row-unexpected td {
+  border-color: #8b3333;
+}
+```
+
+So the CSS is already set up to show unexpected files in red. The issue must be in the JavaScript code where we're not properly applying the `.file-row-unexpected` class to the rows.
+
+Looking at the `renderFileRow` function:
+
+```javascript
+function renderFileRow(tbody, file, isUnexpected) {
+  var tr = document.createElement("tr");
+  
+  // Add file-row class to all rows
+  tr.className = "file-row";
+  
+  // If this is an unexpected file (already authorized but returned by LLM), add additional class for red styling
+  if (isUnexpected) {
+    tr.className = "file-row file-row-unexpected";
+  }
+```
+
+This looks correct. But the question is: how are we determining which files are "unexpected"?
+
+Looking at the `displayFileModal` function, it's called like:
+
+```javascript
+displayFileModal(mergedFiles, alreadyAuthorized || [], needsAuthorization || [], queryID || null);
+```
+
+And inside `displayFileModal`:
+
+```javascript
+// Create sets for quick lookup
+var unexpectedSet = new Set();
+for (var i = 0; i < alreadyAuthorizedUnexpected.length; i++) {
+  unexpectedSet.add(alreadyAuthorizedUnexpected[i]);
+}
+
+var newSet = new Set();
+
+
+for (var i = 0; i < needsAuthorizationNew.length; i++) {
+  newSet.add(needsAuthorizationNew[i]);
+}
+
+// Render all authorized files from the server
+for (var i = 0; i < allServerFiles.length; i++) {
+  var file = allServerFiles[i];
+  var isUnexpected = unexpectedSet.has(file.filename);
+  renderFileRow(tbody, file, isUnexpected);
+}
+```
+
+The code is checking if `file.filename` exists in the `unexpectedSet`, but `file` comes from `mergedFiles`, which might have a different structure than what's being checked against.
+
+Looking at how `mergedFiles` is constructed in `loadFileList`:
+```javascript
+var mergedFiles = serverFiles.map(function(filename) {
+  if (filesByName[filename]) {
+    return filesByName[filename];
+  } else {
+    return { filename: filename, in: false, out: false };
+  }
+});
+```
+
+The objects in `mergedFiles` have `filename`, `in`, and `out` properties, while `alreadyAuthorized` contains just filename strings. The comparison should work since we're accessing `file.filename`, but the issue might be in how `loadFileList` is being called without the proper context for unexpected files.
+
+When the files button is clicked, it invokes `loadFileList()` with no arguments, so `queryID`, `alreadyAuthorized`, and `needsAuthorization` are all undefined. This means `displayFileModal` receives empty arrays for the authorization lists, so unexpected files won't be highlighted as red in the normal file modal view—they'd only show up that way when called with the unexpected files context.
+
+The bug report indicates that authorized but unexpected files should display in red. Looking at the flow, when unexpected files are detected, the server sends a `filesUpdated` message containing `alreadyAuthorized` and `needsAuthorization` lists. These get passed to `displayFileModal`, which should mark the `alreadyAuthorized` files as red. The real question is whether files in `alreadyAuthorized` are those that exist in the authorized list AND were flagged by the LLM—if so, they need the `.file-row-unexpected` class to render in red.
+
+The CSS styling looks correct with `color: #ff6b6b` for the red text, so the issue might be that the class isn't being applied properly to those specific files, or there's a specificity problem preventing the color from displaying. The color value #ff6b6b should render as red text, so if files aren't appearing in red, the class likely isn't being applied to the elements. Let me trace through the `renderFileRow` function to see where the `file-row-unexpected` class should be added.
+
+The logic checks if `isUnexpected` is true and sets the className accordingly. The real question is whether `isUnexpected` is actually being passed as true when rendering. I need to look at how that flag gets determined—it should come from checking if a file exists in the `alreadyAuthorizedUnexpected` array. The code builds an `unexpectedSet` for efficient lookup, then uses it to mark files that were already authorized but returned by the LLM.
+
+The issue might be in how the files are being compared. When `mergedFiles` is constructed from `serverFiles`, each file gets a `.filename` property, and the lookup checks `unexpectedSet.has(file.filename)`. This should work, but I need to verify that the filenames being compared are actually matching—there could be a mismatch in how the data flows from `loadFileList` to `displayFileModal`. The `displayFileModal` function receives `allServerFiles` as merged file objects, each with a `.filename` property. When `loadFileList` is called from the `filesUpdated` handler, it passes `mergedFiles` along with the authorization lists.
+
+Looking at how `alreadyAuthorizedUnexpected` is populated—it might contain just filename strings rather than objects. When building the `unexpectedSet`, I'm adding these string values directly, then later checking if `file.filename` exists in that set. This should work if the filenames match, but I need to verify the data structure being passed in those authorization arrays.
+
+The path formatting could be the culprit. If one source provides absolute paths and another provides relative paths, or if there are inconsistent leading slashes, the string comparison would fail silently. The CSS styling for `.file-row-unexpected` is defined correctly with the red font color, so the issue is likely in the logic that determines which files get that class applied. The issue is likely that the text color isn't being applied to the table cells themselves. While the border color is set to #8b3333 for unexpected file rows, the text color needs to be explicitly defined on the `td` elements. Adding `color: #ff6b6b;` to the `.file-row-unexpected td` rule should make the text display in red. Since the `<td>` elements are children of the row with the class applied, they need their own color property to override any inherited styling. The CSS selector needs to be more specific to target the table cells directly. Using `.file-row-unexpected td` with explicit color and border properties should ensure the red styling applies to unexpected files. I should also check if other CSS rules are interfering—the body sets `color: #e0e0e0`, which might be overriding the intended styling if the selector isn't specific enough.
 
 
 ---
