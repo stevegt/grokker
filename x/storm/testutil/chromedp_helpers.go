@@ -313,21 +313,25 @@ func ClickFilesBtnWithSyntheticEvent(ctx context.Context) error {
 }
 
 // SelectFileCheckbox selects or deselects a file checkbox by row index and type (in/out)
+// rowIndex is 1-based (first row is 1, second row is 2, etc.)
+// checkboxType should be "in" or "out"
 func SelectFileCheckbox(ctx context.Context, rowIndex int, checkboxType string) error {
 	if checkboxType != "in" && checkboxType != "out" {
 		return errors.New("checkboxType must be 'in' or 'out'")
 	}
 
-	selector := fmt.Sprintf("#fileList tr:nth-child(%d) input.file%s", rowIndex, checkboxType)
-	fmt.Printf("Clicking file checkbox: %s\n", selector)
-	/*
-		return chromedp.Run(ctx,
-			chromedp.Click(selector),
+	// Build the correct selector based on actual HTML structure in project.html
+	// File table is in #fileSidebarContent .file-table tbody
+	// Checkboxes have class file-checkbox-in or file-checkbox-out
+	var selector string
+	if checkboxType == "in" {
+		selector = fmt.Sprintf("#fileSidebarContent .file-table tbody tr.file-row:nth-child(%d) input.file-checkbox-in", rowIndex)
+	} else {
+		selector = fmt.Sprintf("#fileSidebarContent .file-table tbody tr.file-row:nth-child(%d) input.file-checkbox-out", rowIndex)
+	}
 
-		)
-	*/
-	err := ClickElementWithSyntheticEvent(ctx, selector)
-	return err
+	fmt.Printf("Clicking file checkbox: %s\n", selector)
+	return ClickElementWithSyntheticEvent(ctx, selector)
 }
 
 // GetFileListRows returns the number of file rows in the file list table
@@ -335,7 +339,7 @@ func GetFileListRows(ctx context.Context) (int, error) {
 	var count int
 	err := chromedp.Run(ctx,
 		chromedp.Evaluate(
-			`document.querySelectorAll("#fileList tr").length`,
+			`document.querySelectorAll("#fileSidebarContent .file-table tbody tr.file-row").length`,
 			&count,
 		),
 	)
@@ -354,12 +358,12 @@ func GetSelectedFiles(ctx context.Context) (inputFiles []string, outputFiles []s
 	var result map[string]interface{}
 	err = chromedp.Run(ctx,
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			var fileListExists bool
-			if err := chromedp.Evaluate(`document.getElementById("fileList") !== null`, &fileListExists).Do(ctx); err != nil {
-				return fmt.Errorf("failed to check if fileList exists: %w", err)
+			var tableExists bool
+			if err := chromedp.Evaluate(`document.querySelector("#fileSidebarContent .file-table") !== null`, &tableExists).Do(ctx); err != nil {
+				return fmt.Errorf("failed to check if file table exists: %w", err)
 			}
-			if !fileListExists {
-				return errors.New("fileList element not found in DOM")
+			if !tableExists {
+				return errors.New("file table not found in DOM")
 			}
 			return nil
 		}),
@@ -367,16 +371,16 @@ func GetSelectedFiles(ctx context.Context) (inputFiles []string, outputFiles []s
 			(function() {
 				var inputFiles = [];
 				var outFiles = [];
-				var fileList = document.getElementById("fileList");
-				if (!fileList) {
+				var table = document.querySelector("#fileSidebarContent .file-table");
+				if (!table) {
 					return { input: [], output: [] };
 				}
-				var rows = fileList.getElementsByTagName("tr");
+				var rows = table.querySelectorAll("tbody tr.file-row");
 				for (var i = 0; i < rows.length; i++) {
 					var cells = rows[i].getElementsByTagName("td");
 					if (cells.length < 3) continue;
-					var inInput = cells[0].querySelector("input");
-					var outInput = cells[1].querySelector("input");
+					var inInput = cells[0].querySelector("input.file-checkbox-in");
+					var outInput = cells[1].querySelector("input.file-checkbox-out");
 					var filenameCell = cells[2];
 					if (!inInput || !outInput || !filenameCell) continue;
 					var filename = filenameCell.textContent.trim();

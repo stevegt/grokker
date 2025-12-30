@@ -55541,3 +55541,102 @@ Let me provide the complete file with this change.
 
 ---
 
+
+
+**$ HEADLESS=false go test -v --run TestWebClientFileSelectionPersistence
+=== RUN   TestWebClientFileSelectionPersistence
+migrating from 3.0.39 to 3.0.40
+2025/12/29 16:21:26 Starting server on :40095
+2025/12/29 16:21:26 API documentation available at http://localhost:40095/docs
+2025/12/29 16:21:26 Adding project: projectID=web-test-file-selection, baseDir=/tmp/storm-test-web-test-file-selection-3044922042/web-test-file-selection, markdownFile=/tmp/storm-test-web-test-file-selection-3044922042/web-test-file-selection/chat.md
+INFO: Split storm file into 1 blocks
+INFO: Removing empty last block
+INFO: Parsed 0 roundtrips from storm file
+2025/12/29 16:21:26 Successfully registered project web-test-file-selection
+2025/12/29 16:21:26 DEBUG: Returning response with ID=web-test-file-selection, BaseDir=/tmp/storm-test-web-test-file-selection-3044922042/web-test-file-selection, ChatRound=0
+2025/12/29 16:21:26 Added file /tmp/storm-test-web-test-file-selection-3044922042/web-test-file-selection/input.txt to project web-test-file-selection
+2025/12/29 16:21:26 Added file /tmp/storm-test-web-test-file-selection-3044922042/web-test-file-selection/output.txt to project web-test-file-selection
+2025/12/29 16:21:26 Broadcasted filesUpdated notification for project web-test-file-selection
+2025/12/29 16:21:27 Client client-0 registered, total clients: 1
+2025/12/29 16:21:27 [DEBUG browser] WebSocket connected for project: web-test-file-selection
+2025/12/29 16:21:27 [DEBUG browser] IndexedDB upgrading to version 1
+2025/12/29 16:21:27 [DEBUG browser] Creating 'selections' object store
+2025/12/29 16:21:27 [DEBUG browser] IndexedDB opened successfully
+ClickElementWithSyntheticEvent: attempting to click #filesBtn using synthetic mouse event...
+ClickElementWithSyntheticEvent: element #filesBtn exists, creating synthetic mouse event...
+2025/12/29 16:21:28 [DEBUG browser] FILES BUTTON CLICK EVENT FIRED!
+2025/12/29 16:21:28 [DEBUG browser] Event type: click, target: filesBtn
+2025/12/29 16:21:28 [DEBUG browser] Calling loadFileList()
+2025/12/29 16:21:28 [DEBUG browser] loadFileList() called
+2025/12/29 16:21:28 [DEBUG browser] Loading file list from server
+ClickElementWithSyntheticEvent: synthetic event dispatched successfully to #filesBtn
+2025/12/29 16:21:28 [DEBUG browser] Server returned files: ["input.txt","output.txt"]
+2025/12/29 16:21:28 [DEBUG browser] IndexedDB getAll succeeded
+2025/12/29 16:21:28 [DEBUG browser] IndexedDB entries: []
+2025/12/29 16:21:28 [DEBUG browser] Merged files: [{"filename":"input.txt","in":false,"out":false},{"filename":"output.txt","in":false,"out":false}]
+2025/12/29 16:21:28 [DEBUG browser] openFileModal() called
+2025/12/29 16:21:28 [DEBUG browser] fileModal found, adding show class
+2025/12/29 16:21:28 [DEBUG browser] Added 'show' class to fileModal
+Modal is visible
+    web_client_test.go:576: File modal opened successfully
+Clicking file checkbox: #fileList tr:nth-child(1) input.filein
+ClickElementWithSyntheticEvent: attempting to click #fileList tr:nth-child(1) input.filein using synthetic mouse event...
+    web_client_test.go:580: Failed to select input file checkbox: element #fileList tr:nth-child(1) input.filein not found in DOM
+2025/12/29 16:21:29 WebSocket read error: websocket: close 1001 (going away)
+2025/12/29 16:21:29 Client client-0 unregistered, total clients: 0
+2025/12/29 16:21:29 Received stop server request: /stop
+--- FAIL: TestWebClientFileSelectionPersistence (4.59s)**
+
+
+
+
+# Fix SelectFileCheckbox: Update Selector to Match Actual DOM Structure
+
+The test is failing because `SelectFileCheckbox()` in chromedp_helpers.go uses incorrect selectors. It's looking for `#fileList` and `input.filein`, but the actual DOM uses `#fileSidebarContent`, `.file-table`, and `input.file-checkbox-in/out` classes. Update the selector to match the actual HTML structure from project.html.
+
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is showing me test output where the test is hanging. The test is trying to select file checkboxes in the modal, but it's failing with:
+
+```
+Failed to select input file checkbox: element #fileList tr:nth-child(1) input.filein not found in DOM
+```
+
+The problem is that the test is looking for `#fileList tr:nth-child(1) input.filein` but looking at the project.html file provided, I can see that:
+
+1. The file table is inside `#fileSidebarContent`, not `#fileList`
+2. The checkboxes have class `file-checkbox-in` and `file-checkbox-out`, not `filein` and `fileout`
+3. The table structure is: `.file-table tbody tr` with class `file-row`
+
+So the test helper `SelectFileCheckbox()` in chromedp_helpers.go is using the wrong selector. The function is building a selector like:
+```
+#fileList tr:nth-child(N) input.filein
+```
+
+But it should be:
+```
+#fileSidebarContent .file-table tbody tr:nth-child(N) input.file-checkbox-in
+```
+
+I need to fix the `SelectFileCheckbox()` function in chromedp_helpers.go to use the correct selector.
+
+According to the system prompt, I need to:
+1. Start with a markdown heading
+2. Limit discussion to 8192 tokens
+3. Return complete files only (with correct FILE markers)
+4. Use the format: ---FILE-START filename="<path>"--- and ---FILE-END filename="<path>"---
+
+The query at the end is the test output showing the failure. I need to fix the `SelectFileCheckbox()` function to use correct selectors.
+
+
+---
+
