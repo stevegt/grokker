@@ -765,6 +765,12 @@ func TestWebClientCreateFileAndApproveUnexpected(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 
+	// XXX several things wrong below here -- model should
+	// automatically close and reopen, then we should verify the file
+	// is now authorized but without the 'Out' checkbox checked, then
+	// we should click the 'Out' checkbox, then close the modal, then
+	// verify the file exists on disk.
+
 	// Modal should close and reopen with updated categorization
 	t.Logf("Waiting for modal to reopen after file authorization...")
 	time.Sleep(500 * time.Millisecond)
