@@ -139,13 +139,16 @@ func WaitForModal(ctx context.Context) error {
 					})()
 				`, &isVisible).Do(ctx)
 				if err != nil {
+					fmt.Printf("Error evaluating modal visibility, sleeping and retrying: %v\n", err)
 					time.Sleep(250 * time.Millisecond)
 					continue
 				}
 				if isVisible {
+					fmt.Printf("Modal is visible\n")
 					time.Sleep(300 * time.Millisecond)
 					return nil
 				}
+				fmt.Printf("Modal not visible yet, sleeping and retrying...\n")
 				time.Sleep(250 * time.Millisecond)
 			}
 			return errors.New("modal did not appear after timeout")
@@ -316,9 +319,15 @@ func SelectFileCheckbox(ctx context.Context, rowIndex int, checkboxType string) 
 	}
 
 	selector := fmt.Sprintf("#fileList tr:nth-child(%d) input.file%s", rowIndex, checkboxType)
-	return chromedp.Run(ctx,
-		chromedp.Click(selector),
-	)
+	fmt.Printf("Clicking file checkbox: %s\n", selector)
+	/*
+		return chromedp.Run(ctx,
+			chromedp.Click(selector),
+
+		)
+	*/
+	err := ClickElementWithSyntheticEvent(ctx, selector)
+	return err
 }
 
 // GetFileListRows returns the number of file rows in the file list table

@@ -573,10 +573,18 @@ func TestWebClientFileSelectionPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open file modal: %v", err)
 	}
+	t.Logf("File modal opened successfully")
 
-	testutil.SelectFileCheckbox(ctx, 1, "in")
-	testutil.SelectFileCheckbox(ctx, 2, "out")
+	err = testutil.SelectFileCheckbox(ctx, 1, "in")
+	if err != nil {
+		t.Fatalf("Failed to select input file checkbox: %v", err)
+	}
+	err = testutil.SelectFileCheckbox(ctx, 2, "out")
+	if err != nil {
+		t.Fatalf("Failed to select output file checkbox: %v", err)
+	}
 	time.Sleep(500 * time.Millisecond)
+	t.Logf("Selected input and output files in modal")
 
 	inputFiles, outputFiles, err := testutil.GetSelectedFiles(ctx)
 	if err != nil {
