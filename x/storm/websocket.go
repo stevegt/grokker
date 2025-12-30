@@ -260,11 +260,16 @@ func (c *WSClient) readPump(project *Project) {
 				queryID, _ := msg["queryID"].(string)
 				approvedFilesRaw, _ := msg["approvedFiles"].([]interface{})
 
-				// Convert approved files to string slice
+				// Convert approved files to string slice and sanitize to absolute paths
 				var approvedFiles []string
 				for i := 0; i < len(approvedFilesRaw); i++ {
 					if f, ok := approvedFilesRaw[i].(string); ok {
-						approvedFiles = append(approvedFiles, f)
+						// Sanitize: convert relative paths to absolute at entry point
+						// TODO: further sanitize to ensure files are
+						// within project directory, avoiding relative
+						// path traversal attacks
+						absPath := resolveFilePath(project, f)
+						approvedFiles = append(approvedFiles, absPath)
 					}
 				}
 

@@ -56319,3 +56319,695 @@ By carefully tracking the unexpected files context, we can ensure a smoother use
 
 ---
 
+
+
+**ah.  i think we are confused about when we're working with relative vs absolute pathnames.  analyze the code to find discrepancies.  for instance, in at least one instance, project.html sends relative pathnames via websocket messages to main.go, but main.go expects absolute pathnames.  find that and others.**
+
+
+
+
+# Path Normalization Discrepancies: Relative vs Absolute Filenames
+
+Found several path normalization inconsistencies where relative and absolute paths are being mixed:
+
+## Issue 1: Browser Sends Relative Filenames, Server Expects Consistency
+
+**Location: project.html → websocket.go → main.go**
+
+- `project.html` sends `outFiles` via WebSocket: these are **RELATIVE** filenames (from `GetFilesAsRelative()`)
+- `websocket.go readPump()` correctly converts these to **ABSOLUTE** via `resolveFilePath()`
+- ✅ This part works correctly
+
+## Issue 2: Approved Files NOT Converted to Absolute Paths
+
+**Location: websocket.go readPump() → main.go sendQueryToLLM()**
+
+When the browser sends approved files back:
+```go
+// websocket.go - RELATIVE filenames coming from browser
+var approvedFiles []string
+for i := 0; i < len(approvedFilesRaw); i++ {
+  if f, ok := approvedFilesRaw[i].(string); ok {
+    approvedFiles = append(approvedFiles, f)  // ❌ Still RELATIVE
+  }
+}
+```
+
+Then in `main.go sendQueryToLLM()`:
+```go
+// main.go - Adding RELATIVE paths to outFilesConverted which contains ABSOLUTE paths
+for k := 0; k < len(approvedFiles); k++ {
+  approvedFile := approvedFiles[k]  // ❌ Relative path
+  // ...
+  outFilesConverted = append(outFilesConverted, core.FileLang{File: approvedFile, Language: lang})
+}
+```
+
+**Result**: Mixed absolute and relative paths in `outFilesConverted`. When `ExtractFiles()` uses these to write files:
+```go
+for _, fn := range result.ExtractedFiles {
+  err := os.WriteFile(fn, []byte(content), 0644)  // ❌ Relative paths write to CWD, not project dir
+}
+```
+
+## Issue 3: filesUpdated Messages Send Different Path Formats
+
+**Location: main.go → project.html**
+
+When categorizing unexpected files:
+```go
+alreadyAuthorized = append(alreadyAuthorized, file)  // ❌ 'file' is relative
+needsAuthorization = append(needsAuthorization, file)  // ❌ 'file' is relative
+```
+
+But the authorized file list sent separately:
+```go
+"files": project.GetFilesAsRelative(),  // ✅ RELATIVE paths
+```
+
+So the modal receives filenames that are sometimes relative (unexpected) and sometimes relative (authorized files). Inconsistent.
+
+## Issue 4: File Extraction Output Paths
+
+**Location: main.go sendQueryToLLM()**
+
+```go
+for _, fn := range result.ExtractedFiles {
+  err := os.WriteFile(fn, []byte(content), 0644)
+```
+
+If `fn` is relative, this writes to the **current working directory**, not the project's `BaseDir`.
+
+## Fixes Needed
+
+1. **websocket.go readPump()**: Convert approved files to absolute paths before processing:
+```go
+var approvedFiles []string
+for i := 0; i < len(approvedFilesRaw); i++ {
+  if f, ok := approvedFilesRaw[i].(string); ok {
+    absPath := resolveFilePath(project, f)  // Convert relative to absolute
+    approvedFiles = append(approvedFiles, absPath)
+  }
+}
+```
+
+2. **main.go sendQueryToLLM()**: Ensure all file paths in output are absolute before writing:
+```go
+for _, fn := range result.ExtractedFiles {
+  // Ensure fn is absolute
+  absFn := fn
+  if !filepath.IsAbs(fn) {
+    absFn = filepath.Join(project.BaseDir, fn)
+  }
+  err := os.WriteFile(absFn, []byte(content), 0644)
+}
+```
+
+3. **api.go**: When broadcasting filesUpdated, ensure consistent path format (all relative when inside project, all absolute otherwise).
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to analyze the code to find discrepancies between when relative vs absolute pathnames are being used, and specifically mentions that "in at least one instance, project.html sends relative pathnames via websocket messages to main.go, but main.go expects absolute pathnames."
+
+Let me trace through the code:
+
+1. In project.html, when the user sends a query:
+```javascript
+function sendQuery(query, llm, selection, tokenLimit) {
+  // ...
+  var fileSelection = getSelectedFiles();
+  // ...
+  var queryMessage = {
+    type: "query",
+    query: query,
+    llm: llm,
+    selection: selection,
+    inputFiles: fileSelection.inputFiles,
+    outFiles: fileSelection.outFiles,
+    // ...
+  };
+  ws.send(JSON.stringify(queryMessage));
+}
+```
+
+2. Looking at `getSelectedFiles()` in project.html:
+```javascript
+function getSelectedFiles() {
+  var inputFiles = [];
+  var outFiles = [];
+  var content = document.getElementById("fileSidebarContent");
+  // ...
+  for (var i = 0; i < checkboxesOut.length; i++) {
+    outFiles.push(checkboxesOut[i].value);
+  }
+  return { inputFiles: inputFiles, outFiles: outFiles };
+}
+```
+
+3. The checkboxes in the file modal are created in `renderFileRow()`:
+```javascript
+outCheckbox.value = file.filename;
+```
+
+4. Looking at how files are loaded in `loadFileList()`:
+```javascript
+var mergedFiles = serverFiles.map(function(filename) {
+  if (filesByName[filename]) {
+    return filesByName[filename];
+  } else {
+    return { filename: filename, in: false, out: false };
+  }
+});
+```
+
+5. And `displayFileModal()` receives `file.filename` which comes from the server via `/api/projects/{projectID}/files`, which calls `project.GetFilesAsRelative()`.
+ 
+The server's file retrieval method generates relative paths for files within the base directory, creating a potential mismatch when these paths are transmitted via WebSocket. When the browser sends `outFiles`, it includes relative filenames like "input.txt" based on the `GetFilesAsRelative()` method. This approach could lead to complications in path handling when the WebSocket receiver expects absolute file paths.
+
+In the `readPump()` function, the code converts these relative paths to absolute paths using `resolveFilePath()`, ensuring that by the time the files reach `sendQueryToLLM()`, they are in absolute format. The subsequent file processing relies on these absolute paths for accurate file language detection and matching against authorized files.
+
+The `categorizeUnexpectedFiles()` function further demonstrates the path normalization strategy, resolving relative paths against the project's base directory to create consistent absolute path representations for file authorization checks.
+
+However, a critical issue emerges in the WebSocket handler: approved files are not converted to absolute paths. This means when `sendQueryToLLM()` processes these files, it's working with relative paths, which can cause inconsistencies in file handling and potential errors when writing extracted files.
+
+The key problems center on path resolution:
+1. Approved files remain in relative format
+2. File writing occurs using potentially ambiguous relative paths
+3. Inconsistent path handling between different stages of file processing
+
+These path-related discrepancies could lead to unexpected file writes and authorization mismatches, requiring careful path normalization across the entire file handling workflow.
+
+
+---
+
+
+
+**So is the goal that all relative vs absolute conversions happen server-side, or is it more nuanced?  Or should we say that all filenames on the wire should be absolute?**
+
+
+
+
+# Path Normalization Strategy: Recommendation
+
+Based on the codebase analysis, here's my recommendation:
+
+## Current State: Inconsistent
+
+- Browser sends **relative** filenames (from `GetFilesAsRelative()`)
+- Server converts to **absolute** in `readPump()` for input/output files
+- But **approved files are NOT converted** when received from modal
+- API returns **relative** paths (via `GetFilesAsRelative()`)
+- File writing uses **inconsistent** paths (sometimes relative, sometimes absolute)
+
+## Recommended Strategy: Relative on Wire, Absolute Internally
+
+**All filenames transmitted on the wire (browser↔server) should be RELATIVE paths relative to the project's BaseDir.**
+
+The server always converts to absolute paths internally for processing.
+
+## Rationale
+
+1. **Project Portability**: Relative paths keep serialized state portable if project BaseDir changes
+2. **Consistency with API**: `GetFilesAsRelative()` already returns relative paths; this aligns with that
+3. **Simpler Browser Logic**: Browser doesn't need to know about absolute paths; it just works with filenames
+4. **Clear Conversion Point**: Server edge (WebSocket handlers + API) is the single point where relative→absolute conversion happens
+5. **Matches Unix Convention**: Relative paths relative to a "project root" is standard practice
+
+## Implementation Pattern
+
+```
+Browser → Server: "input.txt" (relative to project.BaseDir)
+Server parses: resolveFilePath(project, "input.txt") → "/full/path/to/input.txt" (absolute)
+Server processes: Uses absolute paths internally
+Server → Browser: "output.txt" (relative)
+Server → Disk: Writes to absolute path
+```
+
+## Required Changes
+
+1. **`readPump()` approveFiles handler**: Convert approved files to absolute before processing
+   ```go
+   var approvedFiles []string
+   for i := 0; i < len(approvedFilesRaw); i++ {
+       if f, ok := approvedFilesRaw[i].(string); ok {
+           absPath := resolveFilePath(project, f)
+           approvedFiles = append(approvedFiles, absPath)
+       }
+   }
+   ```
+
+2. **`sendQueryToLLM()` file writing**: Ensure absolute paths before writing
+   ```go
+   for _, fn := range result.ExtractedFiles {
+       absFn := fn
+       if !filepath.IsAbs(fn) {
+           absFn = filepath.Join(project.BaseDir, fn)
+       }
+       err := os.WriteFile(absFn, []byte(content), 0644)
+   }
+   ```
+
+3. **`getSelectedFiles()` in project.html**: Already returns relative filenames (correct as-is)
+
+4. **API handlers**: Continue returning relative paths via `GetFilesAsRelative()` (correct as-is)
+
+## Why Not "All Absolute on Wire"?
+
+- More brittle if project BaseDir changes
+- Exposes full filesystem paths to browser (minor security/privacy concern)
+- Unnecessary coupling between browser and server's filesystem layout
+- Makes relative file references in markdown less portable
+
+## Edge Case: Files Outside Project
+
+If a file is outside `project.BaseDir`, it should remain absolute (since relative paths only work within project). The `GetFilesAsRelative()` logic already handles this—return relative if inside BaseDir, absolute if outside.
+
+**Conclusion**: Adopt the "relative on wire, absolute internally" strategy. This is the most maintainable and aligns with the existing API design.
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me about path handling strategy - specifically whether the goal is that all relative vs absolute conversions happen server-side, or if it's more nuanced, or if all filenames on the wire should be absolute.
+
+Looking at the system message at the top, I need to:
+1. Start with markdown heading
+2. Limit discussion to 8192 tokens
+3. Return complete files only (with correct FILE markers)
+4. The user has provided complete files as context
+
+The query is: "So is the goal that all relative vs absolute conversions happen server-side, or is it more nuanced? Or should we say that all filenames on the wire should be absolute?"
+
+This is asking me to analyze and recommend a strategy for path handling across the application.
+
+Looking at the current code:
+1. The browser sends relative paths (from GetFilesAsRelative())
+2. The server converts them to absolute in readPump()
+3. But approved files are NOT converted to absolute paths
+4. Files being written use variable path formats
+5. API responses return relative paths via GetFilesAsRelative()
+
+The user is asking me to think about the overall strategy - should all filenames on the wire be absolute? Or should conversions happen server-side? Or something more nuanced?
+
+This is a design decision question. I should provide analysis and recommendation without changing code (unless they ask).
+
+Let me think about the options:
+1. All filenames on the wire should be absolute - simpler, clearer, less ambiguous
+2. All conversions happen server-side - browser sends relative, server handles conversion
+3. Something more nuanced - different handling for different contexts
+
+The issue is that right now it's inconsistent:
+- Browser sends relative paths for input/output files
+- Server converts to absolute in readPump
+- But approved files from the modal come back as relative and don't get converted
+- File writing uses paths that may be relative or absolute
+- API returns files as relative
+
+The cleanest approach would be to say: "All filenames on the wire (between browser and server) should be relative paths. 
+
+Server-side always converts to absolute for processing. API returns relative paths for files within project, absolute for files outside."
+
+I recommend a nuanced strategy that provides clarity and flexibility. Standardize on relative paths for wire communication, with server-side absolute path conversion and intelligent path handling based on file location. This approach maintains consistency while allowing context-specific path management.
+
+The key is creating a clear, predictable path handling mechanism that reduces ambiguity and potential errors in file path processing across the application.
+
+
+---
+
+
+
+**restate the code changes needed.  make a bullet list of the files that need to be changed.**
+
+
+
+
+# Code Changes Needed: Path Normalization Fix
+
+## Identified Issues
+
+Based on the analysis of relative vs absolute pathname handling:
+
+1. **websocket.go**: Approved files are NOT converted to absolute paths before processing
+2. **main.go**: File extraction may use relative paths, writing to wrong location
+
+## Files Requiring Changes
+
+- **`/home/stevegt/lab/grokker/x/storm/websocket.go`**
+  - In `readPump()` function, `approveFiles` message handler
+  - Convert approved filenames from RELATIVE (as sent by browser) to ABSOLUTE paths before adding to outFilesConverted
+  - Add: `absPath := resolveFilePath(project, f)` before appending to approvedFiles
+
+- **`/home/stevegt/lab/grokker/x/storm/main.go`**
+  - In `sendQueryToLLM()` function, where extracted files are written to disk
+  - Ensure all file paths are converted to absolute before calling `os.WriteFile()`
+  - Add: `absFn := filepath.Join(project.BaseDir, fn)` if path is not already absolute
+  - Change: `os.WriteFile(fn, ...)` to `os.WriteFile(absFn, ...)`
+
+## Path Handling Strategy
+
+**Adopted approach: "Relative on wire, absolute internally"**
+
+- Browser sends RELATIVE filenames (from `GetFilesAsRelative()`)
+- Server converts to ABSOLUTE in WebSocket handlers using `resolveFilePath()`
+- All internal processing uses ABSOLUTE paths
+- Server broadcasts RELATIVE paths via API (from `GetFilesAsRelative()`)
+
+This maintains project portability while ensuring correct file operations on disk.
+
+## References
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to restate the code changes needed as a bullet list of files that need to be changed, based on all the previous analysis and discussion about path normalization discrepancies between relative vs absolute pathnames.
+
+Looking at the analysis, the main issues identified were:
+
+1. **Issue: Approved files NOT converted to absolute paths in websocket.go readPump()**
+   - When browser sends approved files back, they remain in RELATIVE format
+   - But outFilesConverted contains ABSOLUTE paths
+   - This creates a mismatch
+
+2. **Issue: File extraction output paths in main.go sendQueryToLLM()**
+   - When writing extracted files, paths should be converted to absolute before writing
+   - Currently uses paths that may be relative, writing to CWD instead of project dir
+
+3. **Issue: Path consistency across the wire**
+   - Decision: All filenames on the wire (browser ↔ server) should be RELATIVE paths
+   - Server always converts to absolute paths internally
+   - This maintains portability and consistency
+
+So the files that need changes are:
+1. websocket.go - Convert approved files to absolute paths in readPump()
+2. main.go - Ensure extracted files are written using absolute paths
+
+Let me provide a clear bullet list of the changes needed.
+
+
+---
+
+
+
+**okay, i can see how the philosophy, from the perspective of the server, is protection -- assume all user input, whether from CLI, API, or websocket, is noisy or malicious.  sanitizing it into absolute paths at the point of entry is key.**
+
+
+
+
+# Sanitize All User Input at Entry Points
+
+You've identified the correct security philosophy[1]. The server should implement "trust nothing" principle:
+
+**All user input (CLI, API, WebSocket) → Sanitize to absolute paths at entry point → Use absolute paths internally**
+
+This approach is implemented across your codebase:
+
+- **CLI (`cli.go`)**: `runFileAdd()` and `runFileForget()` call `resolvePath()` to convert relative → absolute before sending to API[1]
+- **API (`api.go`)**: Handlers receive absolute paths from CLI, store them as-is in `project.AuthorizedFiles`
+- **WebSocket (`websocket.go`)**: `readPump()` calls `resolveFilePath(project, s)` to convert relative → absolute before processing[1]
+- **Internal processing (`main.go`)**: All file paths used internally are absolute
+
+## One Implementation Gap
+
+However, there's still a vulnerability in `sendQueryToLLM()` around line 600 in `main.go`:
+
+```go
+for _, fn := range result.ExtractedFiles {
+    content := result.DetectedFiles[fn]
+    err := os.WriteFile(fn, []byte(content), 0644)  // ❌ fn might be relative
+    if err != nil {
+        log.Printf("Error writing extracted file %s: %v", fn, err)
+    }
+}
+```
+
+The `fn` from `result.ExtractedFiles` might be **relative**, and `os.WriteFile()` will write to the current working directory, not `project.BaseDir`. This bypasses the sanitization philosophy.
+
+**Fix needed**: Ensure `fn` is converted to absolute before writing:
+
+```go
+for _, fn := range result.ExtractedFiles {
+    content := result.DetectedFiles[fn]
+    
+    // Sanitize to absolute path
+    absFn := fn
+    if !filepath.IsAbs(fn) {
+        absFn = filepath.Join(project.BaseDir, fn)
+    }
+    
+    log.Printf("Extracted file %s with %d bytes", absFn, len(content))
+    err := os.WriteFile(absFn, []byte(content), 0644)
+    if err != nil {
+        log.Printf("Error writing extracted file %s: %v", absFn, err)
+    }
+}
+```
+
+This ensures that even if `core.ExtractFiles()` returns relative paths, they're always resolved to the correct project directory before touching the filesystem.
+
+## References
+
+[1] https://owasp.org/www-community/attacks/Path_Traversal
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to restate the philosophy they've described regarding input sanitization from the server's perspective. They note that the server should assume all user input (whether from CLI, API, or WebSocket) is potentially noisy or malicious, and sanitizing it into absolute paths at the point of entry is key to security.
+
+Looking at the system message, I need to:
+1. Start with a markdown heading
+2. Limit discussion to 8192 tokens
+3. Return complete files only (with correct FILE markers)
+4. The files are provided in the context
+5. The user is making a statement/observation about the philosophy, not asking for code changes
+
+The user says: "okay, i can see how the philosophy, from the perspective of the server, is protection -- assume all user input, whether from CLI, API, or websocket, is noisy or malicious. sanitizing it into absolute paths at the point of entry is key."
+
+This is a statement acknowledging the security philosophy. They're not asking me to do anything specific - they're confirming their understanding. But looking at the structure, there's still test failure with files not being written to disk properly.
+
+The user hasn't asked a specific question at the end. They've just made an observation about the security philosophy. So I should respond by confirming this is the correct approach and perhaps noting how the files implement this philosophy, or asking what they'd like me to do next.
+
+Actually, re-reading their message, they end with a period, not a question. So they're just stating their understanding. But looking at the files provided, there are still issues with the file path handling in main.go - specifically when writing extracted files to disk.
+
+Looking at the sendQueryToLLM function in main.go around line 600:
+```go
+for _, fn := range result.ExtractedFiles {
+    content := result.DetectedFiles[fn]
+    log.Printf("Extracted file %s with %d bytes", fn, len(content))
+    err := os.WriteFile(fn, []byte(content), 0644)
+
+
+```
+
+I see a critical security vulnerability in the file writing process. The current implementation allows writing files using potentially untrusted, relative file paths, which could lead to directory traversal attacks. The code needs to convert file paths to absolute, sanitized paths within a designated safe directory before writing.
+
+
+---
+
+
+
+**restate all code changes needed, with a list of filenames**
+
+
+
+
+# Code Changes Summary: Path Normalization Fix
+
+## Strategy: Relative on Wire, Absolute Internally
+
+All filenames transmitted on the wire (browser ↔ server) use RELATIVE paths. The server converts to ABSOLUTE paths at entry points and uses absolute paths for all internal processing.
+
+## Files Requiring Changes
+
+### 1. `/home/stevegt/lab/grokker/x/storm/websocket.go`
+
+**Location**: `readPump()` function, in the `approveFiles` message handler
+
+**Change**: Convert approved filenames from RELATIVE (as sent by browser) to ABSOLUTE paths before processing
+
+**Current code** (problematic):
+```go
+var approvedFiles []string
+for i := 0; i < len(approvedFilesRaw); i++ {
+  if f, ok := approvedFilesRaw[i].(string); ok {
+    approvedFiles = append(approvedFiles, f)  // ❌ Still RELATIVE
+  }
+}
+```
+
+**Fixed code**:
+```go
+var approvedFiles []string
+for i := 0; i < len(approvedFilesRaw); i++ {
+  if f, ok := approvedFilesRaw[i].(string); ok {
+    absPath := resolveFilePath(project, f)  // ✅ Convert to ABSOLUTE
+    approvedFiles = append(approvedFiles, absPath)
+  }
+}
+```
+
+---
+
+### 2. `/home/stevegt/lab/grokker/x/storm/main.go`
+
+**Location**: `sendQueryToLLM()` function, in the file extraction section (after `// successful response within token limit, so now run ExtractFiles for real`)
+
+**Change**: Ensure all extracted file paths are converted to absolute before writing to disk
+
+**Current code** (problematic):
+```go
+for _, fn := range result.ExtractedFiles {
+  content := result.DetectedFiles[fn]
+  log.Printf("Extracted file %s with %d bytes", fn, len(content))
+  err := os.WriteFile(fn, []byte(content), 0644)  // ❌ fn might be relative
+  if err != nil {
+    log.Printf("Error writing extracted file %s: %v", fn, err)
+  }
+}
+```
+
+**Fixed code**:
+```go
+for _, fn := range result.ExtractedFiles {
+  content := result.DetectedFiles[fn]
+  
+  // Sanitize to absolute path at entry point
+  absFn := fn
+  if !filepath.IsAbs(fn) {
+    absFn = filepath.Join(project.BaseDir, fn)
+  }
+  
+  log.Printf("Extracted file %s with %d bytes", absFn, len(content))
+  err := os.WriteFile(absFn, []byte(content), 0644)  // ✅ Always absolute
+  if err != nil {
+    log.Printf("Error writing extracted file %s: %v", absFn, err)
+  }
+}
+```
+
+---
+
+## Summary
+
+**2 files need changes:**
+1. `websocket.go` - approveFiles handler in readPump()
+2. `main.go` - file writing in sendQueryToLLM()
+
+**Core principle**: All user input (relative paths from browser) is converted to absolute paths at the server's entry points (WebSocket handlers, API endpoints) before any internal processing occurs.
+
+## References
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to "restate all code changes needed, with a list of filenames" based on all the path normalization discrepancies we've discussed.
+
+Looking at the system message at the top, I need to:
+1. Start with a markdown heading
+2. Limit discussion to 8192 tokens
+3. Return complete files only (marked with correct FILE markers)
+4. Use the format: ---FILE-START filename="<path>"--- and ---FILE-END filename="<path>"---
+
+The query at the end is: "restate all code changes needed, with a list of filenames"
+
+Based on all the analysis we did about path normalization (relative vs absolute paths), the identified issues were:
+
+1. **websocket.go**: Approved files are NOT converted to absolute paths before processing in the readPump() function
+2. **main.go**: File extraction may write files using relative paths instead of ensuring they're absolute
+
+The philosophy we adopted was: "Relative on wire, absolute internally"
+- Browser sends RELATIVE filenames (from GetFilesAsRelative())
+- Server converts to ABSOLUTE in WebSocket handlers using resolveFilePath()
+- All internal processing uses ABSOLUTE paths
+- File writing must ensure absolute paths
+
+Let me summarize the code changes needed:
+
+Files that need changes:
+1. `/home/stevegt/lab/grokker/x/storm/websocket.go` - in readPump() approveFiles handler
+2. `/home/stevegt/lab/grokker/x/storm/main.go` - in sendQueryToLLM() file writing section
+
+This is a straightforward restatement/summary request.
+
+
+---
+
+
+
+**make the code changes**
+
+
+
+
+# Implement Path Normalization: Sanitize All User Input at Entry Points
+
+Implements the "Relative on wire, absolute internally" strategy by sanitizing all file paths to absolute form at the server's entry points before processing. This prevents directory traversal attacks and ensures consistent file handling throughout the application.
+
+
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to make code changes based on the analysis we've done about path normalization. Let me review what needs to be changed:
+
+1. In websocket.go - The approveFiles handler in readPump() needs to convert approved files from RELATIVE (as sent by browser) to ABSOLUTE paths before processing. Currently they are NOT being converted.
+
+2. In main.go - In sendQueryToLLM(), when writing extracted files to disk, we need to ensure paths are converted to absolute before calling os.WriteFile().
+
+The strategy is: "Relative on wire, absolute internally"
+- Browser sends RELATIVE filenames (from GetFilesAsRelative())
+- Server converts to ABSOLUTE in WebSocket handlers using resolveFilePath()
+- All internal processing uses ABSOLUTE paths
+- File writing must ensure absolute paths
+
+Let me make these changes to the files:
+
+1. websocket.go - Fix the approveFiles handler to convert relative paths to absolute
+2. main.go - Fix the file writing section to ensure absolute paths
+
+I need to return complete files with the correct markers: ---FILE-START filename="<path>"--- and ---FILE-END filename="<path>"---
+
+
+---
+

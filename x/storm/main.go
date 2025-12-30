@@ -853,11 +853,21 @@ func sendQueryToLLM(project *Project, queryID, query string, llm string, selecti
 
 		for _, fn := range result.ExtractedFiles {
 			content := result.DetectedFiles[fn]
-			log.Printf("Extracted file %s with %d bytes", fn, len(content))
-			err := os.WriteFile(fn, []byte(content), 0644)
+
+			// TODO this trusts ExtractFiles to not return any
+			// path traversal filenames.  We should probably
+			// do additional sanitization here.
+
+			// Sanitize to absolute path at entry point before writing
+			absFn := fn
+			if !filepath.IsAbs(fn) {
+				absFn = filepath.Join(project.BaseDir, fn)
+			}
+
+			log.Printf("Extracted file %s with %d bytes", absFn, len(content))
+			err := os.WriteFile(absFn, []byte(content), 0644)
 			if err != nil {
-				// XXX return err
-				log.Printf("Error writing extracted file %s: %v", fn, err)
+				log.Printf("Error writing extracted file %s: %v", absFn, err)
 			}
 		}
 
