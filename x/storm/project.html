@@ -37,6 +37,7 @@
       flex-direction: column;
       overflow: hidden;
       position: relative;
+      padding-bottom: 40px;
     }
     /* Chat area styles */
     #chat { 
@@ -90,18 +91,55 @@
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
     }
-    /* Updated input area using CSS Grid */
+    /* Updated input area using CSS Grid - removed status box */
     #input-area { 
       background: #1e1e1e; 
       padding: 10px; 
       box-shadow: 0 -2px 5px rgba(0,0,0,0.1);
       display: grid;
       grid-template-areas: 
-        "llmSelect userInput sendBtn filesBtn statusBox stopBtn"
-        "tokenLimit userInput .       .        statusBox .";
-      grid-template-columns: auto 1fr auto auto auto auto;
+        "llmSelect userInput sendBtn filesBtn"
+        "tokenLimit userInput .       .";
+      grid-template-columns: auto 1fr auto auto;
       grid-template-rows: auto auto;
       gap: 5px;
+      border-top: 1px solid #333;
+    }
+    /* Fixed status bar at bottom of page */
+    #statusBar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 40px;
+      background-color: #1e1e1e;
+      border-top: 1px solid #333;
+      display: flex;
+      align-items: center;
+      padding: 0 10px;
+      justify-content: space-between;
+      z-index: 100;
+    }
+    #statusBarLeft {
+      display: flex;
+      gap: 20px;
+      flex: 1;
+      align-items: center;
+      font-size: 11px;
+    }
+    #statusBarRight {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    #statusSpinner {
+      display: none;
+    }
+    /* Red stop sign for error indication in status bar */
+    #errorSign {
+      display: none;
+      color: red;
+      font-size: 16px;
     }
     textarea { 
       width: 100%; 
@@ -134,7 +172,7 @@
     button:hover {
       background-color: #444;
     }
-    /* Custom style for the stop button to shrink its size and font */
+    /* Custom style for the stop button */
     #stopBtn {
       font-size: 10px;
       padding: 5px 10px;
@@ -143,17 +181,6 @@
     #filesBtn {
       font-size: 12px;
       padding: 8px 12px;
-    }
-    #statusBox { 
-      display: inline-block; 
-      font-size: 11px; 
-    }
-    /* Red stop sign for error indication in status box */
-    #errorSign {
-      display: none;
-      color: red;
-      font-size: 16px;
-      margin-left: 5px;
     }
     /* Toggle button for sidebar */
     #toggle-sidebar {
@@ -417,17 +444,6 @@
         <textarea id="userInput" placeholder="Enter query" style="grid-area: userInput;"></textarea>
         <button id="sendBtn" style="grid-area: sendBtn;">Send</button>
         <button id="filesBtn" style="grid-area: filesBtn;">Files</button>
-        <span id="statusBox" style="grid-area: statusBox;">
-          <span id="tokenCountText">Token Count: 0</span>
-          <br>
-          <span id="roundsStats">Rounds:</span>
-          <br>
-          <span id="progressStats">Progress:</span>
-          <br>
-          <span id="statusSpinner" style="display:none;" class="spinner"></span>
-          <span id="errorSign">⛔</span>
-        </span>
-        <button id="stopBtn" style="grid-area: stopBtn;">Stop<br>Server</button>
         <div id="tokenLimitContainer" style="grid-area: tokenLimit;">
           <label for="tokenLimit">Token Limit</label>
           <input type="number" id="tokenLimit" placeholder="8k">
@@ -443,6 +459,20 @@
           </div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Status bar at bottom -->
+  <div id="statusBar">
+    <div id="statusBarLeft">
+      <span id="statusSpinner" class="spinner"></span>
+      <span id="tokenCountText">Token Count: 0</span>
+      <span id="roundsStats">Rounds:</span>
+      <span id="progressStats">Progress:</span>
+      <span id="errorSign">⛔</span>
+    </div>
+    <div id="statusBarRight">
+      <button id="stopBtn">Stop Server</button>
     </div>
   </div>
 
@@ -517,7 +547,7 @@
 
     // Global counter for outstanding queries
     var outstandingQueries = 0;
-    // Updates the spinner in the status box based on the current outstanding query count
+    // Updates the spinner in the status bar based on the current outstanding query count
     function updateStatusSpinner() {
       var spinner = document.getElementById("statusSpinner");
       if (outstandingQueries > 0) {
