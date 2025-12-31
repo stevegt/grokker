@@ -885,7 +885,9 @@ func TestWebClientUnexpectedFilesAlreadyAuthorized(t *testing.T) {
 		t.Fatalf("Failed to navigate to project page: %v", err)
 	}
 
-	err = testutil.SubmitQuery(ctx, "query that references pre-authorized file")
+	// TODO mock the LLM instead of calling SubmitQuery
+
+	err = testutil.SubmitQuery(ctx, "write a story in preauth.txt. you MUST use correct file markers as shown in the system message")
 	if err != nil {
 		t.Fatalf("Failed to submit query: %v", err)
 	}
@@ -893,10 +895,9 @@ func TestWebClientUnexpectedFilesAlreadyAuthorized(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	err = testutil.WaitForUnexpectedFilesModal(ctx)
-	// XXX one of these should be a fail
 	if err != nil {
-		t.Logf("No unexpected files modal appeared (file is already authorized): %v", err)
-	} else {
-		t.Logf("✓ Modal appeared showing already-authorized file in UI (marked in red)")
+		t.Errorf("Unexpected files modal did not appear: %v", err)
 	}
+
+	// TODO check for red font
 }

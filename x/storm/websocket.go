@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -154,7 +155,72 @@ func removePendingQuery(queryID string) {
 	}
 }
 
+// normalizeToRelative converts an absolute file path to relative form relative to a project's BaseDir.
+// If the path is already relative, returns it as-is.
+// If the path is outside the project (paths with ".." prefix), returns the absolute path (edge case).
+func normalizeToRelative(project *Project, filePath string) string {
+	if !filepath.IsAbs(filePath) {
+		// Already relative, return as-is
+		return filePath
+	}
+
+	// Try to make it relative to project BaseDir
+	relPath, err := filepath.Rel(project.BaseDir, filePath)
+	if err != nil {
+		// If conversion fails, return original (fallback)
+		log.Printf("Error normalizing path %s relative to %s: %v", filePath, project.BaseDir, err)
+		return filePath
+	}
+
+	return relPath
+}
+
+// sanitizeMessage normalizes all file path fields in a WebSocket message to relative form.
+// Enforces "relative on wire, absolute internally" principle by converting absolute paths
+// back to relative before messages leave the server.
+func sanitizeMessage(project *Project, message map[string]interface{}) map[string]interface{} {
+	// Fields that may contain file paths
+	pathFields := []string{
+		"alreadyAuthorized",
+		"needsAuthorization",
+		"files",
+		"file",
+		"filename",
+	}
+
+	for _, fieldName := range pathFields {
+		if val, exists := message[fieldName]; exists {
+			switch v := val.(type) {
+			case []interface{}:
+				// Normalize array of paths
+				normalized := make([]interface{}, 0, len(v))
+				for i := 0; i < len(v); i++ {
+					if pathStr, ok := v[i].(string); ok {
+						normalized = append(normalized, normalizeToRelative(project, pathStr))
+					} else {
+						normalized = append(normalized, v[i])
+					}
+				}
+				message[fieldName] = normalized
+			case []string:
+				// Normalize string array
+				normalized := make([]string, 0, len(v))
+				for i := 0; i < len(v); i++ {
+					normalized = append(normalized, normalizeToRelative(project, v[i]))
+				}
+				message[fieldName] = normalized
+			case string:
+				// Normalize single path
+				message[fieldName] = normalizeToRelative(project, v)
+			}
+		}
+	}
+
+	return message
+}
+
 // writePump writes messages to the WebSocket client and sends periodic pings.
+// Messages are sanitized before being sent to enforce "relative on wire, absolute internally".
 func (c *WSClient) writePump() {
 	ticker := time.NewTicker(pingInterval)
 	defer func() {
@@ -171,7 +237,21 @@ func (c *WSClient) writePump() {
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			if err := c.conn.WriteJSON(message); err != nil {
+
+			// Sanitize message before sending: convert absolute paths to relative
+			var sanitized interface{} = message
+			if msgMap, ok := message.(map[string]interface{}); ok {
+				// Get the project for this client's connection
+				project, err := projects.Get(c.projectID)
+				if err != nil {
+					log.Printf("Error getting project %s for message sanitization: %v", c.projectID, err)
+				} else {
+					// Sanitize the message to enforce "relative on wire, absolute internally"
+					sanitized = sanitizeMessage(project, msgMap)
+				}
+			}
+
+			if err := c.conn.WriteJSON(sanitized); err != nil {
 				log.Printf("WebSocket write error: %v", err)
 				return
 			}

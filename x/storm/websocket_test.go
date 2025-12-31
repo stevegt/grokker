@@ -763,10 +763,9 @@ func TestWebSocketUnexpectedFilesPathNormalizationBug(t *testing.T) {
 	}
 }
 
-// TestWebSocketBroadcastAbsolutePathsNotNormalized exposes the bug where unexpected files are broadcast with absolute paths
-// causing the browser to fail matching them against relative filenames
-func TestWebSocketBroadcastAbsolutePathsNotNormalized(t *testing.T) {
-	setup := setupTest(t, "ws-broadcast-abs-paths-project")
+// TestWebSocketBroadcastPathSanitization verifies that absolute paths in messages are sanitized to relative before being sent to browser
+func TestWebSocketBroadcastPathSanitization(t *testing.T) {
+	setup := setupTest(t, "ws-sanitize-paths-project")
 	defer teardownTest(t, setup)
 
 	// Create test file
@@ -787,66 +786,89 @@ func TestWebSocketBroadcastAbsolutePathsNotNormalized(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	// Get the project and simulate broadcasting unexpected files
+	// Get the project
 	project, err := projects.Get(setup.ProjectID)
 	if err != nil {
 		t.Fatalf("Failed to get project: %v", err)
 	}
 
-	// Simulate what happens in sendQueryToLLM: categorize unexpected files and broadcast
+	// Simulate what happens in sendQueryToLLM: categorize unexpected files
 	// Pass files in absolute path format (what ExtractFiles returns)
 	alreadyAuth, needsAuth := categorizeUnexpectedFiles(project, []string{mainFile})
 
-	t.Logf("Broadcast test:")
-	t.Logf("  File added to project: %s", mainFile)
-	t.Logf("  categorizeUnexpectedFiles result (alreadyAuthorized): %v", alreadyAuth)
-	t.Logf("  alreadyAuthorized[0] absolute: %v", filepath.IsAbs(alreadyAuth[0]))
-
-	// The bug: alreadyAuthorized contains absolute paths that will be sent on the wire
-	if len(alreadyAuth) > 0 && filepath.IsAbs(alreadyAuth[0]) {
-		t.Errorf("BUG EXPOSED: alreadyAuthorized contains absolute path %s", alreadyAuth[0])
-		t.Logf("This absolute path will be broadcast to the browser via WebSocket filesUpdated message")
-		t.Logf("Browser will try to match this absolute path against relative filename %s", filepath.Base(mainFile))
-		t.Logf("The Set.has() check will fail because %q != %q", alreadyAuth[0], filepath.Base(mainFile))
-		t.Logf("Result: unexpected files won't show in red in the browser modal")
+	t.Logf("Before sanitization:")
+	t.Logf("  alreadyAuthorized: %v", alreadyAuth)
+	if len(alreadyAuth) > 0 {
+		t.Logf("  alreadyAuthorized[0] is absolute: %v", filepath.IsAbs(alreadyAuth[0]))
 	}
 
-	// Connect WebSocket to receive and verify the broadcast contains absolute paths
+	// Create a message with absolute paths (as it would be before sanitization)
+	unsanitizedMsg := map[string]interface{}{
+		"type":                     "filesUpdated",
+		"isUnexpectedFilesContext": true,
+		"queryID":                  "test-sanitize-123",
+		"alreadyAuthorized":        alreadyAuth,  // Contains absolute paths before sanitization
+		"needsAuthorization":       needsAuth,
+		"projectID":                setup.ProjectID,
+		"files":                    project.GetFilesAsRelative(),
+	}
+
+	// Apply sanitization (what writePump does)
+	sanitizedMsg := sanitizeMessage(project, unsanitizedMsg)
+
+	t.Logf("After sanitization:")
+
+	// Verify paths are now relative
+	if alreadyAuthSanitized, ok := sanitizedMsg["alreadyAuthorized"].([]string); ok && len(alreadyAuthSanitized) > 0 {
+		t.Logf("  alreadyAuthorized[0]: %s", alreadyAuthSanitized[0])
+		t.Logf("  alreadyAuthorized[0] is absolute: %v", filepath.IsAbs(alreadyAuthSanitized[0]))
+
+		if filepath.IsAbs(alreadyAuthSanitized[0]) {
+			t.Errorf("FAILED: Path sanitization did not convert absolute path to relative")
+		} else {
+			t.Logf("SUCCESS: Path sanitization correctly converted absolute path to relative: %s", alreadyAuthSanitized[0])
+		}
+
+		// Verify it matches the filename
+		expectedFilename := filepath.Base(mainFile)
+		if alreadyAuthSanitized[0] == expectedFilename {
+			t.Logf("SUCCESS: Sanitized path matches filename: %s", expectedFilename)
+		} else {
+			t.Errorf("FAILED: Sanitized path %s does not match expected filename %s", alreadyAuthSanitized[0], expectedFilename)
+		}
+	}
+
+	// Now verify the full flow: connect to WebSocket and receive sanitized message
 	conn := connectWebSocket(t, setup.WsURL)
 	defer conn.Close()
 
 	// Wait for initialization
 	time.Sleep(500 * time.Millisecond)
 
-	// Manually broadcast the filesUpdated message (simulating what sendQueryToLLM does)
-	filesUpdatedMsg := map[string]interface{}{
-		"type":                     "filesUpdated",
-		"isUnexpectedFilesContext": true,
-		"queryID":                  "test-abs-paths-123",
-		"alreadyAuthorized":        alreadyAuth,  // Contains absolute paths - the bug!
-		"needsAuthorization":       needsAuth,
-		"projectID":                setup.ProjectID,
-		"files":                    project.GetFilesAsRelative(),
-	}
-	project.ClientPool.Broadcast(filesUpdatedMsg)
+	// Broadcast the unsanitized message (containing absolute paths)
+	project.ClientPool.Broadcast(unsanitizedMsg)
 
-	// Client receives the broadcast
+	// Receive and verify the sanitized message via WebSocket
 	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	var msg map[string]interface{}
-	if err := conn.ReadJSON(&msg); err != nil {
-		t.Fatalf("Failed to receive broadcast: %v", err)
+	var receivedMsg map[string]interface{}
+	if err := conn.ReadJSON(&receivedMsg); err != nil {
+		t.Fatalf("Failed to receive message from WebSocket: %v", err)
 	}
 
-	// Verify the broadcast contains absolute paths (the bug)
-	if alreadyAuthRaw, ok := msg["alreadyAuthorized"].([]interface{}); ok && len(alreadyAuthRaw) > 0 {
-		if authFile, ok := alreadyAuthRaw[0].(string); ok {
-			if filepath.IsAbs(authFile) {
-				t.Errorf("BUG CONFIRMED: filesUpdated message broadcast contains absolute path: %s", authFile)
-				t.Logf("Browser receives: %s", authFile)
-				t.Logf("Browser will try to match against: %s", filepath.Base(mainFile))
-				t.Logf("String comparison: %q == %q ? %v", authFile, filepath.Base(mainFile), authFile == filepath.Base(mainFile))
+	// Verify the message was sanitized before being sent
+	if alreadyAuthReceived, ok := receivedMsg["alreadyAuthorized"].([]interface{}); ok && len(alreadyAuthReceived) > 0 {
+		if authFileReceived, ok := alreadyAuthReceived[0].(string); ok {
+			t.Logf("Browser received alreadyAuthorized[0]: %s", authFileReceived)
+			t.Logf("Browser received path is absolute: %v", filepath.IsAbs(authFileReceived))
+
+			expectedFilename := filepath.Base(mainFile)
+			if authFileReceived == expectedFilename {
+				t.Logf("SUCCESS: Browser received relative filename: %s", authFileReceived)
+				t.Logf("Browser can now match this against file rows in the modal and show in red")
+			} else if filepath.IsAbs(authFileReceived) {
+				t.Errorf("FAILED: Browser received absolute path: %s (should have been sanitized to relative)", authFileReceived)
 			} else {
-				t.Logf("filesUpdated correctly contains relative path: %s", authFile)
+				t.Logf("Message received: %s", authFileReceived)
 			}
 		}
 	}
