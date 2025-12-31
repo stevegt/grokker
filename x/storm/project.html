@@ -724,6 +724,7 @@
       for (var i = 0; i < allServerFiles.length; i++) {
         var file = allServerFiles[i];
         var isUnexpected = unexpectedSet.has(file.filename);
+        debugLog("Rendering file row for: " + file.filename + ", isUnexpected: " + isUnexpected);
         renderFileRow(tbody, file, isUnexpected);
       }
       
