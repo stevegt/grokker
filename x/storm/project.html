@@ -712,6 +712,7 @@
       // Create sets for quick lookup
       var unexpectedSet = new Set();
       for (var i = 0; i < alreadyAuthorizedUnexpected.length; i++) {
+        debugLog("Adding to unexpectedSet: " + alreadyAuthorizedUnexpected[i]);
         unexpectedSet.add(alreadyAuthorizedUnexpected[i]);
       }
       
