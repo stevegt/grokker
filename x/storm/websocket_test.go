@@ -762,3 +762,92 @@ func TestWebSocketUnexpectedFilesPathNormalizationBug(t *testing.T) {
 		t.Logf("File correctly categorized as already authorized")
 	}
 }
+
+// TestWebSocketBroadcastAbsolutePathsNotNormalized exposes the bug where unexpected files are broadcast with absolute paths
+// causing the browser to fail matching them against relative filenames
+func TestWebSocketBroadcastAbsolutePathsNotNormalized(t *testing.T) {
+	setup := setupTest(t, "ws-broadcast-abs-paths-project")
+	defer teardownTest(t, setup)
+
+	// Create test file
+	mainFile := filepath.Join(setup.ProjectDir, "main.go")
+	if err := ioutil.WriteFile(mainFile, []byte("package main\nfunc main() {}"), 0644); err != nil {
+		t.Fatalf("Failed to create main.go: %v", err)
+	}
+
+	// Add file to project as authorized
+	addFilesPayload := map[string]interface{}{
+		"filenames": []string{mainFile},
+	}
+	jsonData, _ := json.Marshal(addFilesPayload)
+	fileURL := fmt.Sprintf("%s/api/projects/%s/files/add", setup.DaemonURL, setup.ProjectID)
+	resp, err := http.Post(fileURL, "application/json", strings.NewReader(string(jsonData)))
+	if err != nil {
+		t.Fatalf("Failed to add authorized file: %v", err)
+	}
+	resp.Body.Close()
+
+	// Get the project and simulate broadcasting unexpected files
+	project, err := projects.Get(setup.ProjectID)
+	if err != nil {
+		t.Fatalf("Failed to get project: %v", err)
+	}
+
+	// Simulate what happens in sendQueryToLLM: categorize unexpected files and broadcast
+	// Pass files in absolute path format (what ExtractFiles returns)
+	alreadyAuth, needsAuth := categorizeUnexpectedFiles(project, []string{mainFile})
+
+	t.Logf("Broadcast test:")
+	t.Logf("  File added to project: %s", mainFile)
+	t.Logf("  categorizeUnexpectedFiles result (alreadyAuthorized): %v", alreadyAuth)
+	t.Logf("  alreadyAuthorized[0] absolute: %v", filepath.IsAbs(alreadyAuth[0]))
+
+	// The bug: alreadyAuthorized contains absolute paths that will be sent on the wire
+	if len(alreadyAuth) > 0 && filepath.IsAbs(alreadyAuth[0]) {
+		t.Errorf("BUG EXPOSED: alreadyAuthorized contains absolute path %s", alreadyAuth[0])
+		t.Logf("This absolute path will be broadcast to the browser via WebSocket filesUpdated message")
+		t.Logf("Browser will try to match this absolute path against relative filename %s", filepath.Base(mainFile))
+		t.Logf("The Set.has() check will fail because %q != %q", alreadyAuth[0], filepath.Base(mainFile))
+		t.Logf("Result: unexpected files won't show in red in the browser modal")
+	}
+
+	// Connect WebSocket to receive and verify the broadcast contains absolute paths
+	conn := connectWebSocket(t, setup.WsURL)
+	defer conn.Close()
+
+	// Wait for initialization
+	time.Sleep(500 * time.Millisecond)
+
+	// Manually broadcast the filesUpdated message (simulating what sendQueryToLLM does)
+	filesUpdatedMsg := map[string]interface{}{
+		"type":                     "filesUpdated",
+		"isUnexpectedFilesContext": true,
+		"queryID":                  "test-abs-paths-123",
+		"alreadyAuthorized":        alreadyAuth,  // Contains absolute paths - the bug!
+		"needsAuthorization":       needsAuth,
+		"projectID":                setup.ProjectID,
+		"files":                    project.GetFilesAsRelative(),
+	}
+	project.ClientPool.Broadcast(filesUpdatedMsg)
+
+	// Client receives the broadcast
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var msg map[string]interface{}
+	if err := conn.ReadJSON(&msg); err != nil {
+		t.Fatalf("Failed to receive broadcast: %v", err)
+	}
+
+	// Verify the broadcast contains absolute paths (the bug)
+	if alreadyAuthRaw, ok := msg["alreadyAuthorized"].([]interface{}); ok && len(alreadyAuthRaw) > 0 {
+		if authFile, ok := alreadyAuthRaw[0].(string); ok {
+			if filepath.IsAbs(authFile) {
+				t.Errorf("BUG CONFIRMED: filesUpdated message broadcast contains absolute path: %s", authFile)
+				t.Logf("Browser receives: %s", authFile)
+				t.Logf("Browser will try to match against: %s", filepath.Base(mainFile))
+				t.Logf("String comparison: %q == %q ? %v", authFile, filepath.Base(mainFile), authFile == filepath.Base(mainFile))
+			} else {
+				t.Logf("filesUpdated correctly contains relative path: %s", authFile)
+			}
+		}
+	}
+}
