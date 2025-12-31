@@ -10,7 +10,8 @@ Implement a pluggable LLM abstraction layer to enable comprehensive testing with
 3. **Grokker adapter** - Wrap `grokker/v3/client` and `grokker/v3/core` calls
 4. **Factory pattern** - Centralized creation of LLM instances
 5. **Mock LLM implementation** - Predefined responses for testing
-6. **Integration with tests** - Use mock LLM in websocket_test.go and web_client_test.go
+6. **File extraction abstraction** - Abstract file extraction logic for testability
+7. **Integration with tests** - Use mock LLM in websocket_test.go and web_client_test.go
 
 ## Recommended Directory Structure
 
@@ -19,13 +20,15 @@ Use a separate `llm/common` package for shared definitions (interfaces and confi
 ```
 llm/
 ├── common/
-│   ├── interface.go        # Interface definitions (QueryLLM, TokenCounter)
+│   ├── interface.go        # Interface definitions (QueryLLM, TokenCounter, FileExtractor)
 │   └── config.go           # Configuration structs (LLMConfig, LLMBackend)
 ├── factory.go              # NewLLM() factory function
 ├── grokker/
-│   └── adapter.go          # Implements QueryLLM, wraps grokker/v3/core
+│   ├── adapter.go          # Implements QueryLLM, wraps grokker/v3/core
+│   └── extractor.go        # Implements FileExtractor, wraps grokker/v3/core.ExtractFiles
 └── mock/
     ├── mock.go             # MockLLM implementing QueryLLM
+    ├── extractor.go        # MockFileExtractor implementing FileExtractor
     ├── templates.go        # Response templates for different scenarios
     └── builder.go          # Fluent builder for test setup
 ```
@@ -34,12 +37,14 @@ llm/
 
 ```
 llm/common/
-├── interface.go       ← QueryLLM, TokenCounter (NO imports from other llm packages)
+├── interface.go       ← QueryLLM, TokenCounter, FileExtractor (NO imports from other llm packages)
 └── config.go          ← LLMConfig, LLMBackend (NO imports from other llm packages)
     ↑
-    ├─ llm/grokker/adapter.go  (imports llm/common only)
-    ├─ llm/mock/mock.go        (imports llm/common only)
-    └─ llm/factory.go          (imports llm/common, llm/grokker, llm/mock)
+    ├─ llm/grokker/adapter.go   (imports llm/common only)
+    ├─ llm/grokker/extractor.go (imports llm/common only)
+    ├─ llm/mock/mock.go         (imports llm/common only)
+    ├─ llm/mock/extractor.go    (imports llm/common only)
+    └─ llm/factory.go           (imports llm/common, llm/grokker, llm/mock)
 ```
 
 **Key principle:** Interfaces and config go in a separate package with NO imports from any other llm subpackages:
@@ -77,6 +82,14 @@ type TokenCounterConfig struct {
     Grokker        *core.Grokker      // Required if Backend == LLMBackendGrokker
     CountPerWord   float64            // Optional: for mock, tokens per word (default 0.75)
 }
+
+// FileExtractorConfig holds configuration for FileExtractor creation
+type FileExtractorConfig struct {
+    Backend            LLMBackend
+    Grokker            *core.Grokker      // Required if Backend == LLMBackendGrokker
+    MockFailureFiles   []string           // Optional: which files to fail extraction for
+    MockFailureRate    float64            // Optional: percentage of files that fail (0.0-1.0)
+}
 ```
 
 ## Interface Definitions
@@ -93,15 +106,30 @@ type TokenCounter interface {
     TokenCount(text string) (int, error)
 }
 
+type FileExtractor interface {
+    ExtractFiles(outFiles []core.FileLang, response string, opts core.ExtractOptions) (*core.ExtractResult, error)
+}
+
 type TokenUsage struct {
     Tokens        int
     EstimatedUSD  float64
+}
+
+type ExtractOptions struct {
+    DryRun          bool
+    ExtractToStdout bool
+}
+
+type ExtractResult struct {
+    ExtractedFiles map[string]string  // filename → content
+    DetectedFiles  map[string]string  // filename → content
+    CookedResponse string
 }
 ```
 
 ## Factory Function (Single Entry Point)
 
-Single factory function taking typed config, like `db.NewStore()`:
+Single factory functions taking typed config, like `db.NewStore()`:
 
 ```go
 // llm/factory.go
@@ -145,6 +173,23 @@ func NewTokenCounter(config common.TokenCounterConfig) (common.TokenCounter, err
         return nil, fmt.Errorf("unknown token counter backend: %s", config.Backend)
     }
 }
+
+// NewFileExtractor creates a FileExtractor implementation based on backend
+func NewFileExtractor(config common.FileExtractorConfig) (common.FileExtractor, error) {
+    switch config.Backend {
+    case common.LLMBackendGrokker:
+        if config.Grokker == nil {
+            return nil, fmt.Errorf("grokker backend requires Grokker config")
+        }
+        return grokker.NewGrokkerExtractor(config), nil
+    
+    case common.LLMBackendMock:
+        return mock.NewMockExtractor(config), nil
+    
+    default:
+        return nil, fmt.Errorf("unknown file extractor backend: %s", config.Backend)
+    }
+}
 ```
 
 ### Usage Examples
@@ -156,18 +201,23 @@ queryLLM, err := llm.NewLLM(common.LLMConfig{
     Backend: common.LLMBackendGrokker,
     Grokker: grok,
 })
+extractor, err := llm.NewFileExtractor(common.FileExtractorConfig{
+    Backend: common.LLMBackendGrokker,
+    Grokker: grok,
+})
 
 // Test code with default mock
 mockLLM, err := llm.NewLLM(common.LLMConfig{
     Backend: common.LLMBackendMock,
 })
+mockExtractor, err := llm.NewFileExtractor(common.FileExtractorConfig{
+    Backend: common.LLMBackendMock,
+})
 
-// Test code with configured mock
-mockLLM, err := llm.NewLLM(common.LLMConfig{
-    Backend:       common.LLMBackendMock,
-    MockTemplate:  "simple-file",
-    MockDelay:     100 * time.Millisecond,
-    MockErrorMode: "rate-limit",
+// Test code with configured mock extraction (simulate failures)
+mockExtractor, err := llm.NewFileExtractor(common.FileExtractorConfig{
+    Backend:          common.LLMBackendMock,
+    MockFailureFiles: []string{"permission_denied.go", "write_error.txt"},
 })
 
 // Environment-based selection
@@ -179,6 +229,10 @@ queryLLM, err := llm.NewLLM(common.LLMConfig{
     Backend: backend,
     Grokker: grok,
 })
+extractor, err := llm.NewFileExtractor(common.FileExtractorConfig{
+    Backend: backend,
+    Grokker: grok,
+})
 ```
 
 ## File-by-File Breakdown
@@ -186,28 +240,35 @@ queryLLM, err := llm.NewLLM(common.LLMConfig{
 **`llm/common/interface.go`** - Interface definitions for the abstraction contract:
 - `QueryLLM` interface for LLM query execution
 - `TokenCounter` interface for token counting
+- `FileExtractor` interface for file extraction from responses
 - `TokenUsage` struct for response metadata
 - **Critical:** No imports from other llm packages
 
 **`llm/common/config.go`** - Configuration structs with typed fields:
 - `LLMConfig` for QueryLLM factory
 - `TokenCounterConfig` for TokenCounter factory
+- `FileExtractorConfig` for FileExtractor factory
 - `LLMBackend` enum constants
 - Validation of required fields
 - **Critical:** No imports from other llm packages (only stdlib)
 
-**`llm/factory.go`** - NewLLM() and NewTokenCounter() factory functions:
+**`llm/factory.go`** - NewLLM(), NewTokenCounter(), and NewFileExtractor() factory functions:
 - Backend selection via switch statement
 - Configuration validation
 - Returns implementations that satisfy interfaces from llm/common
 - Imports: llm/common, llm/grokker, llm/mock (safe - subpackages don't import each other)
 
-**`llm/grokker/adapter.go`** - Implements QueryLLM and TokenCounter interfaces:
-- Wraps core.Grokker calls
+**`llm/grokker/adapter.go`** - Implements QueryLLM interface:
+- Wraps core.Grokker.SendWithFiles calls
 - `NewGrokkerAdapter(config common.LLMConfig) common.QueryLLM`
-- `NewTokenCounterAdapter(config common.LLMConfig) common.TokenCounter`
 - Imports: only `llm/common` for interfaces and config
 - Never imports from llm/mock or llm/factory
+
+**`llm/grokker/extractor.go`** - Implements FileExtractor interface:
+- Wraps core.ExtractFiles calls
+- `NewGrokkerExtractor(config common.FileExtractorConfig) common.FileExtractor`
+- Delegates to core.ExtractFiles with passed options
+- Imports: only `llm/common` for interfaces and config
 
 **`llm/mock/mock.go`** - MockLLM implementing QueryLLM interface with:
 - Response mapping (query → response)
@@ -217,7 +278,17 @@ queryLLM, err := llm.NewLLM(common.LLMConfig{
 - `NewMockLLM(config common.LLMConfig) common.QueryLLM`
 - `NewMockTokenCounter(config common.LLMConfig) common.TokenCounter`
 - Imports: only `llm/common` for interfaces and config
-- Never imports from llm/grokker or llm/factory
+
+**`llm/mock/extractor.go`** - MockFileExtractor implementing FileExtractor interface:
+- Returns predefined files instead of parsing response
+- Simulates extraction failures for specific files
+- Tracks extraction calls for test assertions
+- `NewMockExtractor(config common.FileExtractorConfig) common.FileExtractor`
+- Supports configurable failure modes:
+  - Success for all files
+  - Failure for specific files (MockFailureFiles list)
+  - Random failure based on rate (MockFailureRate percentage)
+- Imports: only `llm/common` for interfaces and config
 
 **`llm/mock/templates.go`** - Predefined response templates:
 - TemplateSimpleFile
@@ -234,6 +305,11 @@ llm := llm.NewMockLLMBuilder().
     WithUnexpectedFiles("helper.go").
     WithErrorMode(mock.ErrorModeNetworkTimeout).
     Build()
+
+extractor := llm.NewMockExtractorBuilder().
+    WithFiles("main.go", "utils.go").
+    WithFailureFor("permission_denied.go").
+    Build()
 ```
 
 ## Why This Pattern Works
@@ -249,6 +325,7 @@ llm := llm.NewMockLLMBuilder().
 | Environment-based | Easy to switch production/mock via env var |
 | Extensible | Adding new backends requires minimal changes |
 | **NO circular imports** | llm/common has zero dependencies, safe for all to import |
+| **File extraction testable** | Mock extraction enables failure scenario testing |
 
 ## Suggested Enhancements
 
@@ -309,6 +386,11 @@ queryLLM := mock.NewMockLLMBuilder().
     WithUnexpectedFiles("primes.go", "utils.go").
     WithTokenUsageMultiplier(1.5).
     Build()
+
+extractor := mock.NewMockExtractorBuilder().
+    WithFiles("main.go", "primes.go").
+    WithFailureFor("config.json").  // This file will fail extraction
+    Build()
 ```
 
 ### 5. **Token Counting Isolation**
@@ -324,53 +406,76 @@ type MockTokenCounter struct {
 func (m *MockTokenCounter) TokenCount(text string) (int, error)
 ```
 
-### 6. **Configuration via Environment Variables**
+### 6. **File Extraction Failure Scenarios**
+
+MockFileExtractor can simulate:
+- Partial extraction (some files succeed, others fail)
+- Specific file failures (e.g., permission errors)
+- All files missing
+- Corrupted file content
+- Timeout during extraction
+
+```go
+type MockExtractor struct {
+    Files            map[string]string   // filename → content
+    FailureFiles     []string            // files that should fail
+    FailureRate      float64             // random failure percentage
+    ExtractionDelay  time.Duration       // simulate delay
+    CallLog          []ExtractorCall
+}
+
+type ExtractorCall struct {
+    OutFiles []core.FileLang
+    Options  core.ExtractOptions
+    Result   *core.ExtractResult
+    Error    error
+    Timestamp time.Time
+}
+```
+
+### 7. **Configuration via Environment Variables**
 
 ```go
 const (
-    EnvLLMBackend      = "STORM_LLM_BACKEND"    // "grokker" or "mock"
-    EnvMockTemplate    = "STORM_MOCK_TEMPLATE"  // which template to use
-    EnvMockDelay       = "STORM_MOCK_DELAY"     // simulated delay
-    EnvMockFailRate    = "STORM_MOCK_FAIL_RATE" // failure percentage
+    EnvLLMBackend        = "STORM_LLM_BACKEND"      // "grokker" or "mock"
+    EnvMockTemplate      = "STORM_MOCK_TEMPLATE"    // which template to use
+    EnvMockDelay         = "STORM_MOCK_DELAY"       // simulated delay
+    EnvMockFailRate      = "STORM_MOCK_FAIL_RATE"   // failure percentage
+    EnvMockExtractFail   = "STORM_MOCK_EXTRACT_FAIL" // files that fail extraction
 )
 ```
 
-### 7. **Test Utilities**
+### 8. **Test Utilities**
 
 Provide helpers in testutil package:
 
 ```go
 func NewTestLLMConfig() common.LLMConfig { /* returns mock config */ }
+func NewTestExtractorConfig() common.FileExtractorConfig { /* returns mock config */ }
 func AssertLLMWasCalled(t *testing.T, m *mock.MockLLM, expectedQuery string)
 func AssertLLMCallCount(t *testing.T, m *mock.MockLLM, expected int)
+func AssertExtractorCallCount(t *testing.T, m *mock.MockExtractor, expected int)
+func AssertExtractorFailedFor(t *testing.T, m *mock.MockExtractor, filename string)
 func DumpLLMCallLog(t *testing.T, m *mock.MockLLM) string
-```
-
-### 8. **Integration with Existing Code**
-
-Modify `main.go` to accept LLM parameter:
-
-```go
-// Before
-response, _, err := grok.SendWithFiles(llm, sysmsg, msgs, inputFiles, outFilesConverted)
-
-// After
-response, usage, err := currentLLM.SendWithFiles(ctx, llm, sysmsg, msgs, inputFiles, outFilesConverted)
+func DumpExtractorCallLog(t *testing.T, m *mock.MockExtractor) string
 ```
 
 ## Implementation Order
 
-1. **Phase 1** - Create llm/common/interface.go with interface definitions
+1. **Phase 1** - Create llm/common/interface.go with interface definitions (QueryLLM, TokenCounter, FileExtractor)
 2. **Phase 2** - Create llm/common/config.go with typed configuration structs
-3. **Phase 3** - Create llm/factory.go with NewLLM() factory
-4. **Phase 4** - Create llm/grokker/adapter.go wrapping grokker calls
-5. **Phase 5** - Create llm/mock/ package with MockLLM implementation
-6. **Phase 6** - Add test utilities to testutil package
-7. **Phase 7** - Modify main.go to use llm.QueryLLM instead of direct grokker
-8. **Phase 8** - Refactor existing tests to use llm.NewLLM(common.LLMConfig{Backend: common.LLMBackendMock})
-9. **Phase 9** - Add comprehensive mock-based tests for edge cases
+3. **Phase 3** - Create llm/factory.go with NewLLM(), NewTokenCounter(), NewFileExtractor() factories
+4. **Phase 4** - Create llm/grokker/adapter.go wrapping grokker.SendWithFiles
+5. **Phase 5** - Create llm/grokker/extractor.go wrapping core.ExtractFiles
+6. **Phase 6** - Create llm/mock/mock.go with MockLLM implementation
+7. **Phase 7** - Create llm/mock/extractor.go with MockFileExtractor implementation
+8. **Phase 8** - Add test utilities to testutil package
+9. **Phase 9** - Modify main.go to use llm.QueryLLM and llm.FileExtractor instead of direct grokker/core
+10. **Phase 10** - Refactor existing tests to use llm.NewLLM() and llm.NewFileExtractor()
+11. **Phase 11** - Add comprehensive mock-based tests for edge cases and file extraction failures
+12. **Phase 12** - Add extraction failure scenario tests
 
-## Testing Scenarios Enabled by Mock LLM
+## Testing Scenarios Enabled by Mock LLM and FileExtractor
 
 ✅ Token limit exceeded (retry logic)  
 ✅ Unexpected files detection and user approval  
@@ -382,14 +487,19 @@ response, usage, err := currentLLM.SendWithFiles(ctx, llm, sysmsg, msgs, inputFi
 ✅ Timeout simulation without actual waiting  
 ✅ Various file encoding scenarios  
 ✅ Large response handling  
+✅ **File extraction failures** (permission denied, disk full, etc.)  
+✅ **Partial file extraction** (some files extracted, others fail)  
+✅ **Missing extracted files** (LLM promised files that don't appear in extraction)  
+✅ **Corrupted file content** (invalid UTF-8, truncated files, etc.)  
 
 ## Benefits
 
-| Aspect | Current | With Mock LLM |
-|--------|---------|---------------|
+| Aspect | Current | With Mock LLM and FileExtractor |
+|--------|---------|--------------------------------|
 | Test Speed | 30+ sec | <1 sec |
 | Cost | Multiple API calls | $0 |
 | Reliability | Rate limits, timeouts | Deterministic |
 | Debugging | Black box | Full visibility |
 | Edge Cases | Hard to trigger | Trivial to create |
+| Extraction Testing | Limited | Complete scenario coverage |
 | CI/CD | Flaky | Stable |

@@ -60816,3 +60816,46 @@ So I need to update mock-llm.md to reflect this structure with llm/common packag
 
 ---
 
+
+
+**we also need an interface for ExtractFiles**
+
+
+
+
+# Add ExtractFiles Interface to Mock LLM Plan
+
+Updates mock-llm.md to include a `FileExtractor` interface for abstracting file extraction from LLM responses. This allows testing file extraction logic independently and mocking failure scenarios without relying on actual LLM response parsing.
+
+
+## References
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to update the mock-llm.md file to also include an interface for ExtractFiles. They've provided a complete mock-llm.md file and shown me the db/* pattern as a reference.
+
+Let me look at what needs to be added. Currently the mock-llm.md mentions:
+- QueryLLM interface for sending queries to LLM
+- TokenCounter interface for counting tokens
+
+But they're now saying we also need an interface for ExtractFiles. Looking at the conversation context, ExtractFiles is from the grokker core library - it parses file content out of LLM responses.
+
+So I need to add to the mock-llm.md:
+- An interface for ExtractFiles (probably something like FileExtractor or similar)
+- Mock implementation for testing file extraction
+
+This should follow the same pattern as QueryLLM and TokenCounter.
+
+Let me update the mock-llm.md file to include this new interface.
+
+
+---
+
