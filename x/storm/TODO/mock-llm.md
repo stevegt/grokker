@@ -19,7 +19,7 @@ Mirror the db/* package structure for consistency:
 ```
 llm/
 ├── interface.go           # Interface definitions (QueryLLM, TokenCounter)
-├── factory.go             # LLMFactory and NewLLM() function
+├── factory.go             # LLMFactory function: NewLLM(mode, config)
 ├── grokker/
 │   └── adapter.go         # GrokkerAdapter wrapping grokker/v3/core
 └── mock/
@@ -28,10 +28,92 @@ llm/
     └── builder.go         # Fluent builder for test setup
 ```
 
-### File-by-File Breakdown
+## Factory Pattern: Single Entry Point
 
-**`llm/interface.go`** - Define the contract:
+Following the db.NewStore() pattern, use a single factory function with a mode/backend argument:
+
 ```go
+// llm/factory.go
+
+type LLMBackend string
+
+const (
+    LLMBackendGrokker LLMBackend = "grokker"
+    LLMBackendMock    LLMBackend = "mock"
+)
+
+// NewLLM creates an LLM implementation based on the specified backend
+func NewLLM(backend LLMBackend, config ...interface{}) (QueryLLM, error) {
+    switch backend {
+    case LLMBackendGrokker:
+        // config[0] should be *core.Grokker instance
+        if len(config) == 0 {
+            return nil, fmt.Errorf("grokker backend requires *core.Grokker config")
+        }
+        grok, ok := config[0].(*core.Grokker)
+        if !ok {
+            return nil, fmt.Errorf("invalid grokker config type")
+        }
+        return grokker.NewGrokkerAdapter(grok), nil
+    
+    case LLMBackendMock:
+        // config[0] is optional MockLLMBuilder or predefined template
+        if len(config) == 0 {
+            return mock.NewMockLLM(), nil
+        }
+        // Could accept a builder or template as config
+        return config[0].(QueryLLM), nil
+    
+    default:
+        return nil, fmt.Errorf("unknown LLM backend: %s", backend)
+    }
+}
+
+// NewTokenCounter creates a TokenCounter implementation based on backend
+func NewTokenCounter(backend LLMBackend, config ...interface{}) (TokenCounter, error) {
+    switch backend {
+    case LLMBackendGrokker:
+        if len(config) == 0 {
+            return nil, fmt.Errorf("grokker backend requires grokker config")
+        }
+        grok, ok := config[0].(*core.Grokker)
+        if !ok {
+            return nil, fmt.Errorf("invalid grokker config type")
+        }
+        return grokker.NewTokenCounterAdapter(grok), nil
+    
+    case LLMBackendMock:
+        return mock.NewMockTokenCounter(), nil
+    
+    default:
+        return nil, fmt.Errorf("unknown token counter backend: %s", backend)
+    }
+}
+```
+
+### Usage Examples
+
+```go
+// Production code
+grok := core.New(...)
+queryLLM, _ := llm.NewLLM(llm.LLMBackendGrokker, grok)
+
+// Test code
+mockLLM, _ := llm.NewLLM(llm.LLMBackendMock)
+
+// Environment-based selection
+backend := llm.LLMBackendGrokker
+if os.Getenv("STORM_MOCK_LLM") == "true" {
+    backend = llm.LLMBackendMock
+}
+queryLLM, _ := llm.NewLLM(backend, grok)
+```
+
+### Interface Definitions
+
+```go
+// llm/interface.go
+
 type QueryLLM interface {
     SendWithFiles(ctx context.Context, llm string, sysmsg string, msgs []client.ChatMsg, 
         inputFiles []string, outFilesConverted []core.FileLang) (response string, usage *TokenUsage, err error)
@@ -47,214 +129,86 @@ type TokenUsage struct {
 }
 ```
 
-**`llm/factory.go`** - Factory pattern with dependency injection:
+## File-by-File Breakdown
+
+**`llm/interface.go`** - Interface definitions for the abstraction contract
+
+**`llm/factory.go`** - Single NewLLM() factory function with backend selection:
+- LLMBackendGrokker - wraps actual grokker library
+- LLMBackendMock - uses mock implementation
+
+**`llm/grokker/adapter.go`** - Implements QueryLLM interface wrapping core.Grokker
+
+**`llm/mock/mock.go`** - MockLLM implementing QueryLLM interface with:
+- Response mapping (query → response)
+- Call logging for test assertions
+- Error simulation modes
+- Configurable delays
+
+**`llm/mock/templates.go`** - Predefined response templates:
+- TemplateSimpleFile
+- TemplateMultipleFiles
+- TemplateModifyFile
+- TemplateLongResponse
+- etc.
+
+**`llm/mock/builder.go`** - Fluent builder for composable test setup:
 ```go
-func NewLLM(useMock bool, config ...interface{}) QueryLLM
-func NewTokenCounter(useMock bool, config ...interface{}) TokenCounter
+llm := llm.NewMockLLMBuilder().
+    WithResponse("edit main.go", template).
+    WithUnexpectedFiles("helper.go").
+    WithErrorOnQuery("invalid", ErrorModeNetworkTimeout).
+    Build()
 ```
 
-**`llm/grokker/adapter.go`** - Wraps actual grokker library:
-```go
-type GrokkerAdapter struct {
-    grok *core.Grokker
-}
+## Why This Pattern Works
 
-func (g *GrokkerAdapter) SendWithFiles(...) (string, *TokenUsage, error)
-```
-
-**`llm/mock/mock.go`** - Mock implementation:
-```go
-type MockLLM struct {
-    Responses map[string]string
-    CallLog   []MockLLMCall
-    ErrorMode ErrorMode
-    // ... other fields
-}
-
-func (m *MockLLM) SendWithFiles(...) (string, *TokenUsage, error)
-```
-
-**`llm/mock/templates.go`** - Predefined responses:
-```go
-const (
-    TemplateSimpleFile MockLLMResponseTemplate = "..."
-    TemplateMultipleFiles = "..."
-    TemplateUnexpectedFiles = "..."
-    // ... other templates
-)
-```
-
-**`llm/mock/builder.go`** - Fluent test setup:
-```go
-type MockLLMBuilder struct { ... }
-
-func (b *MockLLMBuilder) WithResponse(query, response string) *MockLLMBuilder
-func (b *MockLLMBuilder) WithUnexpectedFiles(files ...string) *MockLLMBuilder
-func (b *MockLLMBuilder) Build() *MockLLM
-```
-
-## Why Mirror db/* Structure
-
-✅ **Consistency** - Same pattern used in the codebase  
-✅ **Familiarity** - Developers understand the architecture immediately  
-✅ **Maintainability** - Clear separation of concerns (interface, adapter, factory, mock)  
-✅ **Extensibility** - Adding new LLM providers later is straightforward  
-✅ **Testability** - Clean abstraction boundaries make testing easy
+| Aspect | Benefit |
+|--------|---------|
+| Single entry point | Easy to find where LLM is created |
+| Mode/backend argument | Consistent with db.NewStore() pattern |
+| No naming chaos | One NewLLM(), not NewMockLLM(), NewRealLLM(), etc. |
+| Environment-based | Easy to switch production/mock via env var |
+| Extensible | Adding new backends requires only NewLLM() changes |
 
 ## Suggested Improvements
 
-### 1. **LLM Interface Design**
-
-Separate concerns into **two interfaces**:
-
-```go
-// High-level interface for query processing
-type QueryLLM interface {
-    SendWithFiles(ctx context.Context, llm string, sysmsg string, msgs []client.ChatMsg, 
-        inputFiles []string, outFilesConverted []core.FileLang) (response string, usage *TokenUsage, err error)
-}
-
-// Lower-level interface for token counting
-type TokenCounter interface {
-    TokenCount(text string) (int, error)
-}
-```
-
-**Rationale**: Token counting is simpler and reusable; query processing is complex. Separating them allows testing token counting independently.
-
-### 2. **Deterministic Mock Responses**
-
-The mock LLM should support **query-to-response mapping**:
+### 1. **Deterministic Mock Responses**
 
 ```go
 type MockLLM struct {
     Responses map[string]string  // query substring → response
-    CallLog   []MockLLMCall     // record of all calls for assertions
-    Delay     time.Duration     // optional: simulate network latency
-    Failures  []string          // queries that should fail
+    CallLog   []MockLLMCall      // track all calls for assertions
+    Delay     time.Duration      // simulate network latency
+    Failures  []string           // queries that should fail
 }
 
 type MockLLMCall struct {
-    Query string
-    LLM string
+    Query     string
+    LLM       string
     InputFiles []string
-    OutFiles []string
+    OutFiles  []string
     Timestamp time.Time
 }
 ```
 
-**Why this approach:**
-- Predictable: same query always gets same response
-- Inspectable: can assert what queries were sent
-- Flexible: supports testing error scenarios
-- Observable: call log helps debug test failures
+### 2. **Response Templates for Different Scenarios**
 
-### 3. **Response Templates for Different Scenarios**
+Predefined responses for:
+- Simple file creation
+- Multiple files
+- File modifications
+- Long responses exceeding token limit
+- Responses with references and reasoning sections
 
-Provide predefined response templates for common test cases:
-
-```go
-type MockLLMResponseTemplate string
-
-const (
-    // Simple file creation response
-    TemplateSimpleFile = `# Created file
-
-package main
-
-func main() {
-    println("Hello, world!")
-}
-`
-
-    // Multiple files response
-    TemplateMultipleFiles = `# Multiple files created
-
-package main
-
-package main
-`
-
-    // Response with file modifications
-    TemplateModifyFile = `# Edit main.go to call helper function
-
-package main
-
-func main() {
-    helper()
-}
-
-func helper() {
-    println("Helper function")
-}
-`
-
-    // Long response that exceeds token limit
-    TemplateLongResponse = `# Very long response
-
-[repeated content to exceed token limit]
-`
-
-    // Response with references and reasoning sections
-    TemplateWithMetadata = `# Solution
-
-## References
-
-- [1] [https://example.com](https://example.com)
-
-## Reasoning
-
-<think>This is reasoning text</think>
-
-code here
-`
-)
-```
-
-### 4. **Factory Pattern with Dependency Injection**
-
-```go
-type LLMFactory interface {
-    CreateQueryLLM() QueryLLM
-    CreateTokenCounter() TokenCounter
-}
-
-type ProductionLLMFactory struct {
-    grokker *core.Grokker
-}
-
-type MockLLMFactory struct {
-    template MockLLMResponseTemplate
-    responses map[string]string
-}
-
-func NewLLMFactory(useMock bool, config ...interface{}) LLMFactory {
-    if useMock {
-        return &MockLLMFactory{}
-    }
-    return &ProductionLLMFactory{grokker: config[0].(*core.Grokker)}
-}
-```
-
-### 5. **Enhanced Mock Capabilities**
-
-Add features for realistic testing:
+### 3. **Enhanced Mock Capabilities**
 
 ```go
 type MockLLM struct {
-    // ... existing fields ...
-    
-    // Simulate various error conditions
-    ErrorMode ErrorMode // NONE, NETWORK_TIMEOUT, RATE_LIMIT, INVALID_RESPONSE
-    
-    // Simulate partial responses or streaming delays
-    ResponseDelay time.Duration
-    
-    // Simulate varying token usage based on input
-    TokenUsageMultiplier float64
-    
-    // Conditional response selection based on input
-    ConditionalResponses map[string]func(query string) string
+    ErrorMode             ErrorMode          // simulate various failures
+    ResponseDelay         time.Duration      // simulate network latency
+    TokenUsageMultiplier  float64            // vary token usage
+    ConditionalResponses  map[string]func... // dynamic response selection
 }
 
 type ErrorMode int
@@ -263,119 +217,93 @@ const (
     ErrorModeNetworkTimeout
     ErrorModeRateLimit
     ErrorModeInvalidResponse
-    ErrorModePartialFailure  // some files succeed, some fail
+    ErrorModePartialFailure
 )
 ```
 
-### 6. **Test Scenario Builders**
+### 4. **Test Scenario Builders**
 
-Create fluent builders for complex test setups:
+Fluent API for complex test setups:
 
 ```go
-// Example usage in tests:
 llm := llm.NewMockLLMBuilder().
     WithResponse("edit main.go", llm.TemplateSimpleFile).
-    WithResponse("add file", llm.TemplateMultipleFiles).
     WithUnexpectedFiles("primes.go", "utils.go").
-    WithErrorOnQuery("invalid query", llm.ErrorModeNetworkTimeout).
     WithTokenUsageMultiplier(1.5).
     Build()
 ```
 
-### 7. **Integration Points in Existing Code**
+### 5. **Token Counting Isolation**
 
-Modify `main.go` `sendQueryToLLM()` to accept an LLM parameter:
-
-```go
-// Before:
-response, _, err := grok.SendWithFiles(llm, sysmsg, msgs, inputFiles, outFilesConverted)
-
-// After:
-response, usage, err := currentLLM.SendWithFiles(ctx, llm, sysmsg, msgs, inputFiles, outFilesConverted)
-```
-
-### 8. **Test Utilities**
-
-Provide helper functions in testutil package:
-
-```go
-// testutil/mock_llm.go
-
-func NewTestLLM() *MockLLM { /* ... */ }
-
-func NewTestLLMWithFiles(files ...string) *MockLLM { /* ... */ }
-
-func NewTestLLMWithError(err error) *MockLLM { /* ... */ }
-
-func AssertLLMWasCalled(t *testing.T, llm *MockLLM, expectedQuery string)
-
-func AssertLLMCallCount(t *testing.T, llm *MockLLM, expected int)
-
-func DumpLLMCallLog(t *testing.T, llm *MockLLM) string // for debugging
-```
-
-### 9. **Token Counting Isolation**
-
-Implement `TokenCounter` independently for speed:
+Implement MockTokenCounter independently for speed:
 
 ```go
 type MockTokenCounter struct {
-    CountPerWord int  // default: 1 word = 0.75 tokens
-    Cache map[string]int
+    CountPerWord int              // default: 1 word = 0.75 tokens
+    Cache        map[string]int
 }
 
-func (m *MockTokenCounter) TokenCount(text string) (int, error) {
-    if cached, ok := m.Cache[text]; ok {
-        return cached, nil
-    }
-    
-    words := len(strings.Fields(text))
-    tokens := int(float64(words) * float64(m.CountPerWord) / 100)
-    return tokens, nil
-}
+func (m *MockTokenCounter) TokenCount(text string) (int, error)
 ```
 
-This allows testing token limit enforcement without calling the actual tokenizer.
-
-### 10. **Configuration via Environment Variables**
+### 6. **Configuration via Environment Variables**
 
 ```go
 const (
-    EnvUseMockLLM       = "STORM_MOCK_LLM"      // set to "true" to use mock
-    EnvMockLLMTemplate  = "STORM_MOCK_TEMPLATE" // which template to use
-    EnvMockLLMDelay     = "STORM_MOCK_DELAY"    // simulated network delay
-    EnvMockLLMFailRate  = "STORM_MOCK_FAIL_RATE" // percentage of queries to fail
+    EnvLLMBackend      = "STORM_LLM_BACKEND"    // "grokker" or "mock"
+    EnvMockTemplate    = "STORM_MOCK_TEMPLATE"  // which template to use
+    EnvMockDelay       = "STORM_MOCK_DELAY"     // simulated delay
+    EnvMockFailRate    = "STORM_MOCK_FAIL_RATE" // failure percentage
 )
 ```
 
-This allows:
-- Running tests with real LLM for integration testing
-- Quick tests with mock for CI/CD
-- Stress testing by simulating failures
+### 7. **Test Utilities**
+
+Provide helpers in testutil package:
+
+```go
+func NewTestLLM() QueryLLM { /* default mock */ }
+func NewTestLLMWithError(err error) QueryLLM
+func AssertLLMWasCalled(t *testing.T, llm *mock.MockLLM, expectedQuery string)
+func AssertLLMCallCount(t *testing.T, llm *mock.MockLLM, expected int)
+func DumpLLMCallLog(t *testing.T, llm *mock.MockLLM) string
+```
+
+### 8. **Integration with Existing Code**
+
+Modify `main.go` to accept LLM parameter:
+
+```go
+// Before
+response, _, err := grok.SendWithFiles(llm, sysmsg, msgs, inputFiles, outFilesConverted)
+
+// After
+response, usage, err := currentLLM.SendWithFiles(ctx, llm, sysmsg, msgs, inputFiles, outFilesConverted)
+```
 
 ## Implementation Order
 
-1. **Phase 1**: Create llm/interface.go with interface definitions
-2. **Phase 2**: Create llm/grokker/adapter.go wrapping existing grokker calls
-3. **Phase 3**: Create llm/mock/ package with MockLLM implementation
-4. **Phase 4**: Create llm/factory.go with factory pattern
-5. **Phase 5**: Add test utilities to testutil package
-6. **Phase 6**: Modify main.go to use llm.QueryLLM interface instead of direct grokker calls
-7. **Phase 7**: Refactor existing tests to use mock LLM
-8. **Phase 8**: Add comprehensive mock-based tests for edge cases
+1. **Phase 1** - Create llm/interface.go with interface definitions
+2. **Phase 2** - Create llm/factory.go with NewLLM() factory
+3. **Phase 3** - Create llm/grokker/adapter.go wrapping grokker calls
+4. **Phase 4** - Create llm/mock/ package with MockLLM implementation
+5. **Phase 5** - Add test utilities to testutil package
+6. **Phase 6** - Modify main.go to use llm.QueryLLM instead of direct grokker
+7. **Phase 7** - Refactor existing tests to use NewLLM(llm.LLMBackendMock)
+8. **Phase 8** - Add comprehensive mock-based tests for edge cases
 
 ## Testing Scenarios Enabled by Mock LLM
 
-- ✅ Token limit exceeded (retry logic)
-- ✅ Unexpected files detection and user approval flow
-- ✅ File extraction with mixed success/failure
-- ✅ Query cancellation mid-processing
-- ✅ Concurrent queries with different responses
-- ✅ Error recovery and retry logic
-- ✅ WebSocket message ordering and delivery
-- ✅ Timeout simulation without actual waiting
-- ✅ Various file encoding scenarios
-- ✅ Large response handling
+✅ Token limit exceeded (retry logic)  
+✅ Unexpected files detection and user approval  
+✅ File extraction with mixed success/failure  
+✅ Query cancellation mid-processing  
+✅ Concurrent queries with different responses  
+✅ Error recovery and retry logic  
+✅ WebSocket message ordering and delivery  
+✅ Timeout simulation without actual waiting  
+✅ Various file encoding scenarios  
+✅ Large response handling  
 
 ## Benefits
 
@@ -387,10 +315,3 @@ This allows:
 | Debugging | Black box | Full visibility |
 | Edge Cases | Hard to trigger | Trivial to create |
 | CI/CD | Flaky | Stable |
-
-## Open Questions
-
-1. Should mock LLM support streaming responses, or just complete responses?
-2. Should we persist mock LLM call logs to disk for debugging?
-3. Should production code have conditional logic based on LLM type, or should the abstraction be completely transparent?
-4. How should we handle the `grok.TokenCount()` calls in `tokenCountHandler`? Mock those too?

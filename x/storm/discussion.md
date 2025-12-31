@@ -59971,3 +59971,63 @@ I should update the mock-llm.md file to add a recommended directory structure se
 
 ---
 
+
+
+**i see too many New* functions in the plan.  Simplify that to a single factory function that takes a backend argument similar to the way db.NewStore() works.**
+
+
+
+
+# Simplified LLM Factory Pattern
+
+Updates the LLM mocking plan to use a single factory function `NewLLM()` that accepts a backend/mode argument, mirroring the `db.NewStore()` pattern. This eliminates multiple New* functions in favor of a cleaner, more consistent API[1].
+
+
+## References
+
+[1] https://en.wikipedia.org/wiki/Factory_method_pattern
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is providing me with a massive amount of context about the Storm project and asking me to simplify the LLM mocking plan to use a single factory function similar to db.NewStore() that takes a backend argument.
+
+Looking at the system message at the very top, I need to:
+1. Start with a markdown heading
+2. Limit discussion to 8192 tokens
+3. Return complete files only (marked with FILE-START/FILE-END)
+4. Use correct format: ---FILE-START filename="<path>"--- and ---FILE-END filename="<path>"---
+5. Must include `/home/stevegt/lab/grokker/x/storm/TODO/mock-llm.md` based on the regex requirement
+
+The query is: "i see too many New* functions in the plan. Simplify that to a single factory function that takes a backend argument similar to the way db.NewStore() works."
+
+Looking at the db package they provided:
+- `db.NewStore(dbPath string, backend BackendType)` - factory function that takes a backend type
+- Returns `kv.KVStore` interface
+- BackendType is an enum: `const BoltDB BackendType = "bbolt"`
+
+So I need to update the mock-llm.md file to simplify the factory pattern to use a single `NewLLM()` function that takes a backend/mode argument, similar to `NewStore()`.
+
+Looking at the current mock-llm.md I provided, it has:
+- `func NewLLM(useMock bool, config ...interface{}) QueryLLM`
+- `func NewTokenCounter(useMock bool, config ...interface{}) TokenCounter`
+
+The user is saying there are too many New* functions. I should simplify this to:
+- A single `NewLLM(mode string, config ...interface{}) QueryLLM` function that takes a mode like "mock" or "grokker"
+- Similar to how `db.NewStore()` takes a `BackendType`
+
+
+- This eliminates the need for separate NewTokenCounter, NewMockLLM, etc. functions
+
+I need to refactor the mock-llm.md file to reflect this consolidated factory pattern approach.
+
+
+---
+
