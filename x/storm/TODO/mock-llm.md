@@ -19,7 +19,8 @@ Mirror the db/* package structure for consistency:
 ```
 llm/
 ├── interface.go           # Interface definitions (QueryLLM, TokenCounter)
-├── factory.go             # LLMFactory function: NewLLM(mode, config)
+├── config.go              # Configuration struct for factory
+├── factory.go             # NewLLM factory function
 ├── grokker/
 │   └── adapter.go         # GrokkerAdapter wrapping grokker/v3/core
 └── mock/
@@ -28,12 +29,12 @@ llm/
     └── builder.go         # Fluent builder for test setup
 ```
 
-## Factory Pattern: Single Entry Point
+## Factory Pattern: Typed Configuration Struct
 
-Following the db.NewStore() pattern, use a single factory function with a mode/backend argument:
+Following Go best practices and the db pattern, use a typed configuration struct:
 
 ```go
-// llm/factory.go
+// llm/config.go
 
 type LLMBackend string
 
@@ -42,51 +43,76 @@ const (
     LLMBackendMock    LLMBackend = "mock"
 )
 
+// LLMConfig holds configuration for LLM creation
+type LLMConfig struct {
+    Backend        LLMBackend         // Which backend to use
+    Grokker        *core.Grokker      // Required if Backend == LLMBackendGrokker
+    MockTemplate   string             // Optional: which template to use for mock
+    MockDelay      time.Duration      // Optional: simulated delay for mock
+    MockErrorMode  mock.ErrorMode     // Optional: error simulation mode
+}
+
+// TokenCounterConfig holds configuration for TokenCounter creation
+type TokenCounterConfig struct {
+    Backend        LLMBackend
+    Grokker        *core.Grokker      // Required if Backend == LLMBackendGrokker
+    CountPerWord   float64            // Optional: for mock, tokens per word (default 0.75)
+}
+```
+
+### Factory Functions
+
+```go
+// llm/factory.go
+
 // NewLLM creates an LLM implementation based on the specified backend
-func NewLLM(backend LLMBackend, config ...interface{}) (QueryLLM, error) {
-    switch backend {
+func NewLLM(config LLMConfig) (QueryLLM, error) {
+    switch config.Backend {
     case LLMBackendGrokker:
-        // config[0] should be *core.Grokker instance
-        if len(config) == 0 {
-            return nil, fmt.Errorf("grokker backend requires *core.Grokker config")
+        if config.Grokker == nil {
+            return nil, fmt.Errorf("grokker backend requires Grokker config")
         }
-        grok, ok := config[0].(*core.Grokker)
-        if !ok {
-            return nil, fmt.Errorf("invalid grokker config type")
-        }
-        return grokker.NewGrokkerAdapter(grok), nil
+        return grokker.NewGrokkerAdapter(config.Grokker), nil
     
     case LLMBackendMock:
-        // config[0] is optional MockLLMBuilder or predefined template
-        if len(config) == 0 {
-            return mock.NewMockLLM(), nil
+        mockLLM := mock.NewMockLLM()
+        
+        // Apply optional mock configuration
+        if config.MockDelay > 0 {
+            mockLLM.SetDelay(config.MockDelay)
         }
-        // Could accept a builder or template as config
-        return config[0].(QueryLLM), nil
+        if config.MockErrorMode != mock.ErrorModeNone {
+            mockLLM.SetErrorMode(config.MockErrorMode)
+        }
+        if config.MockTemplate != "" {
+            mockLLM.SetTemplate(config.MockTemplate)
+        }
+        
+        return mockLLM, nil
     
     default:
-        return nil, fmt.Errorf("unknown LLM backend: %s", backend)
+        return nil, fmt.Errorf("unknown LLM backend: %s", config.Backend)
     }
 }
 
 // NewTokenCounter creates a TokenCounter implementation based on backend
-func NewTokenCounter(backend LLMBackend, config ...interface{}) (TokenCounter, error) {
-    switch backend {
+func NewTokenCounter(config TokenCounterConfig) (TokenCounter, error) {
+    switch config.Backend {
     case LLMBackendGrokker:
-        if len(config) == 0 {
-            return nil, fmt.Errorf("grokker backend requires grokker config")
+        if config.Grokker == nil {
+            return nil, fmt.Errorf("grokker backend requires Grokker config")
         }
-        grok, ok := config[0].(*core.Grokker)
-        if !ok {
-            return nil, fmt.Errorf("invalid grokker config type")
-        }
-        return grokker.NewTokenCounterAdapter(grok), nil
+        return grokker.NewTokenCounterAdapter(config.Grokker), nil
     
     case LLMBackendMock:
-        return mock.NewMockTokenCounter(), nil
+        mockCounter := mock.NewMockTokenCounter()
+        if config.CountPerWord > 0 {
+            mockCounter.SetCountPerWord(config.CountPerWord)
+        }
+        return mockCounter, nil
     
     default:
-        return nil, fmt.Errorf("unknown token counter backend: %s", backend)
+        return nil, fmt.Errorf("unknown token counter backend: %s", config.Backend)
     }
 }
 ```
@@ -96,17 +122,33 @@ func NewTokenCounter(backend LLMBackend, config ...interface{}) (TokenCounter, e
 ```go
 // Production code
 grok := core.New(...)
-queryLLM, _ := llm.NewLLM(llm.LLMBackendGrokker, grok)
+queryLLM, err := llm.NewLLM(llm.LLMConfig{
+    Backend: llm.LLMBackendGrokker,
+    Grokker: grok,
+})
 
-// Test code
-mockLLM, _ := llm.NewLLM(llm.LLMBackendMock)
+// Test code with default mock
+mockLLM, err := llm.NewLLM(llm.LLMConfig{
+    Backend: llm.LLMBackendMock,
+})
+
+// Test code with configured mock
+mockLLM, err := llm.NewLLM(llm.LLMConfig{
+    Backend:       llm.LLMBackendMock,
+    MockTemplate:  "simple-file",
+    MockDelay:     100 * time.Millisecond,
+    MockErrorMode: mock.ErrorModeRateLimit,
+})
 
 // Environment-based selection
 backend := llm.LLMBackendGrokker
 if os.Getenv("STORM_MOCK_LLM") == "true" {
     backend = llm.LLMBackendMock
 }
-queryLLM, _ := llm.NewLLM(backend, grok)
+queryLLM, err := llm.NewLLM(llm.LLMConfig{
+    Backend: backend,
+    Grokker: grok,
+})
 ```
 
 ### Interface Definitions
@@ -124,8 +166,8 @@ type TokenCounter interface {
 }
 
 type TokenUsage struct {
-    Tokens     int
-    EstimatedUSD float64
+    Tokens        int
+    EstimatedUSD  float64
 }
 ```
 
@@ -133,9 +175,15 @@ type TokenUsage struct {
 
 **`llm/interface.go`** - Interface definitions for the abstraction contract
 
-**`llm/factory.go`** - Single NewLLM() factory function with backend selection:
-- LLMBackendGrokker - wraps actual grokker library
-- LLMBackendMock - uses mock implementation
+**`llm/config.go`** - Configuration structs with typed fields:
+- LLMConfig for QueryLLM factory
+- TokenCounterConfig for TokenCounter factory
+- Validation that required fields are populated
+
+**`llm/factory.go`** - NewLLM() and NewTokenCounter() factory functions:
+- Backend selection via switch statement
+- Configuration validation
+- Concrete implementation creation
 
 **`llm/grokker/adapter.go`** - Implements QueryLLM interface wrapping core.Grokker
 
@@ -157,7 +205,7 @@ type TokenUsage struct {
 llm := llm.NewMockLLMBuilder().
     WithResponse("edit main.go", template).
     WithUnexpectedFiles("helper.go").
-    WithErrorOnQuery("invalid", ErrorModeNetworkTimeout).
+    WithErrorMode(mock.ErrorModeNetworkTimeout).
     Build()
 ```
 
@@ -165,11 +213,13 @@ llm := llm.NewMockLLMBuilder().
 
 | Aspect | Benefit |
 |--------|---------|
+| Typed config struct | Compiler catches missing fields, not runtime |
+| Explicit requirements | Factory signature shows all needed config |
+| No interface{} magic | No type assertions, no surprises |
+| Optional fields | Zero-values for optional parameters |
 | Single entry point | Easy to find where LLM is created |
-| Mode/backend argument | Consistent with db.NewStore() pattern |
-| No naming chaos | One NewLLM(), not NewMockLLM(), NewRealLLM(), etc. |
 | Environment-based | Easy to switch production/mock via env var |
-| Extensible | Adding new backends requires only NewLLM() changes |
+| Extensible | Adding new backends requires minimal changes |
 
 ## Suggested Improvements
 
@@ -239,7 +289,7 @@ Implement MockTokenCounter independently for speed:
 
 ```go
 type MockTokenCounter struct {
-    CountPerWord int              // default: 1 word = 0.75 tokens
+    CountPerWord float64            // default: 1 word = 0.75 tokens
     Cache        map[string]int
 }
 
@@ -262,11 +312,10 @@ const (
 Provide helpers in testutil package:
 
 ```go
-func NewTestLLM() QueryLLM { /* default mock */ }
-func NewTestLLMWithError(err error) QueryLLM
-func AssertLLMWasCalled(t *testing.T, llm *mock.MockLLM, expectedQuery string)
-func AssertLLMCallCount(t *testing.T, llm *mock.MockLLM, expected int)
-func DumpLLMCallLog(t *testing.T, llm *mock.MockLLM) string
+func NewTestLLMConfig() llm.LLMConfig { /* returns mock config */ }
+func AssertLLMWasCalled(t *testing.T, m *mock.MockLLM, expectedQuery string)
+func AssertLLMCallCount(t *testing.T, m *mock.MockLLM, expected int)
+func DumpLLMCallLog(t *testing.T, m *mock.MockLLM) string
 ```
 
 ### 8. **Integration with Existing Code**
@@ -284,13 +333,14 @@ response, usage, err := currentLLM.SendWithFiles(ctx, llm, sysmsg, msgs, inputFi
 ## Implementation Order
 
 1. **Phase 1** - Create llm/interface.go with interface definitions
-2. **Phase 2** - Create llm/factory.go with NewLLM() factory
-3. **Phase 3** - Create llm/grokker/adapter.go wrapping grokker calls
-4. **Phase 4** - Create llm/mock/ package with MockLLM implementation
-5. **Phase 5** - Add test utilities to testutil package
-6. **Phase 6** - Modify main.go to use llm.QueryLLM instead of direct grokker
-7. **Phase 7** - Refactor existing tests to use NewLLM(llm.LLMBackendMock)
-8. **Phase 8** - Add comprehensive mock-based tests for edge cases
+2. **Phase 2** - Create llm/config.go with typed configuration structs
+3. **Phase 3** - Create llm/factory.go with NewLLM() factory
+4. **Phase 4** - Create llm/grokker/adapter.go wrapping grokker calls
+5. **Phase 5** - Create llm/mock/ package with MockLLM implementation
+6. **Phase 6** - Add test utilities to testutil package
+7. **Phase 7** - Modify main.go to use llm.QueryLLM instead of direct grokker
+8. **Phase 8** - Refactor existing tests to use NewLLM(llm.LLMConfig{Backend: llm.LLMBackendMock})
+9. **Phase 9** - Add comprehensive mock-based tests for edge cases
 
 ## Testing Scenarios Enabled by Mock LLM
 

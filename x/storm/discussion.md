@@ -60031,3 +60031,64 @@ I need to refactor the mock-llm.md file to reflect this consolidated factory pat
 
 ---
 
+
+
+**config should be a struct, not an interface{}**
+
+
+
+
+# Update LLM Factory: Use Config Struct Instead of interface{}
+
+Updates the factory pattern to use a typed `LLMConfig` struct instead of `...interface{}`, improving type safety and clarity. This aligns with Go best practices and makes the factory function's requirements explicit[1].
+
+
+## References
+
+[1] https://golang.org/doc/effective_go#interfaces
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is providing me with a massive amount of context about the Storm project, complete files, and a final query: "config should be a struct, not an interface{}"
+
+Looking at my system message at the top, I need to:
+1. Start with markdown heading
+2. Limit discussion to 8192 tokens
+3. Return complete files only (marked with FILE-START/FILE-END)
+4. Use correct format: ---FILE-START filename="<path>"--- and ---FILE-END filename="<path>"---
+5. The query is asking me to update the mock-llm.md file to use a struct for config instead of interface{}
+
+The user is pointing out that in the NewLLM factory function, I'm using `config ...interface{}` which is too loose. Looking at the db pattern they showed, it doesn't use interface{} - it has specific typed parameters.
+
+For the LLM factory, instead of:
+```go
+func NewLLM(backend LLMBackend, config ...interface{}) (QueryLLM, error)
+```
+
+It should be something like:
+```go
+type LLMConfig struct {
+    Grokker *core.Grokker
+    // other fields as needed
+}
+
+func NewLLM(backend LLMBackend, config LLMConfig) (QueryLLM, error)
+```
+
+This is cleaner, more type-safe, and follows Go best practices better than interface{}.
+
+Let me update the mock-llm.md file to use a proper config struct instead of interface{}.
+
+The system message says I must include the complete file `/home/stevegt/lab/grokker/x/storm/TODO/mock-llm.md`, so I need to provide the updated version with config as a struct.
+
+
+---
+
