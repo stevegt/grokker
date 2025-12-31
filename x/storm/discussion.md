@@ -59918,3 +59918,56 @@ The mock-llm.md plan already demonstrates understanding of the architectural app
 
 ---
 
+
+
+**add a recommended directory structure.  should we just mimic the db/* structure?**
+
+
+
+
+# Add Recommended LLM Directory Structure
+
+Yes, mirroring the db/* structure is the right approach. This maintains consistency with existing patterns in the codebase and makes the architecture immediately recognizable.
+
+
+## References
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to "add a recommended directory structure. should we just mimic the db/* structure?" to the TODO/mock-llm.md file.
+
+Looking at the system message at the top of this conversation, I need to:
+1. Start with a markdown heading
+2. Limit discussion to 8192 tokens
+3. Return complete files only (marked with FILE-START/FILE-END)
+4. Use correct format: ---FILE-START filename="<path>"--- and ---FILE-END filename="<path>"---
+5. Must include the file `/home/stevegt/lab/grokker/x/storm/TODO/mock-llm.md` based on the regex requirement
+
+The query is: "add a recommended directory structure. should we just mimic the db/* structure?"
+
+They're asking me to add a recommended directory structure section to the TODO/mock-llm.md file, and asking if we should mimic the db/* structure.
+
+Looking at the db/* structure they showed:
+- db/kv/kv.go - interface definitions
+- db/bbolt/bbolt.go - concrete implementation (BoltDB)
+- db/db.go - factory, Manager, etc.
+
+So for LLM, the structure should mirror this:
+- llm/interface.go (or llm.go) - interface definitions (QueryLLM, TokenCounter)
+- llm/grokker/adapter.go - concrete implementation (GrokkerAdapter wrapping actual grokker library)
+- llm/mock/mock.go - mock implementation (MockLLM)
+- llm/llm.go (or llm/factory.go) - factory, etc.
+
+I should update the mock-llm.md file to add a recommended directory structure section that mirrors the db/* pattern.
+
+
+---
+

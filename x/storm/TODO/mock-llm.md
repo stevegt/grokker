@@ -5,18 +5,107 @@ Implement a pluggable LLM abstraction layer to enable comprehensive testing with
 
 ## Proposed Architecture (User's Outline)
 
-1. **Move LLM-related code to `llm.go`** - Consolidate grokker library interactions
+1. **Move LLM-related code to `llm/` package** - Consolidate grokker library interactions
 2. **Generic LLM interface** - Define a contract any LLM implementation must follow
 3. **Grokker adapter** - Wrap `grokker/v3/client` and `grokker/v3/core` calls
 4. **Factory pattern** - Centralized creation of LLM instances
 5. **Mock LLM implementation** - Predefined responses for testing
 6. **Integration with tests** - Use mock LLM in websocket_test.go and web_client_test.go
 
+## Recommended Directory Structure
+
+Mirror the db/* package structure for consistency:
+
+```
+llm/
+├── interface.go           # Interface definitions (QueryLLM, TokenCounter)
+├── factory.go             # LLMFactory and NewLLM() function
+├── grokker/
+│   └── adapter.go         # GrokkerAdapter wrapping grokker/v3/core
+└── mock/
+    ├── mock.go            # MockLLM implementation
+    ├── templates.go       # Response templates for different scenarios
+    └── builder.go         # Fluent builder for test setup
+```
+
+### File-by-File Breakdown
+
+**`llm/interface.go`** - Define the contract:
+```go
+type QueryLLM interface {
+    SendWithFiles(ctx context.Context, llm string, sysmsg string, msgs []client.ChatMsg, 
+        inputFiles []string, outFilesConverted []core.FileLang) (response string, usage *TokenUsage, err error)
+}
+
+type TokenCounter interface {
+    TokenCount(text string) (int, error)
+}
+
+type TokenUsage struct {
+    Tokens     int
+    EstimatedUSD float64
+}
+```
+
+**`llm/factory.go`** - Factory pattern with dependency injection:
+```go
+func NewLLM(useMock bool, config ...interface{}) QueryLLM
+func NewTokenCounter(useMock bool, config ...interface{}) TokenCounter
+```
+
+**`llm/grokker/adapter.go`** - Wraps actual grokker library:
+```go
+type GrokkerAdapter struct {
+    grok *core.Grokker
+}
+
+func (g *GrokkerAdapter) SendWithFiles(...) (string, *TokenUsage, error)
+```
+
+**`llm/mock/mock.go`** - Mock implementation:
+```go
+type MockLLM struct {
+    Responses map[string]string
+    CallLog   []MockLLMCall
+    ErrorMode ErrorMode
+    // ... other fields
+}
+
+func (m *MockLLM) SendWithFiles(...) (string, *TokenUsage, error)
+```
+
+**`llm/mock/templates.go`** - Predefined responses:
+```go
+const (
+    TemplateSimpleFile MockLLMResponseTemplate = "..."
+    TemplateMultipleFiles = "..."
+    TemplateUnexpectedFiles = "..."
+    // ... other templates
+)
+```
+
+**`llm/mock/builder.go`** - Fluent test setup:
+```go
+type MockLLMBuilder struct { ... }
+
+func (b *MockLLMBuilder) WithResponse(query, response string) *MockLLMBuilder
+func (b *MockLLMBuilder) WithUnexpectedFiles(files ...string) *MockLLMBuilder
+func (b *MockLLMBuilder) Build() *MockLLM
+```
+
+## Why Mirror db/* Structure
+
+✅ **Consistency** - Same pattern used in the codebase  
+✅ **Familiarity** - Developers understand the architecture immediately  
+✅ **Maintainability** - Clear separation of concerns (interface, adapter, factory, mock)  
+✅ **Extensibility** - Adding new LLM providers later is straightforward  
+✅ **Testability** - Clean abstraction boundaries make testing easy
+
 ## Suggested Improvements
 
 ### 1. **LLM Interface Design**
 
-Instead of a single broad interface, consider **two separate interfaces**:
+Separate concerns into **two interfaces**:
 
 ```go
 // High-level interface for query processing
@@ -65,7 +154,6 @@ type MockLLMCall struct {
 Provide predefined response templates for common test cases:
 
 ```go
-// MockLLMResponseTemplate defines patterns for different test scenarios
 type MockLLMResponseTemplate string
 
 const (
@@ -87,18 +175,18 @@ package main
 package main
 `
 
-    // Unexpected files in response
-    TemplateUnexpectedFiles = `# Response with unexpected files
-
-package main
-`
-
-    // File extraction with errors (missing files, broken files)
-    TemplateWithErrors = `# Response with issues
+    // Response with file modifications
+    TemplateModifyFile = `# Edit main.go to call helper function
 
 package main
 
-invalid go code here
+func main() {
+    helper()
+}
+
+func helper() {
+    println("Helper function")
+}
 `
 
     // Long response that exceeds token limit
@@ -117,6 +205,8 @@ invalid go code here
 ## Reasoning
 
 <think>This is reasoning text</think>
+
+code here
 `
 )
 ```
@@ -125,7 +215,8 @@ invalid go code here
 
 ```go
 type LLMFactory interface {
-    CreateLLM() QueryLLM
+    CreateQueryLLM() QueryLLM
+    CreateTokenCounter() TokenCounter
 }
 
 type ProductionLLMFactory struct {
@@ -182,11 +273,11 @@ Create fluent builders for complex test setups:
 
 ```go
 // Example usage in tests:
-llm := NewMockLLMBuilder().
-    WithResponse("edit main.go", TemplateSimpleFile).
-    WithResponse("add file", TemplateMultipleFiles).
+llm := llm.NewMockLLMBuilder().
+    WithResponse("edit main.go", llm.TemplateSimpleFile).
+    WithResponse("add file", llm.TemplateMultipleFiles).
     WithUnexpectedFiles("primes.go", "utils.go").
-    WithErrorOnQuery("invalid query", ErrorModeNetworkTimeout).
+    WithErrorOnQuery("invalid query", llm.ErrorModeNetworkTimeout).
     WithTokenUsageMultiplier(1.5).
     Build()
 ```
@@ -264,12 +355,14 @@ This allows:
 
 ## Implementation Order
 
-1. **Phase 1**: Create `llm.go` with interface definitions and Grokker adapter
-2. **Phase 2**: Implement `MockLLM` with response templates
-3. **Phase 3**: Add factory pattern to `main.go` and existing code paths
-4. **Phase 4**: Add test utilities to testutil package
-5. **Phase 5**: Refactor existing tests to use mock LLM
-6. **Phase 6**: Add comprehensive mock-based tests for edge cases
+1. **Phase 1**: Create llm/interface.go with interface definitions
+2. **Phase 2**: Create llm/grokker/adapter.go wrapping existing grokker calls
+3. **Phase 3**: Create llm/mock/ package with MockLLM implementation
+4. **Phase 4**: Create llm/factory.go with factory pattern
+5. **Phase 5**: Add test utilities to testutil package
+6. **Phase 6**: Modify main.go to use llm.QueryLLM interface instead of direct grokker calls
+7. **Phase 7**: Refactor existing tests to use mock LLM
+8. **Phase 8**: Add comprehensive mock-based tests for edge cases
 
 ## Testing Scenarios Enabled by Mock LLM
 
