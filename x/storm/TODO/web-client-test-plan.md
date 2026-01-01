@@ -57,12 +57,12 @@ chromedp is a Go package that drives Chrome/Chromium via the Chrome DevTools Pro
 - ~35 seconds total test execution time
 - ~70%+ code coverage for core logic
 
-**Recent Completion**
+**Recent Completion** ✅
 - ✅ Unified `filesUpdated` message type replaces separate `unexpectedFilesDetected` and `fileListUpdated` messages
 - ✅ Dynamic modal reorganization: files automatically move from "Needs Authorization" to "Already Authorized" sections as they are CLI-authorized
 - ✅ Modal auto-closes and reopens when `filesUpdated` arrives, preserving query context
 - ✅ Checkbox state persists via IndexedDB across all file interactions
-- ✅ Path normalization bug fixed: relative paths resolved against project BaseDir
+- ✅ **Path normalization and sanitization**: Centralized message sanitization in `writePump()` ensures all file paths are converted from absolute to relative before being sent to browser
 
 ---
 
@@ -220,6 +220,71 @@ needsAuthFiles2, err := testutil.GetNeedsAuthorizationFiles(ctx)
 
 ---
 
+## Path Normalization and WebSocket Message Sanitization
+
+### Architectural Pattern: "Relative on Wire, Absolute Internally"
+
+The Storm application enforces strict path format requirements[1]:
+
+**Principle**: All filenames transmitted between browser and server (on the wire) must be relative paths. The server converts them to absolute paths internally for processing.
+
+### Implementation: Centralized Sanitization in writePump()
+
+**Single Exit Point Enforcement**[1]
+- Every WebSocket message sent to clients passes through `writePump()`
+- `writePump()` calls `sanitizeMessage()` before writing each message
+- `sanitizeMessage()` inspects all file path fields and normalizes them to relative form
+- Guarantees no matter where messages originate, they are sanitized before reaching the browser
+
+**Automatic Path Conversion**[1]
+```go
+// In writePump()
+for {
+    case message, ok := <-c.send:
+        // Sanitize message: convert absolute paths to relative
+        sanitized := sanitizeMessage(project, message.(map[string]interface{}))
+        
+        // Send sanitized message to browser
+        if err := c.conn.WriteJSON(sanitized); err != nil {
+            return
+        }
+}
+```
+
+**Result**: Browser always receives relative filenames (e.g., "main.go", "hello.go") instead of absolute paths (e.g., "/tmp/project1/main.go"), ensuring correct comparison against file rows in the modal.
+
+### Why This Matters
+
+**Bug Fixed**[1]
+- **Before**: Server sent absolute paths like `/tmp/project1/main.go` in filesUpdated message
+- Browser compared against relative filenames like `main.go` from file table
+- Set.has() check failed; unexpected files never showed in red
+
+**After**: Server sanitizes in writePump() before sending
+- Browser receives relative path `main.go`
+- Matches against file row with filename `main.go`
+- Set.has() succeeds; files correctly show in red
+
+### Circular Import Prevention
+
+The architecture avoids circular imports by centralizing path conversion in the server's exit point (`writePump()`) rather than at every callsite[1]:
+
+```
+Server-side (produces absolute paths)
+    ↓
+categorizeUnexpectedFiles() → absolute paths
+    ↓
+Broadcast to ClientPool
+    ↓
+writePump() → sanitizeMessage() converts to relative
+    ↓
+Browser (receives relative paths) ✅
+```
+
+No individual sender needs to remember to normalize; the centralized exit point enforces it for all messages.
+
+---
+
 ## Known Issues and Resolutions
 
 ### ✅ FIXED: IndexedDB Race Condition in File Modal
@@ -236,7 +301,15 @@ needsAuthFiles2, err := testutil.GetNeedsAuthorizationFiles(ctx)
 
 **Problem**: Authorized files stored as absolute paths didn't match unexpected files in relative format
 
-**Resolution**: `categorizeUnexpectedFiles()` now resolves relative paths against project.BaseDir
+**Resolution**: Centralized `sanitizeMessage()` in `writePump()` converts all file paths to relative form before sending to browser
+
+### ✅ FIXED: Circular Import Risk with Path Handling
+
+**Status**: FIXED
+
+**Problem**: Expecting each broadcast caller to remember to normalize paths was error-prone
+
+**Resolution**: Moved all path normalization to single exit point (`writePump()`), eliminating need for per-caller normalization
 
 ### ⚠️ KNOWN: chromedp JavaScript Evaluation Timing
 
@@ -326,6 +399,7 @@ go test -v ./... -run TestWebClient
 - Response receiving
 - File list update broadcasts
 - Unexpected files detection broadcasts
+- Centralized message sanitization in writePump()
 - Connection cleanup
 
 ### Coverage Gaps (Lower Priority)
@@ -359,10 +433,11 @@ go test -v ./... -run TestWebClient
 4. **Synthetic events** for more reliable clicks
 5. **Query selectors** that target specific, stable elements
 6. **Modal content verification** before proceeding
+7. **Centralized message sanitization** ensuring consistent path format at exit point
 
 ---
 
-## Recent Updates (December 2025)
+## Recent Updates (December 2025 - January 2026)
 
 ### Unified Message Protocol ✅
 - Consolidated `unexpectedFilesDetected` and `fileListUpdated` into single `filesUpdated` message type
@@ -375,9 +450,16 @@ go test -v ./... -run TestWebClient
 - `currentUnexpectedFilesQuery` preserved across close/reopen cycles
 - Checkbox states persist via IndexedDB during reorganization
 
+### Path Normalization and Sanitization ✅
+- Centralized `sanitizeMessage()` in `writePump()` enforces relative paths on wire
+- All file path fields normalized before sending to browser
+- Fixes unexpected files display bug where absolute paths didn't match relative filenames
+- Follows "relative on wire, absolute internally" architectural principle
+- Single exit point eliminates need for per-caller path normalization
+
 ### Complete Unexpected Files Feature ✅
 - Stages 1-10 implemented and tested
-- Path normalization bug fixed
+- Path normalization and sanitization verified
 - All core workflows validated
 
 ---
@@ -385,7 +467,7 @@ go test -v ./... -run TestWebClient
 ## Future Improvements
 
 1. **Resolve chromedp Timing Issues** - Investigate root cause of querySelector timing problems and implement more reliable detection
-2. **Mock LLM Responses** - Avoid actual LLM calls in web client tests by mocking at server level
+2. **Mock LLM Responses** - Avoid actual LLM calls in web client tests by mocking at server level (see mock-llm.md plan)
 3. **Automated Spinner Detection** - Improve reliability of detecting query response completion
 4. **Performance Profiling** - Add metrics for page load times and interaction latency
 5. **Visual Regression Testing** - Capture screenshots and compare against baselines

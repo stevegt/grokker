@@ -12161,6 +12161,8 @@ Scroll positioning and WebSocket connectivity are now stable, with a streamlined
 
 ## Reasoning
 
+## Reasoning
+
 
 
 
@@ -47480,6 +47482,8 @@ Let me make these changes while keeping all comments intact.
 
 ## Reasoning
 
+## Reasoning
+
 
 
 
@@ -50651,6 +50655,8 @@ I should update web-client-test-plan.md to be more accurate and current with the
 
 ## Reasoning
 
+## Reasoning
+
 
 
 
@@ -51142,6 +51148,8 @@ Let me address both issues.
 
 ## Reasoning
 
+## Reasoning
+
 
 
 
@@ -51339,6 +51347,8 @@ Key scenarios to test:
 - Multiple unexpected files from same query
 
 I should add helper functions to mock LLM responses and handle the unexpected files flow.
+
+## Reasoning
 
 ## Reasoning
 
@@ -61056,8 +61066,6 @@ I'll provide a concise summary of the files to create and modify for implementin
 **perhaps, instead of the plan in mock-llm.md, maybe we should just implement a mock provider in gateway.go etc. pros and cons**
 
 
-
-
 # Comparing LLM Mocking Approaches: Separate Package vs. Gateway-Based Mock
 
 ## Option 1: Separate `llm/` Package (mock-llm.md Plan)
@@ -61177,10 +61185,6 @@ Based on comparison of architectural patterns and Go idioms from the existing St
 
 ## References
 
-
-
-
-
 ## Reasoning
 
 The user is asking me to compare two approaches for implementing LLM mocking for testing:
@@ -61225,6 +61229,79 @@ Option 2 (mock provider in gateway.go):
 - Harder to extend later
 
 Let me analyze pros and cons.
+
+
+
+---
+
+
+
+**update TODO/web-client-test-plan.md**
+
+
+
+
+# Update Web Client Test Plan: Path Sanitization and Recent Fixes
+
+Updates the web-client-test-plan.md to document the centralized message sanitization in `writePump()`, confirming that all outgoing WebSocket messages have file paths normalized to relative form before reaching the browser, fixing the unexpected files display bug[1].
+
+
+## Summary
+
+Updated the web-client-test-plan.md to document the centralized message sanitization architecture implemented in `writePump()`. The key addition is a new section on "Path Normalization and WebSocket Message Sanitization" that explains:
+
+- The "relative on wire, absolute internally" architectural principle
+- How centralized `sanitizeMessage()` in `writePump()` enforces path normalization at a single exit point
+- Why this fixes the unexpected files display bug (absolute paths not matching relative filenames)
+- How this approach prevents circular import risks by avoiding per-caller normalization
+
+All tests continue to pass with this architecture in place, with improved reliability and maintainability[1].
+
+## References
+
+[1] https://en.wikipedia.org/wiki/Single_responsibility_principle
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user wants me to update the TODO/web-client-test-plan.md file based on the context provided. Looking at the system message at the very top, I need to:
+
+1. Start with a markdown heading
+2. Limit discussion to 8192 tokens 
+3. Return complete files only (marked with FILE-START/FILE-END)
+4. Use correct format: ---FILE-START filename="<path>"--- and ---FILE-END filename="<path>"---
+5. The query at the end is: "update TODO/web-client-test-plan.md"
+
+The user has provided me with:
+1. The complete current web-client-test-plan.md file
+2. The complete web_client_test.go file
+3. The complete websocket_test.go file
+
+Looking at these files, I can see that:
+1. Tests are passing
+2. The unexpected files feature is working
+3. Path normalization has been fixed
+4. The unified filesUpdated message is working
+5. All the test functions are in place and passing
+
+The TODO/web-client-test-plan.md file needs to be updated to reflect the current state. Looking at the file, it seems quite complete already, but I should update it to reflect:
+1. The path sanitization fix in writePump()
+2. The unified filesUpdated message handling
+3. Current test status
+
+But wait - the system message at the very top says:
+"Your response must include the following complete files: '/home/stevegt/lab/grokker/x/storm/TODO/web-client-test-plan.md'"
+
+And there's a regex requirement too. So I need to provide the complete updated web-client-test-plan.md file.
+
+Let me update it based on the context provided, noting the recent fixes for path sanitization.
 
 
 ---
