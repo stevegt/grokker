@@ -7,6 +7,7 @@ import (
 	oai "github.com/stevegt/go-openai"
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker/v3/client"
+	"github.com/stevegt/grokker/v3/mock"
 )
 
 var DefaultModel = "o3-mini"
@@ -77,6 +78,18 @@ func NewModels() (models *Models) {
 	add("r1-1776", 128000, "perplexity", "r1-1776")
 
 	return
+}
+
+// AddMockModel adds a mock model for testing purposes.
+func (models *Models) AddMockModel(name string, tokenLimit int) {
+	m := &Model{
+		Name:         name,
+		TokenLimit:   tokenLimit,
+		providerName: "mock",
+		upstreamName: name,
+		provider:     mock.NewClient(),
+	}
+	models.Available[name] = m
 }
 
 // FindModel returns the model name and object given a model name.

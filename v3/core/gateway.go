@@ -166,9 +166,13 @@ func initMessages(g *Grokker, sysmsg string) []client.ChatMsg {
 	return messages
 }
 
-// gateway acts as a router to the appropriate completion function based on provider.
+// gateway acts as a router to the appropriate completion function
+// based on provider. A mock provider and model can be injected for
+// testing by adding it to models.Available before calling this
+// function.  See model.go:AddMockModel().
 func (g *Grokker) gateway(modelName string, inmsgs []client.ChatMsg) (results client.Results, err error) {
 	defer Return(&err)
+
 	_, modelObj, err := g.models.FindModel(modelName)
 	Ck(err)
 
@@ -180,6 +184,8 @@ func (g *Grokker) gateway(modelName string, inmsgs []client.ChatMsg) (results cl
 	case "perplexity":
 		pp := perplexity.NewClient()
 		return pp.CompleteChat(upstreamName, inmsgs)
+	case "mock":
+		return modelObj.provider.CompleteChat(upstreamName, inmsgs)
 	default:
 		Assert(false, "unknown provider: %s", modelObj.providerName)
 	}
