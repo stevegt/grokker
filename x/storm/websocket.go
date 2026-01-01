@@ -13,7 +13,6 @@ import (
 	"github.com/gorilla/websocket"
 
 	// . "github.com/stevegt/goadapt"
-	"github.com/stevegt/grokker/v3/core"
 )
 
 var (
@@ -38,7 +37,7 @@ var (
 type PendingQuery struct {
 	queryID                 string
 	rawResponse             string
-	outFiles                []core.FileLang
+	outFiles                []string
 	approvalChannel         chan []string
 	alreadyAuthorized       []string
 	needsAuthorization      []string
@@ -114,7 +113,7 @@ type WSClient struct {
 }
 
 // addPendingQuery registers a query waiting for user approval
-func addPendingQuery(queryID string, rawResponse string, outFiles []core.FileLang, alreadyAuthorized, needsAuthorization []string, project *Project) *PendingQuery {
+func addPendingQuery(queryID string, rawResponse string, outFiles []string, alreadyAuthorized, needsAuthorization []string, project *Project) *PendingQuery {
 	pending := &PendingQuery{
 		queryID:                 queryID,
 		rawResponse:             rawResponse,

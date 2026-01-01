@@ -682,7 +682,8 @@ func TestWebClientCreateFileAndApproveUnexpected(t *testing.T) {
 	resp, _ := http.Post(server.URL+"/api/projects", "application/json", bytes.NewReader(jsonData))
 	resp.Body.Close()
 
-	helloFn := filepath.Join(server.ProjectDir, "hello.go")
+	helloFnRel := "hello.go"
+	helloFn := filepath.Join(server.ProjectDir, helloFnRel)
 
 	ctx, cancel := newChromeContext()
 	defer cancel()
@@ -746,7 +747,7 @@ func TestWebClientCreateFileAndApproveUnexpected(t *testing.T) {
 	if len(needsAuthFiles) != 1 {
 		t.Fatalf("Expected exactly 1 file needing authorization, got %d", len(needsAuthFiles))
 	}
-	if needsAuthFiles[0] != helloFn {
+	if needsAuthFiles[0] != helloFnRel {
 		t.Fatalf("Expected file needing authorization to be %s, got %s", helloFn, needsAuthFiles[0])
 	}
 
@@ -851,7 +852,8 @@ func TestWebClientUnexpectedFilesAlreadyAuthorized(t *testing.T) {
 	resp, _ := http.Post(server.URL+"/api/projects", "application/json", bytes.NewReader(jsonData))
 	resp.Body.Close()
 
-	testFile := filepath.Join(server.ProjectDir, "preauth.txt")
+	fn := "preauth.txt"
+	testFile := filepath.Join(server.ProjectDir, fn)
 	ioutil.WriteFile(testFile, []byte("pre-authorized"), 0644)
 
 	addFilesPayload := map[string]interface{}{
@@ -887,7 +889,12 @@ func TestWebClientUnexpectedFilesAlreadyAuthorized(t *testing.T) {
 
 	// TODO mock the LLM instead of calling SubmitQuery
 
-	err = testutil.SubmitQuery(ctx, "write a story in preauth.txt. you MUST use correct file markers as shown in the system message")
+	testQuery := "Write a story in preauth.txt.  You MUST use proper markers:\n"
+	testQuery += fmt.Sprintf("---FILE-START filename=\"%s\"---\n", fn)
+	testQuery += "[...file content here...]\n"
+	testQuery += fmt.Sprintf("---FILE-END filename=\"%s\"---\n", fn)
+
+	err = testutil.SubmitQuery(ctx, testQuery)
 	if err != nil {
 		t.Fatalf("Failed to submit query: %v", err)
 	}

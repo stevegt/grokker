@@ -136,9 +136,7 @@ func (a *Agent) composeMessage() string {
 	// Specify an output file so that the API returns the generated message.
 	// The file is created in the agent's directory.
 	outFilePath := filepath.Join(a.Dir, "message.md")
-	outFiles := []core.FileLang{
-		{File: outFilePath, Language: "txt"},
-	}
+	outFiles := []string{outFilePath}
 
 	// Create a Grokker object using the agent's configured brain/model.
 	grok, _, _, _, lock, err := core.Load(a.Config.Brain, true)
@@ -156,13 +154,17 @@ func (a *Agent) composeMessage() string {
 	}
 
 	// call ExtractFiles to parse the response and extract message.md
-	// and pseudocode.md
-	err := core.ExtractFiles(outFiles, response, false, false)
+	result, err := core.ExtractFiles(outFiles, response, core.ExtractOptions{
+		DryRun:          false,
+		ExtractToStdout: false,
+	})
 	if err != nil {
 		log.Printf("Agent %s failed to extract files: %v", a.ID, err)
 		return fmt.Sprintf("Error extracting files for agent %s: %v", a.ID, err)
 	}
 
+	// Get the extracted message from the result
+	extractedMsg := result.DetectedFiles[outFilePath]
 	return extractedMsg
 }
 
@@ -207,7 +209,11 @@ func (a *Agent) sendMessage(allAgents map[string]*Agent) {
 	content := a.composeMessage()
 	// get the message content from message.md
 	contentBuf, err := ioutil.ReadFile(filepath.Join(a.Dir, "message.md"))
-	content := string(messageBuf)
+	if err != nil {
+		log.Printf("Agent %s failed to read message.md: %v", a.ID, err)
+		return
+	}
+	content = string(contentBuf)
 
 	// XXX get the destination ID from to.txt
 	// XXX no, see below

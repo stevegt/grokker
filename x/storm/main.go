@@ -26,7 +26,6 @@ import (
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker/v3/client"
 	"github.com/stevegt/grokker/v3/core"
-	"github.com/stevegt/grokker/v3/util"
 	"github.com/stevegt/grokker/x/storm/db"
 	"github.com/stevegt/grokker/x/storm/split"
 	"github.com/stevegt/grokker/x/storm/version"
@@ -665,19 +664,6 @@ func sendQueryToLLM(project *Project, queryID, query string, llm string, selecti
 			{Role: "USER", Content: prompt},
 		}
 
-		var outFilesConverted []core.FileLang
-		for j := 0; j < len(outFiles); j++ {
-			f := outFiles[j]
-			lang, known, err := util.Ext2Lang(f)
-			if err != nil {
-				log.Printf("Ext2Lang error for file %s: %v", f, err)
-				lang = "text"
-			}
-			if !known {
-				log.Printf("Unknown file extension for output file %s; assuming language is %s", f, lang)
-			}
-			outFilesConverted = append(outFilesConverted, core.FileLang{File: f, Language: lang})
-		}
 		fmt.Printf("Sending query to LLM '%s'\n", llm)
 		fmt.Printf("Query: %s\n", query)
 
@@ -697,7 +683,7 @@ func sendQueryToLLM(project *Project, queryID, query string, llm string, selecti
 			}()
 		}
 
-		response, _, err := grok.SendWithFiles(llm, sysmsg, msgs, inputFiles, outFilesConverted)
+		response, _, err := grok.SendWithFiles(llm, sysmsg, msgs, inputFiles, outFiles)
 		if err != nil {
 			log.Printf("SendWithFiles error: %v", err)
 			return "", fmt.Errorf("failed to send query to LLM: %w", err)
@@ -731,7 +717,7 @@ func sendQueryToLLM(project *Project, queryID, query string, llm string, selecti
 		fmt.Printf("Response: %s\n", response)
 
 		// run ExtractFiles first as a dry run to see if we fit in token limit
-		result, err := core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
+		result, err := core.ExtractFiles(outFiles, response, core.ExtractOptions{
 			DryRun:          true,
 			ExtractToStdout: false,
 		})
@@ -773,7 +759,7 @@ func sendQueryToLLM(project *Project, queryID, query string, llm string, selecti
 				log.Printf("Broadcasted filesUpdated notification for query %s", queryID)
 
 				// Create pending query and wait for user approval
-				pending := addPendingQuery(queryID, response, outFilesConverted, alreadyAuthorized, needsAuthorization, project)
+				pending := addPendingQuery(queryID, response, outFiles, alreadyAuthorized, needsAuthorization, project)
 
 				// Start periodic re-sending of unexpected files notification
 				startNotificationTicker(pending)
@@ -790,19 +776,11 @@ func sendQueryToLLM(project *Project, queryID, query string, llm string, selecti
 				if len(approvedFiles) > 0 {
 					log.Printf("User approved %d files, re-running extraction with expanded list", len(approvedFiles))
 
-					// Convert approved filenames to FileLang and add to outFilesConverted
+					// Add approved files to outFiles list
 					for k := 0; k < len(approvedFiles); k++ {
 						approvedFile := approvedFiles[k]
-						lang, known, err := util.Ext2Lang(approvedFile)
-						if err != nil {
-							log.Printf("Ext2Lang error for approved file %s: %v", approvedFile, err)
-							lang = "text"
-						}
-						if !known {
-							log.Printf("Unknown file extension for approved file %s; assuming language is %s", approvedFile, lang)
-						}
-						outFilesConverted = append(outFilesConverted, core.FileLang{File: approvedFile, Language: lang})
-						log.Printf("Added approved file %s with language %s to output list", approvedFile, lang)
+						outFiles = append(outFiles, approvedFile)
+						log.Printf("Added approved file %s to output list", approvedFile)
 					}
 				}
 
@@ -839,7 +817,7 @@ func sendQueryToLLM(project *Project, queryID, query string, llm string, selecti
 		// we're going to get the extracted file content from the
 		// DetectedFiles field of the result instead of letting ExtractFiles
 		// write the files directly.
-		result, err = core.ExtractFiles(outFilesConverted, response, core.ExtractOptions{
+		result, err = core.ExtractFiles(outFiles, response, core.ExtractOptions{
 			DryRun:          true,
 			ExtractToStdout: false,
 		})

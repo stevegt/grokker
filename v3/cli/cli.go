@@ -9,13 +9,13 @@ import (
 	"strings"
 
 	"github.com/stevegt/grokker/v3/core"
+	"github.com/stevegt/grokker/v3/util"
 
 	"github.com/alecthomas/kong"
 	"github.com/anmitsu/go-shlex"
 	"github.com/gofrs/flock"
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker/v3/aidda"
-	"github.com/stevegt/grokker/v3/util"
 )
 
 /*
@@ -426,34 +426,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 			level = util.ContextRecent
 		}
 		infiles := cli.Chat.InputFiles
-		// split each outfile on equal sign to get the filename and language
-		// XXX maybe move this, and much of the rest of this case, into API
-		var outfiles []core.FileLang
-		for _, outfile := range cli.Chat.OutputFiles {
-			parts := strings.Split(outfile, "=")
-			if len(parts) == 2 {
-				outfiles = append(outfiles, core.FileLang{
-					File:     parts[0],
-					Language: parts[1],
-				})
-			} else {
-				var lang string
-				var known bool
-				lang, known, err = util.Ext2Lang(outfile)
-				if err != nil {
-					Fpf(config.Stderr, err.Error())
-					rc = 1
-					return
-				}
-				if !known {
-					Fpf(config.Stderr, "Assuming language %s for output file %s\n", lang, outfile)
-				}
-				outfiles = append(outfiles, core.FileLang{
-					File:     outfile,
-					Language: lang,
-				})
-			}
-		}
+		outfiles := cli.Chat.OutputFiles
 		// get the response
 		outtxt, err := grok.Chat(modelName, cli.Chat.Sysmsg, prompt, cli.Chat.ChatFile, level, infiles, outfiles, extract, cli.Chat.PromptTokenLimit, cli.Chat.ExtractToStdout, !cli.Chat.NoAddToDb, edit)
 		Ck(err)

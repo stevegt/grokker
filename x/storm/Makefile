@@ -34,7 +34,7 @@ install:
 
 # Run tests
 test:
-	go test -v -p 1 ./...
+	go test -v -p 1 -failfast ./...
 
 # Clean build artifacts
 clean:

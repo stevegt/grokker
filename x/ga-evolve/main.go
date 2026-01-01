@@ -25,7 +25,7 @@ import (
 This program evolves a set of files using a genetic algorithm using the following procedure:
 
 - read a file containing fitness criteria
-- open a directory and find all files (each file’s name is its fitness score)
+- open a directory and find all files (each file's name is its fitness score)
 - for N generations:
 	- for each file that does not have a numeric filename (i.e. unscored):
 			- calculate its fitness by comparing it with a randomly chosen scored file (or another unscored file if none exists)
@@ -500,16 +500,8 @@ func merge(g *core.Grokker, mom, dad string, fitnessCriteria string, model *core
 	}
 	Pf("Creating child file %s\n", child)
 
-	ext := filepath.Ext(mom)
-	extNoDot := strings.TrimPrefix(ext, ".")
-
 	inFns := []string{mom, dad}
-	outFls := []core.FileLang{
-		{
-			File:     child,
-			Language: extNoDot,
-		},
-	}
+	outFns := []string{child}
 
 	// Count tokens
 	Pf("Token counts:\n")
@@ -523,8 +515,8 @@ func merge(g *core.Grokker, mom, dad string, fitnessCriteria string, model *core
 	Pf("    Total: %d\n", total)
 
 	Pl("Output files:")
-	for _, f := range outFls {
-		Pf("    %s\n", f.File)
+	for _, f := range outFns {
+		Pf("    %s\n", f)
 	}
 
 	Pf("Querying GPT...")
@@ -556,7 +548,7 @@ func merge(g *core.Grokker, mom, dad string, fitnessCriteria string, model *core
 
 	// for {
 
-	res, err := g.SendWithFiles(model.Name, prompt, msgs, inFns, outFls)
+	res, err := g.SendWithFiles(model.Name, prompt, msgs, inFns, outFns)
 	if err != nil {
 		return "", fmt.Errorf("error merging files: %v", err)
 	}
@@ -569,7 +561,10 @@ func merge(g *core.Grokker, mom, dad string, fitnessCriteria string, model *core
 
 	/*
 
-			err = core.ExtractFiles(outFls, res, false, false)
+			err = core.ExtractFiles(outFns, res, core.ExtractOptions{
+				DryRun:          false,
+				ExtractToStdout: false,
+			})
 			if err != nil {
 				Pf("Error extracting merged output: %v\n", err)
 			}

@@ -104,7 +104,7 @@ func (g *Grokker) OpenChatHistory(sysmsg, relPath string) (history *ChatHistory,
 // ContinueChat continues a chat history.  The debug map contains
 // interesting statistics about the process, for testing and debugging
 // purposes.
-func (history *ChatHistory) ContinueChat(modelName, prompt string, contextLevel util.ContextLevel, infiles []string, outfiles []FileLang, promptTokenLimit int, edit bool) (resp string, debug map[string]int, err error) {
+func (history *ChatHistory) ContinueChat(modelName, prompt string, contextLevel util.ContextLevel, infiles []string, outfiles []string, promptTokenLimit int, edit bool) (resp string, debug map[string]int, err error) {
 	defer Return(&err)
 	g := history.g
 
@@ -233,7 +233,7 @@ func (history *ChatHistory) ContinueChat(modelName, prompt string, contextLevel 
 // prompt.  The msgs are the chat history up to the prompt.  The
 // infiles are the input files that are included in the prompt.  The
 // outfiles are the output files that are required in the response.
-func (g *Grokker) SendWithFiles(modelName, sysmsg string, msgs []client.ChatMsg, infiles []string, outfiles []FileLang) (resp string, ref []string, err error) {
+func (g *Grokker) SendWithFiles(modelName, sysmsg string, msgs []client.ChatMsg, infiles []string, outfiles []string) (resp string, ref []string, err error) {
 	defer Return(&err)
 
 	if len(infiles) > 0 {
@@ -246,11 +246,7 @@ func (g *Grokker) SendWithFiles(modelName, sysmsg string, msgs []client.ChatMsg,
 
 	if len(outfiles) > 0 {
 		// require the output files in the response
-		var fns []string
-		for _, fn := range outfiles {
-			fns = append(fns, fn.File)
-		}
-		sysmsg += Spf("\nYour response must include the following complete files: '%s'", strings.Join(fns, "', '"))
+		sysmsg += Spf("\nYour response must include the following complete files: '%s'", strings.Join(outfiles, "', '"))
 		sysmsg += Spf("\nReturn complete files only.  Do not return file fragments.")
 		sysmsg += Spf("\nYour response must match this regular expression: '%s'", OutfilesRegex(outfiles))
 		sysmsg += "\n...where each file is in the format:\n\n---FILE-START filename=\"<filename>\"---\n[file content]\n---FILE-END filename=\"<filename>\"---"
@@ -576,11 +572,6 @@ func (g *Grokker) splitAt(txt string, tokenCount int) (txt1, txt2 string) {
 	return
 }
 
-type FileLang struct {
-	File     string
-	Language string
-}
-
 type FileEntry struct {
 	Filename string
 	Content  []string
@@ -596,11 +587,9 @@ var fileStartPat = fmt.Sprintf(fileStartTmpl, "(.*?)")
 var fileEndPat = fmt.Sprintf(fileEndTmpl, "(.*?)")
 
 // OutfilesRegex returns a regular expression that matches the format
-// of output files embedded in chat responses.  The Language field of
-// each FileLang struct is used to generate a repeating regex that
-// matches multiple files.  If the files argument is nil, the regex
-// matches a single file.
-func OutfilesRegex(files []FileLang) string {
+// of output files embedded in chat responses.
+// If the files argument is nil, the regex matches a single file.
+func OutfilesRegex(files []string) string {
 	/*
 		The regex matches the following:
 
@@ -631,9 +620,9 @@ func OutfilesRegex(files []FileLang) string {
 		out = Spf(`%s%s%s`, header, testPat, closeBlock)
 	} else {
 		// multiple files, known names
-		for _, fileLang := range files {
-			header = Spf(fileStartTmpl, fileLang.File)
-			closeBlock = Spf(fileEndTmpl, fileLang.File)
+		for _, fn := range files {
+			header = Spf(fileStartTmpl, fn)
+			closeBlock = Spf(fileEndTmpl, fn)
 			out += Spf(`%s%s%s`, header, testPat, closeBlock)
 		}
 	}
@@ -663,10 +652,10 @@ func IncludeFiles(files []string) (prompt string, err error) {
 // overwriting any existing files unless extractToStdout is true, in
 // which case the extracted files are written to stdout.  The most
 // recent version of a file is N=1.
-func (history *ChatHistory) extractFromChat(outfiles []FileLang, N int, extractToStdout bool) (err error) {
+func (history *ChatHistory) extractFromChat(outfiles []string, N int, extractToStdout bool) (err error) {
 	defer Return(&err)
-	for _, fileLang := range outfiles {
-		fl := []FileLang{fileLang}
+	for _, fn := range outfiles {
+		fl := []string{fn}
 		foundN := 0
 		// iterate over responses starting with the most recent
 		for i := len(history.msgs) - 1; i >= 0; i-- {
@@ -695,7 +684,7 @@ func (history *ChatHistory) extractFromChat(outfiles []FileLang, N int, extractT
 			}
 		}
 		if foundN < N {
-			return fmt.Errorf("file '%s' was not found in the chat history", fl[0].File)
+			return fmt.Errorf("file '%s' was not found in the chat history", fl[0])
 		}
 	}
 	return
@@ -724,7 +713,7 @@ type ExtractResult struct {
 // scanning to identify file blocks. It returns an ExtractResult containing metadata
 // about the extraction including detected files, extracted files, unexpected files,
 // missing files, and broken files (missing end markers).
-func ExtractFiles(outfiles []FileLang, rawResp string, opts ExtractOptions) (result ExtractResult, err error) {
+func ExtractFiles(outfiles []string, rawResp string, opts ExtractOptions) (result ExtractResult, err error) {
 	defer Return(&err)
 
 	result.RawResponse = rawResp
@@ -757,8 +746,8 @@ func ExtractFiles(outfiles []FileLang, rawResp string, opts ExtractOptions) (res
 
 	// Build a map of expected outfiles for quick lookup
 	expectedFiles := make(map[string]bool)
-	for _, fileLang := range outfiles {
-		expectedFiles[fileLang.File] = true
+	for _, fn := range outfiles {
+		expectedFiles[fn] = true
 	}
 
 	// Compile regex patterns for file detection
@@ -866,16 +855,16 @@ func ExtractFiles(outfiles []FileLang, rawResp string, opts ExtractOptions) (res
 	}
 
 	// Identify missing files: expected files that were not detected
-	for _, fileLang := range outfiles {
+	for _, fn := range outfiles {
 		found := false
 		for detectedFile := range result.DetectedFiles {
-			if detectedFile == fileLang.File {
+			if detectedFile == fn {
 				found = true
 				break
 			}
 		}
 		if !found {
-			result.MissingFiles = append(result.MissingFiles, fileLang.File)
+			result.MissingFiles = append(result.MissingFiles, fn)
 		}
 	}
 
