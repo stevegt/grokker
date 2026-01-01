@@ -695,7 +695,8 @@
       
       // In header with checkbox
       var thIn = document.createElement("th");
-      thIn.appendChild(document.createTextNode("In "));
+      thIn.appendChild(document.createTextNode("In"));
+      thIn.appendChild(document.createElement("br"));
       var selectAllInCheckbox = document.createElement("input");
       selectAllInCheckbox.type = "checkbox";
       selectAllInCheckbox.className = "file-select-all-in";
@@ -704,7 +705,8 @@
       
       // Out header with checkbox
       var thOut = document.createElement("th");
-      thOut.appendChild(document.createTextNode("Out "));
+      thOut.appendChild(document.createTextNode("Out"));
+      thOut.appendChild(document.createElement("br"));
       var selectAllOutCheckbox = document.createElement("input");
       selectAllOutCheckbox.type = "checkbox";
       selectAllOutCheckbox.className = "file-select-all-out";
