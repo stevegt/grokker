@@ -41,22 +41,31 @@ func (g *Grokker) migrate() (migrated bool, was, now string, err error) {
 	// loop until migrations are done
 	for {
 
-		// check if migration is necessary
+		// check if migration is necessary by comparing major and minor versions only
 		var dbver, codever *semver.Version
 		dbver, err = semver.Parse([]byte(g.Version))
 		Ck(err)
 		codever, err = semver.Parse([]byte(Version))
 		Ck(err)
-		var cmp int
-		cmp, err = semver.Cmp(dbver, codever)
+
+		// compare major versions
+		var majorCmp, minorCmp int
+		majorCmp, err = semver.CmpPart(dbver.Major, codever.Major)
 		Ck(err)
-		if cmp == 0 {
-			// no migration necessary
+
+		// compare minor versions
+		minorCmp, err = semver.CmpPart(dbver.Minor, codever.Minor)
+		Ck(err)
+
+		// check if migration is necessary
+		// migration is only needed if major or minor version changed
+		if majorCmp == 0 && minorCmp == 0 {
+			// no migration necessary (major and minor versions match)
 			break
 		}
 
 		// see if db is newer version than code
-		if cmp > 0 {
+		if majorCmp > 0 || (majorCmp == 0 && minorCmp > 0) {
 			// db is newer than code
 			err = fmt.Errorf("grokker db is version %s, but you're running version %s -- upgrade grokker", g.Version, Version)
 			return
@@ -64,22 +73,9 @@ func (g *Grokker) migrate() (migrated bool, was, now string, err error) {
 
 		Fpf(os.Stderr, "migrating from %s to %s\n", g.Version, Version)
 
-		// if we get here, then dbver < codever
-		var minor, patch bool
-		_, minor, patch, _, err = semver.Upgrade(dbver, codever)
-		Assert(patch, "patch should be true: %s -> %s", dbver, codever)
-
-		// figure out what kind of migration we need to do
-		if minor {
-			// minor version changed; db migration necessary
-			err = g.migrateOneVersion()
-			Ck(err)
-		} else {
-			// only patch version changed; a patch version change is
-			// just a code change, so just update the version number
-			// in the db
-			g.Version = Version
-		}
+		// perform the migration
+		err = g.migrateOneVersion()
+		Ck(err)
 
 		migrated = true
 	}

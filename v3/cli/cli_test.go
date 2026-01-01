@@ -594,6 +594,7 @@ func TestCliChat(t *testing.T) {
 	Tassert(t, err == nil, "CLI returned unexpected error: %v", err)
 	// check that the output file exists
 	if _, err := os.Stat("net.go"); os.IsNotExist(err) {
+		fmt.Println(stdout.String())
 		Tassert(t, false, "output file does not exist")
 	}
 	// get the contents of the output file

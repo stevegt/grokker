@@ -12157,6 +12157,8 @@ Scroll positioning and WebSocket connectivity are now stable, with a streamlined
 
 ## Reasoning
 
+## Reasoning
+
 
 
 
@@ -47472,6 +47474,8 @@ Let me make these changes while keeping all comments intact.
 
 ## Reasoning
 
+## Reasoning
+
 
 
 
@@ -50639,6 +50643,8 @@ I should update web-client-test-plan.md to be more accurate and current with the
 
 ## Reasoning
 
+## Reasoning
+
 
 
 
@@ -51126,6 +51132,8 @@ Let me address both issues.
 
 ## Reasoning
 
+## Reasoning
+
 
 
 
@@ -51323,6 +51331,8 @@ Key scenarios to test:
 - Multiple unexpected files from same query
 
 I should add helper functions to mock LLM responses and handle the unexpected files flow.
+
+## Reasoning
 
 ## Reasoning
 
@@ -60796,8 +60806,6 @@ Looking at the file-table styling, each th/td has padding and is centered. I nee
 **oh, that's ugly.  try again.  this time. move the In and Out all/none checkboxes into the first row of the files list, and instead of a filename in that row, have the label "All/None" in that cell.**
 
 
-
-
 # Move All/None Checkboxes to First Table Row
 
 Reorganizes the file modal to move the In and Out all/none checkboxes into the first row of the file list table, with "All/None" displayed in the filename column. This provides a cleaner, more integrated UI while maintaining the same functionality.
@@ -60807,11 +60815,7 @@ Reorganizes the file modal to move the In and Out all/none checkboxes into the f
 
 The All/None checkboxes for the In and Out columns are now rendered as the first row of the file list table, with "All/None" displayed in the filename column instead of a separate label above the table. This creates a cleaner, more integrated interface while maintaining full functionality. The `getSelectedFiles()` function is updated to exclude the "All/None" row when collecting selected files.
 
-
-
 ## References
-
-
 
 
 
@@ -60843,6 +60847,7 @@ I need to:
 Let me modify the displayFileModal function to create this structure.
 
 
+
 ---
 
 
@@ -60850,18 +60855,11 @@ Let me modify the displayFileModal function to create this structure.
 **actually, much better idea -- move the all/none In checkbox into the In th tag content, same for the Out checkbox.  no "All/None" label is needed.**
 
 
-
-
 # Move All/None Checkboxes to Table Header Cells
 
 Moves the In and Out all/none checkboxes directly into the table header cells, creating a cleaner, more compact interface. The checkboxes now appear inline with their column headers rather than consuming a separate table row.
 
-
-
-
 ## References
-
-
 
 
 
@@ -60889,6 +60887,161 @@ The table header should look like:
 And then remove the code that creates the header row in the tbody.
 
 Let me update the displayFileModal function to do this.
+
+
+
+---
+
+
+
+**what files would need to be modified or created to implement mock-llm.md?**
+
+
+
+
+# Files to Create and Modify for Mock LLM Implementation
+
+## Files to CREATE (9 new files)
+
+**llm/common package:**
+- `llm/common/interface.go` - Interface definitions (QueryLLM, TokenCounter, FileExtractor)
+- `llm/common/config.go` - Configuration structs (LLMConfig, LLMBackend, etc.)
+
+**llm/factory.go:**
+- `llm/factory.go` - NewLLM(), NewTokenCounter(), NewFileExtractor() factories
+
+**llm/grokker package:**
+- `llm/grokker/adapter.go` - Wraps grokker.SendWithFiles, implements QueryLLM
+- `llm/grokker/extractor.go` - Wraps core.ExtractFiles, implements FileExtractor
+- `llm/grokker/tokencounter.go` - Wraps token counting, implements TokenCounter
+
+**llm/mock package:**
+- `llm/mock/mock.go` - MockLLM and MockTokenCounter implementations
+- `llm/mock/extractor.go` - MockFileExtractor implementation
+- `llm/mock/templates.go` - Predefined response templates for test scenarios
+- `llm/mock/builder.go` - Fluent builders for composable test setup
+
+## Files to MODIFY (5-6 existing files)
+
+1. **main.go** - Replace direct grokker/core calls with llm.QueryLLM and llm.FileExtractor interfaces
+   - Change `sendQueryToLLM()` to accept and use llm.QueryLLM and llm.FileExtractor
+   - Update initialization to create LLM instances via factory
+
+2. **websocket.go** - Use llm.QueryLLM instead of direct core calls
+   - Pass llm.QueryLLM to query processing functions
+   - Use llm.FileExtractor for file extraction
+
+3. **api.go** - If any LLM operations exist in API handlers, update to use interfaces
+
+4. **testutil/server.go** - Add test helper functions
+   - `NewTestLLMConfig()` - Returns mock LLM config
+   - `NewTestExtractorConfig()` - Returns mock extractor config
+   - Environment-based backend selection for test server
+
+5. **websocket_test.go** - Refactor to use mock LLM
+   - Replace hardcoded responses with mock LLM setup
+   - Use builder pattern for test scenarios
+   - Add tests for file extraction failures
+
+6. **web_client_test.go** - Refactor to use mock LLM and extractor
+   - Use mock LLM for consistent, fast tests
+   - Test file extraction failure scenarios
+   - Test unexpected files detection
+
+## Optional Enhancements
+
+- **testutil/assertions.go** - Add assertion helpers (AssertLLMWasCalled, AssertExtractorCallCount, etc.)
+- **cmd/storm/main.go** (if exists) - Add environment variable support for backend selection
+
+## Dependencies Between Files
+
+```
+llm/common/
+  ├─ interface.go (no dependencies)
+  └─ config.go (no dependencies)
+       ↑
+       ├─ llm/factory.go (imports common, grokker, mock)
+       │
+       ├─ llm/grokker/adapter.go (imports common)
+       ├─ llm/grokker/extractor.go (imports common)
+       ├─ llm/grokker/tokencounter.go (imports common)
+       │
+       └─ llm/mock/mock.go (imports common)
+          ├─ llm/mock/extractor.go (imports common, mock.go)
+          ├─ llm/mock/templates.go (imports common)
+          └─ llm/mock/builder.go (imports common, mock.go)
+
+main.go → imports llm/common, llm/factory
+websocket.go → imports llm/common, llm/factory
+testutil/server.go → imports llm/common, llm/factory, llm/mock
+websocket_test.go → imports llm, testutil
+web_client_test.go → imports llm, testutil
+```
+
+## Implementation Sequence
+
+1. Create llm/common/interface.go and config.go (no dependencies)
+2. Create llm/factory.go
+3. Create llm/grokker/* (adapter, extractor, tokencounter)
+4. Create llm/mock/* (mock.go, extractor.go, templates.go, builder.go)
+5. Update testutil/server.go to use factory
+6. Update main.go to inject llm.QueryLLM and llm.FileExtractor
+7. Update websocket.go to use interfaces
+8. Update websocket_test.go and web_client_test.go to use mock LLM
+
+## References
+
+[1] https://golang.org/doc/effective_go#package-names
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking: "what files would need to be modified or created to implement mock-llm.md?"
+
+Looking at the mock-llm.md file I just provided, I need to identify:
+1. Files that need to be CREATED (new files for the llm package)
+2. Files that need to be MODIFIED (existing files that need to import or use the new llm package)
+
+Let me go through the mock-llm.md plan:
+
+**Files to CREATE:**
+1. llm/common/interface.go - Interface definitions
+2. llm/common/config.go - Configuration structs
+3. llm/factory.go - Factory functions
+4. llm/grokker/adapter.go - Grokker adapter implementing QueryLLM
+5. llm/grokker/extractor.go - Grokker extractor implementing FileExtractor
+6. llm/mock/mock.go - MockLLM implementation
+7. llm/mock/extractor.go - MockFileExtractor implementation
+8. llm/mock/templates.go - Response templates
+9. llm/mock/builder.go - Fluent builder for test setup
+
+**Files to MODIFY:**
+1. main.go - Use llm.QueryLLM and llm.FileExtractor interfaces instead of direct grokker/core calls
+2. websocket.go - Use llm.QueryLLM for sending queries
+3. testutil/server.go - Provide helper functions for test setup with mock LLM
+4. websocket_test.go - Use mock LLM for testing
+5. web_client_test.go - Use mock LLM for testing
+6. api.go - If any LLM-related API calls need updating
+
+The system message says:
+- Start with markdown heading
+- Limit discussion to 8192 tokens
+- Answer ONLY the query
+- Don't return files unless they ask
+
+The query is: "what files would need to be modified or created to implement mock-llm.md?"
+
+
+This is asking for a list/summary, not the actual code.
+
+I'll provide a concise summary of the files to create and modify for implementing the mock LLM functionality.
 
 
 ---
