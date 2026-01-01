@@ -376,39 +376,6 @@
       border-color: #8b3333;
       color: #ff6b6b;
     }
-    /* Checkbox header row container - aligned with table columns */
-    .file-checkbox-header {
-      display: table;
-      width: 100%;
-      margin-bottom: 10px;
-    }
-    .file-checkbox-header-row {
-      display: table-row;
-    }
-    .file-checkbox-header-cell {
-      display: table-cell;
-      text-align: center;
-      padding: 6px;
-      border: 1px solid #444;
-      background-color: #2a2a2a;
-      font-weight: bold;
-      width: 10%;
-    }
-    .file-checkbox-header-label {
-      display: table-cell;
-      text-align: right;
-      padding: 6px;
-      font-weight: bold;
-      margin-left: 10px;
-      width: 80%;
-    }
-    .new-files-section {
-      margin-bottom: 8px;
-      padding: 8px;
-      background-color: #1e1e1e;
-      border: 1px solid #444;
-      border-radius: 3px;
-    }
     .needs-auth-file {
       margin-bottom: 8px;
       padding: 8px;
@@ -719,46 +686,41 @@
       
       section.innerHTML += "<p>Select which files to include as input and which to extract as output:</p>";
       
-      // Create checkbox header row for In and Out columns
-      var headerContainer = document.createElement("div");
-      headerContainer.className = "file-checkbox-header";
+      var table = document.createElement("table");
+      table.className = "file-table";
       
-      // In checkbox
-      var inLabel = document.createElement("label");
-      inLabel.style.display = "block";
-      inLabel.style.marginBottom = "5px";
+      // Create table header with In/Out checkboxes
+      var thead = document.createElement("thead");
+      var headerRow = document.createElement("tr");
+      
+      // In header with checkbox
+      var thIn = document.createElement("th");
+      thIn.appendChild(document.createTextNode("In "));
       var selectAllInCheckbox = document.createElement("input");
       selectAllInCheckbox.type = "checkbox";
       selectAllInCheckbox.className = "file-select-all-in";
-      inLabel.appendChild(selectAllInCheckbox);
-      inLabel.appendChild(document.createTextNode(" In"));
+      thIn.appendChild(selectAllInCheckbox);
+      headerRow.appendChild(thIn);
       
-      // Out checkbox
-      var outLabel = document.createElement("label");
-      outLabel.style.display = "block";
-      outLabel.style.marginBottom = "5px";
+      // Out header with checkbox
+      var thOut = document.createElement("th");
+      thOut.appendChild(document.createTextNode("Out "));
       var selectAllOutCheckbox = document.createElement("input");
       selectAllOutCheckbox.type = "checkbox";
       selectAllOutCheckbox.className = "file-select-all-out";
-      outLabel.appendChild(selectAllOutCheckbox);
-      outLabel.appendChild(document.createTextNode(" Out"));
+      thOut.appendChild(selectAllOutCheckbox);
+      headerRow.appendChild(thOut);
       
-      // Combined label
-      var combinedLabel = document.createElement("label");
-      combinedLabel.style.display = "block";
-      combinedLabel.style.marginBottom = "10px";
-      combinedLabel.style.fontWeight = "bold";
-      combinedLabel.appendChild(inLabel);
-      combinedLabel.appendChild(outLabel);
-      combinedLabel.appendChild(document.createTextNode(" All/None"));
+      // Filename header
+      var thFilename = document.createElement("th");
+      thFilename.textContent = "Filename";
+      headerRow.appendChild(thFilename);
       
-      section.appendChild(combinedLabel);
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
       
-      var table = document.createElement("table");
-      table.className = "file-table";
-      table.innerHTML = "<thead><tr><th>In</th><th>Out</th><th>Filename</th></tr></thead><tbody></tbody>";
-      
-      var tbody = table.querySelector("tbody");
+      var tbody = document.createElement("tbody");
+      table.appendChild(tbody);
       
       // Create sets for quick lookup
       var unexpectedSet = new Set();
