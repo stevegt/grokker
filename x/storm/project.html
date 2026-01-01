@@ -376,6 +376,32 @@
       border-color: #8b3333;
       color: #ff6b6b;
     }
+    /* Checkbox header row container - aligned with table columns */
+    .file-checkbox-header {
+      display: table;
+      width: 100%;
+      margin-bottom: 10px;
+    }
+    .file-checkbox-header-row {
+      display: table-row;
+    }
+    .file-checkbox-header-cell {
+      display: table-cell;
+      text-align: center;
+      padding: 6px;
+      border: 1px solid #444;
+      background-color: #2a2a2a;
+      font-weight: bold;
+      width: 10%;
+    }
+    .file-checkbox-header-label {
+      display: table-cell;
+      text-align: right;
+      padding: 6px;
+      font-weight: bold;
+      margin-left: 10px;
+      width: 80%;
+    }
     .new-files-section {
       margin-bottom: 8px;
       padding: 8px;
@@ -693,15 +719,40 @@
       
       section.innerHTML += "<p>Select which files to include as input and which to extract as output:</p>";
       
-      var label = document.createElement("label");
-      label.style.display = "block";
-      label.style.marginBottom = "5px";
-      var selectAllCheckbox = document.createElement("input");
-      selectAllCheckbox.type = "checkbox";
-      selectAllCheckbox.className = "file-select-all";
-      label.appendChild(selectAllCheckbox);
-      label.appendChild(document.createTextNode(" In: All/None"));
-      section.appendChild(label);
+      // Create checkbox header row for In and Out columns
+      var headerContainer = document.createElement("div");
+      headerContainer.className = "file-checkbox-header";
+      
+      // In checkbox
+      var inLabel = document.createElement("label");
+      inLabel.style.display = "block";
+      inLabel.style.marginBottom = "5px";
+      var selectAllInCheckbox = document.createElement("input");
+      selectAllInCheckbox.type = "checkbox";
+      selectAllInCheckbox.className = "file-select-all-in";
+      inLabel.appendChild(selectAllInCheckbox);
+      inLabel.appendChild(document.createTextNode(" In"));
+      
+      // Out checkbox
+      var outLabel = document.createElement("label");
+      outLabel.style.display = "block";
+      outLabel.style.marginBottom = "5px";
+      var selectAllOutCheckbox = document.createElement("input");
+      selectAllOutCheckbox.type = "checkbox";
+      selectAllOutCheckbox.className = "file-select-all-out";
+      outLabel.appendChild(selectAllOutCheckbox);
+      outLabel.appendChild(document.createTextNode(" Out"));
+      
+      // Combined label
+      var combinedLabel = document.createElement("label");
+      combinedLabel.style.display = "block";
+      combinedLabel.style.marginBottom = "10px";
+      combinedLabel.style.fontWeight = "bold";
+      combinedLabel.appendChild(inLabel);
+      combinedLabel.appendChild(outLabel);
+      combinedLabel.appendChild(document.createTextNode(" All/None"));
+      
+      section.appendChild(combinedLabel);
       
       var table = document.createElement("table");
       table.className = "file-table";
@@ -730,11 +781,20 @@
       }
       
       // Add All/None listener for In checkboxes
-      selectAllCheckbox.addEventListener("change", function() {
+      selectAllInCheckbox.addEventListener("change", function() {
         var checkboxesIn = tbody.querySelectorAll("input.file-checkbox-in");
         for (var k = 0; k < checkboxesIn.length; k++) {
-          checkboxesIn[k].checked = selectAllCheckbox.checked;
+          checkboxesIn[k].checked = selectAllInCheckbox.checked;
           checkboxesIn[k].dispatchEvent(new Event("change"));
+        }
+      });
+      
+      // Add All/None listener for Out checkboxes
+      selectAllOutCheckbox.addEventListener("change", function() {
+        var checkboxesOut = tbody.querySelectorAll("input.file-checkbox-out");
+        for (var k = 0; k < checkboxesOut.length; k++) {
+          checkboxesOut[k].checked = selectAllOutCheckbox.checked;
+          checkboxesOut[k].dispatchEvent(new Event("change"));
         }
       });
       
