@@ -20,10 +20,13 @@ build:
 	go build -ldflags="$(ldflags)" -o bin/storm-$(VERSION) 
 
 # build the binary, symlink to ./storm, and run serve 
-dev: commit-ck build symlink
+dev: vet commit-ck build symlink
 	- storm stop
 	- ./storm stop
 	./storm serve 
+
+vet:
+	go vet ./...
 
 symlink:
 	ln -sf bin/storm-$(VERSION) storm
