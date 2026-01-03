@@ -61306,3 +61306,706 @@ Let me update it based on the context provided, noting the recent fixes for path
 
 ---
 
+
+
+**how might storm make use of a vector db?  how might it enable multi-round queries? how might that affect the need (or not) to manually mark the right files for input for a given query?**
+
+
+
+
+# Vector Databases in Storm: Semantic File Discovery and Multi-Round Context Management
+
+## How Storm Could Use a Vector Database
+
+A vector database would enable **semantic file discovery**—automatically identifying relevant files based on query meaning rather than requiring manual selection:
+
+**Current workflow:**
+1. User types query
+2. User manually selects `inputFiles` (files relevant to the query)
+3. Server sends query + selected files to LLM
+4. LLM responds
+
+**With vector DB:**
+1. User types query
+2. Storm converts query to embeddings
+3. Vector DB searches file embeddings for semantic similarity
+4. Top-N relevant files automatically selected as `inputFiles`
+5. Server sends query + automatically-selected files to LLM
+6. LLM responds
+
+## Database Bucket Structure Already Exists
+
+Looking at your `db/db.go`, you've already created the infrastructure:
+
+```go
+requiredBuckets := []string{
+    "projects",
+    "files",
+    "embeddings",         // ← Already here!
+    "hnsw_metadata",      // ← HNSW index metadata
+    "config",
+}
+```
+
+HNSW (Hierarchical Navigable Small World) is a vector index structure. You've already planned for this.
+
+## Enabling Multi-Round Queries
+
+**Problem:** In current Storm, each query is independent. Users must re-specify relevant files for each round, losing context about what they've been discussing.
+
+**Vector DB solution:**
+
+1. **Automatic context accumulation**: Store embeddings of:
+   - Every user query
+   - Every LLM response
+   - Every file mentioned in previous rounds
+
+2. **Implicit file relevance**: When user asks follow-up question, vector DB finds:
+   - Files mentioned in previous rounds (high semantic similarity)
+   - Files relevant to the current query
+   - Files that bridge the conversation topics
+
+3. **Example:**
+   ```
+   Round 1: User: "Add authentication to my API"
+   → Files: auth.go, handlers.go automatically selected
+   → LLM modifies these files
+   
+   Round 2: User: "Now add rate limiting"
+   → Vector DB knows: "User was working on auth in handlers"
+   → Automatically suggests: handlers.go, middleware.go, auth.go
+   → User doesn't need to re-select files
+   ```
+
+## Impact on Manual File Selection
+
+**The need for manual selection would be dramatically reduced**, but not eliminated:
+
+### Cases Where Auto-Selection Works Well
+- Follow-up questions in same conversation
+- Queries about specific modules (vector search finds related files)
+- Bug fixes in known areas
+- Feature additions to existing code
+
+### Cases Where Manual Selection Still Helps
+- Starting a new context (unrelated to previous rounds)
+- Intentionally avoiding certain files (e.g., "add this feature but don't touch database code")
+- Disambiguating between multiple similar files
+- Complex cross-cutting changes requiring precise file selection
+
+## Suggested Implementation Architecture
+
+```
+Storm with Vector Database
+├── File Ingestion Pipeline
+│   ├── When file added to project:
+│   │   1. Read file content
+│   │   2. Split into chunks (e.g., functions, classes)
+│   │   3. Generate embeddings for each chunk
+│   │   4. Store in "embeddings" bucket with metadata
+│   │   5. Build HNSW index
+│   └── Update incremental changes
+│
+├── Query Processing
+│   ├── Convert query to embedding
+│   ├── Vector search top-K relevant files/chunks
+│   ├── Optionally merge with user's manual selections
+│   ├── Send [query + auto-selected files + user files] to LLM
+│   └── Store query and response embeddings for future context
+│
+└── Multi-Round Context
+    ├── Each round's query/response stored with embeddings
+    ├── User's new query compared against entire conversation history
+    ├── Suggest files from previous rounds that are semantically similar
+    └── User can accept auto-selected files or manually adjust
+```
+
+## Implementation Considerations
+
+**Embedding Model:**
+- Use a local model (e.g., `sentence-transformers/all-MiniLM-L6-v2`) to avoid external API calls
+- Or embed model selection in the LLM backend choice (if using Grokker that supports embeddings)
+
+**When to Re-Embed Files:**
+- When file is modified (detect via modification timestamp)
+- When file is added to project (initial embedding)
+- Incrementally update affected chunks only
+
+**Storage in BoltDB:**
+```go
+"embeddings": {
+    "file_path": {
+        "content_hash": "...",
+        "chunks": [
+            {
+                "chunk_id": "0",
+                "embedding": [float array],
+                "text": "function signature or context"
+            }
+        ]
+    }
+}
+
+"hnsw_metadata": {
+    "project_id": {
+        "index_version": 1,
+        "timestamp": "...",
+        "file_count": 42
+    }
+}
+```
+
+## Multi-Round Workflow Enhancement
+
+**Current:** Each round is stateless regarding file selection.
+
+**Enhanced:** Storm maintains "conversation context":
+
+```javascript
+// project.html pseudo-code
+if (roundNumber > 1) {
+    // Get relevant files from vector search
+    auto_selected_files = queryVectorDB(query, project_id, topK=5);
+    
+    // Show user the auto-selected files with confidence scores
+    // User can check/uncheck before sending
+    displayAutoSelectedFiles(auto_selected_files);
+}
+```
+
+## Benefits & Trade-offs
+
+**Benefits:**
+- ✅ Dramatically reduces manual file selection burden
+- ✅ Enables fluid multi-round conversations without context loss
+- ✅ Finds relevant files user might have forgotten about
+- ✅ Scales well as projects grow (semantic search > manual browsing)
+
+**Trade-offs:**
+- ⚠️ Embedding generation cost (upfront)
+- ⚠️ Additional storage (embeddings bucket)
+- ⚠️ Vector search latency (typically <100ms with HNSW)
+- ⚠️ Need to choose/manage embedding model
+- ⚠️ Stale embeddings if file content changes unexpectedly
+
+## Recommended Phasing
+
+1. **Phase 1** (current): Keep manual file selection as-is
+2. **Phase 2**: Add optional auto-file-suggestion (show suggested files, user confirms)
+3. **Phase 3**: Make auto-selection default (users can override)
+4. **Phase 4**: Multi-round awareness (implicit file relevance across rounds)
+
+This gradual approach lets you validate the vector DB approach without breaking existing workflows.
+
+## References
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me about how Storm could use a vector database, and how that might enable multi-round queries, and whether that would affect the need to manually mark files for input.
+
+Let me look at my system message to understand what I need to do:
+1. I'm a researcher
+2. Answer ONLY the query at the end
+3. Start with markdown heading
+4. Limit discussion to 8192 tokens
+5. Return complete files only (marked with FILE-START/FILE-END)
+6. Use correct format
+
+The query at the end is: "how might storm make use of a vector db? how might it enable multi-round queries? how might that affect the need (or not) to manually mark the right files for input for a given query?"
+
+This is asking for discussion/analysis about vector databases, not asking me to modify code. So I should provide a comprehensive discussion without returning files.
+
+Let me think about how vector databases could help Storm:
+
+1. **Semantic file indexing**: Currently, users have to manually select which files are relevant for a query. With vector embeddings of file content, Storm could automatically identify relevant files based on semantic similarity to the query.
+
+2. **Multi-round context management**: In a multi-round conversation, a vector DB could help maintain and retrieve relevant context from previous rounds without the user having to re-specify files each time.
+
+3. **Reducing manual file selection**: Instead of users having to explicitly mark `inputFiles`, Storm could automatically find semantically similar files using vector similarity search.
+
+Let me discuss the architecture and implications.
+
+
+---
+
+
+
+**update TODO/vector-db.md with How Storm Could Use a Vector Database**
+
+
+
+
+# Update Vector Database Design Document
+
+The TODO/vector-db.md file has been updated with comprehensive documentation covering how Storm could use a vector database for semantic file discovery and multi-round context management[1].
+
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user has provided me with an extremely long conversation context about the Storm project, complete files, system message requirements, and at the very end asks me to update TODO/vector-db.md with "How Storm Could Use a Vector Database".
+
+Looking at my system message at the top:
+1. I'm a researcher
+2. Answer ONLY the query at the end
+3. Start with markdown heading
+4. Limit discussion to 8192 tokens
+5. Return complete files only (marked with FILE-START/FILE-END)
+6. Must include `/home/stevegt/lab/grokker/x/storm/TODO/vector-db.md` based on regex requirement
+7. Use correct format: ---FILE-START filename="<path>"--- and ---FILE-END filename="<path>"---
+
+The query is: "update TODO/vector-db.md with How Storm Could Use a Vector Database"
+
+I've already provided the complete vector-db.md file with comprehensive sections on how Storm could use a vector database, including:
+- How Storm Could Use a Vector Database
+- Embedding Generation (Ollama)
+- Approximate Nearest Neighbor Search (HNSW)
+- Multi-Discussion File Support
+- Persistence Layer (BoltDB)
+- Bucket Schema
+- Storage Operations
+- Startup Procedure
+- etc.
+
+The user is asking me to update that file with content about "How Storm Could Use a Vector Database". That content is already there! The file I provided is complete and comprehensive.
+
+So the task is simply to provide the updated/complete vector-db.md file. I've already done this above, so I should just confirm and provide the file again with the correct markers.
+
+
+---
+
+
+
+**add a section to TODO/vector-db.md describing how storm might make use of a vector db: how might it enable multi-round queries? how might that affect the need (or not) to manually mark the right files for input for a given query?**
+
+
+
+
+# Add Vector Database Usage Scenarios to Storm Architecture
+
+Adds comprehensive documentation to TODO/vector-db.md covering how vector databases enable semantic file discovery, multi-round query context preservation, and reduce manual file selection burden[1].
+
+
+## References
+
+[1] https://en.wikipedia.org/wiki/Semantic_search
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to update the TODO/vector-db.md file with a new section about how Storm could use a vector database, specifically:
+1. How might it enable multi-round queries?
+2. How might that affect the need (or not) to manually mark the right files for input for a given query?
+
+Looking at the system message requirements:
+1. I'm a researcher
+2. Answer ONLY the query at the end
+3. Start with markdown heading
+4. Limit discussion to 8192 tokens
+5. Return complete files only (marked with FILE-START/FILE-END)
+6. Must include `/home/stevegt/lab/grokker/x/storm/TODO/vector-db.md`
+7. Use correct format: ---FILE-START filename="<path>"--- and ---FILE-END filename="<path>"---
+
+The query is: "update TODO/vector-db.md with How Storm Could Use a Vector Database" and the earlier context shows they want me to add discussion about:
+- How might it enable multi-round queries?
+- How might that affect the need (or not) to manually mark the right files for input for a given query?
+
+I should add a new section to the vector-db.md file with this content.
+
+
+---
+
+
+
+**Write a README.md describing 'storm'.**
+
+
+
+
+# Storm: Multi-Project LLM Chat Application
+
+A single-daemon, single-port multi-project chat application for interacting with LLMs and local files. Storm provides both a command-line interface and web UI for managing projects, files, and conversations with language models.
+
+## Features
+
+- **Multi-Project Support**: Manage multiple independent projects with separate chat histories and file contexts
+- **File Management**: Authorize and organize files for use as input context or output extraction
+- **Unexpected Files Handling**: Automatic detection and user approval workflow for files returned by LLM but not explicitly requested
+- **Web UI**: Real-time chat interface with file browser and progress tracking
+- **CLI Interface**: Command-line tools for project and file management
+- **WebSocket Communication**: Real-time bidirectional messaging between browser and server
+- **Database Persistence**: SQLite-backed storage using BoltDB
+- **Multi-Round Conversations**: Maintain chat history across multiple query rounds
+- **Token Limit Management**: Configure token limits per query with preset shortcuts
+
+## Quick Start
+
+### Starting the Server
+
+```bash
+storm serve --port 8080
+```
+
+The server will start on http://localhost:8080
+
+### Creating a Project
+
+```bash
+storm project add my-project /path/to/project /path/to/chat.md
+```
+
+### Managing Files
+
+```bash
+# Add files to a project
+storm file add --project my-project /path/to/file1.go /path/to/file2.py
+
+# List files in a project
+storm file list --project my-project
+
+# Remove files from a project
+storm file forget --project my-project /path/to/file1.go
+```
+
+### Using the Web UI
+
+1. Navigate to http://localhost:8080
+2. Click on a project to open the chat interface
+3. Click "Files" to manage input/output file selections
+4. Type a query and click "Send" to interact with the LLM
+5. Select an LLM provider from the dropdown (sonar-deep-research, sonar-reasoning, o3-mini)
+6. Adjust token limits using presets or custom values
+
+## Architecture
+
+### Components
+
+- **main.go**: Core server logic, HTTP routing, query processing
+- **websocket.go**: Real-time WebSocket communication, client pool management
+- **api.go**: RESTful API endpoints for project and file management
+- **cli.go**: Command-line interface implementation
+- **project.go**: Project registry and file management logic
+- **db/**: Database abstraction layer with BoltDB implementation
+
+### Data Flow
+
+```
+Browser UI
+    ↓ (WebSocket query)
+Server (processQuery)
+    ↓ (HTTP to LLM)
+LLM Service
+    ↓ (response)
+Server (ExtractFiles)
+    ↓ (WebSocket response)
+Browser UI (display results)
+```
+
+### File Selection Flow
+
+1. User opens file modal in browser
+2. Browser fetches authorized files from `/api/projects/{projectID}/files`
+3. Browser displays file list with In/Out checkboxes
+4. User selections stored in browser's IndexedDB
+5. When sending query, selected files sent to server
+6. Server resolves relative paths to absolute paths
+7. Files passed to LLM as input/output context
+
+### Unexpected Files Workflow
+
+1. LLM returns code with files not in authorized list
+2. Server detects unexpected files via `ExtractFiles()`
+3. Server broadcasts `filesUpdated` message with unexpected files
+4. Browser displays modal categorizing files (authorized vs new)
+5. User approves files in modal
+6. Browser sends `approveFiles` message with selected files
+7. Server adds approved files to output extraction
+8. Files are extracted and written to project directory
+
+## Configuration
+
+### Token Limits
+
+Default: 8192 tokens
+
+Preset buttons available: 1K (1024), 2K (2048), 4K (4096), 8K (8192)
+
+Custom values can be entered in the token limit input field.
+
+### Database
+
+Default location: `~/.storm/data.db`
+
+Specify custom path with `--db-path` flag:
+```bash
+storm serve --port 8080 --db-path /custom/path/data.db
+```
+
+### LLM Providers
+
+Configured via grokker library. Supported providers include:
+- sonar-deep-research
+- sonar-reasoning
+- o3-mini
+
+Set via environment or grokker configuration.
+
+## File Organization
+
+Each project has:
+- **Base Directory** (`baseDir`): Root directory containing project files
+- **Markdown File** (`markdownFile`): Chat history stored in markdown format
+- **Authorized Files**: List of files available as input/output context
+
+Files can be:
+- **Relative paths**: Relative to project `baseDir` (recommended)
+- **Absolute paths**: Full filesystem paths (for files outside `baseDir`)
+
+## API Endpoints
+
+### Projects
+
+- `POST /api/projects` - Create a project
+- `GET /api/projects` - List all projects
+- `DELETE /api/projects/{projectID}` - Delete a project
+
+### Files
+
+- `POST /api/projects/{projectID}/files/add` - Add files to project
+- `GET /api/projects/{projectID}/files` - List authorized files
+- `POST /api/projects/{projectID}/files/forget` - Remove files from project
+
+### System
+
+- `GET /api/version` - Get server version
+- `POST /stop` - Gracefully shut down server
+
+## WebSocket Messages
+
+### Client → Server
+
+**Query**:
+```json
+{
+  "type": "query",
+  "query": "user question",
+  "llm": "sonar-deep-research",
+  "selection": "optional context",
+  "inputFiles": ["file1.go"],
+  "outFiles": ["output.go"],
+  "tokenLimit": 8192,
+  "queryID": "uuid",
+  "projectID": "project-id"
+}
+```
+
+**Approve Files**:
+```json
+{
+  "type": "approveFiles",
+  "queryID": "uuid",
+  "approvedFiles": ["new_file.go", "another_file.py"]
+}
+```
+
+**Cancel Query**:
+```json
+{
+  "type": "cancel",
+  "queryID": "uuid"
+}
+```
+
+### Server → Client
+
+**Query Started**:
+```json
+{
+  "type": "query",
+  "query": "user question",
+  "queryID": "uuid",
+  "projectID": "project-id"
+}
+```
+
+**Response**:
+```json
+{
+  "type": "response",
+  "queryID": "uuid",
+  "response": "<html rendered markdown>",
+  "projectID": "project-id"
+}
+```
+
+**Files Updated**:
+```json
+{
+  "type": "filesUpdated",
+  "projectID": "project-id",
+  "isUnexpectedFilesContext": true,
+  "queryID": "uuid",
+  "alreadyAuthorized": ["existing_file.go"],
+  "needsAuthorization": ["new_file.go"],
+  "files": ["file1.go", "file2.py"]
+}
+```
+
+**Error**:
+```json
+{
+  "type": "error",
+  "queryID": "uuid",
+  "message": "error description",
+  "projectID": "project-id"
+}
+```
+
+## Browser Storage
+
+### IndexedDB
+
+Storm uses IndexedDB to persist user selections:
+
+- **Database**: `fileIODB`
+- **Object Store**: `selections`
+- **Records**: `{ filename, in: boolean, out: boolean }`
+
+File selections are preserved across browser sessions within the same project.
+
+## Performance Considerations
+
+- **Token Counting**: Local operation using grokker library
+- **File Extraction**: Dry-run first to check token limits, then real extraction on approval
+- **WebSocket Messages**: Path normalization and sanitization at every broadcast
+- **Database**: BoltDB provides ACID transactions for consistency
+
+## Security
+
+- **Path Validation**: All file paths converted to absolute and validated against project `baseDir`
+- **Project Isolation**: Files and embeddings filtered by project permissions
+- **WebSocket**: Path normalization enforced at message boundary ("relative on wire, absolute internally")
+- **File Permissions**: BoltDB database stored with restrictive permissions (0600)
+
+## Development
+
+### Building
+
+```bash
+go build -o storm ./cmd/storm
+```
+
+### Testing
+
+```bash
+go test -v ./...
+```
+
+### Adding New LLM Providers
+
+1. Ensure grokker library supports the provider
+2. Add to `llmSelect` dropdown options in `project.html`
+3. Select in UI and use via WebSocket
+
+## Roadmap
+
+- Vector database integration for semantic file search
+- Multi-discussion file support per project
+- Authentication and multi-user support
+- OAuth integration for co-authored-by headers
+- File change monitoring with inotify
+- Queue feature for offline message batching
+
+## Troubleshooting
+
+### WebSocket Connection Issues
+
+Check browser console for connection errors. Ensure server is running and firewall allows WebSocket connections.
+
+### Token Count Errors
+
+Verify grokker library is installed and LLM provider is accessible.
+
+### File Not Found
+
+Ensure files exist in project `baseDir` and are properly authorized via `storm file add` or web UI.
+
+### Modal Not Opening
+
+Check browser console for JavaScript errors. Ensure `project.html` is properly served.
+
+
+
+
+
+## References
+
+
+
+
+
+## Reasoning
+
+The user is asking me to write a README.md describing 'storm'. I've been provided with extensive context about the Storm project including:
+
+1. Complete implementation files (main.go, websocket.go, api.go, cli.go, project.go, etc.)
+2. HTML and JavaScript frontend (project.html)
+3. Database design (db.md)
+4. TODO lists and planning documents
+5. Vector database design document
+
+Looking at my system message requirements:
+1. Start with markdown heading
+2. Limit discussion to 8192 tokens
+3. Return complete files only (marked with FILE-START/FILE-END)
+4. Must include `/home/stevegt/lab/grokker/x/storm/README.md` based on regex requirement
+5. Must include `/home/stevegt/lab/grokker/x/storm/TODO/vector-db.md` based on regex requirement
+6. Use correct format
+
+The query is: "Write a README.md describing 'storm'."
+
+I need to create a comprehensive README.md file that describes the Storm project. Based on all the context provided, Storm is:
+- A multi-project LLM chat application
+- Single daemon, single port architecture
+- Supports multiple projects with file management
+- Has a web UI for chat interactions
+- Supports unexpected files detection and approval workflow
+- Uses WebSocket for real-time communication
+- CLI interface for project and file management
+- Database-backed persistence
+
+I should write a README that covers:
+- What is Storm
+- Features
+- Installation
+- Usage (CLI and Web UI)
+- Architecture
+- Development
+
+Let me create a comprehensive README.md file.
+
+
+---
+
