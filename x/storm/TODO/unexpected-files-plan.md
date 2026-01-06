@@ -109,7 +109,7 @@ Implement unexpected file handling in Storm through a series of discrete stages,
   - `alreadyAuthorized`: filenames in project's `AuthorizedFiles` list
   - `needsAuthorization`: filenames NOT in project's `AuthorizedFiles` list
 - ✅ Created `categorizeUnexpectedFiles()` helper function with path normalization support
-- ✅ Send WebSocket notification: `{type: "unexpectedFilesDetected", queryID, alreadyAuthorized: [...], needsAuthorization: [...]}`
+- ✅ Send WebSocket notification: `{type: "filesUpdated", queryID, isUnexpectedFilesContext: true, alreadyAuthorized: [...], needsAuthorization: [...], files: [...]}` 
 - ✅ Create pending query and wait for user approval via `approvalChannel`
 - ✅ Upon receiving approval, expand `outfiles` list with approved files
 - ✅ Re-run `ExtractFiles()` with `DryRun: false` and expanded list to extract both original and newly-approved files
@@ -144,7 +144,7 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 **Objective**: Show user-facing UI for file approval.
 
 **Changes Completed**[2]:
-- ✅ Added WebSocket handler for `message.type === "unexpectedFilesDetected"`
+- ✅ Added WebSocket handler for `message.type === "filesUpdated"` with `isUnexpectedFilesContext: true`
 - ✅ Open file modal automatically when notification arrives
 - ✅ Created two sections in modal:
   - "Already Authorized" section with table of files with Out checkboxes for enabling output
@@ -156,7 +156,7 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 - ✅ Handled transition from unexpected files modal back to regular file modal
 
 **Implementation Details**[2]:
-- WebSocket handler in `ws.onmessage` for "unexpectedFilesDetected" message type (lines ~437-620)
+- WebSocket handler in `ws.onmessage` for `filesUpdated` message type (lines ~437-620)
 - `displayUnexpectedFilesModal()` function creates two sections with different layouts for each category
 - "Already Authorized" section displays files in a table with checkboxes for user selection
 - "Needs Authorization" section displays files with copy-to-clipboard buttons for CLI commands
