@@ -41,6 +41,21 @@ type ProjectList struct {
 	Projects []ProjectInfo `json:"projects" doc:"List of projects"`
 }
 
+// ProjectInfoInput for fetching project details
+type ProjectInfoInput struct {
+	ProjectID string `path:"projectID" doc:"Project identifier" required:"true"`
+}
+
+type ProjectInfoResponse struct {
+	Body struct {
+		ID              string   `json:"id" doc:"Project identifier"`
+		BaseDir         string   `json:"baseDir" doc:"Base directory"`
+		Current         string   `json:"current" doc:"Current discussion file"`
+		DiscussionFiles []string `json:"discussionFiles" doc:"Discussion files"`
+		AuthorizedFiles []string `json:"authorizedFiles" doc:"Authorized files"`
+	} `doc:"Project details"`
+}
+
 // ProjectDeleteInput for deleting a project
 type ProjectDeleteInput struct {
 	ProjectID string `path:"projectID" doc:"Project identifier" required:"true"`
@@ -200,6 +215,24 @@ func getProjectsHandler(ctx context.Context, input *EmptyInput) (*ProjectListRes
 	}
 	res := &ProjectListResponse{}
 	res.Body.Projects = projectInfos
+	return res, nil
+}
+
+// getProjectInfoHandler handles GET /api/projects/{projectID} - get project details
+func getProjectInfoHandler(ctx context.Context, input *ProjectInfoInput) (*ProjectInfoResponse, error) {
+	projectID := input.ProjectID
+
+	project, err := projects.Get(projectID)
+	if err != nil {
+		return nil, huma.Error404NotFound("Project not found")
+	}
+
+	res := &ProjectInfoResponse{}
+	res.Body.ID = project.ID
+	res.Body.BaseDir = project.BaseDir
+	res.Body.Current = project.toRelativePath(project.MarkdownFile)
+	res.Body.DiscussionFiles = project.GetDiscussionFilesAsRelative()
+	res.Body.AuthorizedFiles = project.GetFilesAsRelative()
 	return res, nil
 }
 

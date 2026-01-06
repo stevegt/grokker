@@ -162,9 +162,37 @@ func TestCLIProjectList(t *testing.T) {
 	}
 }
 
+// TestCLIProjectInfo tests the project info subcommand
+func TestCLIProjectInfo(t *testing.T) {
+	daemonPort := 59996
+	daemonURL, cleanup := startTestDaemon(t, daemonPort)
+	defer cleanup()
+
+	projectID := "cli-info-project"
+	projectDir, markdownFile, cleanupProj := setupTestProject(t, projectID)
+	defer cleanupProj()
+
+	_, errOutput, err := runCLICommand(daemonURL, "project", "add", projectID, projectDir, markdownFile)
+	if err != nil {
+		t.Fatalf("Failed to add test project: %v, stderr: %s", err, errOutput)
+	}
+
+	output, errOutput, err := runCLICommand(daemonURL, "project", "info", projectID)
+	if err != nil {
+		t.Fatalf("project info command failed: %v, stderr: %s", err, errOutput)
+	}
+
+	if !bytes.Contains([]byte(output), []byte("BaseDir")) {
+		t.Errorf("Expected BaseDir in output, got: %s", output)
+	}
+	if !bytes.Contains([]byte(output), []byte(projectDir)) {
+		t.Errorf("Expected project dir in output, got: %s", output)
+	}
+}
+
 // TestCLIFileAdd tests the file add subcommand via shell execution
 func TestCLIFileAdd(t *testing.T) {
-	daemonPort := 59996
+	daemonPort := 59994
 	daemonURL, cleanup := startTestDaemon(t, daemonPort)
 	defer cleanup()
 
@@ -229,7 +257,7 @@ func TestCLIFileList(t *testing.T) {
 
 // TestCLIFileForget tests the file forget subcommand with multiple files
 func TestCLIFileForget(t *testing.T) {
-	daemonPort := 59994
+	daemonPort := 59993
 	daemonURL, cleanup := startTestDaemon(t, daemonPort)
 	defer cleanup()
 
@@ -282,7 +310,7 @@ func TestCLIFileForget(t *testing.T) {
 
 // TestCLIProjectForget tests the project forget subcommand
 func TestCLIProjectForget(t *testing.T) {
-	daemonPort := 59993
+	daemonPort := 59992
 	daemonURL, cleanup := startTestDaemon(t, daemonPort)
 	defer cleanup()
 
@@ -318,7 +346,7 @@ func TestCLIProjectForget(t *testing.T) {
 
 // TestCLIStop tests the stop subcommand[1]
 func TestCLIStop(t *testing.T) {
-	daemonPort := 59992
+	daemonPort := 59991
 	daemonURL, cleanup := startTestDaemon(t, daemonPort)
 	defer cleanup()
 

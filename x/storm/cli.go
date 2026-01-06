@@ -247,6 +247,52 @@ func runProjectList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// runProjectInfo implements the project info command
+func runProjectInfo(cmd *cobra.Command, args []string) error {
+	projectID := args[0]
+
+	endpoint := fmt.Sprintf("/api/projects/%s", projectID)
+	resp, err := makeRequest("GET", endpoint, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK); err != nil {
+		return err
+	}
+
+	var result map[string]interface{}
+	if err := decodeJSON(resp, &result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	fmt.Printf("Project %s\n", projectID)
+	if baseDir, ok := result["baseDir"].(string); ok {
+		fmt.Printf("  BaseDir: %s\n", baseDir)
+	}
+	if current, ok := result["current"].(string); ok {
+		fmt.Printf("  Current discussion: %s\n", current)
+	}
+	if files, ok := result["discussionFiles"].([]interface{}); ok {
+		fmt.Printf("  Discussions:\n")
+		for i := 0; i < len(files); i++ {
+			if f, ok := files[i].(string); ok {
+				fmt.Printf("    - %s\n", f)
+			}
+		}
+	}
+	if files, ok := result["authorizedFiles"].([]interface{}); ok {
+		fmt.Printf("  Authorized files:\n")
+		for i := 0; i < len(files); i++ {
+			if f, ok := files[i].(string); ok {
+				fmt.Printf("    - %s\n", f)
+			}
+		}
+	}
+	return nil
+}
+
 // runProjectForget implements the project forget command
 func runProjectForget(cmd *cobra.Command, args []string) error {
 	if len(args) < 1 {
@@ -687,6 +733,14 @@ func main() {
 		RunE:  runProjectList,
 	}
 
+	projectInfoCmd := &cobra.Command{
+		Use:   "info [projectID]",
+		Short: "Show project details",
+		Long:  `Show project details via HTTP API.`,
+		Args:  cobra.ExactArgs(1),
+		RunE:  runProjectInfo,
+	}
+
 	projectForgetCmd := &cobra.Command{
 		Use:   "forget [projectID]",
 		Short: "Delete a project",
@@ -704,7 +758,7 @@ func main() {
 	}
 	projectUpdateCmd.Flags().String("basedir", "", "New base directory for the project (required)")
 
-	projectCmd.AddCommand(projectAddCmd, projectListCmd, projectForgetCmd, projectUpdateCmd)
+	projectCmd.AddCommand(projectAddCmd, projectListCmd, projectInfoCmd, projectForgetCmd, projectUpdateCmd)
 	rootCmd.AddCommand(projectCmd)
 
 	// Discussion command
