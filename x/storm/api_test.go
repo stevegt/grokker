@@ -111,7 +111,44 @@ func TestAPIEndpoints(t *testing.T) {
 		t.Errorf("Expected at least 1 project, got %d", len(projects))
 	}
 
-	// Test 3: Create input and output files in project directory
+	// Test 3: Update project baseDir
+	newProjectDir := filepath.Join(tmpDir, projectID+"-moved")
+	if err := os.MkdirAll(newProjectDir, 0755); err != nil {
+		t.Fatalf("Failed to create new project directory: %v", err)
+	}
+
+	updatePayload := map[string]string{
+		"basedir": newProjectDir,
+	}
+	jsonData, err = json.Marshal(updatePayload)
+	if err != nil {
+		t.Fatalf("Failed to marshal update request: %v", err)
+	}
+
+	updateURL := fmt.Sprintf("%s/api/projects/%s/update", daemonAddr, projectID)
+	resp, err = http.Post(updateURL, "application/json", bytes.NewReader(jsonData))
+	if err != nil {
+		t.Fatalf("Failed to update project: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := ioutil.ReadAll(resp.Body)
+		t.Fatalf("Update project failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var updateResp map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&updateResp); err != nil {
+		t.Fatalf("Failed to decode update response: %v", err)
+	}
+
+	if basedir, ok := updateResp["basedir"].(string); !ok || basedir != newProjectDir {
+		t.Errorf("Expected basedir %s, got %v", newProjectDir, updateResp["basedir"])
+	}
+
+	projectDir = newProjectDir
+
+	// Test 4: Create input and output files in project directory
 	inputFile := filepath.Join(projectDir, "input.csv")
 	if err := ioutil.WriteFile(inputFile, []byte("col1,col2\nval1,val2\n"), 0644); err != nil {
 		t.Fatalf("Failed to create input file: %v", err)
@@ -122,7 +159,7 @@ func TestAPIEndpoints(t *testing.T) {
 		t.Fatalf("Failed to create output file: %v", err)
 	}
 
-	// Test 3: Add files to project using /files/add endpoint[1]
+	// Test 5: Add files to project using /files/add endpoint[1]
 	addFilesPayload := map[string]interface{}{
 		"filenames": []string{inputFile, outputFile},
 	}
@@ -153,7 +190,7 @@ func TestAPIEndpoints(t *testing.T) {
 		t.Errorf("Expected files to be added, got %v", addFilesResp)
 	}
 
-	// Test 5: List files in project
+	// Test 6: List files in project
 	resp, err = http.Get(fmt.Sprintf("%s/api/projects/%s/files", daemonAddr, projectID))
 	if err != nil {
 		t.Fatalf("Failed to list project files: %v", err)
@@ -179,7 +216,7 @@ func TestAPIEndpoints(t *testing.T) {
 		t.Errorf("Expected 2 files, got %d", len(files))
 	}
 
-	// Test 5: Forget files using POST with list[1]
+	// Test 7: Forget files using POST with list[1]
 	forgetPayload := map[string]interface{}{
 		"filenames": []string{inputFile},
 	}
@@ -207,7 +244,7 @@ func TestAPIEndpoints(t *testing.T) {
 		t.Fatalf("Forget files failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Test 6: Verify file was forgotten
+	// Test 8: Verify file was forgotten
 	resp, err = http.Get(fmt.Sprintf("%s/api/projects/%s/files", daemonAddr, projectID))
 	if err != nil {
 		t.Fatalf("Failed to list project files after deletion: %v", err)
@@ -228,7 +265,7 @@ func TestAPIEndpoints(t *testing.T) {
 		t.Errorf("Expected 1 file after forget, got %d", len(files2))
 	}
 
-	// Test 7: Delete project
+	// Test 9: Delete project
 	deleteProjectURL := fmt.Sprintf("%s/api/projects/%s", daemonAddr, projectID)
 	req, err = http.NewRequest("DELETE", deleteProjectURL, nil)
 	if err != nil {
@@ -246,7 +283,7 @@ func TestAPIEndpoints(t *testing.T) {
 		t.Fatalf("Delete project failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Test 9: Verify project was deleted
+	// Test 10: Verify project was deleted
 	resp, err = http.Get(daemonAddr + "/api/projects")
 	if err != nil {
 		t.Fatalf("Failed to list projects after deletion: %v", err)
@@ -267,7 +304,7 @@ func TestAPIEndpoints(t *testing.T) {
 		t.Errorf("Expected 0 projects after deletion, got %d", len(projects2))
 	}
 
-	// Test 10: Stop daemon
+	// Test 11: Stop daemon
 	resp, err = http.Post(daemonAddr+"/stop", "application/json", nil)
 	if err != nil {
 		t.Logf("Stop request completed (connection may have closed): %v", err)

@@ -53,6 +53,21 @@ type ProjectDeleteResponse struct {
 	} `doc:"Project deletion result"`
 }
 
+// ProjectUpdateInput for updating a project's base directory
+type ProjectUpdateInput struct {
+	ProjectID string `path:"projectID" doc:"Project identifier" required:"true"`
+	Body      struct {
+		BaseDir string `json:"basedir" doc:"New base directory for project files" required:"true"`
+	} `doc:"Project base directory update"`
+}
+
+type ProjectUpdateResponse struct {
+	Body struct {
+		ProjectID string `json:"projectID" doc:"Project identifier"`
+		BaseDir   string `json:"basedir" doc:"Updated base directory"`
+	} `doc:"Project base directory update result"`
+}
+
 // FileAddInput for adding files to a project
 type FileAddInput struct {
 	ProjectID string `path:"projectID" doc:"Project identifier" required:"true"`
@@ -157,6 +172,23 @@ func deleteProjectHandler(ctx context.Context, input *ProjectDeleteInput) (*Proj
 	res.Body.Message = "Project deleted successfully"
 
 	log.Printf("DEBUG: Project %s deleted", projectID)
+	return res, nil
+}
+
+// postProjectUpdateHandler handles POST /api/projects/{projectID}/update - update base directory
+func postProjectUpdateHandler(ctx context.Context, input *ProjectUpdateInput) (*ProjectUpdateResponse, error) {
+	projectID := input.ProjectID
+
+	project, err := projects.UpdateBaseDir(projectID, input.Body.BaseDir)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Failed to update project base directory", err)
+	}
+
+	res := &ProjectUpdateResponse{}
+	res.Body.ProjectID = project.ID
+	res.Body.BaseDir = project.BaseDir
+
+	log.Printf("Project %s baseDir updated to %s", projectID, project.BaseDir)
 	return res, nil
 }
 

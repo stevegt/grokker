@@ -177,13 +177,44 @@ func (p *Projects) Remove(projectID string) error {
 	return nil
 }
 
+// UpdateBaseDir updates a project's base directory in cache and persistent storage.
+func (p *Projects) UpdateBaseDir(projectID, baseDir string) (*Project, error) {
+	if baseDir == "" {
+		return nil, fmt.Errorf("baseDir cannot be empty")
+	}
+	if _, err := os.Stat(baseDir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("base directory does not exist: %s", baseDir)
+	}
+
+	// Load project for runtime state (cache-backed) so we can update live fields.
+	project, err := p.Get(projectID)
+	if err != nil {
+		return nil, fmt.Errorf("project not found: %w", err)
+	}
+
+	project.BaseDir = baseDir
+
+	// Load persisted metadata separately to avoid clobbering fields we don't manage in memory.
+	persistedProj, err := p.dbMgr.LoadProject(projectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load project metadata: %w", err)
+	}
+	persistedProj.BaseDir = baseDir
+
+	if err := p.dbMgr.SaveProject(persistedProj); err != nil {
+		return nil, fmt.Errorf("failed to save project metadata: %w", err)
+	}
+
+	return project, nil
+}
+
 // AddFile adds a file to a project's authorized files
 func (p *Projects) AddFile(projectID, filename string) error {
 	if filename == "" {
 		return fmt.Errorf("filename cannot be empty")
 	}
 
-	// Load project (from cache or database)
+	// Load project for runtime state (cache-backed) so we can update live fields.
 	project, err := p.Get(projectID)
 	if err != nil {
 		return fmt.Errorf("project not found: %w", err)
@@ -200,6 +231,7 @@ func (p *Projects) AddFile(projectID, filename string) error {
 	project.AuthorizedFiles = append(project.AuthorizedFiles, filename)
 	log.Printf("Added file %s to project %s", filename, projectID)
 
+	// Load persisted metadata separately to avoid clobbering fields we don't manage in memory.
 	persistedProj, err := p.dbMgr.LoadProject(projectID)
 	if err != nil {
 		return fmt.Errorf("failed to load project metadata: %w", err)
@@ -213,6 +245,7 @@ func (p *Projects) AddFile(projectID, filename string) error {
 
 // Add RemoveFile method to Projects struct:
 func (p *Projects) RemoveFile(projectID, filename string) error {
+	// Load project for runtime state (cache-backed) so we can update live fields.
 	project, err := p.Get(projectID)
 	if err != nil {
 		return err
@@ -244,6 +277,7 @@ func (p *Projects) RemoveFile(projectID, filename string) error {
 
 	project.AuthorizedFiles = append(project.AuthorizedFiles[:idx], project.AuthorizedFiles[idx+1:]...)
 
+	// Load persisted metadata separately to avoid clobbering fields we don't manage in memory.
 	persistedProj, err := p.dbMgr.LoadProject(projectID)
 	if err != nil {
 		return fmt.Errorf("failed to load project metadata: %w", err)

@@ -274,6 +274,41 @@ func runProjectForget(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// runProjectUpdate implements the project update command
+func runProjectUpdate(cmd *cobra.Command, args []string) error {
+	projectID := args[0]
+	baseDir, err := cmd.Flags().GetString("basedir")
+	if err != nil {
+		return err
+	}
+	if err := validateRequiredFlag(baseDir, "basedir"); err != nil {
+		return err
+	}
+
+	resolvedBaseDir, err := resolvePath(baseDir)
+	if err != nil {
+		return err
+	}
+
+	payload := map[string]string{
+		"basedir": resolvedBaseDir,
+	}
+
+	endpoint := fmt.Sprintf("/api/projects/%s/update", projectID)
+	resp, err := makeRequest("POST", endpoint, payload)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK); err != nil {
+		return err
+	}
+
+	fmt.Printf("Project %s baseDir updated to %s\n", projectID, resolvedBaseDir)
+	return nil
+}
+
 // runFileAdd implements the file add command
 func runFileAdd(cmd *cobra.Command, args []string) error {
 	projectID, err := cmd.Flags().GetString("project")
@@ -515,7 +550,16 @@ func main() {
 		RunE:  runProjectForget,
 	}
 
-	projectCmd.AddCommand(projectAddCmd, projectListCmd, projectForgetCmd)
+	projectUpdateCmd := &cobra.Command{
+		Use:   "update [projectID]",
+		Short: "Update a project's settings",
+		Long:  `Update project settings via HTTP API.`,
+		Args:  cobra.ExactArgs(1),
+		RunE:  runProjectUpdate,
+	}
+	projectUpdateCmd.Flags().String("basedir", "", "New base directory for the project (required)")
+
+	projectCmd.AddCommand(projectAddCmd, projectListCmd, projectForgetCmd, projectUpdateCmd)
 	rootCmd.AddCommand(projectCmd)
 
 	// File command

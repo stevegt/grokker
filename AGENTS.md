@@ -8,7 +8,7 @@
 
 ## Build, Test, and Development Commands
 - `go build -o grok ./v3/cmd/grok` (from repo root) builds the CLI binary.
-- `go test ./...` (from `v3/`) runs Go unit tests for the main module.
+- Prefer `make test` for testing storm; use a longer timeout (about 4 minutes) when running storm's full test suite.
 - `npm test` (from `vscode-plugin/grokker/`) runs VS Code extension tests.
 - `npm run lint` (from `vscode-plugin/grokker/`) runs ESLint for the extension.
 

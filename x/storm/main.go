@@ -313,6 +313,7 @@ func serveRun(port int, dbPath string) error {
 	huma.Post(api, "/api/projects", postProjectsHandler)
 	huma.Get(api, "/api/projects", getProjectsHandler)
 	huma.Delete(api, "/api/projects/{projectID}", deleteProjectHandler)
+	huma.Post(api, "/api/projects/{projectID}/update", postProjectUpdateHandler)
 	huma.Post(api, "/api/projects/{projectID}/files/add", postProjectFilesAddHandler)
 	huma.Post(api, "/api/projects/{projectID}/files/forget", postProjectFilesForgetHandler)
 	huma.Get(api, "/api/projects/{projectID}/files", getProjectFilesHandler)
