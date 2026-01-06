@@ -49,6 +49,16 @@ Rationale: avoids crowding the `storm` root, keeps KB behavior intact, and makes
 - Move `x/storm` packages into `v3/storm` and update module import paths.
 - Add `v3/cmd/storm/main.go` as the new entry point; keep `v3/cmd/grok/main.go` as a shim.
 
+### Vector DB and storage recommendations
+- Storm already has the beginning of a stronger storage design in the bbolt KV store; grok still uses a monolithic JSON file that grows quickly.
+- Recommendation: converge on the bbolt-backed design and phase out the JSON DB for embeddings and metadata.
+- Suggested steps:
+  - Define a KV schema that matches grok’s needs (documents, chunks, embeddings, chat history) and map `.grok` fields to buckets.
+  - Add a one-time migration command (`storm kb migrate` or similar) with progress output and validation.
+  - Implement dual-read during transition (read JSON if KV missing; write KV only) to reduce risk.
+  - Keep a backup/export path for JSON during early migrations.
+- Outcome: smaller on-disk footprint, better incremental updates, and a cleaner path to multi-project or shared DB layouts.
+
 ### Backward compatibility
 - Keep `grok` binary as thin wrapper:
   - `grok <args>` -> `storm kb <args>`
