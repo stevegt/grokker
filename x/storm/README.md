@@ -30,6 +30,14 @@ The server will start on http://localhost:8080
 storm project add my-project /path/to/project /path/to/chat.md
 ```
 
+### Viewing Project Details
+
+```bash
+storm project info my-project
+```
+
+This shows the project's base directory, current discussion file, and authorized files.
+
 ### Managing Files
 
 ```bash
@@ -295,4 +303,3 @@ go test -v ./...
 - OAuth integration for co-authored-by headers
 - File change monitoring with inotify
 - Queue feature for offline message batching
-
