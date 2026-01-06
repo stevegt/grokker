@@ -22,6 +22,12 @@
 - VS Code extension tests run via the `vscode-test` harness in `vscode-plugin/grokker/test/`.
 - Prefer deterministic tests; avoid network calls unless explicitly required.
 
+## TODO Tracking 
+
+- Keep track of outstanding bugs and features in `TODO.md`, categorized by type.
+- Number each bug or feature using a global sequential system, 3 digits, zero-padded (e.g., 001, 002).
+- When discussing a TODO, use its number (e.g., "fix TODO 005").
+
 ## Commit & Pull Request Guidelines
 - Commit messages are short, imperative, and capitalized (e.g., "Refactor chat client", "Fix WS path").
 - In commit message bodies, include a section per changed file with bullet points summarizing the edits.
@@ -38,4 +44,5 @@
 - If you add new files or directories, document them here and explain the rationale in the PR.
 - Before major changes, and after significant milestones, prompt the user to commit their work.
 - Always summarize `git diff` output to generate commit messages rather than relying only on chat context.
-- Treat a line containing only `commit` as: add and commit all changes with an AGENTS.md-compliant message.
+- Treat a line containing only `commit` as: "add and commit all changes with an AGENTS.md-compliant message".
+- When running 'git add', list the individual files to be added, not 'git add .' or 'git add -A'.

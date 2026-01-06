@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -215,6 +216,8 @@ func (p *Projects) UpdateBaseDir(projectID, baseDir string) (*Project, error) {
 		return nil, fmt.Errorf("project not found: %w", err)
 	}
 
+	oldBaseDir := project.BaseDir
+	// Rewrite only paths that live under the old baseDir; leave absolute paths outside untouched.
 	project.BaseDir = baseDir
 
 	// Load persisted metadata separately to avoid clobbering fields we don't manage in memory.
@@ -224,11 +227,55 @@ func (p *Projects) UpdateBaseDir(projectID, baseDir string) (*Project, error) {
 	}
 	persistedProj.BaseDir = baseDir
 
+	rewritePath := func(path string) string {
+		if path == "" {
+			return path
+		}
+		cleanPath := filepath.Clean(path)
+		cleanOld := filepath.Clean(oldBaseDir)
+		if cleanPath == cleanOld {
+			// Preserve the baseDir root when the old path equals the baseDir itself.
+			return baseDir
+		}
+		withSep := cleanOld + string(os.PathSeparator)
+		if strings.HasPrefix(cleanPath, withSep) {
+			// Rewrite only paths under the old baseDir to the new baseDir.
+			return filepath.Join(baseDir, cleanPath[len(withSep):])
+		}
+		return path
+	}
+
+	// Update runtime paths and reload chat if the active discussion file moved.
+	project.MarkdownFile = rewritePath(project.MarkdownFile)
+	if project.MarkdownFile != persistedProj.CurrentDiscussionFile {
+		project.Chat = NewChat(project.MarkdownFile)
+	}
+
+	// Rewrite tracked files in both runtime state and persisted metadata.
+	project.AuthorizedFiles = rewritePathSlice(project.AuthorizedFiles, rewritePath)
+	persistedProj.AuthorizedFiles = rewritePathSlice(persistedProj.AuthorizedFiles, rewritePath)
+
+	for i := 0; i < len(project.DiscussionFiles); i++ {
+		project.DiscussionFiles[i].Filepath = rewritePath(project.DiscussionFiles[i].Filepath)
+	}
+	for i := 0; i < len(persistedProj.DiscussionFiles); i++ {
+		persistedProj.DiscussionFiles[i].Filepath = rewritePath(persistedProj.DiscussionFiles[i].Filepath)
+	}
+	persistedProj.CurrentDiscussionFile = rewritePath(persistedProj.CurrentDiscussionFile)
+
 	if err := p.dbMgr.SaveProject(persistedProj); err != nil {
 		return nil, fmt.Errorf("failed to save project metadata: %w", err)
 	}
 
 	return project, nil
+}
+
+func rewritePathSlice(paths []string, rewrite func(string) string) []string {
+	rewritten := make([]string, 0, len(paths))
+	for i := 0; i < len(paths); i++ {
+		rewritten = append(rewritten, rewrite(paths[i]))
+	}
+	return rewritten
 }
 
 // AddDiscussionFile adds a discussion markdown file to a project.
