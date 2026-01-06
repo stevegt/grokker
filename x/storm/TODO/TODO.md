@@ -1,5 +1,6 @@
 # bugs
 
+- 'storm project update --basedir' also needs to update file paths
 - need spinner in status box visible to all users when processing
 - new unexpected files -- need to repopulate approval list so user can
   click 'out' box

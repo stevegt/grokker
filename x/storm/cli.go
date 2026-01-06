@@ -361,9 +361,13 @@ func runDiscussionAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	filename := args[0]
+	resolvedFilename, err := resolvePath(filename)
+	if err != nil {
+		return err
+	}
 
 	payload := map[string]string{
-		"filename": filename,
+		"filename": resolvedFilename,
 	}
 
 	endpoint := fmt.Sprintf("/api/projects/%s/discussions/add", projectID)
@@ -377,7 +381,7 @@ func runDiscussionAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Printf("Discussion file added to project %s: %s\n", projectID, filename)
+	fmt.Printf("Discussion file added to project %s: %s\n", projectID, resolvedFilename)
 	return nil
 }
 
@@ -392,9 +396,13 @@ func runDiscussionForget(cmd *cobra.Command, args []string) error {
 	}
 
 	filename := args[0]
+	resolvedFilename, err := resolvePath(filename)
+	if err != nil {
+		return err
+	}
 
 	payload := map[string]string{
-		"filename": filename,
+		"filename": resolvedFilename,
 	}
 
 	endpoint := fmt.Sprintf("/api/projects/%s/discussions/forget", projectID)
@@ -408,7 +416,7 @@ func runDiscussionForget(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Printf("Discussion file forgotten from project %s: %s\n", projectID, filename)
+	fmt.Printf("Discussion file forgotten from project %s: %s\n", projectID, resolvedFilename)
 	return nil
 }
 
@@ -423,8 +431,12 @@ func runDiscussionSwitch(cmd *cobra.Command, args []string) error {
 	}
 
 	filename := args[0]
+	resolvedFilename, err := resolvePath(filename)
+	if err != nil {
+		return err
+	}
 	payload := map[string]string{
-		"filename": filename,
+		"filename": resolvedFilename,
 	}
 
 	endpoint := fmt.Sprintf("/api/projects/%s/discussions/switch", projectID)
@@ -438,7 +450,7 @@ func runDiscussionSwitch(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Printf("Discussion switched for project %s: %s\n", projectID, filename)
+	fmt.Printf("Discussion switched for project %s: %s\n", projectID, resolvedFilename)
 	return nil
 }
 
