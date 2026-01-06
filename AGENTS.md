@@ -36,6 +36,6 @@
 - Prefer small, focused edits and avoid rearranging files without a clear need.
 - Do not remove comments or documentation; update them if outdated or incorrect.
 - If you add new files or directories, document them here and explain the rationale in the PR.
-- Before major changes, and after significant milestones, remind the user to commit their work.
+- Before major changes, and after significant milestones, prompt the user to commit their work.
 - Always summarize `git diff` output to generate commit messages rather than relying only on chat context.
 - Treat a line containing only `commit` as: add and commit all changes with an AGENTS.md-compliant message.

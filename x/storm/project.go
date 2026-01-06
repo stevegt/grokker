@@ -20,6 +20,7 @@ type Project struct {
 	BaseDir         string
 	MarkdownFile    string
 	AuthorizedFiles []string
+	DiscussionFiles []db.DiscussionFileRef
 	Chat            *Chat
 	ClientPool      *ClientPool
 }
@@ -61,8 +62,23 @@ func (p *Projects) Get(projectID string) (*Project, error) {
 		BaseDir:         meta.BaseDir,
 		MarkdownFile:    meta.CurrentDiscussionFile,
 		AuthorizedFiles: meta.AuthorizedFiles,
+		DiscussionFiles: meta.DiscussionFiles,
 		Chat:            NewChat(meta.CurrentDiscussionFile),
 		ClientPool:      NewClientPool(),
+	}
+
+	if len(meta.DiscussionFiles) == 0 && meta.CurrentDiscussionFile != "" {
+		meta.DiscussionFiles = []db.DiscussionFileRef{
+			{
+				Filepath:   meta.CurrentDiscussionFile,
+				CreatedAt:  time.Now(),
+				RoundCount: len(project.Chat.history),
+			},
+		}
+		project.DiscussionFiles = meta.DiscussionFiles
+		if err := p.dbMgr.SaveProject(meta); err != nil {
+			return nil, fmt.Errorf("failed to backfill discussion files: %w", err)
+		}
 	}
 
 	// Store in cache
@@ -111,8 +127,15 @@ func (p *Projects) Add(projectID, baseDir, markdownFile string) (*Project, error
 		BaseDir:         baseDir,
 		MarkdownFile:    markdownFile,
 		AuthorizedFiles: []string{},
-		Chat:            chatInstance,
-		ClientPool:      clientPool,
+		DiscussionFiles: []db.DiscussionFileRef{
+			{
+				Filepath:   markdownFile,
+				CreatedAt:  time.Now(),
+				RoundCount: len(chatInstance.history),
+			},
+		},
+		Chat:       chatInstance,
+		ClientPool: clientPool,
 	}
 
 	// Create persistent metadata
@@ -200,6 +223,151 @@ func (p *Projects) UpdateBaseDir(projectID, baseDir string) (*Project, error) {
 		return nil, fmt.Errorf("failed to load project metadata: %w", err)
 	}
 	persistedProj.BaseDir = baseDir
+
+	if err := p.dbMgr.SaveProject(persistedProj); err != nil {
+		return nil, fmt.Errorf("failed to save project metadata: %w", err)
+	}
+
+	return project, nil
+}
+
+// AddDiscussionFile adds a discussion markdown file to a project.
+func (p *Projects) AddDiscussionFile(projectID, filename string) (*Project, error) {
+	if filename == "" {
+		return nil, fmt.Errorf("filename cannot be empty")
+	}
+
+	project, err := p.Get(projectID)
+	if err != nil {
+		return nil, fmt.Errorf("project not found: %w", err)
+	}
+
+	absFilename := filename
+	if !filepath.IsAbs(filename) {
+		absFilename = filepath.Join(project.BaseDir, filename)
+	}
+
+	if _, err := os.Stat(absFilename); err != nil {
+		if os.IsNotExist(err) {
+			if err := os.WriteFile(absFilename, []byte(""), 0644); err != nil {
+				return nil, fmt.Errorf("failed to create discussion file: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to stat discussion file: %w", err)
+		}
+	}
+
+	for _, ref := range project.DiscussionFiles {
+		if ref.Filepath == absFilename {
+			return nil, fmt.Errorf("discussion file already exists: %s", filename)
+		}
+	}
+
+	chat := NewChat(absFilename)
+	project.DiscussionFiles = append(project.DiscussionFiles, db.DiscussionFileRef{
+		Filepath:   absFilename,
+		CreatedAt:  time.Now(),
+		RoundCount: chat.TotalRounds(),
+	})
+
+	persistedProj, err := p.dbMgr.LoadProject(projectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load project metadata: %w", err)
+	}
+	persistedProj.DiscussionFiles = project.DiscussionFiles
+
+	if err := p.dbMgr.SaveProject(persistedProj); err != nil {
+		return nil, fmt.Errorf("failed to save project metadata: %w", err)
+	}
+
+	return project, nil
+}
+
+// ForgetDiscussionFile removes a discussion markdown file from a project.
+func (p *Projects) ForgetDiscussionFile(projectID, filename string) (*Project, error) {
+	if filename == "" {
+		return nil, fmt.Errorf("filename cannot be empty")
+	}
+
+	project, err := p.Get(projectID)
+	if err != nil {
+		return nil, fmt.Errorf("project not found: %w", err)
+	}
+
+	absFilename := filename
+	if !filepath.IsAbs(filename) {
+		absFilename = filepath.Join(project.BaseDir, filename)
+	}
+
+	if absFilename == project.MarkdownFile {
+		return nil, fmt.Errorf("cannot forget current discussion file")
+	}
+
+	if len(project.DiscussionFiles) <= 1 {
+		return nil, fmt.Errorf("cannot forget the only discussion file")
+	}
+
+	idx := -1
+	for i, ref := range project.DiscussionFiles {
+		if ref.Filepath == absFilename {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return nil, fmt.Errorf("discussion file not found: %s", filename)
+	}
+
+	project.DiscussionFiles = append(project.DiscussionFiles[:idx], project.DiscussionFiles[idx+1:]...)
+
+	persistedProj, err := p.dbMgr.LoadProject(projectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load project metadata: %w", err)
+	}
+	persistedProj.DiscussionFiles = project.DiscussionFiles
+
+	if err := p.dbMgr.SaveProject(persistedProj); err != nil {
+		return nil, fmt.Errorf("failed to save project metadata: %w", err)
+	}
+
+	return project, nil
+}
+
+// SwitchDiscussionFile switches the active discussion markdown file.
+func (p *Projects) SwitchDiscussionFile(projectID, filename string) (*Project, error) {
+	if filename == "" {
+		return nil, fmt.Errorf("filename cannot be empty")
+	}
+
+	project, err := p.Get(projectID)
+	if err != nil {
+		return nil, fmt.Errorf("project not found: %w", err)
+	}
+
+	absFilename := filename
+	if !filepath.IsAbs(filename) {
+		absFilename = filepath.Join(project.BaseDir, filename)
+	}
+
+	found := false
+	for _, ref := range project.DiscussionFiles {
+		if ref.Filepath == absFilename {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("discussion file not found: %s", filename)
+	}
+
+	project.MarkdownFile = absFilename
+	project.Chat = NewChat(absFilename)
+
+	persistedProj, err := p.dbMgr.LoadProject(projectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load project metadata: %w", err)
+	}
+	persistedProj.CurrentDiscussionFile = absFilename
 
 	if err := p.dbMgr.SaveProject(persistedProj); err != nil {
 		return nil, fmt.Errorf("failed to save project metadata: %w", err)
@@ -337,5 +505,14 @@ func (p *Project) GetFilesAsRelative() []string {
 	}
 	// Sort files alphabetically
 	sort.Strings(relativeFiles)
+	return relativeFiles
+}
+
+// GetDiscussionFilesAsRelative returns discussion file paths relative to BaseDir when possible.
+func (p *Project) GetDiscussionFilesAsRelative() []string {
+	var relativeFiles []string
+	for i := 0; i < len(p.DiscussionFiles); i++ {
+		relativeFiles = append(relativeFiles, p.toRelativePath(p.DiscussionFiles[i].Filepath))
+	}
 	return relativeFiles
 }

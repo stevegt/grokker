@@ -309,6 +309,139 @@ func runProjectUpdate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// runDiscussionList implements the discussion list command
+func runDiscussionList(cmd *cobra.Command, args []string) error {
+	projectID, err := cmd.Flags().GetString("project")
+	if err != nil {
+		return err
+	}
+	if err := validateRequiredFlag(projectID, "project"); err != nil {
+		return err
+	}
+
+	endpoint := fmt.Sprintf("/api/projects/%s/discussions", projectID)
+	resp, err := makeRequest("GET", endpoint, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK); err != nil {
+		return err
+	}
+
+	var result map[string]interface{}
+	if err := decodeJSON(resp, &result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	current, _ := result["current"].(string)
+	files, _ := result["files"].([]interface{})
+
+	fmt.Printf("Discussions for project %s:\n", projectID)
+	for i := 0; i < len(files); i++ {
+		f, _ := files[i].(string)
+		marker := " "
+		if f == current {
+			marker = "*"
+		}
+		fmt.Printf("  %s %s\n", marker, f)
+	}
+	return nil
+}
+
+// runDiscussionAdd implements the discussion add command
+func runDiscussionAdd(cmd *cobra.Command, args []string) error {
+	projectID, err := cmd.Flags().GetString("project")
+	if err != nil {
+		return err
+	}
+	if err := validateRequiredFlag(projectID, "project"); err != nil {
+		return err
+	}
+
+	filename := args[0]
+
+	payload := map[string]string{
+		"filename": filename,
+	}
+
+	endpoint := fmt.Sprintf("/api/projects/%s/discussions/add", projectID)
+	resp, err := makeRequest("POST", endpoint, payload)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK); err != nil {
+		return err
+	}
+
+	fmt.Printf("Discussion file added to project %s: %s\n", projectID, filename)
+	return nil
+}
+
+// runDiscussionForget implements the discussion forget command
+func runDiscussionForget(cmd *cobra.Command, args []string) error {
+	projectID, err := cmd.Flags().GetString("project")
+	if err != nil {
+		return err
+	}
+	if err := validateRequiredFlag(projectID, "project"); err != nil {
+		return err
+	}
+
+	filename := args[0]
+
+	payload := map[string]string{
+		"filename": filename,
+	}
+
+	endpoint := fmt.Sprintf("/api/projects/%s/discussions/forget", projectID)
+	resp, err := makeRequest("POST", endpoint, payload)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK); err != nil {
+		return err
+	}
+
+	fmt.Printf("Discussion file forgotten from project %s: %s\n", projectID, filename)
+	return nil
+}
+
+// runDiscussionSwitch implements the discussion switch command
+func runDiscussionSwitch(cmd *cobra.Command, args []string) error {
+	projectID, err := cmd.Flags().GetString("project")
+	if err != nil {
+		return err
+	}
+	if err := validateRequiredFlag(projectID, "project"); err != nil {
+		return err
+	}
+
+	filename := args[0]
+	payload := map[string]string{
+		"filename": filename,
+	}
+
+	endpoint := fmt.Sprintf("/api/projects/%s/discussions/switch", projectID)
+	resp, err := makeRequest("POST", endpoint, payload)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := checkStatusCode(resp, http.StatusOK); err != nil {
+		return err
+	}
+
+	fmt.Printf("Discussion switched for project %s: %s\n", projectID, filename)
+	return nil
+}
+
 // runFileAdd implements the file add command
 func runFileAdd(cmd *cobra.Command, args []string) error {
 	projectID, err := cmd.Flags().GetString("project")
@@ -561,6 +694,51 @@ func main() {
 
 	projectCmd.AddCommand(projectAddCmd, projectListCmd, projectForgetCmd, projectUpdateCmd)
 	rootCmd.AddCommand(projectCmd)
+
+	// Discussion command
+	discussionCmd := &cobra.Command{
+		Use:   "discussion",
+		Short: "Manage discussion files",
+		Long:  `Manage discussion files associated with projects.`,
+	}
+
+	discussionListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List discussion files for a project",
+		Long:  `List discussion files and the current selection.`,
+		RunE:  runDiscussionList,
+	}
+	discussionListCmd.Flags().StringP("project", "p", "", "Project ID (required)")
+
+	discussionAddCmd := &cobra.Command{
+		Use:   "add [filename]",
+		Short: "Add a discussion file to a project",
+		Long:  `Add a discussion markdown file to the project.`,
+		Args:  cobra.ExactArgs(1),
+		RunE:  runDiscussionAdd,
+	}
+	discussionAddCmd.Flags().StringP("project", "p", "", "Project ID (required)")
+
+	discussionForgetCmd := &cobra.Command{
+		Use:   "forget [filename]",
+		Short: "Forget a discussion file from a project",
+		Long:  `Remove a discussion markdown file from the project list.`,
+		Args:  cobra.ExactArgs(1),
+		RunE:  runDiscussionForget,
+	}
+	discussionForgetCmd.Flags().StringP("project", "p", "", "Project ID (required)")
+
+	discussionSwitchCmd := &cobra.Command{
+		Use:   "switch [filename]",
+		Short: "Switch to a discussion file",
+		Long:  `Switch the active discussion markdown file.`,
+		Args:  cobra.ExactArgs(1),
+		RunE:  runDiscussionSwitch,
+	}
+	discussionSwitchCmd.Flags().StringP("project", "p", "", "Project ID (required)")
+
+	discussionCmd.AddCommand(discussionListCmd, discussionAddCmd, discussionForgetCmd, discussionSwitchCmd)
+	rootCmd.AddCommand(discussionCmd)
 
 	// File command
 	fileCmd := &cobra.Command{

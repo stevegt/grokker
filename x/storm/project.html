@@ -98,9 +98,9 @@
       box-shadow: 0 -2px 5px rgba(0,0,0,0.1);
       display: grid;
       grid-template-areas: 
-        "llmSelect userInput sendBtn filesBtn"
-        "tokenLimit userInput .       .";
-      grid-template-columns: auto 1fr auto auto;
+        "discussionSelect llmSelect userInput sendBtn filesBtn"
+        "tokenLimit      tokenLimit userInput .       .";
+      grid-template-columns: auto auto 1fr auto auto;
       grid-template-rows: auto auto;
       gap: 5px;
       border-top: 1px solid #333;
@@ -181,6 +181,9 @@
     #filesBtn {
       font-size: 12px;
       padding: 8px 12px;
+    }
+    #discussionSelect {
+      font-size: 12px;
     }
     /* Toggle button for sidebar */
     #toggle-sidebar {
@@ -429,6 +432,9 @@
         <!-- Progress spinners will appear here -->
       </div>
       <div id="input-area">
+        <select id="discussionSelect" style="grid-area: discussionSelect;">
+          <option value="">discussion</option>
+        </select>
         <select id="llmSelect" style="grid-area: llmSelect;">
           <option value="sonar-deep-research">sonar-deep-research</option>
           <option value="sonar-reasoning">sonar-reasoning</option>
@@ -508,6 +514,49 @@
     
     // Set document title to include project ID
     document.title = projectID;
+
+    function loadDiscussions() {
+      fetch("/api/projects/" + projectID + "/discussions")
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+          var select = document.getElementById("discussionSelect");
+          if (!select) {
+            return;
+          }
+
+          var files = data.files || [];
+          var current = data.current || "";
+          if (current && files.indexOf(current) === -1) {
+            files.unshift(current);
+          }
+
+          select.innerHTML = "";
+          files.forEach(function(file) {
+            var opt = document.createElement("option");
+            opt.value = file;
+            opt.textContent = file;
+            if (file === current) {
+              opt.selected = true;
+            }
+            select.appendChild(opt);
+          });
+        })
+        .catch(function(err) {
+          debugLog("Error loading discussions: " + err);
+        });
+    }
+
+    function switchDiscussion(filename) {
+      return fetch("/api/projects/" + projectID + "/discussions/switch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: filename })
+      }).then(function(response) {
+        if (!response.ok) {
+          throw new Error("Failed to switch discussion");
+        }
+      });
+    }
     
     // UUID v4 generator without NPM
     function generateUUID() {
@@ -1240,6 +1289,24 @@
     // Add scroll event listener on the chat element to update progress stats and update bookmark
     document.getElementById("chat").addEventListener("scroll", updateProgressStats);
     updateTokenCount(); // Initial token count fetch
+    loadDiscussions();
+
+    var discussionSelect = document.getElementById("discussionSelect");
+    if (discussionSelect) {
+      discussionSelect.addEventListener("change", function() {
+        var filename = discussionSelect.value;
+        if (!filename) {
+          return;
+        }
+        switchDiscussion(filename)
+          .then(function() {
+            window.location.reload();
+          })
+          .catch(function(err) {
+            debugLog("Error switching discussion: " + err);
+          });
+      });
+    }
 
     // Handle click on the Send button
     document.getElementById("sendBtn").addEventListener("click", function() {

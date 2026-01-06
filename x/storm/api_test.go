@@ -148,7 +148,111 @@ func TestAPIEndpoints(t *testing.T) {
 
 	projectDir = newProjectDir
 
-	// Test 4: Create input and output files in project directory
+	// Test 4: Manage discussion files
+	discussion2 := "discussion-2.md"
+	addDiscussionPayload := map[string]string{
+		"filename": discussion2,
+	}
+	jsonData, err = json.Marshal(addDiscussionPayload)
+	if err != nil {
+		t.Fatalf("Failed to marshal discussion add request: %v", err)
+	}
+
+	resp, err = http.Post(fmt.Sprintf("%s/api/projects/%s/discussions/add", daemonAddr, projectID), "application/json", bytes.NewReader(jsonData))
+	if err != nil {
+		t.Fatalf("Failed to add discussion file: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := ioutil.ReadAll(resp.Body)
+		t.Fatalf("Add discussion failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	resp, err = http.Get(fmt.Sprintf("%s/api/projects/%s/discussions", daemonAddr, projectID))
+	if err != nil {
+		t.Fatalf("Failed to list discussions: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var listDiscussionsResp map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&listDiscussionsResp); err != nil {
+		t.Fatalf("Failed to decode discussions response: %v", err)
+	}
+
+	filesList, _ := listDiscussionsResp["files"].([]interface{})
+	foundDiscussion := false
+	for i := 0; i < len(filesList); i++ {
+		if filesList[i] == discussion2 {
+			foundDiscussion = true
+			break
+		}
+	}
+	if !foundDiscussion {
+		t.Fatalf("Expected discussion %s in list, got %v", discussion2, filesList)
+	}
+
+	switchPayload := map[string]string{
+		"filename": discussion2,
+	}
+	jsonData, err = json.Marshal(switchPayload)
+	if err != nil {
+		t.Fatalf("Failed to marshal discussion switch request: %v", err)
+	}
+
+	resp, err = http.Post(fmt.Sprintf("%s/api/projects/%s/discussions/switch", daemonAddr, projectID), "application/json", bytes.NewReader(jsonData))
+	if err != nil {
+		t.Fatalf("Failed to switch discussion: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var switchResp map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&switchResp); err != nil {
+		t.Fatalf("Failed to decode discussion switch response: %v", err)
+	}
+	if current, ok := switchResp["current"].(string); !ok || current != discussion2 {
+		t.Fatalf("Expected current discussion %s, got %v", discussion2, switchResp["current"])
+	}
+
+	discussion3 := "discussion-3.md"
+	jsonData, err = json.Marshal(map[string]string{"filename": discussion3})
+	if err != nil {
+		t.Fatalf("Failed to marshal discussion add request: %v", err)
+	}
+	resp, err = http.Post(fmt.Sprintf("%s/api/projects/%s/discussions/add", daemonAddr, projectID), "application/json", bytes.NewReader(jsonData))
+	if err != nil {
+		t.Fatalf("Failed to add discussion file: %v", err)
+	}
+	defer resp.Body.Close()
+
+	jsonData, err = json.Marshal(map[string]string{"filename": discussion3})
+	if err != nil {
+		t.Fatalf("Failed to marshal discussion forget request: %v", err)
+	}
+	resp, err = http.Post(fmt.Sprintf("%s/api/projects/%s/discussions/forget", daemonAddr, projectID), "application/json", bytes.NewReader(jsonData))
+	if err != nil {
+		t.Fatalf("Failed to forget discussion file: %v", err)
+	}
+	defer resp.Body.Close()
+
+	resp, err = http.Get(fmt.Sprintf("%s/api/projects/%s/discussions", daemonAddr, projectID))
+	if err != nil {
+		t.Fatalf("Failed to list discussions after forget: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var listDiscussionsResp2 map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&listDiscussionsResp2); err != nil {
+		t.Fatalf("Failed to decode discussions response: %v", err)
+	}
+	filesList2, _ := listDiscussionsResp2["files"].([]interface{})
+	for i := 0; i < len(filesList2); i++ {
+		if filesList2[i] == discussion3 {
+			t.Fatalf("Expected discussion %s to be forgotten, got %v", discussion3, filesList2)
+		}
+	}
+
+	// Test 5: Create input and output files in project directory
 	inputFile := filepath.Join(projectDir, "input.csv")
 	if err := ioutil.WriteFile(inputFile, []byte("col1,col2\nval1,val2\n"), 0644); err != nil {
 		t.Fatalf("Failed to create input file: %v", err)
@@ -159,7 +263,7 @@ func TestAPIEndpoints(t *testing.T) {
 		t.Fatalf("Failed to create output file: %v", err)
 	}
 
-	// Test 5: Add files to project using /files/add endpoint[1]
+	// Test 6: Add files to project using /files/add endpoint[1]
 	addFilesPayload := map[string]interface{}{
 		"filenames": []string{inputFile, outputFile},
 	}
@@ -190,7 +294,7 @@ func TestAPIEndpoints(t *testing.T) {
 		t.Errorf("Expected files to be added, got %v", addFilesResp)
 	}
 
-	// Test 6: List files in project
+	// Test 7: List files in project
 	resp, err = http.Get(fmt.Sprintf("%s/api/projects/%s/files", daemonAddr, projectID))
 	if err != nil {
 		t.Fatalf("Failed to list project files: %v", err)
@@ -216,7 +320,7 @@ func TestAPIEndpoints(t *testing.T) {
 		t.Errorf("Expected 2 files, got %d", len(files))
 	}
 
-	// Test 7: Forget files using POST with list[1]
+	// Test 8: Forget files using POST with list[1]
 	forgetPayload := map[string]interface{}{
 		"filenames": []string{inputFile},
 	}
@@ -244,7 +348,7 @@ func TestAPIEndpoints(t *testing.T) {
 		t.Fatalf("Forget files failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Test 8: Verify file was forgotten
+	// Test 9: Verify file was forgotten
 	resp, err = http.Get(fmt.Sprintf("%s/api/projects/%s/files", daemonAddr, projectID))
 	if err != nil {
 		t.Fatalf("Failed to list project files after deletion: %v", err)
@@ -265,7 +369,7 @@ func TestAPIEndpoints(t *testing.T) {
 		t.Errorf("Expected 1 file after forget, got %d", len(files2))
 	}
 
-	// Test 9: Delete project
+	// Test 10: Delete project
 	deleteProjectURL := fmt.Sprintf("%s/api/projects/%s", daemonAddr, projectID)
 	req, err = http.NewRequest("DELETE", deleteProjectURL, nil)
 	if err != nil {
@@ -283,7 +387,7 @@ func TestAPIEndpoints(t *testing.T) {
 		t.Fatalf("Delete project failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Test 10: Verify project was deleted
+	// Test 11: Verify project was deleted
 	resp, err = http.Get(daemonAddr + "/api/projects")
 	if err != nil {
 		t.Fatalf("Failed to list projects after deletion: %v", err)
@@ -304,7 +408,7 @@ func TestAPIEndpoints(t *testing.T) {
 		t.Errorf("Expected 0 projects after deletion, got %d", len(projects2))
 	}
 
-	// Test 11: Stop daemon
+	// Test 12: Stop daemon
 	resp, err = http.Post(daemonAddr+"/stop", "application/json", nil)
 	if err != nil {
 		t.Logf("Stop request completed (connection may have closed): %v", err)

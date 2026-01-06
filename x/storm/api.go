@@ -68,6 +68,50 @@ type ProjectUpdateResponse struct {
 	} `doc:"Project base directory update result"`
 }
 
+// DiscussionListInput for listing discussions
+type DiscussionListInput struct {
+	ProjectID string `path:"projectID" doc:"Project identifier" required:"true"`
+}
+
+type DiscussionListResponse struct {
+	Body struct {
+		ProjectID string   `json:"projectID" doc:"Project identifier"`
+		Current   string   `json:"current" doc:"Current discussion file"`
+		Files     []string `json:"files" doc:"Discussion files"`
+	} `doc:"Discussion files list"`
+}
+
+// DiscussionModifyInput for adding or forgetting a discussion file
+type DiscussionModifyInput struct {
+	ProjectID string `path:"projectID" doc:"Project identifier" required:"true"`
+	Body      struct {
+		Filename string `json:"filename" doc:"Discussion filename" required:"true"`
+	} `doc:"Discussion file modification"`
+}
+
+type DiscussionModifyResponse struct {
+	Body struct {
+		ProjectID string   `json:"projectID" doc:"Project identifier"`
+		Current   string   `json:"current" doc:"Current discussion file"`
+		Files     []string `json:"files" doc:"Discussion files"`
+	} `doc:"Discussion file modification result"`
+}
+
+// DiscussionSwitchInput for switching the current discussion file
+type DiscussionSwitchInput struct {
+	ProjectID string `path:"projectID" doc:"Project identifier" required:"true"`
+	Body      struct {
+		Filename string `json:"filename" doc:"Discussion filename" required:"true"`
+	} `doc:"Discussion file switch"`
+}
+
+type DiscussionSwitchResponse struct {
+	Body struct {
+		ProjectID string `json:"projectID" doc:"Project identifier"`
+		Current   string `json:"current" doc:"Current discussion file"`
+	} `doc:"Discussion file switch result"`
+}
+
 // FileAddInput for adding files to a project
 type FileAddInput struct {
 	ProjectID string `path:"projectID" doc:"Project identifier" required:"true"`
@@ -189,6 +233,69 @@ func postProjectUpdateHandler(ctx context.Context, input *ProjectUpdateInput) (*
 	res.Body.BaseDir = project.BaseDir
 
 	log.Printf("Project %s baseDir updated to %s", projectID, project.BaseDir)
+	return res, nil
+}
+
+// getProjectDiscussionsHandler handles GET /api/projects/{projectID}/discussions - list discussions
+func getProjectDiscussionsHandler(ctx context.Context, input *DiscussionListInput) (*DiscussionListResponse, error) {
+	projectID := input.ProjectID
+
+	project, err := projects.Get(projectID)
+	if err != nil {
+		return nil, huma.Error404NotFound("Project not found")
+	}
+
+	res := &DiscussionListResponse{}
+	res.Body.ProjectID = projectID
+	res.Body.Current = project.toRelativePath(project.MarkdownFile)
+	res.Body.Files = project.GetDiscussionFilesAsRelative()
+	return res, nil
+}
+
+// postProjectDiscussionsAddHandler handles POST /api/projects/{projectID}/discussions/add - add discussion
+func postProjectDiscussionsAddHandler(ctx context.Context, input *DiscussionModifyInput) (*DiscussionModifyResponse, error) {
+	projectID := input.ProjectID
+
+	project, err := projects.AddDiscussionFile(projectID, input.Body.Filename)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Failed to add discussion file", err)
+	}
+
+	res := &DiscussionModifyResponse{}
+	res.Body.ProjectID = projectID
+	res.Body.Current = project.toRelativePath(project.MarkdownFile)
+	res.Body.Files = project.GetDiscussionFilesAsRelative()
+	return res, nil
+}
+
+// postProjectDiscussionsForgetHandler handles POST /api/projects/{projectID}/discussions/forget - forget discussion
+func postProjectDiscussionsForgetHandler(ctx context.Context, input *DiscussionModifyInput) (*DiscussionModifyResponse, error) {
+	projectID := input.ProjectID
+
+	project, err := projects.ForgetDiscussionFile(projectID, input.Body.Filename)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Failed to forget discussion file", err)
+	}
+
+	res := &DiscussionModifyResponse{}
+	res.Body.ProjectID = projectID
+	res.Body.Current = project.toRelativePath(project.MarkdownFile)
+	res.Body.Files = project.GetDiscussionFilesAsRelative()
+	return res, nil
+}
+
+// postProjectDiscussionsSwitchHandler handles POST /api/projects/{projectID}/discussions/switch - switch discussion
+func postProjectDiscussionsSwitchHandler(ctx context.Context, input *DiscussionSwitchInput) (*DiscussionSwitchResponse, error) {
+	projectID := input.ProjectID
+
+	project, err := projects.SwitchDiscussionFile(projectID, input.Body.Filename)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Failed to switch discussion file", err)
+	}
+
+	res := &DiscussionSwitchResponse{}
+	res.Body.ProjectID = projectID
+	res.Body.Current = project.toRelativePath(project.MarkdownFile)
 	return res, nil
 }
 
