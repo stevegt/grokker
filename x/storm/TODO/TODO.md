@@ -7,6 +7,7 @@
      click 'out' box
 005. cli_test.go needs random instead of hardcoded port numbers 
      - use getAvailablePort() from websocket_test.go (move it to testutils)
+013. read any existing AGENTS.md file for instructions related to any prompt
 
 # features
 
