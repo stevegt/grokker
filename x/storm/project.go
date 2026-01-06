@@ -200,23 +200,12 @@ func (p *Projects) AddFile(projectID, filename string) error {
 	project.AuthorizedFiles = append(project.AuthorizedFiles, filename)
 	log.Printf("Added file %s to project %s", filename, projectID)
 
-	// Create updated persistent metadata
-	persistedProj := &db.Project{
-		ID:                    project.ID,
-		BaseDir:               project.BaseDir,
-		CurrentDiscussionFile: project.MarkdownFile,
-		DiscussionFiles: []db.DiscussionFileRef{
-			{
-				Filepath:   project.MarkdownFile,
-				CreatedAt:  time.Now(),
-				RoundCount: project.Chat.TotalRounds(),
-			},
-		},
-		AuthorizedFiles: project.AuthorizedFiles,
-		CreatedAt:       time.Now(),
-		EmbeddingCount:  0,
-		RoundHistory:    []db.RoundEntry{},
+	persistedProj, err := p.dbMgr.LoadProject(projectID)
+	if err != nil {
+		return fmt.Errorf("failed to load project metadata: %w", err)
 	}
+	persistedProj.AuthorizedFiles = project.AuthorizedFiles
+	persistedProj.CurrentDiscussionFile = project.MarkdownFile
 
 	// Persist to database
 	return p.dbMgr.SaveProject(persistedProj)
@@ -255,22 +244,12 @@ func (p *Projects) RemoveFile(projectID, filename string) error {
 
 	project.AuthorizedFiles = append(project.AuthorizedFiles[:idx], project.AuthorizedFiles[idx+1:]...)
 
-	persistedProj := &db.Project{
-		ID:                    project.ID,
-		BaseDir:               project.BaseDir,
-		CurrentDiscussionFile: project.MarkdownFile,
-		DiscussionFiles: []db.DiscussionFileRef{
-			{
-				Filepath:   project.MarkdownFile,
-				CreatedAt:  time.Now(),
-				RoundCount: project.Chat.TotalRounds(),
-			},
-		},
-		AuthorizedFiles: project.AuthorizedFiles,
-		CreatedAt:       time.Now(),
-		EmbeddingCount:  0,
-		RoundHistory:    []db.RoundEntry{},
+	persistedProj, err := p.dbMgr.LoadProject(projectID)
+	if err != nil {
+		return fmt.Errorf("failed to load project metadata: %w", err)
 	}
+	persistedProj.AuthorizedFiles = project.AuthorizedFiles
+	persistedProj.CurrentDiscussionFile = project.MarkdownFile
 
 	return p.dbMgr.SaveProject(persistedProj)
 }
