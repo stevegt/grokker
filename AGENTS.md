@@ -27,6 +27,7 @@
 - Keep track of outstanding bugs and features in `TODO.md`, categorized by type.
 - Number each bug or feature using a global sequential system, 3 digits, zero-padded (e.g., 001, 002).
 - When discussing a TODO, use its number (e.g., "fix TODO 005").
+- When completing a TODO, mark it as done by adding "DONE" after its number.
 
 ## Commit & Pull Request Guidelines
 - Commit messages are short, imperative, and capitalized (e.g., "Refactor chat client", "Fix WS path").

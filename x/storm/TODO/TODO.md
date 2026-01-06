@@ -1,6 +1,6 @@
 # bugs
 
-001. (done) 'storm project update --basedir' also needs to update file paths
+001. DONE 'storm project update --basedir' also needs to update file paths
 002. resolve naming discrepancy between "discussion files" and "markdown files"
 003. need spinner in status box visible to all users when processing
 004. new unexpected files -- need to repopulate approval list so user can
