@@ -19,7 +19,7 @@
 - `storm project ...` (existing)
 - `storm discussion ...` (existing)
 - `storm file ...` (existing)
-- New group for grok commands under storm, e.g. `storm kb ...` or `storm grok ...`
+- New group for grok commands under storm: `storm kb ...`
 
 Example mapping (storm kb):
 - `grok init` -> `storm kb init`
@@ -37,10 +37,7 @@ Rationale: avoids crowding the `storm` root, keeps KB behavior intact, and makes
 ## Migration approach
 
 ### CLI integration
-- Option A: keep cobra as top-level (storm), wrap grok CLI as a subcommand:
-  - Add `storm kb` subcommand that forwards args to `cli.Cli` (kong) with its own `CliConfig`.
-  - Pros: minimal change to grok CLI, easy rollback. Cons: two CLI frameworks, nested help output.
-- Option B: port grok CLI from kong to cobra:
+- Translate grok CLI from kong to cobra:
   - Recreate the grok command tree under `storm kb` directly in cobra.
   - Pros: single CLI framework, unified help. Cons: larger refactor, touch more tests.
 
@@ -71,7 +68,7 @@ Rationale: avoids crowding the `storm` root, keeps KB behavior intact, and makes
 - Add CLI help examples showing new hierarchy.
 
 ## Risks and decisions to make
-- Choose the subcommand namespace: `storm kb` vs `storm grok`.
 - Decide if `.grok` stays or migrates to `.storm`.
-- Decide whether to unify on cobra or keep kong inside a wrapper.
 - Plan for API/daemon integration points between storm server and grok KB (if any).
+- DONE choose the subcommand namespace: `storm kb` vs `storm grok`.
+- DONE decide whether to unify on cobra or keep kong inside a wrapper.
