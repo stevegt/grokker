@@ -10,11 +10,27 @@ This document describes a lightweight convention for using git + Codex (or other
 
 ## Concept Mapping (Scenario Tree ↔ Git)
 
+- **`main`**: shared “real world” record (common files, actual event history, background conditions, goals, requirements, and evaluation tooling).
 - **State node**: a branch tip (a commit) representing the world after a sequence of events.
 - **Event transition**: creating a child branch from a parent node and applying changes that represent the event’s consequences.
 - **Acyclic**: keep a single-parent lineage for scenario branches (avoid merges) so the branch name remains a valid “event path”.
 - **Probabilities**: stored in per-node metadata (don’t bake probabilities into branch names; they change).
 - **Metrics**: stored in per-node metadata, ideally derived from reproducible commands (tests, benchmarks, model runs, etc.).
+
+## What Goes on `main` vs Scenario Branches
+
+Use `main` as the canonical place for shared facts and shared artifacts, and treat scenario branches as deltas that model *hypothetical* event sequences.
+
+Put on `main`:
+- Common files and templates (including evaluation scripts and metric definitions).
+- History of actual events (what really happened and when).
+- Background conditions, goals, requirements, constraints, and “current assumptions”.
+
+Put on `scenario/...` branches:
+- Only the code/config/doc changes that represent the *hypothetical* events in that branch’s event path.
+- Per-node `SCENARIO.*` metadata (probabilities + metrics) for that scenario state.
+
+If you learn new background conditions or requirements, update `main` first, then rebase/branch new scenario nodes from the updated `main` (instead of forking “facts” across scenario branches).
 
 ## Branch Naming (Event Paths)
 
@@ -54,8 +70,19 @@ metrics:
   est_cost_usd: 120000
   risk: high
 notes: >
-  Budget cut reduces headcount; model assumes 25% slower delivery.
-```
+	  Budget cut reduces headcount; model assumes 25% slower delivery.
+	```
+
+## Prior Art: `godecide` (YAML Decision Trees)
+
+See `/home/stevegt/lab/godecide` for a prior (non-LLM) scenario tree modeler. It uses a compact YAML schema that maps closely to ops-research scenario trees:
+
+- Each **node** is keyed by name and can include fields like `desc`, `cash`, `days`, `repeat`, `finrate`, `rerate`, `due`.
+- Each node can have `paths: { childNodeName: probability }` to define **event transitions** and **probabilities**.
+- `paths` keys can contain comma-separated child names (`a,b`) to represent a single transition that yields multiple concurrent children (a “hyperedge”).
+- Nodes can also declare `prereqs` for PERT-style dependency/critical-path calculations.
+
+Recommendation: reuse (or extend) that YAML schema for scenario metadata (probabilities + metrics), while using git branches named `scenario/<event1>/<event2>/...` to anchor each node to an exact code/config state.
 
 ## Human Workflow (Recommended)
 
