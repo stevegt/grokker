@@ -14,8 +14,8 @@ This document describes a lightweight convention for using git + Codex (or other
 - **State node**: a branch tip (a commit) representing the world after a sequence of events.
 - **Event transition**: creating a child branch from a parent node and applying changes that represent the event’s consequences.
 - **Acyclic**: keep a single-parent lineage for scenario branches (avoid merges) so the branch name remains a valid “event path”.
-- **Probabilities**: stored in per-node metadata (don’t bake probabilities into branch names; they change).
-- **Metrics**: stored in per-node metadata, ideally derived from reproducible commands (tests, benchmarks, model runs, etc.).
+- **Probabilities + node metadata**: canonical, shared, evolving records live in an append-only ledger on `main` (don’t bake probabilities into branch names; they change).
+- **Metrics**: stored in that same `main` ledger; ideally derived from reproducible commands (tests, benchmarks, model runs, etc.).
 
 ## What Goes on `main` vs Scenario Branches
 
@@ -25,10 +25,11 @@ Put on `main`:
 - Common files and templates (including evaluation scripts and metric definitions).
 - History of actual events (what really happened and when).
 - Background conditions, goals, requirements, constraints, and “current assumptions”.
+- Canonical scenario ledger: append-only probabilities + metadata + metrics (forecasts and observations in the same structure; latest record for a given branch/event is the current value).
 
 Put on `scenario/...` branches:
 - Only the code/config/doc changes that represent the *hypothetical* events in that branch’s event path.
-- Per-node `SCENARIO.*` metadata (probabilities + metrics) for that scenario state.
+- Avoid canonical probability/metric metadata; keep scenarios focused on “what changes under this event path”.
 
 If you learn new background conditions or requirements, update `main` first, then rebase/branch new scenario nodes from the updated `main` (instead of forking “facts” across scenario branches).
 
@@ -46,47 +47,69 @@ Example:
 
 Rule of thumb: each path segment is the *event label* that produced the transition from parent → child.
 
-## Per-Node Metadata (Probabilities + Metrics)
+## Main Ledger (Probabilities + Metrics)
 
-Add a small metadata file in each scenario branch to record the state, its parent, and its evaluation:
+Keep canonical, shared, evolving scenario metadata in a ledger on `main`. The ledger is append-only: each new record updates the “current” probability/metrics for a specific branch/event, but old records remain for history/audit.
 
-- File name: `SCENARIO.md` (simple) or `SCENARIO.yml` (structured)
-- Location: repo root (so it’s easy to `git show branch:SCENARIO.md`)
+Practical format options:
+- `scenario/ledger.jsonl` (append-friendly; one JSON object per line)
+- `scenario/ledger.yml` as a YAML stream (`---`-separated documents)
 
-Suggested fields:
-- Parent: parent branch or parent commit SHA
-- Event: the last event label (the final path segment)
-- Probability: probability of the last event given the parent (chance node), or `1.0` for decision/forced transitions
-- Paths: optional outgoing event probabilities, e.g. `paths: { <event>: <prob> }` (matches `godecide`), so each state node can declare its next-event distribution
-- Metrics: anything you care about (cost, latency, risk score, time-to-ship, test results, etc.)
-- Assumptions/notes: what changed, why, and what evidence supports it
+Suggested record fields:
+- `ts`: timestamp
+- `node`: scenario branch name (state node), e.g. `scenario/reg-change/vendor-delay/budget-cut`
+- `parent`: optional (can be derived from `node`), but useful for validation and renames
+- `event`: last path segment (transition label)
+- `p`: probability for the event transition at time `ts` (forecast or observed)
+- `kind`: `forecast` or `observed` (keep both in the same ledger)
+- `metrics`: anything you care about (cost, latency, risk score, time-to-ship, test/bench results, etc.)
+- `notes`: what changed, why, and what evidence supports it
 
-Example (`SCENARIO.yml`):
+“Last record wins” rule:
+- The current probability/metrics for a given `node` (or `parent`+`event`) is taken from the most recent matching record in the ledger.
+- When an event actually occurs, append an `observed` record (typically `p: 1.0`) on `main` rather than editing history.
+
+We do not need an explicit `paths:` adjacency structure: the scenario *paths* are the git branch paths (`scenario/<event1>/<event2>/...`). Outgoing transitions are the set of existing child branches under a prefix.
+
+Example (YAML stream, `scenario/ledger.yml`):
 ```yml
+---
+ts: 2026-01-12T19:00:00Z
+node: scenario/reg-change/vendor-delay/budget-cut
 parent: scenario/reg-change/vendor-delay
 event: budget-cut
-probability: 0.3
+p: 0.3
 metrics:
   make_test: pass
   est_cost_usd: 120000
-  risk: high
-paths:
-  hiring-freeze: 0.2
-  no-hiring-freeze: 0.8
 notes: >
-  Budget cut reduces headcount; model assumes 25% slower delivery.
+  Forecast: budget cut reduces headcount; assume 25% slower delivery.
+---
+ts: 2026-02-01T02:00:00Z
+node: scenario/reg-change/vendor-delay/budget-cut
+p: 1.0
+notes: "Observed: budget-cut occurred."
 ```
+
+## Git Notes (Optional; Non-Canonical)
+
+Use git notes for local/ephemeral annotations or intermediate evaluation results you might later promote into the `main` ledger:
+
+- Attach: `git notes add -m "…" <commit>`
+- View: `git notes show <commit>` or `git log --show-notes`
+
+Notes are easy to miss in normal review flows and require explicit sharing (`git push origin refs/notes/*`), so treat them as a scratchpad rather than the canonical source of truth.
 
 ## Prior Art: `godecide` (YAML Decision Trees)
 
 See `/home/stevegt/lab/godecide` for a prior (non-LLM) scenario tree modeler. It uses a compact YAML schema that maps closely to ops-research scenario trees:
 
 - Each **node** is keyed by name and can include fields like `desc`, `cash`, `days`, `repeat`, `finrate`, `rerate`, `due`.
-- Each node can have `paths: { childNodeName: probability }` to define **event transitions** and **probabilities**.
+- Each node can have `paths: { childNodeName: probability }` to define **event transitions** and **probabilities** (that adjacency isn’t needed when the git branch path is the path).
 - `paths` keys can contain comma-separated child names (`a,b`) to represent a single transition that yields multiple concurrent children (a “hyperedge”).
 - Nodes can also declare `prereqs` for PERT-style dependency/critical-path calculations.
 
-Recommendation: reuse (or extend) that YAML schema for scenario metadata (probabilities + metrics), while using git branches named `scenario/<event1>/<event2>/...` to anchor each node to an exact code/config state.
+Recommendation: reuse (or extend) the `godecide` *node fields* (`cash`, `days`, `due`, etc.) as metrics in the `main` ledger, while using git branches named `scenario/<event1>/<event2>/...` to define the tree structure.
 
 ## Human Workflow (Recommended)
 
@@ -95,16 +118,18 @@ Recommendation: reuse (or extend) that YAML schema for scenario metadata (probab
    - Optionally tag it: `git tag ref/scenario-root-2026-01-12 <sha>`
 2. Create the first event node:
    - `git checkout -b scenario/<event1> <ref>`
-   - Add/update `SCENARIO.md`/`SCENARIO.yml`, then commit.
+   - Make the code/config/doc changes for the hypothetical event; commit on the scenario branch.
+   - On `main`, append a ledger record for the new node/event probability + metrics; commit the ledger update.
 3. Create child nodes as new events occur:
    - `git checkout -b scenario/<event1>/<event2> scenario/<event1>`
 4. When assumptions change, update the impacted node(s) and propagate forward:
    - Prefer *additive* updates (new events / new child nodes).
    - If you must rewrite, tag snapshots first so you can compare old vs new.
+   - Update probabilities/metadata by appending new records to the `main` ledger (don’t edit old records).
 5. Compare scenarios using git tools (diffs + history):
    - `git diff <scenarioA>..<scenarioB>`
    - `git range-diff <ref>..<scenarioA> <ref>..<scenarioB>`
-   - `git show <scenarioX>:SCENARIO.yml` to compare metrics/probabilities.
+   - `git show main:scenario/ledger.yml` (or `scenario/ledger.jsonl`) to compare probabilities/metrics for the nodes.
 
 Tip: `git worktree` is useful for evaluating multiple states side-by-side:
 - `git worktree add ../wt-a scenario/<pathA>`
@@ -116,8 +141,9 @@ When asked to help with a scenario tree, do this in order:
 
 1. **Confirm the modeling intent**
    - Identify: root reference commit, scenario nodes/branches in scope, and what counts as an event vs a decision.
-2. **Read the node metadata**
-   - For each node: read `SCENARIO.md`/`SCENARIO.yml` from that branch (and summarize probabilities + metrics).
+2. **Read the `main` ledger**
+   - Summarize the latest (last-record) probability + metrics for each node/event in scope, and call out recent changes over time.
+   - If present, treat git notes as local scratch annotations that may be promoted into the ledger.
 3. **Gather git evidence**
    - `git log --oneline --decorate --graph --all -n 50`
    - `git diff --name-status <ref>..<scenarioX>`
@@ -128,7 +154,8 @@ When asked to help with a scenario tree, do this in order:
 5. **Propose updates as new events/nodes**
    - Prefer creating a new child node to represent a new event (“conditions changed”), rather than forcing scenarios to converge.
 6. **Implement carefully**
-   - Make changes on the requested scenario branch(es), update `SCENARIO.*`, then run the relevant evaluation commands.
+   - Make changes on the requested scenario branch(es), then run the relevant evaluation commands.
+   - Update probabilities/metadata by appending records to the `main` ledger (and optionally promote useful git notes into the ledger).
 7. **Document**
    - Summarize what changed, which event it represents, and how probabilities/metrics were updated.
 
