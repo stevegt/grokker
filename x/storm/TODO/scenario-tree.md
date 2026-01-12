@@ -57,6 +57,7 @@ Suggested fields:
 - Parent: parent branch or parent commit SHA
 - Event: the last event label (the final path segment)
 - Probability: probability of the last event given the parent (chance node), or `1.0` for decision/forced transitions
+- Paths: optional outgoing event probabilities, e.g. `paths: { <event>: <prob> }` (matches `godecide`), so each state node can declare its next-event distribution
 - Metrics: anything you care about (cost, latency, risk score, time-to-ship, test results, etc.)
 - Assumptions/notes: what changed, why, and what evidence supports it
 
@@ -69,9 +70,12 @@ metrics:
   make_test: pass
   est_cost_usd: 120000
   risk: high
+paths:
+  hiring-freeze: 0.2
+  no-hiring-freeze: 0.8
 notes: >
-	  Budget cut reduces headcount; model assumes 25% slower delivery.
-	```
+  Budget cut reduces headcount; model assumes 25% slower delivery.
+```
 
 ## Prior Art: `godecide` (YAML Decision Trees)
 
