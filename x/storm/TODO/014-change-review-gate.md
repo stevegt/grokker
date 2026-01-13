@@ -1,6 +1,6 @@
 # Change Review Gate (Diff/Approve/Apply/Commit)
 
-Goal: make Storm safe and pleasant for multiuser workflows where LLM queries may propose edits across multiple files.
+Goal: make Storm safe and pleasant for multiuser workflows where LLM queries may propose edits across multiple files and branches, including scenario trees.
 
 ## Requirements (ordered)
 
