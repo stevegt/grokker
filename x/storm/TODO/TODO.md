@@ -30,6 +30,12 @@
      - make "jump to end" button be referenced to bottom of chat area
        instead of bottom of main window
 012. monitor using inotify and auto reload and re-render markdown when markdown file changes?
+014. change review gate (diff/approve/apply/commit) for file edits
+     - side-by-side diffs in UI before writing
+     - supports parallel scenario branches/worktrees
+     - see TODO/014-change-review-gate.md
+015. interactive CLI shell (Codex/Claude Code style)
+     - include GitHub Copilot-like inline completion while typing input
 
 # prompts
 
