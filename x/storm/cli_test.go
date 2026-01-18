@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/stevegt/grokker/x/storm/testutil"
 )
 
 // Helper function to execute CLI commands with environment setup
@@ -71,7 +73,14 @@ func waitForDaemon(daemonURL string, maxWait time.Duration) error {
 }
 
 // Helper function to start a test daemon and return its URL and cleanup function
-func startTestDaemon(t *testing.T, port int) (string, func()) {
+func startTestDaemon(t *testing.T) (string, func()) {
+	t.Helper()
+
+	port, err := testutil.GetAvailablePort()
+	if err != nil {
+		t.Fatalf("Failed to get available port: %v", err)
+	}
+
 	// Create temporary database directory for this test
 	tmpDir, err := ioutil.TempDir("", fmt.Sprintf("storm-db-test-%d-", port))
 	if err != nil {
@@ -115,8 +124,7 @@ func startTestDaemon(t *testing.T, port int) (string, func()) {
 
 // TestCLIProjectAdd tests the project add subcommand via shell execution
 func TestCLIProjectAdd(t *testing.T) {
-	daemonPort := 59998
-	daemonURL, cleanup := startTestDaemon(t, daemonPort)
+	daemonURL, cleanup := startTestDaemon(t)
 	defer cleanup()
 
 	projectID := "cli-test-project"
@@ -139,8 +147,7 @@ func TestCLIProjectAdd(t *testing.T) {
 
 // TestCLIProjectList tests the project list subcommand via shell execution
 func TestCLIProjectList(t *testing.T) {
-	daemonPort := 59997
-	daemonURL, cleanup := startTestDaemon(t, daemonPort)
+	daemonURL, cleanup := startTestDaemon(t)
 	defer cleanup()
 
 	projectID := "cli-list-project"
@@ -164,8 +171,7 @@ func TestCLIProjectList(t *testing.T) {
 
 // TestCLIProjectInfo tests the project info subcommand
 func TestCLIProjectInfo(t *testing.T) {
-	daemonPort := 59996
-	daemonURL, cleanup := startTestDaemon(t, daemonPort)
+	daemonURL, cleanup := startTestDaemon(t)
 	defer cleanup()
 
 	projectID := "cli-info-project"
@@ -192,8 +198,7 @@ func TestCLIProjectInfo(t *testing.T) {
 
 // TestCLIFileAdd tests the file add subcommand via shell execution
 func TestCLIFileAdd(t *testing.T) {
-	daemonPort := 59994
-	daemonURL, cleanup := startTestDaemon(t, daemonPort)
+	daemonURL, cleanup := startTestDaemon(t)
 	defer cleanup()
 
 	projectID := "cli-file-test-project"
@@ -222,8 +227,7 @@ func TestCLIFileAdd(t *testing.T) {
 
 // TestCLIFileList tests the file list subcommand via shell execution
 func TestCLIFileList(t *testing.T) {
-	daemonPort := 59995
-	daemonURL, cleanup := startTestDaemon(t, daemonPort)
+	daemonURL, cleanup := startTestDaemon(t)
 	defer cleanup()
 
 	projectID := "cli-filelist-test-project"
@@ -257,8 +261,7 @@ func TestCLIFileList(t *testing.T) {
 
 // TestCLIFileForget tests the file forget subcommand with multiple files
 func TestCLIFileForget(t *testing.T) {
-	daemonPort := 59993
-	daemonURL, cleanup := startTestDaemon(t, daemonPort)
+	daemonURL, cleanup := startTestDaemon(t)
 	defer cleanup()
 
 	projectID := "cli-forget-test-project"
@@ -310,8 +313,7 @@ func TestCLIFileForget(t *testing.T) {
 
 // TestCLIProjectForget tests the project forget subcommand
 func TestCLIProjectForget(t *testing.T) {
-	daemonPort := 59992
-	daemonURL, cleanup := startTestDaemon(t, daemonPort)
+	daemonURL, cleanup := startTestDaemon(t)
 	defer cleanup()
 
 	projectID := "cli-forget-project-test"
@@ -346,8 +348,7 @@ func TestCLIProjectForget(t *testing.T) {
 
 // TestCLIStop tests the stop subcommand[1]
 func TestCLIStop(t *testing.T) {
-	daemonPort := 59991
-	daemonURL, cleanup := startTestDaemon(t, daemonPort)
+	daemonURL, cleanup := startTestDaemon(t)
 	defer cleanup()
 
 	output, errOutput, err := runCLICommand(daemonURL, "stop")

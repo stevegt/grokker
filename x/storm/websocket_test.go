@@ -13,17 +13,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/stevegt/grokker/x/storm/testutil"
 )
-
-// getAvailablePort returns an available TCP port by binding to port 0
-func getAvailablePort() (int, error) {
-	listener, err := net.Listen("tcp", ":0")
-	if err != nil {
-		return 0, err
-	}
-	defer listener.Close()
-	return listener.Addr().(*net.TCPAddr).Port, nil
-}
 
 // TestSetup encapsulates all setup data for a WebSocket test
 type TestSetup struct {
@@ -40,7 +31,7 @@ type TestSetup struct {
 // setupTest creates temporary directories, starts server, creates project, and returns test setup
 func setupTest(t *testing.T, projectID string) *TestSetup {
 	// Get available port
-	port, err := getAvailablePort()
+	port, err := testutil.GetAvailablePort()
 	if err != nil {
 		t.Fatalf("Failed to get available port: %v", err)
 	}

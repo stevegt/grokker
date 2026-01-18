@@ -27,7 +27,9 @@ x/tokencount/tokencount
 # goland
 .idea/
 
+# core dumps
+/core.[0-9]*
+
 # plugin-related
 vscode-plugin/grokker/core.*
 *.vsix
-

@@ -6,8 +6,8 @@
 - [ ] 002 - Resolve naming discrepancy between "discussion files" and "markdown files"
 - [ ] 003 - Add spinner in status box visible to all users when processing
 - [ ] 004 - New unexpected files: repopulate approval list so user can click "out" box
-- [ ] 005 - `cli_test.go` needs random instead of hardcoded port numbers
-  - Use `getAvailablePort()` from `websocket_test.go` (move it to `testutils`)
+- [x] 005 - `cli_test.go` needs random instead of hardcoded port numbers
+  - Uses `testutil.GetAvailablePort()` from `testutil/server.go`
 - [ ] 013 - Read any existing `AGENTS.md` file for instructions related to any prompt
 
 ## Features

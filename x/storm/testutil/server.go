@@ -21,8 +21,8 @@ type TestServer struct {
 	MarkdownFile string
 }
 
-// getAvailablePort returns an available TCP port by binding to port 0
-func getAvailablePort() (int, error) {
+// GetAvailablePort returns an available TCP port by binding to port 0.
+func GetAvailablePort() (int, error) {
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
 		return 0, err
@@ -49,7 +49,7 @@ func WaitForServer(port int, timeout time.Duration) error {
 // Caller (from main package tests) is responsible for starting serveRun in a goroutine
 func NewTestServer(t *testing.T, projectID string) *TestServer {
 	// Get available port
-	port, err := getAvailablePort()
+	port, err := GetAvailablePort()
 	if err != nil {
 		t.Fatalf("Failed to get available port: %v", err)
 	}

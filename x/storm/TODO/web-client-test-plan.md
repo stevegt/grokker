@@ -90,7 +90,7 @@ x/storm/
 The `testutil.NewTestServer()` helper:
 1. Creates temporary directory for test project
 2. Generates project ID and markdown file path
-3. Gets available port via `getAvailablePort()`
+3. Gets available port via `testutil.GetAvailablePort()`
 4. Stores server config in TestServer struct
 5. Returns TestServer with Port, DBPath, ProjectDir, MarkdownFile, ProjectID
 
