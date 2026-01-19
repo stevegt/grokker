@@ -53,3 +53,4 @@
 - Treat a line containing only `commit` as: "add and commit all changes with an AGENTS.md-compliant message".
 - When running 'git add', list the individual files to be added, not 'git add .' or 'git add -A'.
 - Frequently check `~/.codex/AGENTS.md` for updates to these guidelines, as they may evolve over time.
+- Use 'git mv' for file renames to preserve history.

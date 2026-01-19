@@ -37,14 +37,14 @@
 ## Plans / notes
 
 - `014-change-review-gate.md`
-- `merge-grok.md`
-- `mock-llm.md`
-- `scenario-tree.md`
-- `scenario_tree_GA.md`
-- `testing-plan.md`
-- `unexpected-files-plan.md`
-- `vector-db.md`
-- `web-client-test-plan.md`
+- `016-merge-grok.md`
+- `017-mock-llm.md`
+- `018-scenario-tree.md`
+- `019-scenario-tree-ga.md`
+- `020-testing-plan.md`
+- `021-unexpected-files-plan.md`
+- `022-vector-db.md`
+- `023-web-client-test-plan.md`
 
 ## Needs to be converted to a TODO file
 

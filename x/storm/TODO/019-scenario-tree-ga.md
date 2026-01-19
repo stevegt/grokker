@@ -1,6 +1,6 @@
 # LLM-Assisted GA Over Scenario Branches
 
-This document proposes a Genetic Algorithm (GA) layer on top of the branch-based scenario tree approach described in `x/storm/TODO/scenario-tree.md`.
+This document proposes a Genetic Algorithm (GA) layer on top of the branch-based scenario tree approach described in `x/storm/TODO/018-scenario-tree.md`.
 
 Instead of manually authoring each scenario branch, we maintain a **population** of scenario branches and use LLMs to perform **mutation**, **crossover**, and **repair** operations. We then compute **fitness scores** by running repo tests and/or judging against requirements documents, and we incorporate a **human audit loop** as a second fitness signal.
 
@@ -30,7 +30,7 @@ In ops-research terms, a scenario tree has:
 This GA layer is best viewed as an **idea generator / policy search** tool attached to one or more *decision points* in the scenario tree:
 - A scenario node (branch path `scenario/<event1>/<event2>/...`) defines the “world state”.
 - The GA produces multiple “decision variants” (individual branches) under that node.
-- Canonical facts, requirements, and probability/metric ledgers remain on `main` (per `scenario-tree.md`).
+- Canonical facts, requirements, and probability/metric ledgers remain on `main` (per `018-scenario-tree.md`).
 
 ## Naming and Branch Topology
 
@@ -65,7 +65,7 @@ This preserves linear branch history while still doing crossover logically.
 
 ## Main Ledger for GA Runs (Canonical Metadata)
 
-Per `scenario-tree.md`, canonical, shared, evolving metadata should live on `main` in an append-only ledger, with “last record wins” for current values.
+Per `018-scenario-tree.md`, canonical, shared, evolving metadata should live on `main` in an append-only ledger, with “last record wins” for current values.
 
 For GA, add an append-only GA ledger file (format examples):
 - `scenario/ga/ledger.jsonl` (recommended for append-only updates)
@@ -296,4 +296,3 @@ Artifact storage options:
 - How do we prevent “branch explosion” over long runs (retention policy, archiving, pruning)?
 - Do we want multi-parent commits for traceability, or linear commits + ledger lineage for simplicity?
 - How should fitness weighting be tuned, and how do humans override it?
-

@@ -284,10 +284,10 @@ Implement unexpected file handling in Storm through a series of discrete stages,
 - **Integration Tests**: 60% - Manual testing validates workflows, automated chromedp tests have limitations
 
 **Documentation** ✅:
-- ✅ Updated `unexpected-files-plan.md` with comprehensive stage descriptions
+- ✅ Updated `021-unexpected-files-plan.md` with comprehensive stage descriptions
 - ✅ Added comments in main.go explaining pending query flow and file categorization
 - ✅ Added debug logging throughout client-server communication for troubleshooting
-- ✅ Documented chromedp test patterns and known timing issues in `web-client-test-plan.md`
+- ✅ Documented chromedp test patterns and known timing issues in `023-web-client-test-plan.md`
 - ⏳ README could be updated with unexpected files feature description
 
 **Git Commit**: ✅ `storm: Add comprehensive testing and documentation for unexpected files feature`

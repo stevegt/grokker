@@ -467,7 +467,7 @@ go test -v ./... -run TestWebClient
 ## Future Improvements
 
 1. **Resolve chromedp Timing Issues** - Investigate root cause of querySelector timing problems and implement more reliable detection
-2. **Mock LLM Responses** - Avoid actual LLM calls in web client tests by mocking at server level (see mock-llm.md plan)
+2. **Mock LLM Responses** - Avoid actual LLM calls in web client tests by mocking at server level (see 017-mock-llm.md plan)
 3. **Automated Spinner Detection** - Improve reliability of detecting query response completion
 4. **Performance Profiling** - Add metrics for page load times and interaction latency
 5. **Visual Regression Testing** - Capture screenshots and compare against baselines
