@@ -27,39 +27,18 @@
   - Make "jump to end" button auto-scroll to the left as well
   - Reference the "jump to end" button to the bottom of chat area instead of bottom of main window
 - [ ] 012 - Monitor using inotify and auto reload/re-render markdown when markdown file changes
-- [ ] 014 - Change review gate (diff/approve/apply/commit) for file edits
+- [ ] 014-change-review-gate.md Change review gate (diff/approve/apply/commit) for file edits
   - Side-by-side diffs in UI before writing
   - Supports parallel scenario branches/worktrees
-  - See `014-change-review-gate.md`
 - [ ] 015 - Interactive CLI shell (Codex/Claude Code style)
   - Include GitHub Copilot-like inline completion while typing input
 
-## Plans / notes
-
-- `014-change-review-gate.md`
-- `016-merge-grok.md`
-- `017-mock-llm.md`
-- `018-scenario-tree.md`
-- `019-scenario-tree-ga.md`
-- `020-testing-plan.md`
-- `021-unexpected-files-plan.md`
-- `022-vector-db.md`
-- `023-web-client-test-plan.md`
-
-## Needs to be converted to a TODO file
-
-The following needs to be converted into a proper TODO file with numbering and
-details.
-
----
-
-add a "queue" button below the "send" button. when the user hits
-"queue", the message is added to a local queue in IndexedDB instead of
-being sent immediately.
-
-if the user hits "queue" with an empty message, show a popup dialog
-listing the currently queued messages with options to delete individual
-messages or move a message from the queue to the send box for editing and
-sending.
-
----
+- [ ] 016-merge-grok.md Merge Grok into Storm
+- [ ] 017-mock-llm.md Mock LLM backend for tests
+- [ ] 018-scenario-tree.md Scenario tree workflow (git + LLM)
+- [ ] 019-scenario-tree-ga.md LLM-assisted GA over scenario branches
+- [ ] 020-testing-plan.md Unexpected files testing plan (no Playwright)
+- [ ] 021-unexpected-files-plan.md Unexpected files staged plan (finish remaining gaps)
+- [ ] 022-vector-db.md Vector DB integration for semantic file selection
+- [ ] 023-web-client-test-plan.md Web client chromedp E2E tests
+- [ ] 024-queue-button.md Queue button for deferred sending
