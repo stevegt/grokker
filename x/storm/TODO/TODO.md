@@ -8,7 +8,7 @@
 - [ ] 004 - New unexpected files: repopulate approval list so user can click "out" box
 - [x] 005 - `cli_test.go` needs random instead of hardcoded port numbers
   - Uses `testutil.GetAvailablePort()` from `testutil/server.go`
-- [ ] 013 - Read any existing `AGENTS.md` file for instructions related to any prompt
+- [x] 013 - Read any existing `AGENTS.md` file for instructions related to any prompt
 
 ## Features
 

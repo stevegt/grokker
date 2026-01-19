@@ -653,6 +653,14 @@ func sendQueryToLLM(project *Project, queryID, query string, llm string, selecti
 
 	sysmsg := "You are a researcher.  I will start my prompt with some context, followed by a query.  Answer the query -- don't answer other questions you might see elsewhere in the context.  DO NOT include a 'References' section in your response body -- I will get references from the <references> API tag.  Always enclose reference numbers in square brackets; ignore empty brackets in the prompt or context, and DO NOT INCLUDE EMPTY SQUARE BRACKETS in your response, regardless of what you see in the context.  Always start your response with a markdown heading.  Try as much as possible to not rearrange any file you are making changes to -- I need to be able to easily diff your changes.  If writing Go code, you MUST ensure you are not skipping the index on slices or arrays, e.g. if you mean `foo[0]` then say `foo[0]`, not `foo`."
 
+	agentsInstructions, err := buildAgentsInstructions(project, inputFiles, outFiles)
+	if err != nil {
+		log.Printf("Warning: failed to load AGENTS.md instructions: %v", err)
+	}
+	if agentsInstructions != "" {
+		sysmsg = fmt.Sprintf("%s\n\nFollow these AGENTS.md instructions for this project (more specific overrides more general):\n\n%s", sysmsg, agentsInstructions)
+	}
+
 	sysmsg = fmt.Sprintf("%s\n\nYou MUST limit the discussion portion of your response to no more than %d tokens (about %d words).  Output files (marked with ---FILE-START and ---FILE-END blocks) are not counted against this limit and can be unlimited size. You MUST ignore any previous instruction regarding a 10,000 word goal.", sysmsg, tokenLimit, wordLimit)
 
 	prompt := fmt.Sprintf("---CONTEXT START---\n%s\n---CONTEXT END---\n\nNew Query: %s", backgroundContext, query)
