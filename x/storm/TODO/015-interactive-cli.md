@@ -194,7 +194,7 @@ Suggested package split:
 
 ## Acceptance criteria (MVP)
 
-- `storm shell` starts, connects to daemon, lets you pick a project.
+- `storm sh` starts, connects to daemon, lets you pick a project.
 - Can send a query and display the response text in the terminal.
 - Can cancel a query.
 - Can handle `filesUpdated` notifications and approve `alreadyAuthorized` files.
@@ -210,25 +210,82 @@ Suggested package split:
   - start a test daemon, connect via WS, send a query (using mock LLM once TODO 017 lands)
   - exercise unexpected-files approval path
 
+## Codex vs Storm (fundamental differences)
+
+This TODO is explicitly inspired by Codex/Claude Code’s *terminal UX*, but Storm’s architecture differs in ways that affect what we should copy vs avoid.
+
+### 1) LLM calls: client-direct vs daemon-mediated
+
+- **Codex**: the client calls the LLM provider directly (client owns API keys, rate limits, retries).
+  - Pros: fewer moving parts; no daemon required; naturally single-user; simpler failure modes.
+  - Cons: hard to share a session across clients; hard to centrally enforce policy/caching/logging.
+- **Storm**: the client talks to the **daemon**, and the daemon calls the LLM.
+  - Pros: multiple front-ends (web + terminal) share one implementation and one conversation state; centralized policy (models, token limits), logging, and future safety gates; easier to add server-side features (review gate, tool calls).
+  - Cons: requires a running daemon; adds a hop; needs auth/permissions once multi-user is real.
+
+Implication for `storm sh`: it must be great at connection UX (connect/reconnect/status), and it should avoid duplicating LLM/provider logic in the client.
+
+### 2) File access: local direct vs server-managed
+
+- **Codex**: operates on local files directly (edits working tree files via tools).
+  - Pros: very direct; no server-side file model; easy to diff locally.
+  - Cons: safety depends on sandbox + user review; collaboration/sharing is ad-hoc.
+- **Storm**: the **server owns file policy**: project `BaseDir`, authorized file list, and explicit `inputFiles`/`outFiles`, plus extraction.
+  - Pros: “only touch what’s selected” is enforceable; works with remote clients; aligns with unexpected-files gating.
+  - Cons: daemon runs with host FS privileges; correctness and security depend on path validation + authorization rules; clients need good affordances to manage file selection.
+
+Implication for `storm sh`: file operations should flow through server APIs/WS messages, not local filesystem reads/writes (except possibly for local rendering/diff viewing when safe).
+
+### 3) Single-user vs multi-user projects
+
+- **Codex**: effectively single-user (one operator, one terminal session).
+  - Pros: simpler mental model; no auth; fewer concurrency issues.
+  - Cons: doesn’t naturally support shared, long-running project “rooms”.
+- **Storm**: multi-project and intended to become multi-user (multiple clients connected to a project).
+  - Pros: shared project state, shared visibility, collaboration potential.
+  - Cons: needs authentication/authorization and conflict handling (TODO 010).
+
+Implication for `storm sh`: be explicit about project identity, current discussion file, and whether other clients are connected (future).
+
+### 4) Unexpected files flow
+
+- **Codex**: no dedicated “unexpected files” concept; edits are whatever the agent decides to change, and the user reviews diffs.
+  - Pros: fewer workflow steps.
+  - Cons: easy to miss that the agent proposed touching unrelated files.
+- **Storm**: has an explicit unexpected-files workflow (`filesUpdated`, approvals, authorization).
+  - Pros: strong guardrail; makes multi-user safer; aligns with “only write declared outputs”.
+  - Cons: requires UX in every client (web + terminal) to handle approvals cleanly.
+
+Implication for `storm sh`: unexpected-files handling is first-class (checklist approvals, guided “authorize then retry” flow).
+
+### 5) Sandboxed function calls vs full FS + file filtering
+
+- **Codex**: tool execution is sandboxed (filesystem/network/command restrictions + user approvals).
+  - Pros: strong safety boundary by default.
+  - Cons: can be frustrating when the sandbox blocks legitimate workflows.
+- **Storm**: daemon typically has full host access; safety is currently via **file filtering** and explicit `inputFiles`/`outFiles`.
+  - Pros: flexible; can work on any repo layout; easy to integrate with existing dev tools on the host.
+  - Cons: for hosted/multi-user, this needs hardening (OS/container sandboxing, stricter allowlists).
+
+Implication for `storm sh`: don’t assume sandboxed execution exists today; design the UI so future sandboxed operations slot in cleanly.
+
+### 6) Tool/function calls: built-in vs “not yet”
+
+- **Codex**: can run tool/function calls (shell, file edits, etc.) as part of agent execution.
+  - Pros: higher autonomy (can run tests, inspect outputs, iterate automatically).
+  - Cons: needs tight safety controls; failures can be harder to reason about.
+- **Storm**: doesn’t have tool/function calls yet; it’s “prompt + files + extraction” today, but we want tools later.
+  - Pros: simpler trust model; fewer moving parts.
+  - Cons: more manual steps; harder to build agentic workflows (run tests, gather context) inside Storm.
+
+Implication for `storm sh`: plan for a future “proposed tool call” UI (preview → approve → run → capture output), likely implemented server-side to keep policy centralized.
+
 ## Open questions
 
-- Exact command name: `shell` vs `tui` vs `repl`.
+- Exact command name: `sh` vs `shell` vs `tui` vs `repl`.
 - Where to store session state/history (global vs per-repo).
 - How to render markdown responses in terminal (plain, or `glow`-style
   rendering).
 - How much of TODO 014 belongs in server vs client.
-- XXX we need a later, sandbox phase, where we support function and
-  tool calls, and filter on commands and/or files instead of just
-  files.
-- XXX address the fundamental differences and pros/cons between
-  codex vs storm:
-  - codex (LLM calls directly from client) vs storm (client talks to daemon)
-  - codex (acts on local files directly) vs storm (server manages files)
-  - codex (single-user) vs storm (multi-user projects)
-  - codex (no unexpected files flow) vs storm (has unexpected files flow)
-  - codex (sandboxed function calls) vs storm (full FS access with
-    files filtering)
-  - codex (can run tool and function calls) vs storm (no tool/function
-    calls yet but we want them)
-
+- How to introduce sandboxed tool/function calls (commands + filesystem) without losing Storm’s file-filtering guarantees.
 
