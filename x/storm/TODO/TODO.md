@@ -30,7 +30,7 @@
 - [ ] 014-change-review-gate.md Change review gate (diff/approve/apply/commit) for file edits
   - Side-by-side diffs in UI before writing
   - Supports parallel scenario branches/worktrees
-- [ ] 015 - Interactive CLI shell (Codex/Claude Code style)
+- [ ] 015-interactive-cli.md Interactive CLI shell (Codex/Claude Code style)
   - Include GitHub Copilot-like inline completion while typing input
 
 - [ ] 016-merge-grok.md Merge Grok into Storm
