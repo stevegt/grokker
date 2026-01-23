@@ -33,6 +33,7 @@
 - [ ] 015-interactive-cli.md Interactive CLI shell (Codex/Claude Code style)
   - Include GitHub Copilot-like inline completion while typing input
 
+- [ ] 025-promisegrid-node.md PromiseGrid node mode (delegation + multi-node git)
 - [ ] 016-merge-grok.md Merge Grok into Storm
 - [ ] 017-mock-llm.md Mock LLM backend for tests
 - [ ] 018-scenario-tree.md Scenario tree workflow (git + LLM)
