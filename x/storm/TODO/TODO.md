@@ -12,6 +12,7 @@
 
 ## Features
 
+- [ ] 026-planning-group-workspace-mvp.md Planning group workspace MVP (research, call packets, notes, decisions)
 - [ ] 006 - Make 8k the default max token size; add larger presets
 - [ ] 007 - File list: add sort options (alphabetical, time created, folders first)
 - [ ] 008 - Wrap queries in code block in markdown file
