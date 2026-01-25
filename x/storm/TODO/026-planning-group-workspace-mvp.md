@@ -1,13 +1,13 @@
-# TODO 026 - Planning group workspace MVP (research, call packets, notes, decisions)
+# TODO 026 - Planning group workspace MVP (shared docs, decisions, collaboration)
 
-Goal: ship a “shared workspace” mode suitable for a small planning group that reduces fragmentation across chat threads, docs, and call notes.
+Goal: ship a “shared workspace” mode suitable for a small planning group that reduces fragmentation across chat threads, docs, and ad-hoc notes/edits.
 
 ## MVP scope (what “done” means)
 
 - A group can browse the workspace docs in the browser or CLI (see TODO 015).
 - A group can safely accept LLM-proposed edits via a diff/approve/apply/commit gate (see TODO 014).
 - A group has lightweight identity attribution (who reviewed/approved/committed) (see TODO 010).
-- A repeatable “phone/video call packet” workflow exists: agenda/questions + research excerpts + call notes + outcomes/actions.
+- A repeatable workflow exists for collaborative drafting + review + consensus on shared docs (meeting agendas/notes and action items are a common use-case, as well as coding and documentation projects).
 - The group has an explicit “publish/consensus” moment for important outcomes (diff-reviewed snapshot with attribution and a visible “synced” state).
 
 ## Leverage existing Storm work
@@ -36,5 +36,4 @@ Goal: ship a “shared workspace” mode suitable for a small planning group tha
 - [ ] 026.2 - Implement diff-first change review gate for any proposed file edits; per-file accept/reject; show a common comparison set of pending proposals.
 - [ ] 026.3 - Apply + commit step with editable message and per-file summary; include `Co-authored-by:` attribution for contributors/reviewers.
 - [ ] 026.4 - Add minimal identity (cookie name) and thread it through approvals/commits.
-- [ ] 026.5 - Document the recommended “call packet” folder/template conventions.
-- [ ] 026.6 - Add a visible “synced” signal per packet/notes/outcome (e.g., no pending proposals + all required reviewers approved current snapshot).
+- [ ] 026.6 - Add a visible “synced” signal (e.g., no pending proposals + all required reviewers approved current snapshot).
