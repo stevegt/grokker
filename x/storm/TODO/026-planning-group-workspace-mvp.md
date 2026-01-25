@@ -8,6 +8,7 @@ Goal: ship a “shared workspace” mode suitable for a small planning group tha
 - A group can safely accept LLM-proposed edits via a diff/approve/apply/commit gate (see TODO 014).
 - A group has lightweight identity attribution (who reviewed/approved/committed) (see TODO 010).
 - A repeatable “phone/video call packet” workflow exists: agenda/questions + research excerpts + call notes + outcomes/actions.
+- The group has an explicit “publish/consensus” moment for important outcomes (diff-reviewed snapshot with attribution and a visible “synced” state).
 
 ## Leverage existing Storm work
 
@@ -27,12 +28,13 @@ Goal: ship a “shared workspace” mode suitable for a small planning group tha
         - github.com/computerscienceiscool/collab-editor
         - github.com/stevegt/collab-editor
 - Auto-refresh: related to `TODO 012` (watch changes and reload/re-render).
+- Desirable collaboration properties: common comparison set, explicit gated integration, `Co-authored-by:` attribution, and observable convergence (“synced”).
 
 ## Milestones
 
 - [ ] 026.1 - Add “Docs” view: browse and render workspace Markdown files read-only (search + tree optional).
-- [ ] 026.2 - Implement diff-first change review gate for any proposed file edits; per-file accept/reject.
-- [ ] 026.3 - Apply + commit step with editable message and per-file summary; include author attribution.
+- [ ] 026.2 - Implement diff-first change review gate for any proposed file edits; per-file accept/reject; show a common comparison set of pending proposals.
+- [ ] 026.3 - Apply + commit step with editable message and per-file summary; include `Co-authored-by:` attribution for contributors/reviewers.
 - [ ] 026.4 - Add minimal identity (cookie name) and thread it through approvals/commits.
-- [ ] 026.5 - Document the recommended “call packet” folder/template conventions (tooling-agnostic).
-
+- [ ] 026.5 - Document the recommended “call packet” folder/template conventions.
+- [ ] 026.6 - Add a visible “synced” signal per packet/notes/outcome (e.g., no pending proposals + all required reviewers approved current snapshot).
