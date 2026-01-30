@@ -1,6 +1,6 @@
-# TODO 026 - Planning group workspace MVP (shared docs, decisions, collaboration)
+# TODO 026 - Planning group workspace tool MVP (shared docs, decisions, collaboration)
 
-Goal: ship a “shared workspace” mode suitable for a small planning group that reduces fragmentation across chat threads, docs, and ad-hoc notes/edits.
+Goal: ship a “shared workspace tool” mode suitable for a small planning group that reduces fragmentation across chat threads, docs, and ad-hoc notes/edits, while staying compatible with existing repo layouts.
 
 ## MVP scope (what “done” means)
 
@@ -9,6 +9,7 @@ Goal: ship a “shared workspace” mode suitable for a small planning group tha
 - A group has lightweight identity attribution (who reviewed/approved/committed) (see TODO 010).
 - A repeatable workflow exists for collaborative drafting + review + consensus on shared docs (meeting agendas/notes and action items are a common use-case, as well as coding and documentation projects).
 - The group has an explicit “publish/consensus” moment for important outcomes (diff-reviewed snapshot with attribution and a visible “synced” state).
+- Repo-agnostic: works with whatever folder/file organization the workspace repo already uses (no mandated taxonomy).
 
 ## Leverage existing Storm work
 
@@ -36,4 +37,5 @@ Goal: ship a “shared workspace” mode suitable for a small planning group tha
 - [ ] 026.2 - Implement diff-first change review gate for any proposed file edits; per-file accept/reject; show a common comparison set of pending proposals.
 - [ ] 026.3 - Apply + commit step with editable message and per-file summary; include `Co-authored-by:` attribution for contributors/reviewers.
 - [ ] 026.4 - Add minimal identity (cookie name) and thread it through approvals/commits.
-- [ ] 026.6 - Add a visible “synced” signal (e.g., no pending proposals + all required reviewers approved current snapshot).
+- [ ] 026.5 - Document minimal workspace conventions (tooling-agnostic) while keeping the tool compatible with arbitrary repo layouts.
+- [ ] 026.6 - Add a visible “synced” signal per doc/topic/outcome (e.g., no pending proposals + all required reviewers approved current snapshot).

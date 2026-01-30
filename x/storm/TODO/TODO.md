@@ -12,7 +12,7 @@
 
 ## Features
 
-- [ ] 026-planning-group-workspace-mvp.md Planning group workspace MVP (shared docs, decisions, collaboration)
+- [ ] 026-planning-group-workspace-mvp.md Planning group workspace tool MVP (shared docs, decisions, collaboration)
 - [ ] 006 - Make 8k the default max token size; add larger presets
 - [ ] 007 - File list: add sort options (alphabetical, time created, folders first)
 - [ ] 008 - Wrap queries in code block in markdown file
@@ -35,6 +35,7 @@
   - Include GitHub Copilot-like inline completion while typing input
 
 - [ ] 025-promisegrid-node.md PromiseGrid node mode (delegation + multi-node git)
+- [ ] 027-descriptors-into-storm.md Derive tool descriptors / tool calls from grid-poc `x/descriptors`
 - [ ] 016-merge-grok.md Merge Grok into Storm
 - [ ] 017-mock-llm.md Mock LLM backend for tests
 - [ ] 018-scenario-tree.md Scenario tree workflow (git + LLM)

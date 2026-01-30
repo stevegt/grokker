@@ -6,6 +6,7 @@ PromiseGrid’s model reframes this: “servers” are just other nodes you can 
 
 Background:
 - PromiseGrid overview: `~/lab/grid-poc/llms-full.txt` (pCID-first message envelope; capability-as-promise; kernel-mediated calls)
+- PromiseGrid descriptors prototype: `~/lab/grid-poc/x/descriptors/` (CBOR message + executable descriptor + memfd exec; useful for capabilities/tool calls)
 - Git coordination inspiration: https://mob.sh/
 - Local alternative script: `~/core/bin/mob-consensus`
 
@@ -44,7 +45,7 @@ Grid-node mode should keep this working unchanged when “grid” is off.
 - **LLM execution**: run a query against an allowed provider/model and return a response + proposed edits.
 - **Repo/file operations**: read/scan/patch within a repo clone on that node, subject to capabilities.
 - **Git operations**: branch creation, commit, push/pull, merge, worktree creation, etc.
-- **Tool/function calls** (future): run a bounded tool call in a sandbox and return artifacts.
+- **Tool/function calls** (future): run a bounded tool call in a sandbox and return artifacts (see TODO `027-descriptors-into-storm.md`).
 
 ### Capability tokens (authorization)
 
@@ -55,6 +56,14 @@ Storm already has “authorized files” as an allowlist. Grid mode generalizes 
 - tool/function scope (what tools, what args, what sandbox constraints)
 
 Tokens should be **presented on each delegated request**, and enforced locally by the node that would execute the action.
+
+#### Capability encoding + signing (candidate direction)
+
+`~/lab/grid-poc/x/descriptors/` is a useful prototype touchpoint here: it explores a CBOR array message plus a CWT-like payload and a COSE-style signature. For Storm grid-node mode, treat this as inspiration, not a final wire format:
+
+- If we adopt CWT/COSE patterns for capabilities, use **integer-keyed** CWT claims (RFC 8392) and define exactly what bytes are signed (protocol-defined).
+- When signatures/hashes matter (capability IDs, audit proofs), require **deterministic CBOR** encoding (dCBOR-like) so different implementations produce identical bytes.
+- Keep the **pCID-first envelope** as the long-lived invariant; capability token structures should live inside protocol payloads, not as ad-hoc header fields.
 
 ## pCID-first message model (compatibility path)
 
@@ -67,6 +76,15 @@ Storm can evolve toward this without breaking existing clients by layering:
 3. Define a minimal Storm grid protocol (or a “JSON wrapper” pCID) so nodes can forward Storm requests/responses and later refine to richer protocols without changing transports.
 
 This lets us ship “grid-like” behavior early while keeping the UI stable.
+
+## Tool calls (descriptor-derived)
+
+The `x/descriptors/` prototype demonstrates a simple “executable descriptor” (CBOR-encoded struct containing binary bytes) and Linux `memfd_create` execution. The useful extraction for Storm is:
+
+- A **descriptor** can name a tool, declare metadata, and reference/contain its bytes; this is one way to make “tool calls” transmissible and cacheable across nodes.
+- Execution-from-memory is **not** isolation; it must sit behind capability checks and (eventually) a real sandbox boundary (WASM/container/VM), with full provenance/audit recording.
+
+Track the concrete “derive a tool-call protocol from descriptors” work in TODO `027-descriptors-into-storm.md`.
 
 ## Multi-node git coordination (options)
 
@@ -158,6 +176,7 @@ This will make later PromiseGrid integration less painful.
 - [ ] 025.6 Add relay-only forwarding (store-and-forward) for NAT/firewall traversal.
 - [ ] 025.7 Convert node-to-node messages to pCID-first CBOR envelope (or a pCID-wrapped JSON bridge), keeping UI protocol stable.
 - [ ] 025.8 Integrate review gate (TODO `014-change-review-gate.md`) so remote changes are always diff/approve/apply/commit.
+- [ ] 025.9 Add tool/function call delegation (capabilities + sandbox contract; see TODO `027-descriptors-into-storm.md`).
 
 ## Open questions
 
@@ -165,4 +184,3 @@ This will make later PromiseGrid integration less painful.
 - How do we express “this node may touch this repo” without leaking unexpected files across trust boundaries?
 - Should “git ops” be treated as just another tool/function call under capabilities, or modeled explicitly?
 - How do we reconcile Storm’s unexpected-files workflow with remote patch proposals (who approves what, and where)?
-
