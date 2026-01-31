@@ -42,6 +42,9 @@ Rationale: avoids crowding the `storm` root, keeps KB behavior intact, and makes
   - Pros: single CLI framework, unified help. Cons: larger refactor, touch more tests.
 
 ### Code layout (move storm into v3)
+
+- XXX no, do all of this in v5
+
 - Create `v3/storm/` (or `v3/server/`) for daemon, API, web assets.
 - Move `x/storm` packages into `v3/storm` and update module import paths.
 - Add `v3/cmd/storm/main.go` as the new entry point; keep `v3/cmd/grok/main.go` as a shim.
@@ -69,6 +72,9 @@ Rationale: avoids crowding the `storm` root, keeps KB behavior intact, and makes
 
 ## Risks and decisions to make
 - Decide if `.grok` stays or migrates to `.storm`.
+  - XXX .grok moves to .storm/.db?
 - Plan for API/daemon integration points between storm server and grok KB (if any).
 - DONE choose the subcommand namespace: `storm kb` vs `storm grok`.
+  - XXX storm kb
 - DONE decide whether to unify on cobra or keep kong inside a wrapper.
+  - XXX unify on cobra
