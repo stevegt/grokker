@@ -41,6 +41,57 @@ Rationale: avoids crowding the `storm` root, keeps KB behavior intact, and makes
   - Recreate the grok command tree under `storm kb` directly in cobra.
   - Pros: single CLI framework, unified help. Cons: larger refactor, touch more tests.
 
+### Versioning strategy (freeze `v3/`, work in `v4/` or `v5/`)
+
+This repo’s `README.md` “Semantic Versioning” policy treats **odd-numbered elements** as unstable pre-releases collecting changes for the **next stable even** number (examples given: `3.X.X` is a pre-release of `4.0.0`). That matters because “merge grok into storm” is likely to cause API/CLI and storage changes that are hard to keep perfectly compatible.
+
+There are two separate choices here:
+- **Git branch strategy**: keep `main` moving vs long-lived maintenance branches.
+- **Go module strategy**: keep one module vs introduce a new major-version module (`.../v4`, `.../v5`).
+
+#### Option A: Keep doing the work in `v3/` (status quo)
+
+Pros:
+- Matches the current “odd major = pre-release of next stable major” story (`v3` → `v4`).
+- No repo-wide duplication of code trees; simplest development workflow.
+- Easier to keep `grok` CLI compatibility while iterating (wrapper/shims can stay in place).
+
+Cons:
+- High churn in the only active module path (`.../v3`) can destabilize downstream users.
+- Harder to land big refactors safely without “shadowing” work in parallel.
+- If the end state wants a daemon-first architecture, `v3` may accumulate half-integrated layers.
+
+#### Option B: Freeze `v3/` and do the merge work in a new major module (`v4/` or `v5/`)
+
+Interpret “freeze” as: only take small bugfixes/patches in `v3/`, avoid new features and avoid breaking CLI/API changes.
+
+Pros:
+- Isolates large refactors from current users of `.../v3`.
+- Enables a clean-slate layout (move `x/storm` into the new module; redesign storage; new CLI wiring) without constantly threading backward-compat concerns.
+- Lets `v3/` act as a stable reference implementation during migration/testing.
+
+Cons:
+- Requires a new Go module path (`github.com/stevegt/grokker/v4` or `/v5`) and associated duplication/maintenance cost.
+- In-flight changes split across two trees; backports become overhead.
+- Increased coordination burden for tests/docs/examples (which version does a command refer to?).
+
+#### v4 vs v5 (under this repo’s SemVer scheme)
+
+- **Start `v4/` (even major)**:
+  - Pros: signals “stable release line” to users; aligns with the idea that `v3` was pre-release leading into `v4`.
+  - Cons: you’re likely to want an extended unstable period while merging Storm; doing that under an even major may contradict expectations unless you rely heavily on odd minor/patch pre-release numbers (e.g., `4.1.x` as pre-release of `4.2.0`).
+
+- **Start `v5/` (odd major)**:
+  - Pros: matches “this is a long-running, breaking, development line” semantics; keeps `v4` available as the “next stable” target for today’s `v3` line.
+  - Cons: implies the next stable major after `v5` is `v6` (not `v4`), which is a bigger jump for users and may complicate messaging unless we’re explicitly maintaining a `v4` stable branch in parallel.
+
+Decision framing:
+- If the merge can preserve compatibility well enough to land in `v3` and then release `v4`, stay on `v3`.
+- If the merge is fundamentally a new architecture (daemon-first + capabilities + tool calls), freeze `v3` and do it in a new major; choose `v5` if you expect a long unstable runway.
+
+- [ ] 016.1 Decide: keep work in `v3/` vs new `v4/` vs new `v5/`
+- [ ] 016.2 If new major: define module layout + install paths + compatibility shims (`grok` wrapper)
+
 ### Code layout (move storm into v3)
 
 - XXX no, do all of this in v5

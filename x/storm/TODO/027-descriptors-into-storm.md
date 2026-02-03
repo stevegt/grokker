@@ -7,7 +7,7 @@ Storm grid-node mode (TODO `025-promisegrid-node.md`) needs **tool/function call
 
 This TODO tracks how Storm should integrate or *derive from* those ideas while staying aligned with PromiseGrid’s current pCID-first envelope and Storm’s safety goals.
 
-## Key takeaways from `x/descriptors/`
+## Key takeaways from `~/lab/grid-poc/x/descriptors/`
 
 - Useful:
   - “Descriptor” as a first-class object: name + metadata + bytes/reference → cacheable artifact.
@@ -35,7 +35,7 @@ Tool call references an allowed tool name (`git`, `go`, etc.) and args; no shipp
 - Pros: simplest; avoids “shipping executables” security questions.
 - Cons: depends on worker node images being consistent; harder to reproduce exactly.
 
-### Option B: Descriptor ships bytes (closest to `x/descriptors/`)
+### Option B: Descriptor ships bytes (closest to `~/lab/grid-poc/x/descriptors/`)
 
 Tool call payload includes (or references by CID) an executable/script blob; worker runs it via `memfd_create` (Linux) or temp file fallback.
 - Pros: reproducible; cacheable by hash; aligns with content-addressed artifacts.
@@ -73,4 +73,3 @@ Descriptor references an OCI image digest; worker runs in a container with expli
 - [ ] 027.5 Prototype local-only tool calls inside Storm (no delegation) behind a feature flag, with audit logging.
 - [ ] 027.6 Integrate tool outputs with Storm review gate (`diff/approve/apply/commit`) for any file modifications.
 - [ ] 027.7 Add a worker-node executor path for delegated tool calls (start with relay-free explicit peers).
-

@@ -79,7 +79,7 @@ This lets us ship “grid-like” behavior early while keeping the UI stable.
 
 ## Tool calls (descriptor-derived)
 
-The `x/descriptors/` prototype demonstrates a simple “executable descriptor” (CBOR-encoded struct containing binary bytes) and Linux `memfd_create` execution. The useful extraction for Storm is:
+The `~/lab/grid-poc/x/descriptors/` prototype demonstrates a simple “executable descriptor” (CBOR-encoded struct containing binary bytes) and Linux `memfd_create` execution. The useful extraction for Storm is:
 
 - A **descriptor** can name a tool, declare metadata, and reference/contain its bytes; this is one way to make “tool calls” transmissible and cacheable across nodes.
 - Execution-from-memory is **not** isolation; it must sit behind capability checks and (eventually) a real sandbox boundary (WASM/container/VM), with full provenance/audit recording.
