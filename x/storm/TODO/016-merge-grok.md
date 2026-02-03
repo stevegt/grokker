@@ -92,6 +92,39 @@ Decision framing:
 - [ ] 016.1 Decide: keep work in `v3/` vs new `v4/` vs new `v5/`
 - [ ] 016.2 If new major: define module layout + install paths + compatibility shims (`grok` wrapper)
 
+### Sequencing with TODO `015-interactive-cli.md` (interactive shell)
+
+There’s a real ordering tradeoff between doing TODO 016 (“merge grok into storm”) and TODO 015 (“ship `storm sh`”).
+
+#### Do TODO 016 before TODO 015
+
+Pros:
+- Decide the eventual command tree (`storm kb`, `storm sh`, etc.) and module home (`v3` vs `v4`/`v5`) before writing a lot of CLI code.
+- Avoid building `storm sh` against APIs/layout that are about to move (especially if we choose a new major module).
+- Unify on cobra/config conventions first, then add the interactive shell as “just another command”.
+
+Cons:
+- Higher risk of a long refactor runway before any user-facing UX improvement.
+- Less early pressure-testing of Storm’s WS/query/approval workflows (which the merge work will still need to interact with).
+
+#### Do TODO 015 before TODO 016
+
+Pros:
+- Faster productivity win for day-to-day Storm development and dogfooding.
+- Exercises the daemon protocol, approvals, and review gate UX that the merge work will depend on.
+- Lets the interactive shell become a useful front-end for driving and observing the migration.
+
+Cons:
+- Some rework risk if TODO 016 changes the module location or the CLI command tree.
+- If TODO 016 changes the daemon protocol significantly, the shell may need updates.
+
+Pragmatic approach:
+- Do **016.1** (where the work lives: `v3` vs new major) early.
+- Implement the TODO 015 MVP in that chosen home, with the protocol/client logic isolated so it can be moved.
+- Then proceed with TODO 016 incrementally behind `storm kb ...` while using `storm sh` to dogfood.
+
+- [ ] 016.3 Decide sequencing: 015-first vs 016-first (or hybrid)
+
 ### Code layout (move storm into v3)
 
 - XXX no, do all of this in v5
