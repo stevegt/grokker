@@ -4,23 +4,25 @@ TODO `015-interactive-cli.md` highlights a deeper architectural mismatch: Codex-
 
 PromiseGrid’s model reframes this: “servers” are just other nodes you can delegate to, and a node can be local (same machine), a relay (NAT/firewall traversal), an HTTP gateway (browser clients), or a worker (executes delegated tasks). Capability tokens authorize what a node may do (files, tools/functions, LLM calls, git ops).
 
-Operational reality: today we run Storm on a workstation as a local user and (when needed) expose it via SSH tunneling; we would not run a privileged Storm daemon on a public server as a generic user. Grid-node mode should make this explicit: split a public **hub** node (routing + UI) from a local **agent/workspace** node (repo + LLM + tools), with capability-gated tool calls between them.
+In grid terms, a node is a node: the same node can serve any combination of roles (hub, workspace/repo, worker, relay, shell), depending on what services it runs and what capabilities it holds.
+
+Operational reality: today we run Storm on a workstation as a local user and (when needed) expose it via SSH tunneling; we would not run a privileged Storm daemon on a public server as a generic user. Grid-node mode should make this explicit by splitting *roles* across nodes: e.g. run hub/routing/UI roles on an unprivileged public node and run workspace (repo) + LLM + tool execution roles on a local node, connected via capability-gated tool calls.
 
 Background:
 - PromiseGrid overview: `~/lab/grid-poc/llms-full.txt` (pCID-first message envelope; capability-as-promise; kernel-mediated calls)
 - PromiseGrid descriptors prototype: `~/lab/grid-poc/x/descriptors/` (CBOR message + executable descriptor + memfd exec; useful for capabilities/tool calls)
-- Tool call protocol candidates: MCP/ACP (or Storm-native) for hub↔agent tool calls (bridge to pCID-first over time)
+- Tool call protocol candidates: MCP/ACP (or PromiseGrid-native) for hub↔workspace tool calls (bridge to pCID-first over time)
 - Git coordination inspiration: https://mob.sh/
 - Local alternative script: `~/core/bin/mob-consensus`
 
 ## Goal
 
-Evolve Storm so it can operate as one or more **grid nodes** (hub, agent/workspace, worker), where:
-- the **agent/workspace** node (local) owns the repo and runs the LLM and tools
-- the **hub** node multiplexes GUI/TUI clients and routes capability-gated tool calls to agents
-- agents can optionally offer LLM/tool services to other agents under capabilities
+Evolve Storm so it can operate as one or more **grid nodes** (hub, workspace, worker), where:
+- the **workspace** node (local) owns the repo and runs the LLM and tools
+- the **hub** node multiplexes GUI/TUI clients and routes capability-gated tool calls to workspace/worker nodes
+- nodes can optionally offer LLM/tool services to other nodes under capabilities
 - results are auditable messages with clear provenance
-- git operations can be coordinated across agents when needed (mob-style or consensus-merge style)
+- git operations can be coordinated across nodes when needed (mob-style or consensus-merge style)
 - preserve current single-daemon UX (`storm serve`, web UI, existing CLI) as a default for local-only use
 
 ## Non-goals (initially)
@@ -37,30 +39,34 @@ Evolve Storm so it can operate as one or more **grid nodes** (hub, agent/workspa
 
 Grid-node mode should keep this working unchanged when “grid” is off.
 
-## Preferred initial topology: hub + agent (LLM + repo local)
+## Preferred initial topology: hub + workspace (LLM + repo local)
 
-- **Hub node (public/unprivileged)**: runs the web UI and any shared collaboration state; multiplexes many GUI/TUI clients; routes messages/tool calls; does not need a repo checkout or LLM keys.
-- **Agent/workspace node (local/privileged)**: runs as the user who owns the repo; holds repo credentials and file/tool capabilities; runs the LLM locally; executes tool calls and file writes; enforces capabilities.
-- Agents keep an outbound connection to a hub/relay to traverse NAT/firewalls and avoid exposing a privileged local daemon port directly.
-- In this model, “servers” are just nodes: the hub is simply another grid node, and agents can optionally provide LLM/tool services to other agents when capability-granted.
+This is a *deployment pattern*, not a different kind of node: two nodes run the same software but with different role+capability sets.
+
+- **Node acting in hub role (public/unprivileged)**: runs the web UI and any shared collaboration state; multiplexes many GUI/TUI clients; routes messages/tool calls; does not need a repo checkout or LLM keys.
+- **Node acting in workspace role (local/privileged)**: runs as the user who owns the repo; holds repo credentials and file/tool capabilities; runs the LLM locally; executes tool calls and file writes; enforces capabilities.
+- Workspace nodes keep an outbound connection to a hub/relay to traverse NAT/firewalls and avoid exposing a privileged local daemon port directly.
+- Any node may also serve additional roles (e.g. a workstation can run hub+workspace+shell in one process for local-only use).
 
 ## What “grid node” means for Storm
 
-### Roles (a node can run multiple roles)
+### Roles (a node can run any combination)
 
-- **Shell node**: interactive user entrypoint (TODO `015-interactive-cli.md`). Typically connects to a hub; does not require repo access.
-- **Hub node**: HTTP gateway + router/relay for GUI/TUI clients; routes tool calls to agent/workers; no repo/LLM by default.
-- **Agent/workspace node**: local node that owns repo + LLM + tools; executes queries and applies edits under capability gating.
-- **Worker node** (optional): executes delegated tasks for other nodes; may offer LLM/tool services, and may or may not have a repo clone depending on capability.
-- **Relay node**: forwards/store-and-forwards messages to bridge NAT/firewalls (no local execution required).
+- **Shell role**: interactive user entrypoint (TODO `015-interactive-cli.md`). Typically connects to a hub; does not require repo access.
+- **Hub role**: HTTP gateway + router/relay for GUI/TUI clients; routes tool calls to workspace/worker roles; no repo/LLM by default.
+- **Workspace role (repo agent)**: owns repo + LLM + tools; executes queries and applies edits under capability gating.
+  - XXX pros and cons of workspace role code paths executing in-process in shell role node vs delegating to a local workspace role node?
+- **Worker role** (optional): executes delegated tasks for other nodes; may offer LLM/tool services, and may or may not have a repo clone depending on capability.
+- **Relay role**: forwards/store-and-forwards messages to bridge NAT/firewalls (no local execution required).
+  - XXX what's the difference between Hub and Relay?
 
 ### Delegation primitives (what can be delegated)
 
-- **LLM execution**: by default runs on the agent/workspace node (local). Agents may optionally offer “LLM as a service” to other agents under capability tokens.
-- **Repo/file operations**: run on the agent that owns the repo checkout. Remote nodes generally work via patch proposals or a declared snapshot/overlay unless explicitly authorized to clone/push.
-- **Git operations**: performed by the agent owning the repo-of-record; other nodes can propose patches/branches for review+merge.
-- **Tool/function calls** (future): executed on the agent by default; optionally on remote workers when capability-granted (see TODO `027-descriptors-into-storm.md`).
-- **Routing/multiplex**: the hub routes messages between clients and agents.
+- **LLM execution**: by default runs on a node acting in workspace role (typically local). Nodes may optionally offer “LLM as a service” to other nodes under capability tokens.
+- **Repo/file operations**: run on the node in workspace role that owns the repo checkout. Remote nodes generally work via patch proposals or a declared snapshot/overlay unless explicitly authorized to clone/push.
+- **Git operations**: performed by the workspace-role node owning the repo-of-record; other nodes can propose patches/branches for review+merge.
+- **Tool/function calls** (future): executed on the workspace-role node by default; optionally on remote workers when capability-granted (see TODO `027-descriptors-into-storm.md`).
+- **Routing/multiplex**: nodes in hub/relay roles route messages between clients and executor nodes.
 
 ### Capability tokens (authorization)
 
@@ -72,7 +78,7 @@ Storm already has “authorized files” as an allowlist. Grid mode generalizes 
 
 Tokens should be **presented on each delegated request**, and enforced locally by the node that would execute the action.
 
-In the hub+agent topology, enforcement must happen at the executor node (agent/worker). Treat the hub as an untrusted router: do not rely on it for access control.
+In the hub+workspace deployment pattern, enforcement must happen at the executor node (workspace/worker role). Treat routing-only nodes as untrusted: do not rely on them for access control.
 
 #### Capability encoding + signing (candidate direction)
 
@@ -88,9 +94,10 @@ PromiseGrid’s stable invariant is: messages are CBOR arrays beginning with `pC
 
 Storm can evolve toward this without breaking existing clients by layering:
 
-1. **Keep Storm’s existing HTTP+WS JSON protocol** between GUI/TUI clients and the hub (web UI today; TODO `015-interactive-cli.md` next).
-2. Add a **hub↔agent tool-call transport** (MCP/ACP-like, or Storm-native) where the agent runs LLM+repo+tools and returns responses/patch proposals; hub routes only.
-3. Gradually migrate **node-to-node** traffic (hub↔agent, agent↔agent, relay) to a pCID-first CBOR envelope, optionally starting with a pCID that wraps existing JSON tool-call payloads.
+1. **Keep Storm’s existing HTTP+WS JSON protocol** between GUI/TUI clients and a node acting in hub role (web UI today; TODO `015-interactive-cli.md` next).
+2. Add a **node↔node tool-call transport** (MCP/ACP-like, or PromiseGrid-native) where workspace/worker roles run LLM+repo+tools and return responses/patch proposals; hub role routes only.
+  - XXX let's do this soonest
+3. Quickly migrate **node-to-node** traffic (hub↔workspace, workspace↔workspace, relay) to a pCID-first CBOR envelope, optionally starting with a pCID that wraps existing JSON tool-call payloads.
 
 This lets us ship “grid-like” behavior early while keeping the UI stable.
 
@@ -105,19 +112,19 @@ Track the concrete “derive a tool-call protocol from descriptors” work in TO
 
 ## Multi-node git coordination (options)
 
-We need a way to integrate work performed on other agents/workers back into the repo-of-record on the user’s agent node, with review gates (TODO `014-change-review-gate.md`) and predictable provenance.
+We need a way to integrate work performed on other nodes back into the repo-of-record on the user’s workspace-role node, with review gates (TODO `014-change-review-gate.md`) and predictable provenance.
 
 ### Option A: Patch-first (lowest coupling)
 
 - Worker node returns a patch/diff + metadata (files touched, base commit hash, co-authors).
-- Agent node (repo-of-record) applies patch locally (review gate), then commits/pushes.
+- Workspace node (repo-of-record) applies patch locally (review gate), then commits/pushes.
 - Pros: minimal remote git complexity; keeps write authority local.
 - Cons: remote node still needs repo context to compute diffs; conflicts surface at apply time.
 
 ### Option B: Branch-first (mob / “remote branch”)
 
 - Worker node operates on its own clone/worktree, creates a branch, commits, pushes.
-- Agent node (repo-of-record) fetches, diffs, merges (or uses scenario-tree style branches).
+- Workspace node (repo-of-record) fetches, diffs, merges (or uses scenario-tree style branches).
 - Pros: uses git as the transport for file changes; easy to inspect/rewind.
 - Cons: requires remotes/credentials on worker; needs explicit branch naming + push policy.
 
@@ -134,8 +141,8 @@ This resembles `~/core/bin/mob-consensus`: merge `OTHER_BRANCH` onto current bra
 ### 1) Introduce an internal “executor” interface
 
 Refactor the daemon’s “do the work” code to target an interface:
-- `LocalExecutor`: current behavior (runs on an agent/workspace node: do LLM call, extract files, write outputs)
-- `RemoteExecutor`: delegates to another node and returns a normalized result (used by a hub routing to an agent, or by agents delegating to other agents/workers)
+- `LocalExecutor`: current behavior (runs on a node with workspace capabilities: do LLM call, extract files, write outputs)
+- `RemoteExecutor`: delegates to another node and returns a normalized result (used by a hub routing to a workspace node, or by nodes delegating to other nodes)
 
 The rest of Storm (HTTP handlers, WS broadcasts, approval flows) should depend on the executor, not on direct filesystem/LLM implementations.
 
@@ -144,19 +151,17 @@ The rest of Storm (HTTP handlers, WS broadcasts, approval flows) should depend o
 Add configuration for:
 - node ID / name
 - peer list (addresses + transport)
-- role flags (hub/agent/worker/relay)
-- connection mode (listen vs connect; agent outbound to hub/relay)
+- role flags (hub/workspace/worker/relay)
+- connection mode (listen vs connect; workspace outbound to hub/relay)
 - capabilities issued/accepted (or verification keys)
 
 ### 3) Add a new subcommand (or extend `serve`)
 
 Two viable approaches:
 
-- **Add `storm node ...`**:
-  - `storm node hub` (HTTP gateway + routing/relay; no repo/LLM by default)
-  - `storm node agent` (workspace + LLM + tools; connects to hub/relay)
-  - `storm node worker` (optional: executes delegated tasks; may offer LLM/tool services)
-  - `storm node relay` (forward/store-and-forward only)
+- **Add `storm node ...`** where a single process can enable one or more roles:
+  - Example flags: `--hub`, `--workspace`, `--worker`, `--relay` (or `--role hub --role workspace ...`)
+  - Optional convenience aliases for common single-role defaults (but the underlying model is composable roles).
 - **Extend `storm serve`** with `--grid` flags:
   - keeps today’s UX, turns on node transport + delegation
 
@@ -187,9 +192,9 @@ This will make later PromiseGrid integration less painful.
 
 ## Phases (staged delivery)
 
-- [ ] 025.1 Define “grid node mode” UX (subcommand + flags) and role behaviors (hub vs agent).
+- [ ] 025.1 Define “grid node mode” UX (subcommand + flags) and role behaviors (hub vs workspace).
 - [ ] 025.2 Add executor abstraction and keep `storm serve` behavior identical by default.
-- [ ] 025.3 Implement hub↔agent delegation for LLM calls (LLM runs on agent; hub routes only), return response + patch proposal.
+- [ ] 025.3 Implement hub↔workspace delegation for LLM calls (LLM runs on workspace; hub routes only), return response + patch proposal.
 - [ ] 025.4 Add capability token checks for delegated requests (start with file scopes + model scopes).
 - [ ] 025.5 Implement one git integration path (pick A/B/C above) and document the workflow.
 - [ ] 025.6 Add relay-only forwarding (store-and-forward) for NAT/firewall traversal.
@@ -199,8 +204,12 @@ This will make later PromiseGrid integration less painful.
 
 ## Open questions
 
-- Where should “project state” live in hub+agent mode: what minimal state is safe to persist on the hub, vs only on the agent?
+- Where should “project state” live when hub and workspace roles are split: what minimal state is safe to persist on hub-role nodes, vs only on workspace-role nodes?
 - How do we scope and minimize file flow (context, patches, artifacts) so the hub doesn’t become a de facto data lake?
-- Who mints capability tokens (agent, user, org), how are they revoked, and how are they presented end-to-end through the hub?
+- Who mints capability tokens (user, org, node operator), how are they revoked, and how are they presented end-to-end through the hub?
+  - XXX follow promise theory -- capabilities are promises made by an
+    agent about its own behavior.  nodes cannot make promises about
+    other nodes, so can't issue capabilities for other nodes. the node
+    executing an action must verify the capability itself.
 - Should “git ops” be treated as just another tool/function call under capabilities, or modeled explicitly?
-- How do we reconcile Storm’s unexpected-files workflow with patch proposals coming from other agents/workers (who approves what, and where)?
+- How do we reconcile Storm’s unexpected-files workflow with patch proposals coming from other nodes (who approves what, and where)?

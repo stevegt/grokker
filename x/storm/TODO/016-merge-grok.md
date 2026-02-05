@@ -37,9 +37,15 @@ Rationale: avoids crowding the `storm` root, keeps KB behavior intact, and makes
 ## Migration approach
 
 ### CLI integration
-- Translate grok CLI from kong to cobra:
-  - Recreate the grok command tree under `storm kb` directly in cobra.
-  - Pros: single CLI framework, unified help. Cons: larger refactor, touch more tests.
+
+Decision: recreate the grok command tree under `storm kb` directly in cobra.
+
+Pros:
+- Single CLI framework and unified help/UX.
+- Makes `storm kb ...` feel like a first-class part of Storm.
+
+Cons:
+- Larger refactor; touches more tests and CLI wiring.
 
 ### Versioning strategy (freeze `v3/`, work in `v4/` or `v5/`)
 
@@ -125,13 +131,22 @@ Pragmatic approach:
 
 - [ ] 016.3 Decide sequencing: 015-first vs 016-first (or hybrid)
 
-### Code layout (move storm into v3)
+### Code layout (module home)
 
-- XXX no, do all of this in v5
+This depends on 016.1 (where the work lives).
+
+#### If the work stays in `v3/` (no new major module)
 
 - Create `v3/storm/` (or `v3/server/`) for daemon, API, web assets.
-- Move `x/storm` packages into `v3/storm` and update module import paths.
-- Add `v3/cmd/storm/main.go` as the new entry point; keep `v3/cmd/grok/main.go` as a shim.
+- Move `x/storm` packages into that tree and update imports.
+- Add `v3/cmd/storm/main.go` as the new entry point; keep `v3/cmd/grok/main.go` as a compatibility shim.
+
+#### If the work moves to a new major module (`v4/` or `v5/`)
+
+- Create `v4/` or `v5/` as the new Go module root (mirroring the `v3/` structure).
+- Promote Storm out of `x/storm` into the new module tree (daemon, API, web assets).
+- Add `v4/cmd/storm/main.go` (or `v5/...`) as the entry point.
+- Keep a `grok` compatibility shim (either as a legacy `v3` binary, or as a thin wrapper that forwards `grok <args>` → `storm kb <args>`).
 
 ### Vector DB and storage recommendations
 - Storm already has the beginning of a stronger storage design in the bbolt KV store; grok still uses a monolithic JSON file that grows quickly.
@@ -155,10 +170,9 @@ Pragmatic approach:
 - Add CLI help examples showing new hierarchy.
 
 ## Risks and decisions to make
-- Decide if `.grok` stays or migrates to `.storm`.
-  - XXX .grok moves to .storm/.db?
-- Plan for API/daemon integration points between storm server and grok KB (if any).
-- DONE choose the subcommand namespace: `storm kb` vs `storm grok`.
-  - XXX storm kb
-- DONE decide whether to unify on cobra or keep kong inside a wrapper.
-  - XXX unify on cobra
+- [ ] 016.4 Decide KB state location and migration story:
+  - Keep `.grok` in v3 for compatibility.
+  - For Storm-first storage, prefer a `.storm/` directory (e.g. `.storm/kb.db`) with an explicit `storm kb migrate` command and clear docs/ignore rules.
+- [ ] 016.5 Plan for API/daemon integration points between the Storm daemon and the KB subsystem (shared DB vs separate, locking, multi-project behavior).
+- [x] Use `storm kb` (not `storm grok`) as the KB subcommand namespace.
+- [x] Unify on cobra for the merged CLI (port grok’s kong command tree under `storm kb`; keep `grok` as a compatibility wrapper).
