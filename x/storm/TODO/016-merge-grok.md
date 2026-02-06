@@ -47,13 +47,31 @@ Pros:
 Cons:
 - Larger refactor; touches more tests and CLI wiring.
 
-### Versioning strategy (freeze `v3/`, work in `v4/` or `v5/`)
+### Versioning strategy (freeze `v3/`, do Storm-first work in `v5/`)
 
 This repo’s `README.md` “Semantic Versioning” policy treats **odd-numbered elements** as unstable pre-releases collecting changes for the **next stable even** number (examples given: `3.X.X` is a pre-release of `4.0.0`). That matters because “merge grok into storm” is likely to cause API/CLI and storage changes that are hard to keep perfectly compatible.
 
-There are two separate choices here:
+There are three separate choices here:
+- **GitHub repo strategy**: keep everything in `stevegt/grokker` vs clone/seed a new repo (e.g. `ciwg/storm`) for Storm-first work.
 - **Git branch strategy**: keep `main` moving vs long-lived maintenance branches.
 - **Go module strategy**: keep one module vs introduce a new major-version module (`.../v4`, `.../v5`).
+
+#### Current direction: new repo for `v5`
+
+Decision: keep `stevegt/grokker` on GitHub as the v3 line, and start Storm-first development in a new repo (planned: `ciwg/storm`) beginning at `v5/`.
+
+Implementation intent:
+- Seed `ciwg/storm` via a full-history clone of `stevegt/grokker` (no history filtering).
+- Create a new Go module rooted at `ciwg/storm/v5` in a `v5/` subdirectory (`module github.com/ciwg/storm/v5`).
+- Treat `v5` as the long-running unstable line under the current SemVer policy (odd == unstable), targeting a stable `v6`.
+
+Pros:
+- Clean separation: keep `stevegt/grokker` stable while `ciwg/storm` takes breaking, Storm-first changes.
+- Org repo enables shared maintainer access and clearer project ownership.
+
+Cons:
+- No automatic redirect: links, issues, and PRs split unless migrated.
+- Module path changes (`github.com/ciwg/storm/v5`) require updating docs, tooling, and any downstream importers.
 
 #### Option A: Keep doing the work in `v3/` (status quo)
 
@@ -77,9 +95,19 @@ Pros:
 - Lets `v3/` act as a stable reference implementation during migration/testing.
 
 Cons:
-- Requires a new Go module path (`github.com/stevegt/grokker/v4` or `/v5`) and associated duplication/maintenance cost.
+- Requires a new Go module path (`github.com/stevegt/grokker/v4` or `github.com/stevegt/grokker/v5`) and associated duplication/maintenance cost.
 - In-flight changes split across two trees; backports become overhead.
 - Increased coordination burden for tests/docs/examples (which version does a command refer to?).
+
+#### Option C: Freeze `v3/` in `stevegt/grokker` and do the work in a new repo starting at `v5/`
+
+This is Option B, but with the “new major” hosted in a separate repo (planned: `ciwg/storm`) rather than inside `stevegt/grokker`.
+
+Pros:
+- Same isolation as Option B, plus clearer ownership and a Storm-first project identity.
+
+Cons:
+- Same “new major module” costs, plus repo split costs (issues/PRs/links).
 
 #### v4 vs v5 (under this repo’s SemVer scheme)
 
@@ -95,8 +123,9 @@ Decision framing:
 - If the merge can preserve compatibility well enough to land in `v3` and then release `v4`, stay on `v3`.
 - If the merge is fundamentally a new architecture (daemon-first + capabilities + tool calls), freeze `v3` and do it in a new major; choose `v5` if you expect a long unstable runway.
 
-- [ ] 016.1 Decide: keep work in `v3/` vs new `v4/` vs new `v5/`
-- [ ] 016.2 If new major: define module layout + install paths + compatibility shims (`grok` wrapper)
+- [x] 016.1 Decide: seed `ciwg/storm` from `stevegt/grokker` and start a `v5/` module for Storm-first development
+- [ ] 016.2 Define `v5/` module layout + install paths + compatibility shims (`grok` wrapper)
+- [ ] 016.6 Create `ciwg/storm` repo + push full-history seed; add pointers/docs in `stevegt/grokker`
 
 ### Sequencing with TODO `015-interactive-cli.md` (interactive shell)
 
@@ -106,6 +135,7 @@ There’s a real ordering tradeoff between doing TODO 016 (“merge grok into st
 
 Pros:
 - Decide the eventual command tree (`storm kb`, `storm sh`, etc.) and module home (`v3` vs `v4`/`v5`) before writing a lot of CLI code.
+  - Current direction: `stevegt/grokker/v3` for maintenance, `ciwg/storm/v5` for Storm-first development.
 - Avoid building `storm sh` against APIs/layout that are about to move (especially if we choose a new major module).
 - Unify on cobra/config conventions first, then add the interactive shell as “just another command”.
 
@@ -125,7 +155,7 @@ Cons:
 - If TODO 016 changes the daemon protocol significantly, the shell may need updates.
 
 Pragmatic approach:
-- Do **016.1** (where the work lives: `v3` vs new major) early.
+- Do **016.1** (where the work lives: repo + module home) early.
 - Implement the TODO 015 MVP in that chosen home, with the protocol/client logic isolated so it can be moved.
 - Then proceed with TODO 016 incrementally behind `storm kb ...` while using `storm sh` to dogfood.
 
@@ -133,7 +163,7 @@ Pragmatic approach:
 
 ### Code layout (module home)
 
-This depends on 016.1 (where the work lives).
+Given 016.1, the primary plan is to host Storm-first development in `ciwg/storm` under a `v5/` module, while keeping `stevegt/grokker` `v3/` in maintenance mode.
 
 #### If the work stays in `v3/` (no new major module)
 
@@ -141,11 +171,11 @@ This depends on 016.1 (where the work lives).
 - Move `x/storm` packages into that tree and update imports.
 - Add `v3/cmd/storm/main.go` as the new entry point; keep `v3/cmd/grok/main.go` as a compatibility shim.
 
-#### If the work moves to a new major module (`v4/` or `v5/`)
+#### Primary plan: new `v5/` module (in `ciwg/storm`)
 
-- Create `v4/` or `v5/` as the new Go module root (mirroring the `v3/` structure).
+- Create `v5/` as the new Go module root (mirroring the `v3/` structure).
 - Promote Storm out of `x/storm` into the new module tree (daemon, API, web assets).
-- Add `v4/cmd/storm/main.go` (or `v5/...`) as the entry point.
+- Add `v5/cmd/storm/main.go` as the entry point.
 - Keep a `grok` compatibility shim (either as a legacy `v3` binary, or as a thin wrapper that forwards `grok <args>` → `storm kb <args>`).
 
 ### Vector DB and storage recommendations
