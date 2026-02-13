@@ -37,6 +37,7 @@
 - [ ] 025-promisegrid-node.md PromiseGrid node mode (delegation + multi-node git)
 - [ ] 027-descriptors-into-storm.md Derive tool descriptors / tool calls from grid-poc `x/descriptors`
 - [ ] 016-merge-grok.md Merge Grok into Storm
+- [ ] 028-migrate-root-todo.md Migrate repo-root `TODO.md` into Storm TODO index
 - [ ] 017-mock-llm.md Mock LLM backend for tests
 - [ ] 018-scenario-tree.md Scenario tree workflow (git + LLM)
 - [ ] 019-scenario-tree-ga.md LLM-assisted GA over scenario branches

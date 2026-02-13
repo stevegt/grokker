@@ -126,6 +126,10 @@ Decision framing:
 - [x] 016.1 Decide: seed `ciwg/storm` from `stevegt/grokker` and start a `v5/` module for Storm-first development
 - [ ] 016.2 Define `v5/` module layout + install paths + compatibility shims (`grok` wrapper)
 - [ ] 016.6 Create `ciwg/storm` repo + push full-history seed; add pointers/docs in `stevegt/grokker`
+- [ ] 016.7 Tag the seed commit in `stevegt/grokker` (e.g. `storm-v5-seed-YYYY-MM-DD`) and push the tag
+- [ ] 016.8 Confirm `stevegt/grokker` `main` is clean and pushed before seeding `ciwg/storm`
+- [ ] 016.9 Add a pointer to `ciwg/storm` in `stevegt/grokker` `README.md` and `TODO.md` (and clarify `v3/` is maintenance)
+- [ ] 016.10 Update `~/.codex/meta-context.md` with the repo split decision and module paths
 
 ### Sequencing with TODO `015-interactive-cli.md` (interactive shell)
 
