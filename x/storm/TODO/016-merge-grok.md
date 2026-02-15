@@ -130,6 +130,8 @@ Decision framing:
 - [ ] 016.8 Confirm `stevegt/grokker` `main` is clean and pushed before seeding `ciwg/storm`
 - [ ] 016.9 Add a pointer to `ciwg/storm` in `stevegt/grokker` `README.md` and `TODO.md` (and clarify `v3/` is maintenance)
 - [ ] 016.10 Update `~/.codex/meta-context.md` with the repo split decision and module paths
+- [ ] 016.11 Update `~/lab/grid-poc` docs to point at `ciwg/storm` (new canonical repo for Storm v5)
+- [ ] 016.12 Update `~/lab/cswg/coordination` docs (including `timeline.md`) to point at `ciwg/storm`
 
 ### Sequencing with TODO `015-interactive-cli.md` (interactive shell)
 

@@ -35,6 +35,7 @@
   - Include GitHub Copilot-like inline completion while typing input
 
 - [ ] 025-promisegrid-node.md PromiseGrid node mode (delegation + multi-node git)
+- [ ] 029-grid-dev-guide.md Grid developer guide (0.1 → 1.0)
 - [ ] 027-descriptors-into-storm.md Derive tool descriptors / tool calls from grid-poc `x/descriptors`
 - [ ] 016-merge-grok.md Merge Grok into Storm
 - [ ] 028-migrate-root-todo.md Migrate repo-root `TODO.md` into Storm TODO index
