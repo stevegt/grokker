@@ -434,14 +434,16 @@ func Init(rootdir, model string) (g *Grokker, err error) {
 	return
 }
 
-// InitNamed creates a named Grokker database in the given root directory.
-func InitNamed(rootdir, name, model string) (g *Grokker, err error) {
+// initNewGrokker creates and initializes a Grokker object rooted at
+// rootdir. It does not load or create any Grokker database files.
+func initNewGrokker(rootdir, model string) (g *Grokker, err error) {
+	defer Return(&err)
 	// ensure rootdir is absolute and exists
 	rootdir, err = filepath.Abs(rootdir)
 	Ck(err)
 	_, err = os.Stat(rootdir)
 	Ck(err)
-	// create the db
+	// create the Grokker object
 	g = &Grokker{
 		Root:    rootdir,
 		Version: Version,
@@ -449,8 +451,26 @@ func InitNamed(rootdir, name, model string) (g *Grokker, err error) {
 	// initialize other bits
 	err = g.Setup(model)
 	Ck(err)
+	return
+}
+
+// InitNoDB initializes a Grokker object in the given root directory,
+// without opening or creating a Grokker database file. This is useful
+// for subcommands that only need model access (e.g. generating a git
+// commit message) and should not require a local `.grok` file.
+func InitNoDB(rootdir, model string) (g *Grokker, err error) {
+	defer Return(&err)
+	g, err = initNewGrokker(rootdir, model)
+	Ck(err)
+	return
+}
+
+// InitNamed creates a named Grokker database in the given root directory.
+func InitNamed(rootdir, name, model string) (g *Grokker, err error) {
+	g, err = initNewGrokker(rootdir, model)
+	Ck(err)
 	// ensure there is no existing db
-	g.grokpath = filepath.Join(rootdir, name)
+	g.grokpath = filepath.Join(g.Root, name)
 	_, err = os.Stat(g.grokpath)
 	if err == nil {
 		err = fmt.Errorf("db already exists at %q", g.grokpath)

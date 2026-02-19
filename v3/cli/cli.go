@@ -290,7 +290,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 	Debug("cmd: %s", cmd)
 
 	// list of commands that don't require an existing database
-	noDbCmds := []string{"init", "tc"}
+	noDbCmds := []string{"init", "tc", "commit"}
 	needsDb := true
 	if cmdInSlice(cmd, noDbCmds) {
 		Debug("command %s does not require a grok db", cmd)
@@ -586,6 +586,13 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 			cli.Commit.Diffargs = []string{"--staged"}
 		}
 		gitModelName := "o3-mini"
+		// The commit-message flow doesn't need a `.grok` database, but
+		// it does need a Grokker object for model setup and API access.
+		if grok == nil {
+			grok, err = core.InitNoDB(".", gitModelName)
+			Ck(err)
+			save = false
+		}
 		// call grokker
 		summary, err := grok.GitCommitMessage(gitModelName, cli.Commit.Diffargs...)
 		Ck(err)

@@ -52,7 +52,11 @@ func (g *Grokker) CompleteChat(modelName, sysmsg string, msgs []client.ChatMsg) 
 	Debug("response from LLM: %#v", results)
 
 	response = results.Body
-	if results.Citations != nil {
+	// Only append a references section when there are actual citations.
+	// Some providers (and the mock provider) may return a non-nil but
+	// empty slice; callers generally don't want an empty `<references>`
+	// block in that case.
+	if len(results.Citations) > 0 {
 		references = append(references, results.Citations...)
 		response += Spf("\n\n<references>\n")
 		for i, citation := range results.Citations {
