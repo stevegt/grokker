@@ -538,6 +538,11 @@ func (g *Grokker) GitCommitMessage(modelName string, args ...string) (msg string
 	out, err := cmd.Output()
 	Ck(err)
 	diff := string(out)
+	// If there are no changes for the requested diff args, `grok commit`
+	// should be a no-op (exit 0, no output) and must not call an LLM.
+	if strings.TrimSpace(diff) == "" {
+		return "", nil
+	}
 
 	if false {
 		// summarize the diff

@@ -596,7 +596,12 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		// call grokker
 		summary, err := grok.GitCommitMessage(gitModelName, cli.Commit.Diffargs...)
 		Ck(err)
-		Pl(summary)
+		// When there is no diff, `GitCommitMessage` returns an empty
+		// message. In that case, `grok commit` should produce no output
+		// and exit successfully.
+		if strings.TrimSpace(summary) != "" {
+			Pl(summary)
+		}
 	case "models":
 		// list all available models
 		models := grok.ListModels()
