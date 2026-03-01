@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -21,6 +22,10 @@ import (
 // import "github.com/stevegt/grokker/v3/util"
 
 // XXX move to api/api.go
+
+// ErrNoDB is returned when a command requires a Grokker database but
+// no `.grok` file can be found.
+var ErrNoDB = errors.New("no grokker db found")
 
 // AddDocument adds a document to the Grokker database. It creates the
 // embeddings for the document and adds them to the database.
@@ -378,6 +383,11 @@ func (g *Grokker) ListDocuments() (paths []string) {
 // XXX replace the json db with a kv store, store vectors as binary
 // floating point values.
 func LoadFrom(grokpath string, newModel string, readonly bool) (g *Grokker, migrated bool, oldver, newver string, lock *flock.Flock, err error) {
+	defer Return(&err)
+	if strings.TrimSpace(grokpath) == "" {
+		err = fmt.Errorf("%w: empty grok db path", ErrNoDB)
+		return
+	}
 	g = &Grokker{}
 	g.grokpath = grokpath
 	lockpath := grokpath + ".lock"
@@ -500,6 +510,10 @@ func Load(newModel string, readonly bool) (g *Grokker, migrated bool, oldver, ne
 			grokpath = path
 			break
 		}
+	}
+	if grokpath == "" {
+		err = fmt.Errorf("%w: no .grok found in current or parent directories; run grok init", ErrNoDB)
+		return
 	}
 	g, migrated, oldver, newver, lock, err = LoadFrom(grokpath, newModel, readonly)
 	Ck(err)

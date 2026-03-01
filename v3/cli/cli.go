@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"io"
 	"io/ioutil"
 	"os"
@@ -317,7 +318,17 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		var was, now string
 		var lock *flock.Flock
 		grok, migrated, was, now, lock, err = core.Load(modelName, readonly)
-		Ck(err)
+		if err != nil {
+			if errors.Is(err, core.ErrNoDB) {
+				// This command requires a Grokker database, but none was
+				// found in the current directory or any parent directory.
+				Fpf(config.Stderr, "%v\n", err)
+				rc = 1
+				err = nil
+				return
+			}
+			Ck(err)
+		}
 		defer func() {
 			// unlock the db
 			Debug("unlocking db")
