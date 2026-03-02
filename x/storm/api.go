@@ -68,7 +68,13 @@ type ProjectDeleteResponse struct {
 	} `doc:"Project deletion result"`
 }
 
-// ProjectUpdateInput for updating a project's base directory
+// ProjectUpdateInput for updating a project's base directory.
+//
+// NOTE: This endpoint currently uses `basedir` (lowercase) in its JSON
+// request/response bodies, while most of the API uses `baseDir` (camelCase).
+// The Storm CLI and tests match this behavior, but it is an inconsistency that
+// should be standardized (ideally by accepting both on input) before the API
+// is considered stable.
 type ProjectUpdateInput struct {
 	ProjectID string `path:"projectID" doc:"Project identifier" required:"true"`
 	Body      struct {

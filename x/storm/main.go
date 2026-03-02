@@ -21,7 +21,6 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
-	"github.com/gofrs/flock"
 	"github.com/stevegt/envi"
 	. "github.com/stevegt/goadapt"
 	"github.com/stevegt/grokker/v3/client"
@@ -273,12 +272,13 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 // serveRun starts the HTTP server on the specified port with the given database path
 func serveRun(port int, dbPath string) error {
 	var err error
-	var lock *flock.Flock
-	grok, _, _, _, lock, err = core.Load("", true)
+	// Storm uses Grokker for model/provider plumbing and LLM access, but it
+	// should not require or lock a local `.grok` database just to start the
+	// daemon. Initialize the Grokker core without opening any DB files.
+	grok, err = core.InitNoDB(".", core.DefaultModel)
 	if err != nil {
-		return fmt.Errorf("failed to load LLM core: %w", err)
+		return fmt.Errorf("failed to initialize LLM core: %w", err)
 	}
-	defer lock.Unlock()
 
 	// Use provided dbPath or default
 	if dbPath == "" {

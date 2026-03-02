@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -19,21 +20,113 @@ import (
 
 var timeout = 600 * time.Second
 
-// newChromeContext creates a chromedp context with optional HEADLESS mode support
-func newChromeContext() (context.Context, context.CancelFunc) {
-	opts := []chromedp.ExecAllocatorOption{
-		chromedp.NoDefaultBrowserCheck,
-		chromedp.NoSandbox,
-		chromedp.DisableGPU,
+func findChromeExecPath(t *testing.T) string {
+	t.Helper()
+
+	// Allow explicit override in CI or local environments.
+	if execPath := os.Getenv("STORM_CHROME_PATH"); execPath != "" {
+		return execPath
 	}
 
-	// Check HEADLESS environment variable - default to headless unless explicitly set to false
-	if os.Getenv("HEADLESS") != "false" {
+	// Prefer non-snap Chrome when available. On Ubuntu, `chromium-browser` is
+	// often a snap wrapper, which can be more restricted than the user expects.
+	for _, candidate := range []string{
+		"google-chrome-stable",
+		"google-chrome",
+		"chromium",
+		"chromium-browser",
+		"/snap/bin/chromium",
+	} {
+		if path, err := exec.LookPath(candidate); err == nil {
+			return path
+		}
+	}
+
+	return ""
+}
+
+func mkdirTempAny(t *testing.T, bases []string, prefix string) string {
+	t.Helper()
+
+	for _, base := range bases {
+		if base == "" {
+			continue
+		}
+		dir, err := os.MkdirTemp(base, prefix)
+		if err != nil {
+			continue
+		}
+		t.Cleanup(func() {
+			_ = os.RemoveAll(dir)
+		})
+		return dir
+	}
+
+	// Fall back to TempDir as a last resort so the test output includes the
+	// underlying error from chromedp/Chrome rather than a tempdir failure.
+	return t.TempDir()
+}
+
+// newChromeContext creates a chromedp context with optional HEADLESS mode support
+func newChromeContext(t *testing.T) (context.Context, context.CancelFunc) {
+	t.Helper()
+
+	homeDir, _ := os.UserHomeDir()
+	baseCandidates := []string{}
+
+	// Allow override for local debugging / CI environments.
+	if base := os.Getenv("STORM_CHROME_TMPDIR"); base != "" {
+		baseCandidates = append(baseCandidates, base)
+	}
+
+	// Snap-packaged Chromium is usually confined to these paths.
+	for _, candidate := range []string{
+		filepath.Join(homeDir, "snap", "chromium", "common"),
+		filepath.Join(homeDir, "snap", "chromium", "current"),
+		// Keep paths short to avoid Unix socket path length issues.
+		"/tmp",
+	} {
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			baseCandidates = append(baseCandidates, candidate)
+		}
+	}
+
+	// Use a fresh profile directory for each test to avoid ProcessSingleton
+	// profile locking issues, and to isolate browser state between tests.
+	userDataDir := mkdirTempAny(t, baseCandidates, "storm-chrome-profile-")
+
+	// Some Chromium builds use XDG_RUNTIME_DIR for process singleton / sockets.
+	// Ensure it points at a writable directory to avoid profile/socket failures.
+	runtimeDir := mkdirTempAny(t, baseCandidates, "storm-xdg-runtime-")
+
+	// Start with chromedp defaults so we get a sensible baseline set of flags
+	// (including a random remote-debugging port).
+	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.ExecPath(findChromeExecPath(t)),
+		chromedp.NoSandbox,
+		chromedp.DisableGPU,
+		chromedp.UserDataDir(userDataDir),
+
+		// Many dev environments set BASH_ENV=$HOME/.bashrc. Snap-packaged Chromium
+		// can't read dotfiles in $HOME under confinement, which prevents it from
+		// starting. Override BASH_ENV for the browser process so the snap wrapper
+		// doesn't try to source ~/.bashrc.
+		chromedp.Env("BASH_ENV=/dev/null", "XDG_RUNTIME_DIR="+runtimeDir),
+	)
+
+	// Check HEADLESS environment variable - default to headless unless explicitly set to false.
+	if os.Getenv("HEADLESS") == "false" {
+		opts = append(opts, chromedp.Flag("headless", false))
+	} else {
 		opts = append(opts, chromedp.Headless)
 	}
 
-	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
-	ctx, _ := chromedp.NewContext(allocCtx)
+	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	ctx, ctxCancel := chromedp.NewContext(allocCtx)
+	cancel := func() {
+		ctxCancel()
+		allocCancel()
+	}
 	return ctx, cancel
 }
 
@@ -82,7 +175,7 @@ func TestWebClientCreateProject(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	ctx, cancel := newChromeContext()
+	ctx, cancel := newChromeContext(t)
 	defer cancel()
 
 	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
@@ -142,7 +235,7 @@ func TestWebClientOpenFileModal(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	ctx, cancel := newChromeContext()
+	ctx, cancel := newChromeContext(t)
 	defer cancel()
 
 	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
@@ -209,7 +302,7 @@ func TestWebClientOpenFileModalWithSyntheticEvent(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	ctx, cancel := newChromeContext()
+	ctx, cancel := newChromeContext(t)
 	defer cancel()
 
 	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
@@ -276,7 +369,7 @@ func TestWebClientAddFiles(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	ctx, cancel := newChromeContext()
+	ctx, cancel := newChromeContext(t)
 	defer cancel()
 
 	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
@@ -340,7 +433,7 @@ func TestWebClientQuerySubmitViaWebSocket(t *testing.T) {
 	resp, _ := http.Post(server.URL+"/api/projects", "application/json", bytes.NewReader(jsonData))
 	resp.Body.Close()
 
-	ctx, cancel := newChromeContext()
+	ctx, cancel := newChromeContext(t)
 	defer cancel()
 
 	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
@@ -394,7 +487,7 @@ func TestWebClientQueryWithResponse(t *testing.T) {
 	resp, _ := http.Post(server.URL+"/api/projects", "application/json", bytes.NewReader(jsonData))
 	resp.Body.Close()
 
-	ctx, cancel := newChromeContext()
+	ctx, cancel := newChromeContext(t)
 	defer cancel()
 
 	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
@@ -541,7 +634,7 @@ func TestWebClientFileSelectionPersistence(t *testing.T) {
 	resp, _ = http.Post(fileURL, "application/json", bytes.NewReader(jsonData))
 	resp.Body.Close()
 
-	ctx, cancel := newChromeContext()
+	ctx, cancel := newChromeContext(t)
 	defer cancel()
 
 	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
@@ -636,7 +729,7 @@ func TestWebClientPageLoad(t *testing.T) {
 	server := startTestServer(t, "web-test-page-load")
 	defer stopTestServer(t, server)
 
-	ctx, cancel := newChromeContext()
+	ctx, cancel := newChromeContext(t)
 	defer cancel()
 
 	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
@@ -685,7 +778,7 @@ func TestWebClientCreateFileAndApproveUnexpected(t *testing.T) {
 	helloFnRel := "hello.go"
 	helloFn := filepath.Join(server.ProjectDir, helloFnRel)
 
-	ctx, cancel := newChromeContext()
+	ctx, cancel := newChromeContext(t)
 	defer cancel()
 
 	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
@@ -864,7 +957,7 @@ func TestWebClientUnexpectedFilesAlreadyAuthorized(t *testing.T) {
 	resp, _ = http.Post(fileURL, "application/json", bytes.NewReader(jsonData))
 	resp.Body.Close()
 
-	ctx, cancel := newChromeContext()
+	ctx, cancel := newChromeContext(t)
 	defer cancel()
 
 	ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
