@@ -125,6 +125,11 @@ Decision framing:
 
 - [x] 016.1 Decide: seed `ciwg/storm` from `stevegt/grokker` and start a `v5/` module for Storm-first development
 - [ ] 016.2 Define `v5/` module layout + install paths + compatibility shims (`grok` wrapper)
+  - [ ] 016.2.1 Cut/push the final `v3.0.NN` tag (release) in `stevegt/grokker` (after tests pass).
+  - [ ] 016.2.2 Run release-gate tests in `stevegt/grokker`:
+    - `go test ./...` in `v3/`
+    - `go test ./...` in `x/storm/`
+  - [ ] 016.2.3 Proceed with seeding `ciwg/storm`, and tag the seed commit separately from the `v3.0.NN` release tag (see 016.6/016.7).
 - [ ] 016.6 Create `ciwg/storm` repo + push full-history seed; add pointers/docs in `stevegt/grokker`
 - [ ] 016.7 Tag the seed commit in `stevegt/grokker` (e.g. `storm-v5-seed-YYYY-MM-DD`) and push the tag
 - [ ] 016.8 Confirm `stevegt/grokker` `main` is clean and pushed before seeding `ciwg/storm`
