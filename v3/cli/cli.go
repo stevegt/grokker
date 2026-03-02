@@ -246,6 +246,39 @@ func cmdInSlice(cmd string, cmds []string) bool {
 	return util.StringInSlice(first, cmds)
 }
 
+// loadOptionalDB attempts to load the Grokker database from the current
+// directory or any parent directory. If no db exists, it returns
+// loaded=false and err=nil. Callers must unlock the returned lock when
+// loaded=true.
+func loadOptionalDB(config *CliConfig, modelName string) (grok *core.Grokker, lock *flock.Flock, loaded bool, err error) {
+	defer Return(&err)
+	var migrated bool
+	var was, now string
+	grok, migrated, was, now, lock, err = core.Load(modelName, true)
+	if err != nil {
+		if errors.Is(err, core.ErrNoDB) {
+			// No `.grok` file exists in the current directory (or any
+			// parent directory). This is not an error for db-optional
+			// subcommands.
+			err = nil
+			return nil, nil, false, nil
+		}
+		return nil, nil, false, err
+	}
+	loaded = true
+	if migrated {
+		// Backup the old db and print a migration note. We don't save
+		// here because this helper is used by read-only, db-optional
+		// commands (e.g. models/version).
+		var fn string
+		fn, err = grok.Backup()
+		Ck(err)
+		Fpf(config.Stderr, "migrated grokker db from version %s to %s\n", was, now)
+		Fpf(config.Stderr, "backup of old db saved to %s\n", fn)
+	}
+	return
+}
+
 // Cli parses the given arguments and then executes the appropriate
 // subcommand.
 //
@@ -291,7 +324,7 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 	Debug("cmd: %s", cmd)
 
 	// list of commands that don't require an existing database
-	noDbCmds := []string{"init", "tc", "commit"}
+	noDbCmds := []string{"init", "tc", "commit", "models", "version"}
 	needsDb := true
 	if cmdInSlice(cmd, noDbCmds) {
 		Debug("command %s does not require a grok db", cmd)
@@ -615,6 +648,21 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 		}
 	case "models":
 		// list all available models
+		//
+		// If a `.grok` database exists, use it so the active model is
+		// marked with `*`. Otherwise, fall back to InitNoDB so we can
+		// still show a reasonable default active model for this
+		// invocation.
+		var lock *flock.Flock
+		var loaded bool
+		grok, lock, loaded, err = loadOptionalDB(config, modelName)
+		Ck(err)
+		if loaded {
+			defer lock.Unlock()
+		} else {
+			grok, err = core.InitNoDB(".", modelName)
+			Ck(err)
+		}
 		models := grok.ListModels()
 		for _, model := range models {
 			Pl(model)
@@ -628,8 +676,17 @@ func Cli(args []string, config *CliConfig) (rc int, err error) {
 	case "version":
 		// print the version of grokker
 		Pf("grokker version %s\n", core.CodeVersion())
-		// print the version of the grok db
-		Pf("grok db version %s\n", grok.DBVersion())
+		// print the version of the grok db if available
+		var lock *flock.Flock
+		var loaded bool
+		grok, lock, loaded, err = loadOptionalDB(config, modelName)
+		Ck(err)
+		if loaded {
+			defer lock.Unlock()
+			Pf("grok db version %s\n", grok.DBVersion())
+		} else {
+			Pf("grok db version (none)\n")
+		}
 	case "backup":
 		// backup the grok db
 		fn, err := grok.Backup()
